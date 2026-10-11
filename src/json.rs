@@ -124,7 +124,9 @@ fn outcome(result: &Result<Output, CliError>) -> String {
                         crate::time::AmbiguityKind::City => "city",
                         crate::time::AmbiguityKind::Country => "country",
                     };
-                    format!(r#","ambiguous":{{"kind":"{kind}","text":{},"choices":[{}]}}"#, string(&a.text), choices.join(","))
+                    // Misspelt places: what was misspelt (`jappan` is not a country), for the question.
+                    let note = if a.note.is_empty() { String::new() } else { format!(r#","note":{}"#, string(&a.note)) };
+                    format!(r#","ambiguous":{{"kind":"{kind}","text":{}{note},"choices":[{}]}}"#, string(&a.text), choices.join(","))
                 }
                 _ => String::new(),
             };
@@ -359,6 +361,7 @@ mod tests {
             text: "12/04/2026".into(),
             choices: vec![Choice { pattern: "MM/DD/YYYY".into(), date: "2026-12-04".into(), request: "12/04/2026 MM/DD/YYYY unix".into() }],
             kind: crate::time::AmbiguityKind::Date,
+            note: String::new(),
         };
         let json = outcome(&Err(CliError::Ambiguous(a)));
         assert!(json.starts_with(r#"{"ok":false,"exit":2,"error":"`12/04/2026` is ambiguous"#), "{json}");

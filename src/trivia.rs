@@ -144,15 +144,16 @@ pub fn parse(text: &str) -> Result<Vec<Entry>, String> {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Origin {
     Fixed,
-    /// Retrieved now (JPL Horizons, CelesTrak: `source_name`).
-    Live,
+    /// From the online data (`online.rs`), synced at this time (Unix seconds).
+    Synced(i64),
     /// Estimated (offline).
     Estimated,
 }
 
-/// The entry's value in its unit. `live`: a spacecraft's distance retrieved from JPL Horizons, in
-/// au, if any (else it is estimated for `now`, Unix seconds).
-pub fn value(config: &Config, entry: &Entry, live: Option<f64>, now: i64) -> Result<(f64, Origin), String> {
+/// The entry's value in its unit, at `now` (Unix seconds). `synced`: its value in the online data
+/// (`online.rs`), if any: a satellite count as it is, a spacecraft's distance (au) carried forward
+/// to `now` at its speed; else the entry's estimate.
+pub fn value(config: &Config, entry: &Entry, synced: Option<crate::online::Stored>, now: i64) -> Result<(f64, Origin), String> {
     match &entry.source {
         Source::Value(v) => Ok((*v, Origin::Fixed)),
         Source::Tip(example) => Err(format!("a tip: {example}")),
@@ -163,13 +164,13 @@ pub fn value(config: &Config, entry: &Entry, live: Option<f64>, now: i64) -> Res
             let (v, _) = convert::convert(config, metres, "m", unit).map_err(|e| e.to_string())?;
             Ok((v, Origin::Fixed))
         }
-        Source::Satellites { count, .. } => Ok(match live {
-            Some(n) => (n, Origin::Live),
+        Source::Satellites { count, .. } => Ok(match synced {
+            Some(s) => (s.value, Origin::Synced(s.at)),
             None => (*count, Origin::Estimated),
         }),
         Source::Spacecraft { estimate, .. } => {
-            let (au, origin) = match live {
-                Some(au) => (au, Origin::Live),
+            let (au, origin) = match synced {
+                Some(s) => (s.value + estimate.km_per_s * (now - s.at) as f64 / 149_597_870.7, Origin::Synced(s.at)),
                 None => (estimate.au + estimate.km_per_s * (now - estimate.epoch) as f64 / 149_597_870.7, Origin::Estimated),
             };
             let unit = entry.unit.as_deref().unwrap_or("au");
@@ -281,7 +282,7 @@ pub fn written(config: &Config, entry: &Entry, value: f64) -> String {
 /// (updated now)`); its details; a spacecraft's launch; for a planet, its distances from the Sun
 /// and from the Earth: now, mean, the next minimum and maximum with their dates. Kilometres are
 /// whole, through `number` (the device's separators).
-pub fn popup(config: &Config, entry: &Entry, live: Option<f64>, now: i64, precision: usize, number: &dyn Fn(String) -> String) -> Vec<(String, String)> {
+pub fn popup(config: &Config, entry: &Entry, synced: Option<crate::online::Stored>, now: i64, precision: usize, number: &dyn Fn(String) -> String) -> Vec<(String, String)> {
     let mut lines = Vec::new();
     if let Some(link) = &entry.wikipedia {
         lines.push(("Wikipedia".to_string(), link.clone()));
@@ -289,15 +290,8 @@ pub fn popup(config: &Config, entry: &Entry, live: Option<f64>, now: i64, precis
     match &entry.source {
         Source::Tip(example) => lines.push(("Example".to_string(), example.clone())),
         _ => {
-            if let Ok((v, origin)) = value(config, entry, live, now) {
-                let how = match origin {
-                    Origin::Fixed => String::new(),
-                    Origin::Live => match entry.source {
-                        Source::Satellites { .. } => format!(" (from {}, updated every 2 hours)", source_name(entry).unwrap_or("online")),
-                        _ => " (updated now)".to_string(),
-                    },
-                    Origin::Estimated => format!(" ({}, offline)", estimate_name(entry)),
-                };
+            if let Ok((v, origin)) = value(config, entry, synced, now) {
+                let how = origin_text(entry, origin).map(|t| format!(" ({t})")).unwrap_or_default();
                 let shown = parts(config, entry, v, precision, number).join(" - ");
                 lines.push((entry.value_label.clone().unwrap_or_else(|| "Value".to_string()), format!("{shown}{how}")));
             }
@@ -339,80 +333,75 @@ pub fn fetch_live(horizons: &str) -> Option<f64> {
         "https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND='{horizons}'&OBJ_DATA='NO'&MAKE_EPHEM='YES'&EPHEM_TYPE='OBSERVER'&CENTER='500@399'&START_TIME='{day}'&STOP_TIME='{tomorrow}'&STEP_SIZE='1d'&QUANTITIES='20'"
     );
     let out = Command::new("curl").args(["-s", "--max-time", "8", &url]).output().ok()?;
-    let au = horizons_distance(&String::from_utf8_lossy(&out.stdout))?;
-    crate::about::record_sync();
-    Some(au)
+    horizons_distance(&String::from_utf8_lossy(&out.stdout))
 }
 
-/// Every live value, retrieved at once (in parallel): (entry name, the value if online): the
-/// spacecraft's distances (au), and the satellite counts (one CelesTrak download for all).
-pub fn fetch_all() -> Vec<(&'static str, Option<f64>)> {
-    std::thread::scope(|scope| {
-        let satellites = entries().iter().any(|e| matches!(e.source, Source::Satellites { .. })).then(|| scope.spawn(fetch_satellites));
-        let handles: Vec<_> = entries()
-            .iter()
-            .filter_map(|e| match &e.source {
-                Source::Spacecraft { horizons, .. } => Some((e.name.as_str(), scope.spawn(move || fetch_live(horizons)))),
-                _ => None,
-            })
-            .collect();
-        let mut out: Vec<(&'static str, Option<f64>)> = handles.into_iter().map(|(name, h)| (name, h.join().ok().flatten())).collect();
-        let counts = satellites.and_then(|h| h.join().ok().flatten());
-        for e in entries() {
-            if let Source::Satellites { kind, .. } = &e.source {
-                out.push((e.name.as_str(), counts.as_ref().and_then(|c| c.get(kind))));
-            }
-        }
-        out
-    })
-}
-
-/// Active satellites by kind, counted from CelesTrak's list of active satellites (CSV, `curl`,
-/// 20 s at most).
-/// CelesTrak serves the list to an address once every 2 hours (the data changes no more often):
-/// the last counts are kept in `~/.cache/tally/satellites` (`$XDG_CACHE_HOME`) and used, for a
-/// week, when a download is refused or fails.
-pub fn fetch_satellites() -> Option<SatelliteCounts> {
-    let url = "https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=csv";
-    // Offline (`TALLY_MODE=offline`): no download, the cache only.
-    let fresh = crate::network::allowed()
-        .then(|| Command::new("curl").args(["-s", "--max-time", "20", url]).output().ok())
-        .flatten()
-        .and_then(|out| count_satellites(&String::from_utf8_lossy(&out.stdout)));
-    let now = crate::time::now().ns.div_euclid(1_000_000_000) as i64;
-    let cache = cache_file();
-    match fresh {
-        Some(counts) => {
-            crate::about::record_sync();
-            if let Some(path) = &cache {
-                let _ = std::fs::create_dir_all(path.parent().unwrap_or(path));
-                let _ = std::fs::write(path, cache_line(now, &counts));
-            }
-            Some(counts)
-        }
-        None => cache.and_then(|path| std::fs::read_to_string(path).ok()).and_then(|text| read_cache(&text, now)),
+/// Where a value comes from, for people: `synced 11 Oct 26 6:52 PM from JPL Horizons`, `as of
+/// 2026-10-11 (estimated, not synced yet)`; `None` for a fixed value.
+pub fn origin_text(entry: &Entry, origin: Origin) -> Option<String> {
+    let when = |t: i64| crate::time::human(&crate::time::Instant { ns: t as i128 * 1_000_000_000, zone: crate::time::Zone::Local }, false);
+    match origin {
+        Origin::Fixed => None,
+        Origin::Synced(at) => Some(format!("synced {} from {}", when(at), source_name(entry).unwrap_or("online"))),
+        Origin::Estimated => Some(format!("{}, not synced yet", estimate_name(entry))),
     }
 }
 
-fn cache_file() -> Option<std::path::PathBuf> {
-    let base = std::env::var_os("XDG_CACHE_HOME")
-        .filter(|v| !v.is_empty())
-        .map(std::path::PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".cache")))?;
-    Some(base.join("tally").join("satellites"))
+/// The live sources, for the sync (`online.rs`): each spacecraft (JPL Horizons), and the satellite
+/// counts (one CelesTrak download for all of them).
+pub fn sources() -> Vec<crate::online::Source> {
+    let mut out: Vec<crate::online::Source> = entries()
+        .iter()
+        .filter_map(|e| match &e.source {
+            Source::Spacecraft { horizons, .. } => {
+                let (name, id) = (e.name.clone(), horizons.clone());
+                Some(crate::online::Source { names: vec![name.clone()], fetch: Box::new(move || fetch_live(&id).map(|au| vec![(name.clone(), au)])) })
+            }
+            _ => None,
+        })
+        .collect();
+    let kinds: Vec<(String, String)> = entries()
+        .iter()
+        .filter_map(|e| match &e.source {
+            Source::Satellites { kind, .. } => Some((e.name.clone(), kind.clone())),
+            _ => None,
+        })
+        .collect();
+    if !kinds.is_empty() {
+        out.push(crate::online::Source {
+            names: kinds.iter().map(|(n, _)| n.clone()).collect(),
+            fetch: Box::new(move || match fetch_satellites()? {
+                // Refused within 2 hours of the last download: the data has not changed, the counts
+                // already stored stay (answered, nothing new).
+                Satellites::Unchanged => Some(Vec::new()),
+                Satellites::Counts(counts) => Some(kinds.iter().filter_map(|(name, kind)| Some((name.clone(), counts.get(kind)?))).collect()),
+            }),
+        });
+    }
+    out
 }
 
-/// `<unix seconds> all starlink leo meo geo heo beyond`.
-fn cache_line(at: i64, c: &SatelliteCounts) -> String {
-    format!("{at} {} {} {} {} {} {} {}\n", c.all, c.starlink, c.leo, c.meo, c.geo, c.heo, c.beyond)
+/// What CelesTrak answered.
+pub enum Satellites {
+    Counts(SatelliteCounts),
+    /// "GP data has not updated since your last successful download": it serves the list to an
+    /// address once every 2 hours, and the data changes no more often.
+    Unchanged,
 }
 
-/// The cached counts, if written less than a week before `now`.
-fn read_cache(text: &str, now: i64) -> Option<SatelliteCounts> {
-    let n: Vec<i64> = text.split_whitespace().map(|w| w.parse().ok()).collect::<Option<_>>()?;
-    let [at, all, starlink, leo, meo, geo, heo, beyond] = n[..] else { return None };
-    let u = |v: i64| usize::try_from(v).ok();
-    (now - at < 7 * 86_400).then_some(SatelliteCounts { all: u(all)?, starlink: u(starlink)?, leo: u(leo)?, meo: u(meo)?, geo: u(geo)?, heo: u(heo)?, beyond: u(beyond)? })
+/// Active satellites by kind, counted from CelesTrak's list of active satellites (CSV, `curl`,
+/// 20 s at most). `None`: no answer (offline, or not a list).
+pub fn fetch_satellites() -> Option<Satellites> {
+    if !crate::network::allowed() {
+        return None;
+    }
+    let url = "https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=csv";
+    let out = Command::new("curl").args(["-s", "--max-time", "20", url]).output().ok()?;
+    let body = String::from_utf8_lossy(&out.stdout);
+    if body.contains("has not updated since your last successful") {
+        return Some(Satellites::Unchanged);
+    }
+    count_satellites(&body).map(Satellites::Counts)
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -487,10 +476,11 @@ pub fn horizons_distance(text: &str) -> Option<f64> {
     line.split_whitespace().nth(2)?.parse().ok()
 }
 
-/// `--trivia`: every entry with its value and description; spacecraft retrieved live when online.
+/// `--trivia`: every entry with its value and description; the live values from the online data
+/// (`online.rs`; no network here).
 pub fn list(config: &Config, precision: usize) -> String {
     let now = crate::time::now().ns.div_euclid(1_000_000_000) as i64;
-    let fetched = fetch_all();
+    let online = crate::online::load();
     let mut out = String::new();
     let mut section = "";
     for e in entries() {
@@ -498,21 +488,14 @@ pub fn list(config: &Config, precision: usize) -> String {
             section = &e.section;
             out.push_str(&format!("{}{section}\n", if out.is_empty() { "" } else { "\n" }));
         }
-        let live = fetched.iter().find(|(name, _)| *name == e.name).and_then(|(_, au)| *au);
+        let live = online.get(&e.name);
         if let Source::Tip(example) = &e.source {
             out.push_str(&format!("  {}: {example}\n    {}\n", e.name, e.description));
             continue;
         }
         let value = match value(config, e, live, now) {
             Ok((v, origin)) => {
-                let how = match origin {
-                    Origin::Fixed => String::new(),
-                    Origin::Live => match e.source {
-                        Source::Satellites { .. } => format!(" ({}, updated every 2 hours)", source_name(e).unwrap_or("online")),
-                        _ => format!(" (now, {})", source_name(e).unwrap_or("online")),
-                    },
-                    Origin::Estimated => format!(" ({}: offline)", estimate_name(e)),
-                };
+                let how = origin_text(e, origin).map(|t| format!(" ({t})")).unwrap_or_default();
                 format!("{}{how}", shown(config, e, v, precision, &|n| crate::numbers::device().apply(&n)))
             }
             Err(err) => format!("error: {err}"),
@@ -580,7 +563,11 @@ mod tests {
         let (later, origin) = value(&config, v1, None, 1_791_676_800 + 31_557_600).unwrap();
         assert_eq!(origin, Origin::Estimated);
         assert!((later - 172.4223 - 3.561).abs() < 0.01, "{later}");
-        assert_eq!(value(&config, v1, Some(172.5), 0).unwrap(), (172.5, Origin::Live));
+        // Synced: carried forward from the sync to now at its speed.
+        let synced = crate::online::Stored { value: 172.5, at: 1_000 };
+        assert_eq!(value(&config, v1, Some(synced), 1_000).unwrap(), (172.5, Origin::Synced(1_000)));
+        let (a_day_later, _) = value(&config, v1, Some(synced), 1_000 + 86_400).unwrap();
+        assert!((a_day_later - 172.5 - 16.88 * 86_400.0 / 149_597_870.7).abs() < 1e-9, "{a_day_later}");
     }
 
     #[test]
@@ -596,10 +583,10 @@ mod tests {
         // Voyager 1: the link, the current distance in km and au, the launch.
         let v1 = popup_of("Voyager 1");
         assert_eq!(v1[0], ("Wikipedia".to_string(), "https://en.wikipedia.org/wiki/Voyager_1".to_string()));
-        assert_eq!(v1[1], ("Current distance".to_string(), "25794004453 km - 172.4223 au - 2.7264e-3 ly (estimated, offline)".to_string()));
+        assert_eq!(v1[1], ("Current distance".to_string(), "25794004453 km - 172.4223 au - 2.7264e-3 ly (estimated, not synced yet)".to_string()));
         assert_eq!(v1[2], ("Launched".to_string(), "1977-09-05 12:56 UTC".to_string()));
-        let live = popup(&config, get("Voyager 1"), Some(172.5), 1_791_676_800, 4, &|n| n);
-        assert!(live[1].1.ends_with(" - 172.5 au - 2.7277e-3 ly (updated now)"), "{:?}", live[1]);
+        let live = popup(&config, get("Voyager 1"), Some(crate::online::Stored { value: 172.5, at: 1_791_676_800 }), 1_791_676_800, 4, &|n| n);
+        assert!(live[1].1.contains(" - 172.5 au - 2.7277e-3 ly (synced ") && live[1].1.ends_with(" from JPL Horizons)"), "{:?}", live[1]);
         // A planet: from the Sun and from the Earth, the next dates.
         let mars = popup_of("Sun – Mars");
         let text = |label: &str| mars.iter().find(|(l, _)| l == label).map(|(_, t)| t.clone()).unwrap();
@@ -635,17 +622,13 @@ mod tests {
         let c = count_satellites(csv).unwrap();
         assert_eq!((c.all, c.starlink, c.leo, c.meo, c.geo, c.heo, c.beyond), (5, 1, 2, 1, 1, 1, 0));
         assert_eq!(count_satellites("not a table"), None);
-        // The refusal of a second download within 2 hours is not a table: the cache answers.
+        // The refusal of a second download within 2 hours is not a table: the online data keeps the last counts.
         assert_eq!(count_satellites("GP data has not updated since your last successful\ndownload of GROUP=active"), None);
-        let line = cache_line(1_000, &c);
-        assert_eq!(read_cache(&line, 1_000 + 3_600), Some(c.clone()));
-        assert_eq!(read_cache(&line, 1_000 + 8 * 86_400), None, "older than a week");
-        assert_eq!(read_cache("garbage", 0), None);
         // Offline: the estimate, as of its date.
         let config = Config::default();
         let starlink = entries().iter().find(|e| e.name == "Starlink").unwrap();
         assert_eq!(value(&config, starlink, None, 0).unwrap(), (11129.0, Origin::Estimated));
-        assert_eq!(value(&config, starlink, Some(11200.0), 0).unwrap(), (11200.0, Origin::Live));
+        assert_eq!(value(&config, starlink, Some(crate::online::Stored { value: 11200.0, at: 5 }), 0).unwrap(), (11200.0, Origin::Synced(5)));
         assert_eq!(estimate_name(starlink), "as of 2026-10-11");
         assert_eq!(source_name(starlink), Some("CelesTrak"));
     }

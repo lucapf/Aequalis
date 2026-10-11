@@ -138,7 +138,8 @@ fn misspelt_cities_are_suggested() {
     // --json: the choices, to click.
     let out = Command::new(BIN).args(["--json", "10:00", "Tokio"]).output().unwrap();
     let json = String::from_utf8(out.stdout).unwrap();
-    assert!(json.contains(r#""ambiguous":{"kind":"city","text":"Tokio","choices":[{"pattern":"Tokyo","date":"Asia/Tokyo","request":"10:00 Tokyo"}]}"#), "{json}");
+    // `note`: what was misspelt, for the question.
+    assert!(json.contains(r#""ambiguous":{"kind":"city","text":"Tokio","note":"`Tokio` is not a city","choices":[{"pattern":"Tokyo","date":"Asia/Tokyo","request":"10:00 Tokyo"}]}"#), "{json}");
 }
 
 #[test]

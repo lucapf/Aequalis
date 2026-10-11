@@ -1,9 +1,7 @@
 //! Online or offline: `TALLY_MODE` (`online`, the default, or `offline`: no network at all), and
-//! whether the live sources can be reached (a TCP connection, std only). Only the Trivia's live
-//! values use the network (`trivia.rs`).
+//! the status shown (from the online data's last sync, `online.rs`). Only the sync of the online
+//! data uses the network.
 
-use std::net::{TcpStream, ToSocketAddrs};
-use std::time::Duration;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Mode {
@@ -14,8 +12,7 @@ pub enum Mode {
 /// What the indicator shows.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Status {
-    /// Not known yet (the interactive mode's first check).
-    #[cfg_attr(not(feature = "tui"), allow(dead_code))]
+    /// Never synced yet.
     Checking,
     Online,
     Offline,
@@ -27,7 +24,7 @@ impl Status {
     /// `online`, `offline`, `offline (forced)`, `checking…`.
     pub fn label(self) -> &'static str {
         match self {
-            Status::Checking => "checking…",
+            Status::Checking => "not synced",
             Status::Online => "online",
             Status::Offline => "offline",
             Status::Forced => "offline (forced)",
@@ -55,25 +52,22 @@ pub fn allowed() -> bool {
     mode() != Ok(Mode::Offline)
 }
 
-/// The live sources (JPL Horizons, CelesTrak), checked for connectivity.
-const HOSTS: [&str; 2] = ["ssd.jpl.nasa.gov:443", "celestrak.org:443"];
-
-/// Whether any live source accepts a connection within `timeout`.
-pub fn reachable(timeout: Duration) -> bool {
-    HOSTS.iter().any(|host| {
-        host.to_socket_addrs()
-            .map(|mut addrs| addrs.any(|addr| TcpStream::connect_timeout(&addr, timeout).is_ok()))
-            .unwrap_or(false)
-    })
+/// The status, from the online data's last sync (`online.rs`): no probing, so a fresh file means
+/// no network at all. `forced`: `TALLY_MODE=offline`.
+pub fn status_of(data: &crate::online::Data, forced: bool) -> Status {
+    match (forced, data.attempted_at, data.ok) {
+        (true, ..) => Status::Forced,
+        (_, None, _) => Status::Checking,
+        (_, Some(_), true) => Status::Online,
+        // Not every source answered, but some did (a value synced during the last try): online.
+        (_, Some(tried), false) if data.values.iter().any(|(_, s)| s.at >= tried) => Status::Online,
+        (_, Some(_), false) => Status::Offline,
+    }
 }
 
-/// The status now: forced offline, else whether a live source can be reached.
-pub fn status(timeout: Duration) -> Status {
-    match mode() {
-        Ok(Mode::Offline) => Status::Forced,
-        _ if reachable(timeout) => Status::Online,
-        _ => Status::Offline,
-    }
+/// The status now, for `--online`.
+pub fn status() -> Status {
+    status_of(&crate::online::load(), mode() == Ok(Mode::Offline))
 }
 
 #[cfg(test)]

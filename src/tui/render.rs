@@ -486,9 +486,15 @@ fn status(app: &App, canvas: &mut Canvas, row: usize) {
         (Mode::Input, _) => (" INPUT ", &[("<Esc>", "command mode"), ("exit", "quit")]),
         (Mode::Command, _) => (
             " COMMAND ",
-            &[("←→", "menu"), ("Enter", "open"), ("<I>", "input"), ("<C>", "keypad"), ("<E>", "help"), ("<q>", "quit")],
+            &[("←→ Enter", "menu"), ("<I>", "input"), ("<C>", "keypad"), ("<E>", "help"), ("<A>", "about"), ("<q>", "quit")],
         ),
     };
+    // Too narrow for every key: the first ones go (the top bar shows the menu anyway).
+    let width = |keys: &[(&str, &str)]| keys.iter().map(|(k, w)| k.chars().count() + 1 + w.chars().count() + 3).sum::<usize>() - 3;
+    let mut keys = keys;
+    while keys.len() > 1 && badge.chars().count() + 1 + width(keys) > cols - 1 {
+        keys = &keys[1..];
+    }
     let hint_col = hints(canvas, row, cols - 1, keys, false);
     let col = canvas.put(row, 0, badge, Style::Badge) + 1;
     let limit = hint_col.saturating_sub(1);
@@ -657,7 +663,6 @@ fn wrap(text: &str, width: usize) -> Vec<String> {
 /// The Trivia: the sections as tabs, the entries of the one shown (name, value), and the selected
 /// entry's description at the bottom. Top-right in the history, like the unit keys.
 fn trivia(app: &App, v: &super::trivia::View, canvas: &mut Canvas, rows: usize, head: usize) {
-    use super::trivia::LiveState;
     let width = 78.min(canvas.cols - 3);
     let height = (rows - 7 - head).max(8).min(rows - 5);
     let top = (head + 1).min(rows - 5 - height);
@@ -680,24 +685,11 @@ fn trivia(app: &App, v: &super::trivia::View, canvas: &mut Canvas, rows: usize, 
     let visible = height - 4 - if footer > 0 { footer + 1 } else { 0 };
     let entries = v.entries();
     let now = crate::time::now().ns.div_euclid(1_000_000_000) as i64;
-    // A live value: retrieved (JPL Horizons, CelesTrak), or its estimate and why.
+    // A live value: from the online data (synced when, from where), or its estimate.
     let live = |e: &crate::trivia::Entry| {
-        let source = crate::trivia::source_name(e).unwrap_or("the network");
-        let estimate = crate::trivia::estimate_name(e);
-        match app.live.state(&e.name) {
-            LiveState::Done(Some(v)) if matches!(e.source, crate::trivia::Source::Satellites { .. }) => {
-                (Some(v), format!("from {source}, updated every 2 hours"))
-            }
-            LiveState::Done(Some(v)) => (Some(v), format!("now, from {source}")),
-            LiveState::Done(None) => (None, format!("{estimate} (offline)")),
-            LiveState::Pending
-                if matches!(app.network_status(), crate::network::Status::Offline | crate::network::Status::Forced) =>
-            {
-                (None, format!("{estimate} (offline)"))
-            }
-            LiveState::Pending if app.fetch_live => (None, format!("{estimate}; retrieving from {source}…")),
-            LiveState::Pending => (None, estimate),
-        }
+        let synced = app.online.get(&e.name);
+        let origin = crate::trivia::value(app.config, e, synced, now).map(|(_, o)| o).unwrap_or(crate::trivia::Origin::Fixed);
+        (synced, crate::trivia::origin_text(e, origin).unwrap_or_default())
     };
     // Columns: the name, the value (in the device's number format), the short description.
     let values: Vec<String> = entries
@@ -765,10 +757,7 @@ fn trivia(app: &App, v: &super::trivia::View, canvas: &mut Canvas, rows: usize, 
 fn trivia_popup(app: &App, v: &super::trivia::View, canvas: &mut Canvas, rows: usize, scroll: usize) {
     let Some(entry) = v.entry() else { return };
     let now = crate::time::now().ns.div_euclid(1_000_000_000) as i64;
-    let live = match app.live.state(&entry.name) {
-        super::trivia::LiveState::Done(au) => au,
-        super::trivia::LiveState::Pending => None,
-    };
+    let live = app.online.get(&entry.name);
     let width = 76.min(canvas.cols - 4);
     let text_width = width - 4;
     // Each line: its pieces and their styles.
@@ -910,7 +899,7 @@ fn card(
 /// The readings of an ambiguous date, to choose from: `1  DD/MM/YYYY  2026-04-12`.
 fn choice(canvas: &mut Canvas, rows: usize, a: &crate::time::Ambiguity, selected: usize) {
     let title = match a.kind {
-        crate::time::AmbiguityKind::City => format!("`{}` is not a city: which one?", a.text),
+        crate::time::AmbiguityKind::City => format!("{}: which one?", a.note),
         crate::time::AmbiguityKind::Country => format!("`{}` has several time zones: which one?", a.text),
         crate::time::AmbiguityKind::Date => format!("`{}` is ambiguous: which date?", a.text),
     };
@@ -957,6 +946,7 @@ const HELP: &[(&str, &str)] = &[
     ("  Enter", "evaluate"),
     ("  Esc", "command mode"),
     ("  exit + Enter", "quit (quit + Enter works too)"),
+    ("  about + Enter", "about: version, memory, last online sync"),
     ("Command mode", ""),
     ("  ←/→  h/l", "highlight a shortcut in the top bar (it scrolls)"),
     ("  Enter", "open the highlighted shortcut"),
@@ -1086,7 +1076,10 @@ mod tests {
     fn command_mode_status_and_cursor() {
         let (lines, cursor) = screen("10 km\x1b", 12, 80);
         assert!(lines[11].starts_with(" COMMAND "));
-        assert!(lines[11].ends_with("←→ menu · Enter open · <I> input · <C> keypad · <E> help · <q> quit"), "{}", lines[11]);
+        // 80 columns: the menu keys go, the top bar shows the menu.
+        assert!(lines[11].ends_with("<I> input · <C> keypad · <E> help · <A> about · <q> quit"), "{}", lines[11]);
+        let (wide, _) = screen("10 km\x1b", 12, 100);
+        assert!(wide[11].ends_with("←→ Enter menu · <I> input · <C> keypad · <E> help · <A> about · <q> quit"), "{}", wide[11]);
         // Command mode: the units, and how to go back to input mode.
         assert!(lines[0].starts_with("┌─ Units ─"));
         // No hints on the border: the status line has them.
@@ -1216,7 +1209,7 @@ mod tests {
         assert!(text.contains("Wikipedia: https://en.wikipedia.org/wiki/Voyager_1"), "{text}");
         // The estimate grows with time: the format, not today's figure.
         assert!(text.contains("Current distance: ") && text.contains(" km - 1") && text.contains(" au - ") && text.contains("e-3 ly"), "{text}");
-        assert!(text.contains("(estimated, offline)"), "{text}");
+        assert!(text.contains("(estimated, not synced yet)"), "{text}");
         assert!(text.contains("Launched: 1977-09-05 12:56 UTC"), "{text}");
         let (lines, _) = screen("\x1bR\t\t\t\n\x1b", 30, 80);
         assert!(!lines.join("\n").contains("Mathematician"), "Esc: back to the list");
@@ -1431,30 +1424,31 @@ mod tests {
     #[test]
     fn online_indicator() {
         use crate::network::Status;
+        use crate::online::Data;
         let config = Config::default();
         let opts = Options { positional: Vec::new(), precision: 4, silent: false, verbose: false };
+        // The status comes from the last sync (no probing); forced by TALLY_MODE=offline.
         let top = |status: Status, cols: usize, command: bool| {
             let mut app = App::new(&config, &opts);
-            *app.network.lock().unwrap() = status;
+            app.forced_offline = status == Status::Forced;
+            app.online = match status {
+                Status::Checking | Status::Forced => Data::default(),
+                Status::Online => Data { attempted_at: Some(1), ok: true, ..Data::default() },
+                Status::Offline => Data { attempted_at: Some(1), ok: false, ..Data::default() },
+            };
             if command {
                 app.handle(Key::Esc);
             }
             plain(&render(&app, 12, cols).lines[0])
         };
-        // Top right, in both modes; checking until the first answer.
-        assert!(top(Status::Checking, 80, false).ends_with(" ○ checking… ──┐"));
+        // Top right, in both modes; "not synced" before the first sync.
+        assert!(top(Status::Checking, 80, false).ends_with(" ○ not synced ──┐"), "{}", top(Status::Checking, 80, false));
         assert!(top(Status::Online, 80, false).ends_with(" ● online ──┐"));
         assert!(top(Status::Online, 80, true).starts_with("┌─ Units ─") && top(Status::Online, 80, true).ends_with(" ● online ──┐"));
         assert!(top(Status::Offline, 80, true).ends_with(" ● offline ──┐"));
         assert!(top(Status::Forced, 80, false).ends_with(" ● offline (forced) ──┐"));
         // Narrow: the short label.
         assert!(top(Status::Forced, 40, false).ends_with(" ● offline ──┐"), "{}", top(Status::Forced, 40, false));
-        // A change is noticed once, for the redraw.
-        let mut app = App::new(&config, &opts);
-        assert!(!app.network_changed());
-        *app.network.lock().unwrap() = Status::Online;
-        assert!(app.network_changed());
-        assert!(!app.network_changed());
     }
 
     #[test]

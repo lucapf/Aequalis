@@ -72,6 +72,9 @@ pub struct Ambiguity {
     pub text: String,
     pub choices: Vec<Choice>,
     pub kind: AmbiguityKind,
+    /// For misspelt places, what was misspelt: "`Tokio` is not a city", "`jappan` is not a
+    /// country", "`jappan`, `romme` are not known places". Empty otherwise.
+    pub note: String,
 }
 
 /// What is ambiguous.
@@ -79,7 +82,8 @@ pub struct Ambiguity {
 pub enum AmbiguityKind {
     /// A date's day and month order: `Choice::pattern` is a pattern, `date` the date it gives.
     Date,
-    /// A misspelt city: `pattern` is a city, `date` its zone.
+    /// Misspelt places (cities or countries, one or more): `pattern` is the places that fix the
+    /// request (`Japan, Rome`), `date` their zones (`Asia/Tokyo, Europe/Rome`).
     City,
     /// A country with several time zones (`USA`): `pattern` is the zone's most relevant city,
     /// `date` its offset now and its zone (`GMT-4 · America/New_York`).
@@ -103,7 +107,7 @@ impl Ambiguity {
         let names: Vec<&str> = self.choices.iter().map(|c| c.pattern.as_str()).collect();
         match self.kind {
             AmbiguityKind::City => {
-                return format!("`{}` is not a city: did you mean {}? (`{}`)", self.text, names.join(" or "), self.choices[0].request);
+                return format!("{}: did you mean {}? (`{}`)", self.note, names.join(" or "), self.choices[0].request);
             }
             AmbiguityKind::Country => {
                 let zones: Vec<String> = self.choices.iter().map(|c| format!("{} ({})", c.pattern, c.date.split(" · ").next().unwrap_or(""))).collect();
@@ -1810,7 +1814,7 @@ impl<'a> Parser<'a> {
                 }
             })
             .collect();
-        Err(TimeError::Ambiguous(Ambiguity { text: text.to_string(), choices, kind: AmbiguityKind::Date }))
+        Err(TimeError::Ambiguous(Ambiguity { text: text.to_string(), choices, kind: AmbiguityKind::Date, note: String::new() }))
     }
 
     /// How a guessed date was read: `read 12/04/26 3:20PM as DD/MM/YY-12h (the locale's order)`.
@@ -1863,11 +1867,17 @@ fn time_unit(config: &Config, name: &str) -> Option<&'static str> {
 /// that fails with a misspelt city (`10:00 Tokio`, within 2 letters) is an `Ambiguous` error with
 /// the cities it may be, each with the corrected request.
 pub fn request(config: &Config, input: &str, precision: usize, verbose: bool) -> Option<Result<(String, Vec<String>), TimeError>> {
+    request_with(config, input, precision, verbose, true)
+}
+
+/// `request`; with `typos` false, a request that fails is not checked for misspelt places (the
+/// check itself tries its corrections this way).
+fn request_with(config: &Config, input: &str, precision: usize, verbose: bool, typos: bool) -> Option<Result<(String, Vec<String>), TimeError>> {
     // A country: its city (`Italy` → Rome), or which one when it has several zones (`USA`).
     match countries_in(config, input) {
         Some(Err(a)) => return Some(Err(TimeError::Ambiguous(a))),
         Some(Ok((rewritten, note))) => {
-            return request(config, &rewritten, precision, verbose).map(|r| {
+            return request_with(config, &rewritten, precision, verbose, typos).map(|r| {
                 r.map(|(out, mut notes)| {
                     notes.insert(0, note);
                     (out, notes)
@@ -1878,7 +1888,8 @@ pub fn request(config: &Config, input: &str, precision: usize, verbose: bool) ->
     }
     match exact_request(config, input, precision, verbose) {
         result @ (Some(Ok(_)) | Some(Err(TimeError::Ambiguous(_)))) => result,
-        other => city_typos(config, input, precision, verbose).map(Err).or(other),
+        other if typos => place_typos(config, input, precision, verbose).map(Err).or(other),
+        other => other,
     }
 }
 
@@ -2050,7 +2061,7 @@ fn countries_in(config: &Config, input: &str) -> Option<Result<(String, String),
             if tz::city(&span).is_some() {
                 break;
             }
-            if let Some(c) = tz::country(&span).filter(|_| !known_word(config, &span)) {
+            if let Some(c) = tz::country(&span).filter(|_| !reserved_word(config, &span)) {
                 hit = Some((n, span, c));
                 break;
             }
@@ -2083,15 +2094,19 @@ fn countries_in(config: &Config, input: &str) -> Option<Result<(String, String),
                 Some(Choice { pattern: city.clone(), date: format!("{gmt} · {}", tz.name), request })
             })
             .collect();
-        return Some(Err(Ambiguity { text: span, choices, kind: AmbiguityKind::Country }));
+        return Some(Err(Ambiguity { text: span, choices, kind: AmbiguityKind::Country, note: String::new() }));
     }
     (!named.is_empty()).then(|| Ok((out.join(" "), named.join(", "))))
 }
 
 /// Words that are not misspelt cities: units, formats, months, keywords.
 fn known_word(config: &Config, text: &str) -> bool {
-    tz::city(text).is_some()
-        || convert::find_unit(config, text).is_some()
+    tz::city(text).is_some() || tz::country(text).is_some() || reserved_word(config, text)
+}
+
+/// Words that are neither places nor misspelt ones: units, formats, months, keywords.
+fn reserved_word(config: &Config, text: &str) -> bool {
+    convert::find_unit(config, text).is_some()
         || is_format(text)
         || DATE_WORDS.contains(&text)
         || month_named(text).is_some()
@@ -2100,38 +2115,126 @@ fn known_word(config: &Config, text: &str) -> bool {
         || ["to", "of", "de", "del", "the", "am", "pm", "a.m.", "p.m."].contains(&fold(text).as_str())
 }
 
-/// A request that failed because of a misspelt city (`10:00 Tokio`, `New Yrok to Paris`): the
-/// cities within 2 letters of a run of words (case and spaces aside) whose corrected request
-/// works, as an `Ambiguous` error to choose from. `None`: no such city.
-fn city_typos(config: &Config, input: &str, precision: usize, verbose: bool) -> Option<TimeError> {
+/// A place a misspelt word may be: its name, its zone (or "several time zones"), and whether it is
+/// a country.
+struct NearPlace {
+    name: String,
+    zone: String,
+    country: bool,
+}
+
+/// The cities and countries within 2 letters of `text` (`Tokio`: Tokyo; `jappan`: Japan).
+fn near_places(text: &str) -> Vec<NearPlace> {
+    let cities = tz::near(text).into_iter().map(|c| NearPlace { name: c.name.to_string(), zone: c.tz.name.to_string(), country: false });
+    let countries = tz::near_countries(text).into_iter().map(|c| {
+        let zone = match &c.cities[..] {
+            [one] => tz::city(one).and_then(Result::ok).map_or_else(|| one.clone(), |city| city.tz.name.to_string()),
+            _ => "several time zones".to_string(),
+        };
+        NearPlace { name: c.name.clone(), zone, country: true }
+    });
+    // Only the nearest, cities and countries together: `Tokio` is Tokyo (1 letter), not Togo (2).
+    let all: Vec<(usize, NearPlace)> = cities
+        .chain(countries)
+        .map(|p| {
+            let names: Vec<&str> = match tz::country(&p.name) {
+                Some(c) if p.country => std::iter::once(c.name.as_str()).chain(c.aliases.iter().map(String::as_str)).collect(),
+                _ => vec![p.name.as_str()],
+            };
+            (tz::distance(text, &names), p)
+        })
+        .collect();
+    let best = all.iter().map(|(d, _)| *d).min().unwrap_or(0);
+    all.into_iter().filter(|(d, _)| *d == best).map(|(_, p)| p).collect()
+}
+
+/// A request that failed because of misspelt places (`10:00 Tokio`, `New Yrok to Paris`,
+/// `10:00am jappan romme`): every run of up to 3 words, left to right, that is not a unit, format,
+/// month or keyword and is within **2 letters** of a city or a country (case and spaces aside) is
+/// corrected; the corrections, together, whose request works are an `Ambiguous` error to choose
+/// from (at most 8). `None`: no such places.
+fn place_typos(config: &Config, input: &str, precision: usize, verbose: bool) -> Option<TimeError> {
     let words: Vec<&str> = input.split_whitespace().collect();
     let wordlike = |w: &&str| w.chars().all(|c| c.is_alphabetic() || "'’-.".contains(c)) && !["to", "->"].contains(w);
-    for n in (1..=words.len().min(3)).rev() {
-        for i in 0..=words.len() - n {
+    // The misspelt runs: (first word, word count, what they may be), longest first.
+    let mut spans: Vec<(usize, usize, Vec<NearPlace>)> = Vec::new();
+    let mut i = 0;
+    while i < words.len() {
+        let found = (1..=(words.len() - i).min(3)).rev().find_map(|n| {
             let span = &words[i..i + n];
             let text = span.join(" ");
             if !span.iter().all(wordlike) || known_word(config, &text) {
-                continue;
+                return None;
             }
-            let choices: Vec<Choice> = tz::near(&text)
-                .into_iter()
-                .filter_map(|city| {
-                    let request = [&words[..i], &[city.name][..], &words[i + n..]].concat().join(" ");
-                    let works = matches!(exact_request(config, &request, precision, verbose), Some(Ok(_)) | Some(Err(TimeError::Ambiguous(_))));
-                    works.then(|| Choice { pattern: city.name.to_string(), date: city.tz.name.to_string(), request })
-                })
-                .collect();
-            if !choices.is_empty() {
-                return Some(TimeError::Ambiguous(Ambiguity { text, choices, kind: AmbiguityKind::City }));
+            let near = near_places(&text);
+            (!near.is_empty()).then_some((n, near))
+        });
+        match found {
+            Some((n, near)) => {
+                spans.push((i, n, near));
+                i += n;
             }
+            None => i += 1,
         }
     }
-    None
+    if spans.is_empty() {
+        return None;
+    }
+    // Every combination of corrections (at most 8), each tried as a request.
+    let mut combos: Vec<Vec<&NearPlace>> = vec![Vec::new()];
+    for (_, _, near) in &spans {
+        combos = combos.iter().flat_map(|c| near.iter().map(move |p| [c.as_slice(), &[p]].concat())).take(8).collect();
+    }
+    let choices: Vec<Choice> = combos
+        .into_iter()
+        .filter_map(|combo| {
+            let mut out: Vec<&str> = Vec::new();
+            let mut at = 0;
+            for ((start, n, _), place) in spans.iter().zip(&combo) {
+                out.extend(&words[at..*start]);
+                out.push(&place.name);
+                at = start + n;
+            }
+            out.extend(&words[at..]);
+            let request = out.join(" ");
+            let works = matches!(request_with(config, &request, precision, verbose, false), Some(Ok(_)) | Some(Err(TimeError::Ambiguous(_))));
+            // Several corrections: each named with what it is (`Japan (country), Rome (city)`).
+            let named = |p: &&NearPlace| match (spans.len(), p.country) {
+                (1, _) => p.name.clone(),
+                (_, true) => format!("{} (country)", p.name),
+                (_, false) => format!("{} (city)", p.name),
+            };
+            works.then(|| Choice {
+                pattern: combo.iter().map(named).collect::<Vec<_>>().join(", "),
+                date: combo.iter().map(|p| p.zone.as_str()).collect::<Vec<_>>().join(", "),
+                request,
+            })
+        })
+        .collect();
+    if choices.is_empty() {
+        return None;
+    }
+    let misspelt: Vec<String> = spans.iter().map(|(i, n, _)| words[*i..i + n].join(" ")).collect();
+    // What a single misspelt word is, from the places offered (`Tokio`: a city, not Togo).
+    let offered = |p: &&NearPlace| choices.iter().any(|c| c.pattern.split(", ").any(|name| name == p.name || name.starts_with(&format!("{} (", p.name))));
+    let note = match &spans[..] {
+        [(_, _, near)] => {
+            let near: Vec<&NearPlace> = near.iter().filter(offered).collect();
+            let what = match (near.iter().all(|p| p.country), near.iter().any(|p| p.country)) {
+                (true, _) => "a country",
+                (false, false) => "a city",
+                _ => "a known place",
+            };
+            format!("`{}` is not {what}", misspelt[0])
+        }
+        _ => format!("{} are not known places", misspelt.iter().map(|m| format!("`{m}`")).collect::<Vec<_>>().join(", ")),
+    };
+    Some(TimeError::Ambiguous(Ambiguity { text: misspelt.join(", "), choices, kind: AmbiguityKind::City, note }))
 }
 
 /// Whether a request is a misspelt city request (`Tokio`), for the stdin rule.
 pub fn suggests_city(config: &Config, input: &str) -> bool {
-    city_typos(config, input, 0, false).is_some()
+    place_typos(config, input, 0, false).is_some()
 }
 
 /// Whether a request names a city (`Paris`, `10:00AM New York to Paris`), for the stdin rule.
@@ -2472,6 +2575,34 @@ mod tests {
         }
         // Three cities, or a city in the middle, are still errors.
         assert!(request(&config, "now Rome Paris Tokyo", 4, false).unwrap().is_err());
+    }
+
+    #[test]
+    fn misspelt_places() {
+        let config = Config::default();
+        let ask = |s: &str| match request(&config, s, 4, false) {
+            Some(Err(TimeError::Ambiguous(a))) => a,
+            other => panic!("{s}: {other:?}"),
+        };
+        // A misspelt country and a misspelt city, together: one question, each named.
+        let a = ask("10:00am jappan romme");
+        assert_eq!(a.kind, AmbiguityKind::City);
+        assert_eq!(a.note, "`jappan`, `romme` are not known places");
+        assert_eq!(a.choices[0].pattern, "Japan (country), Rome (city)");
+        assert_eq!(a.choices[0].date, "Asia/Tokyo, Europe/Rome");
+        assert_eq!(a.choices[0].request, "10:00am Japan Rome");
+        assert!(a.message().contains("did you mean Japan (country), Rome (city)? (`10:00am Japan Rome`)"), "{}", a.message());
+        // The corrected request converts: 10:00 in Tokyo, in Rome.
+        let out = request(&config, &a.choices[0].request, 4, false).unwrap().unwrap().0;
+        assert!(out.ends_with(" GMT+2 Rome") || out.ends_with(" GMT+1 Rome"), "{out}");
+        // One misspelt country, alone or with a correct city; one misspelt city as before.
+        assert_eq!(ask("jappan").note, "`jappan` is not a country");
+        assert_eq!(ask("jappan").choices[0].request, "Japan");
+        assert_eq!(ask("10:00am jappan rome").choices[0].request, "10:00am Japan rome");
+        let tokio = ask("10:00 Tokio");
+        assert_eq!((tokio.note.as_str(), tokio.choices[0].pattern.as_str()), ("`Tokio` is not a city", "Tokyo"));
+        // Nothing near: no question.
+        assert!(!matches!(request(&config, "10:00 Gotham", 4, false), Some(Err(TimeError::Ambiguous(_)))));
     }
 
     #[test]

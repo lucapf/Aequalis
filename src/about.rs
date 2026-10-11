@@ -15,7 +15,7 @@ pub const TAGLINE: &str = "Ultralight calculator and converter made for humans";
 /// The facts below the logo, as (label, text): the version, the memory (`memory`, already
 /// formatted: the CLI's process, the interactive mode's), the last online sync, the mode.
 pub fn facts(memory: &str) -> Vec<(&'static str, String)> {
-    let sync = match last_sync() {
+    let sync = match crate::online::load().last_sync() {
         Some(t) => crate::time::human(&crate::time::Instant { ns: t as i128 * 1_000_000_000, zone: crate::time::Zone::Local }, false),
         None => "never".to_string(),
     };
@@ -53,32 +53,6 @@ pub fn text() -> String {
         out.push_str(&format!("{label}: {value}\n"));
     }
     out.trim_end().to_string()
-}
-
-// ---------------------------------------------------------------- last online sync
-
-/// `~/.cache/tally/last-sync` (`$XDG_CACHE_HOME`): the Unix time of the last successful download of
-/// a live value (JPL Horizons, CelesTrak), shared by the command, the interactive mode and the widget.
-fn sync_file() -> Option<std::path::PathBuf> {
-    let base = std::env::var_os("XDG_CACHE_HOME")
-        .filter(|v| !v.is_empty())
-        .map(std::path::PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".cache")))?;
-    Some(base.join("tally").join("last-sync"))
-}
-
-/// Records a successful online sync now.
-pub fn record_sync() {
-    if let Some(path) = sync_file() {
-        let now = crate::time::now().ns.div_euclid(1_000_000_000);
-        let _ = std::fs::create_dir_all(path.parent().unwrap_or(&path));
-        let _ = std::fs::write(path, format!("{now}\n"));
-    }
-}
-
-/// The last successful online sync (Unix seconds), if any.
-pub fn last_sync() -> Option<i64> {
-    std::fs::read_to_string(sync_file()?).ok()?.trim().parse().ok()
 }
 
 #[cfg(test)]

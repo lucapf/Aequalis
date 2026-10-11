@@ -95,18 +95,21 @@ pub struct App<'a> {
     quit: bool,
     /// The spacecraft's distances in the Trivia, retrieved when it first opens if `fetch_live`
     /// (only in a real session: never in the tests).
-    live: trivia::Live,
-    fetch_live: bool,
+    /// The online data (`online.rs`), reloaded when its file changes; `online_stamp` is the file's
+    /// modification time when read.
+    online: crate::online::Data,
+    online_stamp: Option<std::time::SystemTime>,
+    /// The background sync started from here (to reap), and when expiry was last checked.
+    sync: Option<std::process::Child>,
+    sync_checked: Option<Instant>,
+    /// `TALLY_MODE=offline` (read once).
+    forced_offline: bool,
     /// The top bar's highlighted shortcut (command mode): ← → / `h` `l` move it, Enter opens it.
     menu: usize,
     /// The last result copied from the history (`C`); to the system clipboard too when
     /// `system_clipboard` (only in a real session: never in the tests).
     copied: Option<String>,
     system_clipboard: bool,
-    /// Online or offline, for the top bar: checked in the background in a real session (every
-    /// 30 s), forced by `TALLY_MODE=offline`; `network_shown` is what was last drawn.
-    network: std::sync::Arc<std::sync::Mutex<crate::network::Status>>,
-    network_shown: crate::network::Status,
 }
 
 const SCROLL_STEP: usize = 5;
@@ -168,49 +171,48 @@ impl<'a> App<'a> {
             pressed: None,
             redraw: false,
             quit: false,
-            live: trivia::Live::default(),
-            fetch_live: false,
+            online: crate::online::Data::default(),
+            online_stamp: None,
+            sync: None,
+            sync_checked: None,
+            forced_offline: crate::network::mode() == Ok(crate::network::Mode::Offline),
             menu: 0,
             copied: None,
             system_clipboard: false,
-            network: std::sync::Arc::new(std::sync::Mutex::new(crate::network::Status::Checking)),
-            network_shown: crate::network::Status::Checking,
+
         }
     }
 
-    /// Online or offline, as last checked.
+    /// Online or offline: the last sync's result (`network::status_of`).
     pub fn network_status(&self) -> crate::network::Status {
-        self.network.lock().map(|s| *s).unwrap_or(crate::network::Status::Checking)
+        crate::network::status_of(&self.online, self.forced_offline)
     }
 
-    /// Whether the network status changed since it was last drawn (the screen needs a redraw).
-    pub fn network_changed(&mut self) -> bool {
-        let now = self.network_status();
-        now != std::mem::replace(&mut self.network_shown, now)
+    /// Reloads the online data when its file changed (the background sync wrote it): `true` then,
+    /// for a redraw.
+    pub fn refresh_online(&mut self) -> bool {
+        let Some(path) = crate::online::path() else { return false };
+        let stamp = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
+        if stamp == self.online_stamp {
+            return false;
+        }
+        self.online_stamp = stamp;
+        self.online = crate::online::load_from(&path);
+        true
     }
 
-    /// Checks the network in the background, now and every 30 s; forced offline by `TALLY_MODE`.
-    fn watch_network(&mut self) {
-        use crate::network::{Mode, Status};
-        if crate::network::mode() == Ok(Mode::Offline) {
-            if let Ok(mut s) = self.network.lock() {
-                *s = Status::Forced;
-            }
+    /// Every 10 minutes: reaps a finished sync, and starts one if the data has expired.
+    fn keep_online_fresh(&mut self) {
+        if self.sync_checked.is_some_and(|t| t.elapsed() < Duration::from_secs(600)) {
             return;
         }
-        let status = std::sync::Arc::clone(&self.network);
-        std::thread::spawn(move || loop {
-            let now = crate::network::status(Duration::from_secs(3));
-            if let Ok(mut s) = status.lock() {
-                *s = now;
+        self.sync_checked = Some(Instant::now());
+        if let Some(child) = &mut self.sync {
+            if !matches!(child.try_wait(), Ok(Some(_))) {
+                return;
             }
-            std::thread::sleep(Duration::from_secs(30));
-        });
-    }
-
-    /// Whether the spacecraft's distances just arrived (the screen needs a redraw).
-    pub fn live_arrived(&mut self) -> bool {
-        self.live.arrived()
+        }
+        self.sync = crate::online::ensure_fresh();
     }
 
     /// Opens what a shortcut opens; the Trivia starts retrieving the spacecraft's distances.
@@ -219,11 +221,7 @@ impl<'a> App<'a> {
         if let Some(i) = shortcuts(self.config).iter().position(|s| s.key == shortcut.key) {
             self.menu = i;
         }
-        let overlay = shortcut.open(self.config, self.system);
-        if matches!(overlay, Overlay::Trivia(_)) && self.fetch_live {
-            self.live.start();
-        }
-        self.overlay = Some(overlay);
+        self.overlay = Some(shortcut.open(self.config, self.system));
     }
 
     /// The Trivia's keys: Tab / ← → the section, ↑ ↓ the entry, Enter its popup; in the popup,
@@ -268,11 +266,7 @@ impl<'a> App<'a> {
             return;
         }
         let now = crate::time::now().ns.div_euclid(1_000_000_000) as i64;
-        let live = match self.live.state(&entry.name) {
-            trivia::LiveState::Done(au) => au,
-            trivia::LiveState::Pending => None,
-        };
-        if let Ok((value, _)) = crate::trivia::value(self.config, entry, live, now) {
+        if let Ok((value, _)) = crate::trivia::value(self.config, entry, self.online.get(&entry.name), now) {
             self.line.set(&format!("{} ", crate::trivia::written(self.config, entry, value)));
             self.overlay = None;
             self.mode = Mode::Input;
@@ -597,6 +591,11 @@ impl<'a> App<'a> {
             self.quit = true;
             return;
         }
+        if input == "about" {
+            self.line.set("");
+            self.overlay = Some(Overlay::About);
+            return;
+        }
         // An ambiguous date: ask which reading is meant (the popup), nothing is added yet.
         let tokens: Vec<&str> = input.split_whitespace().collect();
         if let Err(crate::CliError::Ambiguous(a)) = convert_request(self.config, self.opts, &tokens) {
@@ -623,7 +622,7 @@ impl<'a> App<'a> {
     /// The result of the bar as it is now, shown while typing.
     fn preview(&self) -> Option<Result<String, String>> {
         let input = self.line.text();
-        if input.trim().is_empty() || input.trim() == "exit" || input.trim() == "quit" {
+        if input.trim().is_empty() || ["exit", "quit", "about"].contains(&input.trim()) {
             return None;
         }
         // A written date with no format yet (`12/04/26 3:20PM`): say what comes next.
@@ -700,17 +699,16 @@ pub fn run(config: &Config, opts: &Options) -> ExitCode {
     }));
 
     let mut app = App::new(config, opts);
-    app.fetch_live = true;
     app.system_clipboard = true;
-    app.watch_network();
+    app.refresh_online();
     app.system = locale::device_system();
     app.numbers = numbers::device_format();
     let (mut stdin, mut stdout) = (std::io::stdin(), std::io::stdout());
     let (mut pending, mut buf) = (Vec::new(), [0u8; 256]);
     let (mut drawn, mut dirty, mut clear, mut hangups) = (None, true, true, 0);
     while !app.quit {
-        dirty |= app.live_arrived();
-        dirty |= app.network_changed();
+        app.keep_online_fresh();
+        dirty |= app.refresh_online();
         let size = term::size().unwrap_or((24, 80));
         if dirty || drawn != Some(size) {
             let frame = render::render(&app, size.0, size.1);
@@ -1348,7 +1346,10 @@ mod tests {
         assert!(app.overlay.is_none());
         let entry = &app.history.entries()[0];
         assert_eq!(entry.input, "12/04/2026 DD/MM/YYYY unix", "the pattern is written in");
-        assert_eq!(entry.result, Ok("1775944800 unix".into()), "only the result (no --verbose)");
+        // Midnight of 12 April in the local zone, whatever it is (Rome here, UTC on CI): the same
+        // as the unambiguous ISO date.
+        let iso = crate::time::request(&config, "2026-04-12T00:00 unix", 4, false).unwrap().unwrap().0;
+        assert_eq!(entry.result, Ok(iso), "only the result (no --verbose)");
         // Esc: back to the expression, unchanged.
         typed(&mut app, "12/04/2026 unix");
         app.handle(Key::Enter);
@@ -1419,6 +1420,21 @@ mod tests {
         typed(&mut app, "quit");
         app.handle(Key::Enter);
         assert!(app.quit);
+    }
+
+    #[test]
+    fn about_from_both_modes() {
+        let config = Config::default();
+        let opts = options(&config);
+        let mut app = App::new(&config, &opts);
+        typed(&mut app, "about");
+        app.handle(Key::Enter);
+        assert!(matches!(app.overlay, Some(Overlay::About)) && app.line.is_empty() && app.history.entries().is_empty());
+        app.handle(Key::Esc);
+        assert!(app.overlay.is_none());
+        app.handle(Key::Esc);
+        app.handle(Key::Char('A'));
+        assert!(matches!(app.overlay, Some(Overlay::About)));
     }
 
 }

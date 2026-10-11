@@ -9,6 +9,7 @@ mod geo;
 mod json;
 mod network;
 mod numbers;
+mod online;
 mod planets;
 mod time;
 mod trivia;
@@ -30,10 +31,9 @@ Usage:
   tally --trivia        useful values (Voyagers' distance live when online)
   tally --online        online, offline or offline (forced): can the live sources be reached
   tally --about         the logo, the version, memory and the last online sync
+  tally --sync          refresh the online data now (otherwise in the background when expired)
   tally --autocompletion <bash|zsh>
   tally --help | --version
-
-See also: man tally (docs/tally.1)
 
 Examples:
   tally 10 km mi          6.2137 mi
@@ -180,7 +180,11 @@ Environment:
                             YYYY YY MMMM MMM MM M DD D dddd ddd H24/HH H H12/hh h
                             mm ss AM/A tz (GMT+2) ZZ (+02:00); [text] is literal
   TALLY_MODE                online (default) or offline: no network at all (the
-                            Trivia's live values are then estimated)";
+                            Trivia's live values are then estimated)
+  TALLY_ONLINE_REFRESH_INTERVAL
+                            How old the online data (~/.config/tally/online.json)
+                            may be before a background refresh: 24h (default),
+                            90m, 2d, or seconds";
 
 const EXPECTED: &str =
     "expected <value> <from> <to>, <value><from> <to> or an expression without units (see `tally --help`)";
@@ -291,8 +295,9 @@ fn parse_options<'a>(config: &Config, args: &'a [String]) -> Result<Parsed<'a>, 
         },
         _ => config.default_precision,
     };
-    // `TALLY_MODE`: online (default) or offline (no network).
+    // `TALLY_MODE`: online (default) or offline (no network). `TALLY_ONLINE_REFRESH_INTERVAL`.
     network::mode().map_err(CliError::Usage)?;
+    online::parse_interval(std::env::var("TALLY_ONLINE_REFRESH_INTERVAL").ok().as_deref()).map_err(CliError::Usage)?;
     let mut silent = false;
     let mut verbose = false;
     let mut it = args.iter();
@@ -318,7 +323,7 @@ fn parse_options<'a>(config: &Config, args: &'a [String]) -> Result<Parsed<'a>, 
             "--trivia" => return Ok(Parsed::Info(trivia::list(config, precision).into())),
             "--about" => return Ok(Parsed::Info(about::text().into())),
             // For the widget and scripts: `online`, `offline` or `offline (forced)`.
-            "--online" => return Ok(Parsed::Info(network::status(std::time::Duration::from_secs(3)).label().to_string().into())),
+            "--online" => return Ok(Parsed::Info(network::status().label().to_string().into())),
             "-s" | "--silent" => silent = true,
             "-v" | "--verbose" => verbose = true,
             "--autocompletion" => {
@@ -420,6 +425,22 @@ fn main() -> ExitCode {
     let all: Vec<String> = std::env::args().skip(1).collect();
     let json = all.iter().any(|a| a == "--json");
     let args: Vec<String> = all.into_iter().filter(|a| a != "--json").collect();
+    // `--sync`: refresh the online data now (also how the background sync runs).
+    if args.iter().any(|a| a == "--sync") {
+        return match online::sync() {
+            Ok(n) => {
+                println!("synced {n} value{}", if n == 1 { "" } else { "s" });
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("tally: {e}");
+                ExitCode::from(1)
+            }
+        };
+    }
+    // Any run: when the online data has expired, refresh it in the background (a separate
+    // process: nothing here waits for it).
+    let _sync = online::ensure_fresh();
     // No value and no stdin to read, at a terminal: interactive mode.
     #[cfg(feature = "tui")]
     if let Ok(Parsed::Convert(opts)) = parse_options(&config, &args) {
@@ -479,8 +500,8 @@ fn main() -> ExitCode {
 fn ask(a: &time::Ambiguity) -> Option<&time::Choice> {
     let question = match a.kind {
         time::AmbiguityKind::City => {
-            eprintln!("tally: `{}` is not a city. Did you mean:", a.text);
-            "Which city?"
+            eprintln!("tally: {}. Did you mean:", a.note);
+            if a.note.ends_with("is not a city") { "Which city?" } else { "Which one?" }
         }
         time::AmbiguityKind::Country => {
             eprintln!("tally: `{}` has several time zones:", a.text);

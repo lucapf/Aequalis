@@ -649,6 +649,37 @@ pub fn country(name: &str) -> Option<&'static Country> {
     countries().iter().find(|c| std::iter::once(&c.name).chain(&c.aliases).any(|n| key(n).replace(' ', "") == wanted))
 }
 
+/// How far a misspelt name is from a place's names (Levenshtein, case, accents and spaces aside).
+pub fn distance(name: &str, names: &[&str]) -> usize {
+    let squeeze = |s: &str| key(s).replace(' ', "");
+    names.iter().map(|n| levenshtein(&squeeze(name), &squeeze(n))).min().unwrap_or(usize::MAX)
+}
+
+/// The countries whose names (or aliases) are nearest a misspelt one, within 2 letters (`Jappan`:
+/// Japan), case, accents and spaces aside; none for an exact name or fewer than 3 letters.
+pub fn near_countries(name: &str) -> Vec<&'static Country> {
+    let squeeze = |s: &str| key(s).replace(' ', "");
+    let wanted = squeeze(name);
+    if wanted.chars().count() < 3 {
+        return Vec::new();
+    }
+    let mut best: Vec<(usize, &Country)> = Vec::new();
+    for c in countries() {
+        let Some(d) = std::iter::once(&c.name).chain(&c.aliases).map(|n| levenshtein(&wanted, &squeeze(n))).min() else { continue };
+        if d == 0 {
+            return Vec::new();
+        }
+        // Short aliases (`US`, `UK`) only match exactly.
+        if d <= 2 && wanted.chars().count() > d + 2 && best.first().is_none_or(|b| d <= b.0) {
+            if best.first().is_some_and(|b| d < b.0) {
+                best.clear();
+            }
+            best.push((d, c));
+        }
+    }
+    best.into_iter().map(|(_, c)| c).collect()
+}
+
 /// The number of words of the longest country name (`Saint Vincent and the Grenadines`).
 pub fn longest_country() -> usize {
     countries().iter().flat_map(|c| std::iter::once(&c.name).chain(&c.aliases)).map(|n| key(n).split(' ').count()).max().unwrap_or(1)

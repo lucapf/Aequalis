@@ -456,7 +456,7 @@ Panel {
             ? "`" + root.command + "` not found: install tally (see docs/omarchy-widget.md)"
             : !root.reply ? ""
             : root.reply.ok ? "= " + root.reply.result
-            : root.reply.ambiguous && root.reply.ambiguous.kind === "city" ? "`" + root.reply.ambiguous.text + "` is not a city: did you mean…"
+            : root.reply.ambiguous && root.reply.ambiguous.kind === "city" ? (root.reply.ambiguous.note || "`" + root.reply.ambiguous.text + "` is not a city") + ": did you mean…"
             : root.reply.ambiguous && root.reply.ambiguous.kind === "country" ? "`" + root.reply.ambiguous.text + "` has several time zones: which one?"
             : root.reply.ambiguous ? "Which date is " + root.reply.ambiguous.text + "?"
             : root.reply.error
