@@ -1,0 +1,6 @@
+# The tests (and `cargo run`) never use the network nor the real online data: offline, and the
+# online data in target/test-config instead of ~/.config/tally. Tests that need otherwise set
+# these themselves.
+[env]
+TALLY_MODE = "offline"
+XDG_CONFIG_HOME = { value = "target/test-config", relative = true }
