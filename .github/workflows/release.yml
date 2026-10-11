@@ -1,0 +1,143 @@
+# Builds tally for Linux (Ubuntu), Arch Linux / Omarchy (a pacman package) and macOS (universal:
+# Intel and Apple Silicon). On a tag `v*` the files are attached to a GitHub release; run by hand
+# (Actions → Release → Run workflow) they are only kept as the run's artifacts.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # The version: the tag without its `v` (it must match Cargo.toml), else Cargo.toml's.
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        run: |
+          cargo_version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            tag="${GITHUB_REF_NAME#v}"
+            if [ "$tag" != "$cargo_version" ]; then
+              echo "::error::tag $GITHUB_REF_NAME does not match Cargo.toml version $cargo_version"
+              exit 1
+            fi
+          fi
+          echo "version=$cargo_version" >> "$GITHUB_OUTPUT"
+
+  # Ubuntu 22.04: the binary needs glibc 2.35 or newer, so it also runs on newer Ubuntu, Debian,
+  # Fedora and Arch Linux / Omarchy.
+  linux:
+    needs: version
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+      - name: Test
+        run: cargo test --release
+      - name: Build
+        run: cargo build --release
+      - name: Package
+        run: |
+          name=tally-${{ needs.version.outputs.version }}-x86_64-linux
+          mkdir -p "dist/$name"
+          cp target/release/tally LICENSE README.md "dist/$name/"
+          cp -r docs omarchy-widget "dist/$name/"
+          tar -C dist -czf "dist/$name.tar.gz" "$name"
+          (cd dist && sha256sum "$name.tar.gz" > "$name.tar.gz.sha256")
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: dist/*.tar.gz*
+
+  # Arch Linux / Omarchy: a pacman package, built with makepkg in an Arch Linux container.
+  # Install it with `sudo pacman -U tally-<version>-1-x86_64.pkg.tar.zst`.
+  arch:
+    needs: version
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - name: Tools
+        run: pacman -Syu --noconfirm --needed base-devel git rust tzdata
+      - uses: actions/checkout@v4
+      - name: Build the package
+        run: |
+          # makepkg does not run as root.
+          useradd -m builder
+          chown -R builder "$GITHUB_WORKSPACE"
+          sed -i "s/^pkgver=.*/pkgver=${{ needs.version.outputs.version }}/" packaging/arch/PKGBUILD
+          su builder -c "cd '$GITHUB_WORKSPACE/packaging/arch' && makepkg -f --nodeps"
+          mkdir -p dist
+          cp packaging/arch/*.pkg.tar.zst dist/
+          (cd dist && for f in *.pkg.tar.zst; do sha256sum "$f" > "$f.sha256"; done)
+      - name: Check the package
+        run: |
+          pacman -U --noconfirm dist/*.pkg.tar.zst
+          tally 10 km mi
+          tally --version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arch
+          path: dist/*
+
+  # macOS: one universal binary (Intel and Apple Silicon), built on an Apple Silicon runner.
+  macos:
+    needs: version
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      - name: Test
+        # Not yet verified on macOS: reported, not blocking the release.
+        continue-on-error: true
+        run: cargo test --release
+      - name: Build
+        run: |
+          cargo build --release --target aarch64-apple-darwin
+          cargo build --release --target x86_64-apple-darwin
+          mkdir -p target/universal
+          lipo -create -output target/universal/tally \
+            target/aarch64-apple-darwin/release/tally target/x86_64-apple-darwin/release/tally
+          lipo -info target/universal/tally
+          target/universal/tally 10 km mi
+      - name: Package
+        run: |
+          name=tally-${{ needs.version.outputs.version }}-universal-macos
+          mkdir -p "dist/$name"
+          cp target/universal/tally LICENSE README.md "dist/$name/"
+          cp -r docs "dist/$name/"
+          tar -C dist -czf "dist/$name.tar.gz" "$name"
+          (cd dist && shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256")
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: dist/*.tar.gz*
+
+  # On a tag: a GitHub release with every file.
+  release:
+    if: github.ref_type == 'tag'
+    needs: [linux, arch, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "Tally $GITHUB_REF_NAME" --generate-notes

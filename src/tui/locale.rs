@@ -1,0 +1,82 @@
+//! The measurement system configured on the device, used to open the unit keys on the right tab.
+//!
+//! - **Linux** (and other Unix): the locale, as the C library reads it: `LC_ALL`, else
+//!   `LC_MEASUREMENT`, else `LANG`. Like glibc, the territory `US` is imperial (`en_US`, `es_US`…),
+//!   everything else metric.
+//! - **macOS**: the system setting (`defaults read -g AppleMetricUnits`, then
+//!   `AppleMeasurementUnits`, then `AppleLocale`), and the environment as above if those fail.
+//!
+//! When nothing is known: metric.
+
+use crate::config::System;
+
+pub fn device_system() -> System {
+    #[cfg(target_os = "macos")]
+    if let Some(system) = macos_setting() {
+        return system;
+    }
+    let var = |name| std::env::var(name).ok().filter(|v| !v.is_empty());
+    var("LC_ALL")
+        .or_else(|| var("LC_MEASUREMENT"))
+        .or_else(|| var("LANG"))
+        .and_then(|locale| from_locale(&locale))
+        .unwrap_or(System::Metric)
+}
+
+/// `en_US.UTF-8` → imperial, `it_IT.UTF-8` → metric; `C` / `POSIX` / no territory → unknown.
+pub fn from_locale(locale: &str) -> Option<System> {
+    let name = locale.split(['.', '@']).next()?;
+    let territory = name.split_once(['_', '-'])?.1;
+    Some(if territory.eq_ignore_ascii_case("US") { System::Imperial } else { System::Metric })
+}
+
+/// Output of `defaults read -g <key>` for the macOS measurement keys.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn from_macos_defaults(key: &str, value: &str) -> Option<System> {
+    match (key, value.trim()) {
+        ("AppleMetricUnits", "1") | ("AppleMeasurementUnits", "Centimeters") => Some(System::Metric),
+        ("AppleMetricUnits", "0") | ("AppleMeasurementUnits", "Inches") => Some(System::Imperial),
+        ("AppleLocale", locale) => from_locale(locale),
+        _ => None,
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_setting() -> Option<System> {
+    ["AppleMetricUnits", "AppleMeasurementUnits", "AppleLocale"].iter().find_map(|key| {
+        let out = std::process::Command::new("/usr/bin/defaults").args(["read", "-g", key]).output().ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        from_macos_defaults(key, &String::from_utf8_lossy(&out.stdout))
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use System::*;
+
+    #[test]
+    fn locales() {
+        assert_eq!(from_locale("en_US.UTF-8"), Some(Imperial));
+        assert_eq!(from_locale("es_US"), Some(Imperial));
+        assert_eq!(from_locale("en-US"), Some(Imperial));
+        assert_eq!(from_locale("it_IT.UTF-8"), Some(Metric));
+        assert_eq!(from_locale("en_GB.UTF-8@euro"), Some(Metric));
+        assert_eq!(from_locale("my_MM"), Some(Metric), "glibc: metric");
+        assert_eq!(from_locale("C"), None);
+        assert_eq!(from_locale("POSIX"), None);
+        assert_eq!(from_locale("C.UTF-8"), None);
+    }
+
+    #[test]
+    fn macos_defaults() {
+        assert_eq!(from_macos_defaults("AppleMetricUnits", "1\n"), Some(Metric));
+        assert_eq!(from_macos_defaults("AppleMetricUnits", "0\n"), Some(Imperial));
+        assert_eq!(from_macos_defaults("AppleMeasurementUnits", "Inches\n"), Some(Imperial));
+        assert_eq!(from_macos_defaults("AppleLocale", "it_IT\n"), Some(Metric));
+        assert_eq!(from_macos_defaults("AppleLocale", "en_US\n"), Some(Imperial));
+        assert_eq!(from_macos_defaults("AppleMetricUnits", "garbage"), None);
+    }
+}

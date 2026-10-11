@@ -1,0 +1,10 @@
+/target
+**/*.rs.bk
+*.swp
+*~
+.DS_Store
+*.lock
+target/
+docs/SPEC.md
+/packaging
+docs/omarchy-widget.md

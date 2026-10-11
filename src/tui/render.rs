@@ -1,0 +1,1641 @@
+//! Drawing the interactive screen. Pure: state and size in, frame out. The screen is a grid of
+//! styled cells, so the picker and the help can be drawn over the sections.
+//!
+//! ```text
+//! ┌ Units ────────────────────────────────────────────────────────────┐
+//! │  A  Area   D  Data   L  Length   M  Mass   T  Temperature   V  Volume
+//! └───────────────────────────────────────────────────────────────────┘
+//! ┌ History ──────────────────────────────────────────────────────────┐
+//! │   10 km mi            = 6.2137 mi                                 │
+//! │   (10+12-3)/4Km Mi    = 2.9515 mi                                 │
+//! └───────────────────────────────────────────────────────────────────┘
+//! ┌ Expression ───────────────────────────────────────────────────────┐
+//! │ > 100 + 20 sqft m                                                 │
+//! │   = …   Tab: mm2 m2 mi2                                           │
+//! └───────────────────────────────────────────────────────────────────┘
+//!  INPUT  note: evaluated as (100 + 20) + (50 / 10)    Esc command mode
+//! ```
+
+use super::picker::{format_rows, Picker};
+use super::{shortcuts, App, Mode, Overlay, StatusKind};
+use crate::config::System;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Style {
+    Plain,
+    Bold,
+    Dim,
+    Inverse,
+    Red,
+    Green,
+    Yellow,
+    /// The mode badge.
+    Badge,
+    /// A lit key: the one typed last, or the selected unit.
+    Lit,
+}
+
+impl Style {
+    fn code(self) -> &'static str {
+        match self {
+            Style::Plain => "",
+            Style::Bold => "\x1b[1m",
+            Style::Dim => "\x1b[2m",
+            Style::Inverse => "\x1b[7m",
+            Style::Red => "\x1b[31m",
+            Style::Green => "\x1b[32m",
+            Style::Yellow => "\x1b[33m",
+            Style::Badge => "\x1b[1;7m",
+            Style::Lit => "\x1b[1;30;43m",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum CursorShape {
+    /// Input mode: a thin bar.
+    Bar,
+    /// Command mode: a block, as in Vim.
+    Block,
+}
+
+pub struct Frame {
+    pub lines: Vec<String>,
+    /// Row and column of the cursor, from 0, and its shape.
+    pub cursor: Option<(usize, usize, CursorShape)>,
+}
+
+impl Frame {
+    /// The escapes that draw the frame; `clear` first erases the whole screen.
+    pub fn to_ansi(&self, clear: bool) -> String {
+        let mut s = String::from("\x1b[?25l");
+        if clear {
+            s.push_str("\x1b[2J");
+        }
+        // Every line fills the whole width, so nothing is erased after it: after the last column
+        // the cursor stays on it (pending wrap), and an erase-to-end-of-line there would wipe the
+        // right border (bug 003).
+        for (i, line) in self.lines.iter().enumerate() {
+            s.push_str(&format!("\x1b[{};1H{line}", i + 1));
+        }
+        if let Some((row, col, shape)) = self.cursor {
+            let shape = if shape == CursorShape::Bar { 6 } else { 2 };
+            s.push_str(&format!("\x1b[{};{}H\x1b[{shape} q\x1b[?25h", row + 1, col + 1));
+        }
+        s
+    }
+}
+
+struct Canvas {
+    cols: usize,
+    cells: Vec<Vec<(char, Style)>>,
+}
+
+impl Canvas {
+    fn new(rows: usize, cols: usize) -> Self {
+        Canvas { cols, cells: vec![vec![(' ', Style::Plain); cols]; rows] }
+    }
+
+    /// Writes `text` from `col`, cut before column `limit`; returns the column after it.
+    fn put_within(&mut self, row: usize, col: usize, limit: usize, text: &str, style: Style) -> usize {
+        let limit = limit.min(self.cols);
+        let mut c = col;
+        for ch in text.chars() {
+            if c >= limit {
+                break;
+            }
+            self.cells[row][c] = (ch, style);
+            c += 1;
+        }
+        c
+    }
+
+    fn put(&mut self, row: usize, col: usize, text: &str, style: Style) -> usize {
+        self.put_within(row, col, self.cols, text, style)
+    }
+
+    /// A frame with a title; its inside is cleared.
+    fn boxed(&mut self, top: usize, left: usize, height: usize, width: usize, title: &str) {
+        let right = left + width - 1;
+        let bottom = top + height - 1;
+        for row in top..=bottom {
+            self.cells[row][left..=right].fill((' ', Style::Plain));
+            self.cells[row][left] = ('│', Style::Dim);
+            self.cells[row][right] = ('│', Style::Dim);
+        }
+        self.cells[top][left + 1..right].fill(('─', Style::Dim));
+        self.cells[bottom][left + 1..right].fill(('─', Style::Dim));
+        self.cells[top][left] = ('┌', Style::Dim);
+        self.cells[top][right] = ('┐', Style::Dim);
+        self.cells[bottom][left] = ('└', Style::Dim);
+        self.cells[bottom][right] = ('┘', Style::Dim);
+        if !title.is_empty() {
+            self.put_within(top, left + 2, right - 1, &format!(" {title} "), Style::Bold);
+        }
+    }
+
+    fn lines(&self) -> Vec<String> {
+        self.cells
+            .iter()
+            .map(|row| {
+                let mut out = String::new();
+                let mut current = Style::Plain;
+                for &(ch, style) in row {
+                    if style != current {
+                        out.push_str("\x1b[0m");
+                        out.push_str(style.code());
+                        current = style;
+                    }
+                    out.push(ch);
+                }
+                if current != Style::Plain {
+                    out.push_str("\x1b[0m");
+                }
+                out
+            })
+            .collect()
+    }
+}
+
+pub const MIN_ROWS: usize = 12;
+pub const MIN_COLS: usize = 40;
+
+pub fn render(app: &App, rows: usize, cols: usize) -> Frame {
+    let mut canvas = Canvas::new(rows, cols);
+    if rows < MIN_ROWS || cols < MIN_COLS {
+        canvas.put(0, 0, &format!("terminal too small (needs {MIN_COLS}x{MIN_ROWS})"), Style::Plain);
+        return Frame { lines: canvas.lines(), cursor: None };
+    }
+    // The top bar: one line of shortcuts in a box.
+    let head = 3;
+    top_bar(app, &mut canvas, head);
+    history(app, &mut canvas, head, rows - 5 - head);
+    let mut cursor = expression(app, &mut canvas, rows - 5);
+    status(app, &mut canvas, rows - 1);
+    // The keypad, top-right in the history: digits, or a category's units while picking one.
+    match &app.overlay {
+        Some(Overlay::Picker(p)) => unit_keys(app, p, &mut canvas, rows, head),
+        Some(Overlay::Trivia(v)) => trivia(app, v, &mut canvas, rows, head),
+        Some(Overlay::Search(s)) => {
+            search(app, s, &mut canvas, rows, head);
+            cursor = None;
+        }
+        _ if app.keypad => keypad(app, &mut canvas, head + 1, rows - 7 - head),
+        _ => {}
+    }
+    if let Some(Overlay::Trivia(v @ super::trivia::View { popup: Some(scroll), .. })) = &app.overlay {
+        trivia_popup(app, v, &mut canvas, rows, *scroll);
+        cursor = None;
+    }
+    if let Some(Overlay::About) = &app.overlay {
+        about(&mut canvas, rows);
+        cursor = None;
+    }
+    if let Some(Overlay::Help(scroll)) = &app.overlay {
+        help(&mut canvas, rows, *scroll);
+        cursor = None;
+    }
+    if let Some(Overlay::Choice(a, selected)) = &app.overlay {
+        choice(&mut canvas, rows, a, *selected);
+        cursor = None;
+    }
+    Frame { lines: canvas.lines(), cursor }
+}
+
+/// The shortcuts shown in the top bar (`room` columns): all of them when they fit, else the
+/// window of them that starts at the first one, or scrolled so that `active` (the shortcut of the
+/// unit keys shown) is the last; and whether shortcuts are hidden before / after it.
+fn visible_shortcuts(config: &crate::config::Config, room: usize, active: Option<usize>) -> (std::ops::Range<usize>, bool, bool) {
+    // ` K `, ` Name ` and a space between them.
+    let widths: Vec<usize> = shortcuts(config).iter().map(|s| s.name.chars().count() + 6).collect();
+    if widths.iter().sum::<usize>() <= room {
+        return (0..widths.len(), false, false);
+    }
+    // `‹ ` and ` ›` take two columns each.
+    let room = room.saturating_sub(4);
+    let fits = |r: std::ops::Range<usize>| widths[r].iter().sum::<usize>() <= room;
+    let mut start = 0;
+    if let Some(a) = active {
+        while start < a && !fits(start..a + 1) {
+            start += 1;
+        }
+    }
+    let mut end = start + 1;
+    while end < widths.len() && fits(start..end + 1) {
+        end += 1;
+    }
+    (start..end, start > 0, end < widths.len())
+}
+
+/// The top bar, `height` rows. In input mode the units are hidden and the bar says how to switch
+/// modes; in command mode it shows the categories in alphabetical order with their shortcuts.
+fn top_bar(app: &App, canvas: &mut Canvas, height: usize) {
+    let cols = canvas.cols;
+    let right = cols - 2;
+    // Online or offline, at the right of the top border, in both modes.
+    let indicator = |canvas: &mut Canvas| {
+        use crate::network::Status;
+        let status = app.network_status();
+        let (dot, style) = match status {
+            Status::Online => ("●", Style::Green),
+            Status::Offline | Status::Forced => ("●", Style::Yellow),
+            Status::Checking => ("○", Style::Dim),
+        };
+        // The label, else a short one where it does not fit after the title (`offline (forced)`
+        // → `offline`), else nothing.
+        let short = match status {
+            Status::Forced => "offline",
+            Status::Checking => "…",
+            _ => status.label(),
+        };
+        for label in [status.label(), short] {
+            let text = format!(" {dot} {label} ");
+            let start = cols.saturating_sub(3 + text.chars().count());
+            if start > 18 {
+                canvas.put_within(0, start, cols - 2, &text, style);
+                break;
+            }
+        }
+    };
+    if app.mode == Mode::Input {
+        canvas.boxed(0, 0, height, cols, "Input mode");
+        indicator(canvas);
+        let mut col = 2;
+        for (text, style) in [
+            ("Press ", Style::Plain),
+            ("<Esc>", Style::Yellow),
+            (" for command mode, and ", Style::Plain),
+            ("I", Style::Yellow),
+            (" to be back to input mode", Style::Plain),
+        ] {
+            col = canvas.put_within(1, col, right, text, style);
+        }
+        return;
+    }
+    canvas.boxed(0, 0, height, cols, "Units");
+    indicator(canvas);
+    // One line: when the shortcuts don't fit, it scrolls to the one of the unit keys shown.
+    let list = shortcuts(app.config);
+    // What is open, else the highlighted shortcut (← → / h l; the first at the start).
+    let active = match &app.overlay {
+        Some(Overlay::Picker(p)) => list.iter().position(|s| s.categories.contains(&p.category)),
+        Some(Overlay::Trivia(_)) => list.iter().position(|s| s.name == crate::config::TRIVIA.0),
+        Some(Overlay::Search(_)) => list.iter().position(|s| s.name == crate::config::SEARCH.0),
+        _ => Some(app.menu.min(list.len().saturating_sub(1))),
+    };
+    let (shown, before, after) = visible_shortcuts(app.config, right - 2, active);
+    let mut col = 2;
+    if before {
+        col = canvas.put_within(1, col, right, "‹ ", Style::Dim);
+    }
+    for s in &list[shown] {
+        // The highlighted one (or the one open) lit whole: its key and its name.
+        let lit = active.is_some_and(|a| list[a].key == s.key);
+        col = canvas.put_within(1, col, right, &format!(" {} ", s.key), if lit { Style::Lit } else { Style::Inverse });
+        col = canvas.put_within(1, col, right, &format!(" {} ", s.name), if lit { Style::Lit } else { Style::Plain });
+        // A space between the items, so a highlighted one stands apart.
+        col = canvas.put_within(1, col, right, " ", Style::Plain);
+    }
+    if after {
+        canvas.put_within(1, col, right, "›", Style::Dim);
+    }
+}
+
+/// The last entries (minus the scroll), newest at the bottom, results aligned.
+fn history(app: &App, canvas: &mut Canvas, top: usize, height: usize) {
+    let cols = canvas.cols;
+    canvas.boxed(top, 0, height, cols, "History");
+    let inner = height - 2;
+    let right = cols - 2;
+    let entries = app.history.entries();
+    if entries.is_empty() {
+        // Not while picking a unit: the unit keys cover that row.
+        if !matches!(app.overlay, Some(Overlay::Picker(_))) {
+            canvas.put_within(top + 1, 2, right, "Type an expression, e.g. 10 km mi or (100+20)/120", Style::Dim);
+        }
+        return;
+    }
+    let scroll = app.scroll.min(entries.len().saturating_sub(1));
+    let end = entries.len() - scroll;
+    let start = end.saturating_sub(inner);
+    let width = entries.range(start..end).map(|e| e.input.chars().count()).max().unwrap_or(0).min(cols / 2);
+    let first_row = top + 1 + inner - (end - start);
+    for (i, entry) in entries.range(start..end).enumerate() {
+        let row = first_row + i;
+        let selected = app.history.selected() == Some(start + i);
+        let mut col = canvas.put_within(row, 2, right, if selected { "› " } else { "  " }, Style::Bold);
+        let input_style = if selected { Style::Inverse } else { Style::Plain };
+        col = canvas.put_within(row, col, right, &format!("{:<width$}", entry.input), input_style);
+        match &entry.result {
+            Ok(result) => {
+                col = canvas.put_within(row, col, right, "  = ", Style::Dim);
+                canvas.put_within(row, col, right, result, Style::Bold);
+            }
+            Err(msg) => {
+                col = canvas.put_within(row, col, right, "  ✗ ", Style::Red);
+                canvas.put_within(row, col, right, msg, Style::Red);
+            }
+        }
+    }
+    if scroll > 0 {
+        let label = format!(" ↓ {scroll} newer ");
+        canvas.put_within(top + height - 1, cols - 2 - label.chars().count(), cols - 2, &label, Style::Dim);
+    }
+}
+
+/// The keypad, row by row. `=` stands for Enter, `e` for the exponent (`1e3`).
+const KEYPAD: [[char; 4]; 5] = [
+    ['(', ')', '^', '/'],
+    ['7', '8', '9', '*'],
+    ['4', '5', '6', '-'],
+    ['1', '2', '3', '+'],
+    ['0', '.', 'e', '='],
+];
+
+/// A numeric keypad in the top-right corner of the history, in front of its lines. Full size with a
+/// grid when there is room (11 rows), compact (7 rows) otherwise, not drawn when even that doesn't fit.
+/// The key typed last is lit.
+fn keypad(app: &App, canvas: &mut Canvas, top: usize, room: usize) {
+    let full = room >= 11;
+    if !full && room < 7 {
+        return;
+    }
+    let (cell, width, height) = if full { (4, 17, 11) } else { (3, 15, 7) };
+    let left = canvas.cols - 2 - width;
+    canvas.boxed(top, left, height, width, "");
+    // Clear the empty title the box drew.
+    canvas.cells[top][left + 1..left + width - 1].fill(('─', Style::Dim));
+    let key_row = |r: usize| if full { top + 1 + 2 * r } else { top + 1 + r };
+    if full {
+        for r in 0..KEYPAD.len() {
+            for c in 1..4 {
+                canvas.cells[key_row(r)][left + 4 * c] = ('│', Style::Dim);
+                canvas.cells[top][left + 4 * c] = ('┬', Style::Dim);
+                canvas.cells[top + height - 1][left + 4 * c] = ('┴', Style::Dim);
+            }
+            if r + 1 < KEYPAD.len() {
+                let sep = key_row(r) + 1;
+                canvas.cells[sep][left + 1..left + width - 1].fill(('─', Style::Dim));
+                canvas.cells[sep][left] = ('├', Style::Dim);
+                canvas.cells[sep][left + width - 1] = ('┤', Style::Dim);
+                for c in 1..4 {
+                    canvas.cells[sep][left + 4 * c] = ('┼', Style::Dim);
+                }
+            }
+        }
+    }
+    for (r, keys) in KEYPAD.iter().enumerate() {
+        for (c, &key) in keys.iter().enumerate() {
+            let x = left + 1 + cell * c;
+            let style = match key {
+                k if Some(k) == app.pressed => Style::Lit,
+                '0'..='9' | '.' => Style::Bold,
+                _ => Style::Yellow,
+            };
+            canvas.put(key_row(r), x, &format!(" {key} "), style);
+        }
+    }
+}
+
+const PROMPT: &str = "> ";
+
+/// The expression bar and, below it, the live result and the suggestions. Returns the cursor.
+fn expression(app: &App, canvas: &mut Canvas, top: usize) -> Option<(usize, usize, CursorShape)> {
+    let cols = canvas.cols;
+    canvas.boxed(top, 0, 4, cols, "Expression");
+    let right = cols - 2;
+    // Scrolled sideways so the cursor stays visible.
+    let start = 2 + PROMPT.len();
+    let room = right - start - 1;
+    let offset = app.line.cursor().saturating_sub(room);
+    let visible: String = app.line.chars().iter().skip(offset).collect();
+    canvas.put_within(top + 1, 2, right, PROMPT, Style::Bold);
+    canvas.put_within(top + 1, start, right, &visible, Style::Plain);
+
+    // The grouping applied (when there are operations), then the result or the error.
+    let row = top + 2;
+    let mut col = 4;
+    if let Some(grouping) = app.grouping() {
+        col = canvas.put_within(row, col, right, &grouping, Style::Bold);
+        col = canvas.put_within(row, col, right, " ", Style::Plain);
+    }
+    match app.preview() {
+        Some(Ok(result)) => col = canvas.put_within(row, col, right, &format!("= {result}"), Style::Green),
+        Some(Err(msg)) => col = canvas.put_within(row, col, right, &format!("· {msg}"), Style::Dim),
+        None => {}
+    }
+    if let Some((names, selected)) = app.suggestions() {
+        col = canvas.put_within(row, col, right, "   ", Style::Plain);
+        if selected.is_none() {
+            col = canvas.put_within(row, col, right, "Tab:", Style::Dim);
+        }
+        for (i, name) in names.iter().enumerate() {
+            col = canvas.put_within(row, col, right, " ", Style::Plain);
+            let style = if selected == Some(i) { Style::Inverse } else { Style::Plain };
+            col = canvas.put_within(row, col, right, name, style);
+        }
+    }
+    let shape = if app.mode == Mode::Input { CursorShape::Bar } else { CursorShape::Block };
+    Some((top + 1, start + app.line.cursor() - offset, shape))
+}
+
+/// `<key> what · <key> what`, right-aligned to end before column `end`; returns its first column.
+/// On a box border (`framed`), it is padded with spaces so the line does not run into it.
+fn hints(canvas: &mut Canvas, row: usize, end: usize, items: &[(&str, &str)], framed: bool) -> usize {
+    let pad = if framed { " " } else { "" };
+    let text_len: usize = items.iter().map(|(k, w)| k.chars().count() + 1 + w.chars().count()).sum::<usize>()
+        + 3 * (items.len() - 1)
+        + 2 * pad.len();
+    let start = end.saturating_sub(text_len);
+    let mut col = canvas.put_within(row, start, end, pad, Style::Plain);
+    for (i, (key, what)) in items.iter().enumerate() {
+        if i > 0 {
+            col = canvas.put_within(row, col, end, " · ", Style::Dim);
+        }
+        col = canvas.put_within(row, col, end, key, Style::Yellow);
+        col = canvas.put_within(row, col, end, &format!(" {what}"), Style::Dim);
+    }
+    canvas.put_within(row, col, end, pad, Style::Plain);
+    start
+}
+
+/// The mode badge, the last note / warning / error, and the mode's keys on the right.
+fn status(app: &App, canvas: &mut Canvas, row: usize) {
+    let cols = canvas.cols;
+    let (badge, keys): (&str, &[(&str, &str)]) = match (app.mode, &app.overlay) {
+        // The unit keys: how to move around them.
+        // Browsing the history: its keys.
+        (_, None) if app.history.selected().is_some() => (" HISTORY ", &[("↑↓", "browse"), ("Enter", "edit"), ("C", "copy"), ("<Esc>", "back")]),
+        (_, Some(Overlay::Choice(..))) => (" CHOOSE ", &[("↑↓ j k 1-9", "reading"), ("Enter", "confirm"), ("<Esc>", "back")]),
+        (_, Some(Overlay::Trivia(v))) if v.popup.is_some() => (" TRIVIA ", &[("↑↓", "scroll"), ("Enter", "write the value"), ("<Esc>", "back")]),
+        (_, Some(Overlay::Trivia(_))) => (
+            " TRIVIA ",
+            &[("Tab ←→", "section"), ("↑↓ j k", "entry"), ("Enter", "details"), ("<Esc>", "back")],
+        ),
+        (_, Some(Overlay::About)) => (" ABOUT ", &[("<Esc>", "close")]),
+        (_, Some(Overlay::Search(_))) => (" SEARCH ", &[("type", "search"), ("↑↓", "choose"), ("Enter", "write"), ("<Esc>", "back")]),
+        // A group's tabs are its categories (Size: Length, Area, Volume); a category's, its systems.
+        (_, Some(Overlay::Picker(p))) if p.group.is_some() => (
+            " COMMAND ",
+            &[("←↓↑→ h j k l", "move"), ("Tab", "next tab"), ("Enter", "write"), ("<Esc>", "digits")],
+        ),
+        (_, Some(Overlay::Picker(_))) => (
+            " COMMAND ",
+            &[("←↓↑→ h j k l", "move"), ("Tab", "system"), ("Enter", "write"), ("<Esc>", "digits")],
+        ),
+        (Mode::Input, _) => (" INPUT ", &[("<Esc>", "command mode"), ("exit", "quit")]),
+        (Mode::Command, _) => (
+            " COMMAND ",
+            &[("←→", "menu"), ("Enter", "open"), ("<I>", "input"), ("<C>", "keypad"), ("<E>", "help"), ("<q>", "quit")],
+        ),
+    };
+    let hint_col = hints(canvas, row, cols - 1, keys, false);
+    let col = canvas.put(row, 0, badge, Style::Badge) + 1;
+    let limit = hint_col.saturating_sub(1);
+    match &app.status {
+        Some((StatusKind::Note, msg)) => canvas.put_within(row, col, limit, &format!("note: {msg}"), Style::Dim),
+        Some((StatusKind::Warning, msg)) => canvas.put_within(row, col, limit, &format!("warning: {msg}"), Style::Yellow),
+        Some((StatusKind::Error, msg)) => canvas.put_within(row, col, limit, &format!("error: {msg}"), Style::Red),
+        None => col,
+    };
+}
+
+/// A centred window of at most `width` × `height`; returns (top, left, width, height).
+fn centred(canvas: &mut Canvas, rows: usize, width: usize, height: usize, title: &str) -> (usize, usize, usize, usize) {
+    let (width, height) = (width.min(canvas.cols - 4), height.min(rows - 2));
+    let (top, left) = ((rows - height) / 2, (canvas.cols - width) / 2);
+    canvas.boxed(top, left, height, width, title);
+    (top, left, width, height)
+}
+
+/// The keypad while picking a unit: the two tabs (metric / imperial, or decimal / binary), then
+/// the units of the tab shown as buttons, the category's `columns` per row
+/// (5 for Area and Data, 4 for the others), the selected one lit.
+/// Top-right in the history like the digits; it grows upwards over the Units bar when the history
+/// is too short.
+fn unit_keys(app: &App, p: &Picker, canvas: &mut Canvas, rows: usize, head: usize) {
+    let category = p.category(app.config);
+    let items = p.items(app.config);
+    let button = category.units.iter().map(|u| u.symbol.chars().count()).max().unwrap_or(1) + 2;
+    let title = format!("{} units", p.title(app.config));
+    let columns = category.columns;
+    // Wide enough for the buttons, the title and the tabs.
+    let tabs = p.tabs(app.config);
+    let tabs_len: usize = tabs.iter().map(|(n, _)| n.chars().count() + 3).sum();
+    // A group: each button as wide as its unit, a row of metric units and one of imperial; the
+    // window as wide as the longest row of any of its categories, so it does not jump.
+    let group_width = p.group.as_ref().map(|(_, members)| {
+        let row = |c: usize, tab: System| -> usize {
+            app.config.categories[c].units.iter().filter(|u| u.system == tab || u.system == System::Both).map(|u| u.symbol.chars().count() + 3).sum::<usize>() + 1
+        };
+        members.iter().flat_map(|&c| [row(c, System::Metric), row(c, System::Imperial)]).max().unwrap_or(0)
+    });
+    // Time's second tab is the table of date formats.
+    let formats = (category.name == "Time").then(format_rows);
+    let table_width = 2 + FORMAT_LABEL + 1 + 5 * (FORMAT_CELL + 1) + 1;
+    let width = group_width
+        .unwrap_or(columns * (button + 1) + 1)
+        .max(title.chars().count() + 6)
+        .max(tabs_len + 4)
+        .max(if formats.is_some() { table_width } else { 0 })
+        .min(canvas.cols - 3);
+    // Sized for the larger tab, so the window does not jump while switching.
+    let most = [System::Metric, System::Imperial].map(|tab| p.units_of(app.config, tab).count()).into_iter().max().unwrap_or(1);
+    // The Formats tab: the table and a footer line for the selected format.
+    let dates_rows = formats.as_ref().map_or(0, |t| t.len() + 1);
+    // Below the top bar when there is room; small terminals let it cover the top bar.
+    // A group's two rows; three with a tool tab (its explanation).
+    let table_rows = match &p.group {
+        Some(_) if !p.tools.is_empty() => 3,
+        Some(_) => 2,
+        None => most.div_ceil(columns),
+    };
+    let height = (table_rows.max(dates_rows) + 4).min((rows - 7 - head).max(7));
+    let top = (head + 1).min(rows - 5 - height);
+    let left = canvas.cols - 2 - width;
+    let right = left + width - 1;
+    canvas.boxed(top, left, height, width, &title);
+
+    // The tabs: the one shown is lit.
+    let mut col = left + 2;
+    for (name, shown) in tabs {
+        col = canvas.put_within(top + 1, col, right, &format!(" {name} "), if shown { Style::Lit } else { Style::Dim });
+        col = canvas.put_within(top + 1, col, right, " ", Style::Plain);
+    }
+    canvas.cells[top + 2][left + 1..right].fill(('─', Style::Dim));
+    canvas.cells[top + 2][left] = ('├', Style::Dim);
+    canvas.cells[top + 2][right] = ('┤', Style::Dim);
+    let first = top + 3;
+    let visible = height - 4;
+
+    if let (true, Some(table)) = (p.shows_formats(app.config), &formats) {
+        let visible = visible.saturating_sub(1).max(1);
+        let offset = p.cell.0.saturating_sub(visible.saturating_sub(1));
+        let mut chosen = None;
+        for (r, row) in table.iter().enumerate().skip(offset).take(visible) {
+            let y = first + r - offset;
+            canvas.put_within(y, left + 2, right, row.label, Style::Bold);
+            let x0 = left + 2 + FORMAT_LABEL + 1;
+            for (c, (short, word)) in row.cells.iter().enumerate() {
+                let x = x0 + c * (FORMAT_CELL + 1);
+                let selected = (r, c) == p.cell;
+                let end = canvas.put_within(y, x, right, &format!("{short:^FORMAT_CELL$}"), if selected { Style::Lit } else { Style::Plain });
+                if c + 1 < row.cells.len() && end < right {
+                    canvas.cells[y][end] = ('│', Style::Dim);
+                }
+                if selected {
+                    chosen = Some((word.clone(), x));
+                }
+            }
+        }
+        // The footer: which format, now in it, and (when it fits) what it is.
+        let footer = top + height - 2;
+        if let (Some((word, _)), true) = (chosen, height >= 6) {
+            let [name, what, example] = format_card_lines(&word);
+            let mut col = canvas.put_within(footer, left + 2, right, &name, Style::Bold);
+            col = canvas.put_within(footer, col, right, &format!(" · {}", example.trim_start_matches("now: ")), Style::Green);
+            if col + 3 + what.chars().count() < right {
+                canvas.put_within(footer, col, right, &format!(" · {what}"), Style::Dim);
+            }
+        }
+        return;
+    }
+
+    if p.tool == Some(crate::config::EARTH_DISTANCE) {
+        let text = "Distance along the Earth's surface (WGS84) between two places: a capital, a major city or coordinates (41.9,12.5). Enter writes `distance `, then type e.g. Rome to Paris mi";
+        for (i, line) in wrap(text, width.saturating_sub(4)).iter().take(visible).enumerate() {
+            canvas.put_within(first + i, left + 2, right, line, if i == 0 { Style::Bold } else { Style::Plain });
+        }
+        return;
+    }
+    let table = p.rows(app.config);
+    let offset = Picker::position(&table, p.selected).0.saturating_sub(visible.saturating_sub(1));
+    let mut chosen = None;
+    let mut x = left + 1;
+    for (i, unit) in items.iter().enumerate() {
+        let (r, c) = Picker::position(&table, i);
+        if c == 0 {
+            x = left + 1;
+        }
+        // A group's buttons fit their unit; a category's are all as wide as its longest.
+        let width = if p.group.is_some() { unit.symbol.chars().count() + 2 } else { button };
+        let at = x;
+        x += width + 1;
+        if r < offset || r >= offset + visible {
+            continue;
+        }
+        let row = first + r - offset;
+        let style = if i == p.selected { Style::Lit } else { Style::Bold };
+        let end = canvas.put_within(row, at, right, &format!("{:^width$}", unit.symbol), style);
+        if c + 1 < table[r] && end < right {
+            canvas.cells[row][end] = ('│', Style::Dim);
+        }
+        if i == p.selected {
+            chosen = Some((*unit, at, width));
+        }
+    }
+    if let Some((unit, x, width)) = chosen {
+        card(canvas, &unit_card_lines(app, category, unit, p.group.is_some()), (rows, head), (top, top + height - 1), (x, x + width));
+    }
+}
+
+/// `text` in lines of at most `width` characters, broken between words.
+fn wrap(text: &str, width: usize) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    for word in text.split_whitespace() {
+        match lines.last_mut() {
+            Some(line) if line.chars().count() + 1 + word.chars().count() <= width => {
+                line.push(' ');
+                line.push_str(word);
+            }
+            _ => lines.push(word.to_string()),
+        }
+    }
+    lines
+}
+
+/// The Trivia: the sections as tabs, the entries of the one shown (name, value), and the selected
+/// entry's description at the bottom. Top-right in the history, like the unit keys.
+fn trivia(app: &App, v: &super::trivia::View, canvas: &mut Canvas, rows: usize, head: usize) {
+    use super::trivia::LiveState;
+    let width = 78.min(canvas.cols - 3);
+    let height = (rows - 7 - head).max(8).min(rows - 5);
+    let top = (head + 1).min(rows - 5 - height);
+    let left = canvas.cols - 2 - width;
+    let right = left + width - 1;
+    canvas.boxed(top, left, height, width, crate::config::TRIVIA.0);
+    let mut col = left + 2;
+    for (i, name) in crate::trivia::sections().iter().enumerate() {
+        col = canvas.put_within(top + 1, col, right, &format!(" {name} "), if i == v.section { Style::Lit } else { Style::Dim });
+        col = canvas.put_within(top + 1, col, right, " ", Style::Plain);
+    }
+    let rule = |canvas: &mut Canvas, row: usize| {
+        canvas.cells[row][left + 1..right].fill(('─', Style::Dim));
+        canvas.cells[row][left] = ('├', Style::Dim);
+        canvas.cells[row][right] = ('┤', Style::Dim);
+    };
+    rule(canvas, top + 2);
+    // The description: up to 3 lines and one about the value's source, when there is room.
+    let footer = if height >= 13 { 4 } else { 0 };
+    let visible = height - 4 - if footer > 0 { footer + 1 } else { 0 };
+    let entries = v.entries();
+    let now = crate::time::now().ns.div_euclid(1_000_000_000) as i64;
+    // A live value: retrieved (JPL Horizons, CelesTrak), or its estimate and why.
+    let live = |e: &crate::trivia::Entry| {
+        let source = crate::trivia::source_name(e).unwrap_or("the network");
+        let estimate = crate::trivia::estimate_name(e);
+        match app.live.state(&e.name) {
+            LiveState::Done(Some(v)) if matches!(e.source, crate::trivia::Source::Satellites { .. }) => {
+                (Some(v), format!("from {source}, updated every 2 hours"))
+            }
+            LiveState::Done(Some(v)) => (Some(v), format!("now, from {source}")),
+            LiveState::Done(None) => (None, format!("{estimate} (offline)")),
+            LiveState::Pending
+                if matches!(app.network_status(), crate::network::Status::Offline | crate::network::Status::Forced) =>
+            {
+                (None, format!("{estimate} (offline)"))
+            }
+            LiveState::Pending if app.fetch_live => (None, format!("{estimate}; retrieving from {source}…")),
+            LiveState::Pending => (None, estimate),
+        }
+    };
+    // Columns: the name, the value (in the device's number format), the short description.
+    let values: Vec<String> = entries
+        .iter()
+        .map(|e| match &e.source {
+            crate::trivia::Source::Tip(example) => example.clone(),
+            _ => crate::trivia::value(app.config, e, live(e).0, now)
+                .map(|(x, _)| crate::trivia::shown(app.config, e, x, app.opts.precision, &|n| app.numbers.apply(&n)))
+                .unwrap_or_else(|err| err),
+        })
+        .collect();
+    let name_width = entries.iter().map(|e| e.name.chars().count()).max().unwrap_or(0).min(width / 2);
+    let value_width = values.iter().map(|v| v.chars().count()).max().unwrap_or(0);
+    let offset = v.selected.saturating_sub(visible.saturating_sub(1));
+    for (i, e) in entries.iter().enumerate().skip(offset).take(visible) {
+        let row = top + 3 + i - offset;
+        let selected = i == v.selected;
+        if selected {
+            canvas.cells[row][left + 1..right].fill((' ', Style::Lit));
+        }
+        let text = format!(" {:<name_width$}  {:>value_width$}  ", e.name, values[i]);
+        let col = canvas.put_within(row, left + 1, right, &text, if selected { Style::Lit } else { Style::Plain });
+        // The short description, cut with … when the window is too narrow.
+        let room = right.saturating_sub(col + 1);
+        let short: String = match e.short.chars().count() > room {
+            true => e.short.chars().take(room.saturating_sub(1)).chain(['…']).collect(),
+            false => e.short.clone(),
+        };
+        canvas.put_within(row, col, right, &short, if selected { Style::Lit } else { Style::Dim });
+    }
+    if footer == 0 {
+        return;
+    }
+    let base = top + height - 1 - footer;
+    rule(canvas, base - 1);
+    if let Some(e) = v.entry() {
+        for (i, line) in wrap(&e.description, width - 4).iter().take(3).enumerate() {
+            canvas.put_within(base + i, left + 2, right, line, Style::Plain);
+        }
+        let source = match &e.source {
+            crate::trivia::Source::Spacecraft { .. } | crate::trivia::Source::Satellites { .. } => live(e).1,
+            crate::trivia::Source::Between(..) => "computed from the coordinates".to_string(),
+            crate::trivia::Source::Tip(_) => "Enter writes the example".to_string(),
+            crate::trivia::Source::Value(_) => String::new(),
+        };
+        let launched = e.launched.as_ref().map(|l| format!("Launched {l}")).unwrap_or_default();
+        let info = [launched, source].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" · ");
+        canvas.put_within(base + 3, left + 2, right, &info, Style::Green);
+    }
+}
+
+/// The Trivia's popup, titled with the entry's name: its description; its Wikipedia link; then
+/// one line per fact, `Label: text` (the label in bold, the text wrapped under itself):
+///
+/// ```text
+/// Space probe launched by NASA in the Voyager program …
+///
+/// Wikipedia: https://en.wikipedia.org/wiki/Voyager_1
+///
+/// Current distance: 25,794,004,533 km - 172.4223 au (updated now)
+/// Launched: 1977-09-05 12:56 UTC
+/// ```
+///
+/// Scrolled down by `scroll` lines.
+fn trivia_popup(app: &App, v: &super::trivia::View, canvas: &mut Canvas, rows: usize, scroll: usize) {
+    let Some(entry) = v.entry() else { return };
+    let now = crate::time::now().ns.div_euclid(1_000_000_000) as i64;
+    let live = match app.live.state(&entry.name) {
+        super::trivia::LiveState::Done(au) => au,
+        super::trivia::LiveState::Pending => None,
+    };
+    let width = 76.min(canvas.cols - 4);
+    let text_width = width - 4;
+    // Each line: its pieces and their styles.
+    let mut lines: Vec<Vec<(String, Style)>> = wrap(&entry.description, text_width).into_iter().map(|l| vec![(l, Style::Plain)]).collect();
+    let facts = crate::trivia::popup(app.config, entry, live, now, app.opts.precision, &|n| app.numbers.apply(&n));
+    for (i, (label, text)) in facts.iter().enumerate() {
+        // A blank line after the description, and around the link.
+        if i == 0 || (i == 1 && facts[0].0 == "Wikipedia") {
+            lines.push(Vec::new());
+        }
+        let head = format!("{label}: ");
+        let indent = 2;
+        let first = text_width.saturating_sub(head.chars().count()).max(10);
+        let mut words = wrap(text, first).into_iter();
+        let first_line = words.next().unwrap_or_default();
+        let link = if label == "Wikipedia" { Style::Green } else { Style::Plain };
+        lines.push(vec![(head, Style::Bold), (first_line, link)]);
+        let rest: String = words.collect::<Vec<_>>().join(" ");
+        for l in wrap(&rest, text_width - indent) {
+            lines.push(vec![(format!("{}{l}", " ".repeat(indent)), link)]);
+        }
+    }
+    let height = (lines.len() + 2).min(rows - 2);
+    let (top, left, width, height) = centred(canvas, rows, width, height, &entry.name);
+    let right = left + width - 1;
+    let visible = height - 2;
+    let scroll = scroll.min(lines.len().saturating_sub(visible));
+    for (i, pieces) in lines.iter().skip(scroll).take(visible).enumerate() {
+        let mut col = left + 2;
+        for (text, style) in pieces {
+            col = canvas.put_within(top + 1 + i, col, right - 1, text, *style);
+        }
+    }
+    if scroll + visible < lines.len() {
+        canvas.put_within(top + height - 1, right.saturating_sub(10), right - 1, " ↓ more ", Style::Dim);
+    }
+}
+
+/// `/`: the query, and the units matching it (symbol, name, category), the chosen one lit.
+fn search(app: &App, s: &super::search::Search, canvas: &mut Canvas, rows: usize, head: usize) {
+    let found = super::search::matches(app.config, &s.query);
+    let width = 60.min(canvas.cols - 3);
+    let height = (found.len().max(1) + 4).min((rows - 7 - head).max(6)).min(rows - 5);
+    let top = (head + 1).min(rows - 5 - height);
+    let left = canvas.cols - 2 - width;
+    let right = left + width - 1;
+    canvas.boxed(top, left, height, width, "Search units");
+    let col = canvas.put_within(top + 1, left + 2, right, "/ ", Style::Yellow);
+    let col = canvas.put_within(top + 1, col, right, &s.query, Style::Bold);
+    canvas.put_within(top + 1, col, right, "▏", Style::Yellow);
+    canvas.cells[top + 2][left + 1..right].fill(('─', Style::Dim));
+    canvas.cells[top + 2][left] = ('├', Style::Dim);
+    canvas.cells[top + 2][right] = ('┤', Style::Dim);
+    let visible = height - 4;
+    if found.is_empty() {
+        canvas.put_within(top + 3, left + 2, right, "no unit matches", Style::Dim);
+        return;
+    }
+    let symbol_width = found.iter().map(|(_, u)| u.symbol.chars().count()).max().unwrap_or(0);
+    let offset = s.selected.saturating_sub(visible.saturating_sub(1));
+    for (i, (c, u)) in found.iter().enumerate().skip(offset).take(visible) {
+        let style = if i == s.selected { Style::Lit } else { Style::Plain };
+        let text = format!(" {:<symbol_width$}  {} · {} ", u.symbol, u.name, c.name);
+        canvas.put_within(top + 3 + i - offset, left + 1, right, &text, style);
+    }
+}
+
+/// Width of the Formats tab's row labels (`YYYY/MM/DD`) and of its cells (`ordinal`, `24h tz`).
+const FORMAT_LABEL: usize = 10;
+const FORMAT_CELL: usize = 9;
+
+/// The card of a date format: its name, what it is, and the current time in it.
+fn format_card_lines(word: &str) -> [String; 3] {
+    // Whole seconds: an example, not a clock.
+    let now = crate::time::now();
+    let now = crate::time::Instant { ns: now.ns - now.ns.rem_euclid(1_000_000_000), ..now };
+    let example = crate::time::format(&now, word).unwrap_or_else(|_| "not available here".into());
+    [word.to_string(), crate::time::describe_format(word), format!("now: {example}")]
+}
+
+/// What the card under the selected unit says: full name, aliases, value in the base unit.
+/// In a group's window (units of several quantities), the name says which: `Energy · joule`.
+fn unit_card_lines(app: &App, category: &crate::config::Category, unit: &crate::config::Unit, in_group: bool) -> [String; 3] {
+    let number = |v: f64| app.numbers.apply(&crate::convert::format_value(v, 10));
+    let aliases = match unit.aliases {
+        [] => "aliases: none".to_string(),
+        list => format!("aliases: {}", list.join(", ")),
+    };
+    let value = if unit.symbol == category.base {
+        format!("base unit of {}", category.name)
+    } else if unit.offset != 0.0 {
+        format!("0 {} = {} {}", unit.symbol, number(unit.offset), category.base)
+    } else {
+        format!("1 {} = {} {}", unit.symbol, number(unit.factor), category.base)
+    };
+    let name = match in_group {
+        true => format!("{} · {}", category.name, unit.name),
+        false => unit.name.to_string(),
+    };
+    [name, aliases, value]
+}
+
+/// A card below the unit keys window, starting under the selected button, with a `▲` pointing up at
+/// it. All the buttons stay visible. It moves left to stay on screen, and goes above the window
+/// (with a `▼`) when there is no room below the history.
+fn card(
+    canvas: &mut Canvas,
+    lines: &[String; 3],
+    (rows, head): (usize, usize),
+    (window_top, window_bottom): (usize, usize),
+    (button_left, button_right): (usize, usize),
+) {
+    // Inside the history's borders.
+    let width = (lines.iter().map(|l| l.chars().count()).max().unwrap_or(0) + 4).min(canvas.cols - 2);
+    let height = lines.len() + 2;
+    let left = button_left.min(canvas.cols - 1 - width);
+    // Below the window, inside the history (which ends 5 rows above the bottom); else above it;
+    // else, without covering the window's title, inside the window at its bottom. Never over the
+    // top bar (`head` rows).
+    let below = window_bottom + 1 + height <= rows - 5;
+    let above = window_top >= head + height;
+    let top = match (below, above) {
+        (true, _) => window_bottom + 1,
+        (false, true) => window_top - height,
+        (false, false) => window_bottom.saturating_sub(height).max(window_top + 1),
+    };
+    canvas.boxed(top, left, height, width, "");
+    let pointer = (button_left + button_right) / 2;
+    if (below || above) && (left + 1..left + width - 1).contains(&pointer) {
+        let edge = if below { top } else { top + height - 1 };
+        canvas.cells[edge][pointer] = (if below { '▲' } else { '▼' }, Style::Yellow);
+    }
+    let right = left + width - 1;
+    for (i, (text, style)) in lines.iter().zip([Style::Bold, Style::Plain, Style::Green]).enumerate() {
+        canvas.put_within(top + 1 + i, left + 2, right, text, style);
+    }
+}
+
+/// The readings of an ambiguous date, to choose from: `1  DD/MM/YYYY  2026-04-12`.
+fn choice(canvas: &mut Canvas, rows: usize, a: &crate::time::Ambiguity, selected: usize) {
+    let title = match a.kind {
+        crate::time::AmbiguityKind::City => format!("`{}` is not a city: which one?", a.text),
+        crate::time::AmbiguityKind::Country => format!("`{}` has several time zones: which one?", a.text),
+        crate::time::AmbiguityKind::Date => format!("`{}` is ambiguous: which date?", a.text),
+    };
+    let width = a.choices.iter().map(|c| c.pattern.chars().count() + c.date.chars().count() + 12).max().unwrap_or(0).max(title.chars().count() + 6);
+    let (top, left, width, _) = centred(canvas, rows, width, a.choices.len() + 2, &title);
+    let right = left + width - 1;
+    for (i, c) in a.choices.iter().enumerate() {
+        let row = top + 1 + i;
+        let text = format!(" {}  {:<12} {} ", i + 1, c.pattern, c.date);
+        let style = if i == selected { Style::Lit } else { Style::Plain };
+        canvas.put_within(row, left + 2, right - 1, &text, style);
+    }
+}
+
+/// `A`: the logo, the name and tagline, the facts (`about.rs`), centred.
+fn about(canvas: &mut Canvas, rows: usize) {
+    let facts = crate::about::facts(&crate::about::memory());
+    let title = format!("{} — {}", crate::about::NAME, crate::about::TAGLINE);
+    let mut lines: Vec<(String, Style)> = crate::about::ART.lines().map(|l| (l.to_string(), Style::Yellow)).collect();
+    lines.push((String::new(), Style::Plain));
+    lines.push((title.clone(), Style::Bold));
+    lines.push((String::new(), Style::Plain));
+    let width = lines.iter().map(|(l, _)| l.chars().count()).chain(facts.iter().map(|(l, v)| l.chars().count() + v.chars().count() + 2)).max().unwrap_or(0) + 4;
+    let height = lines.len() + facts.len() + 2;
+    let (top, left, width, _) = centred(canvas, rows, width, height, "About");
+    let right = left + width - 2;
+    for (i, (line, style)) in lines.iter().enumerate() {
+        canvas.put_within(top + 1 + i, left + 2, right, line, *style);
+    }
+    for (i, (label, value)) in facts.iter().enumerate() {
+        let row = top + 1 + lines.len() + i;
+        let col = canvas.put_within(row, left + 2, right, &format!("{label}: "), Style::Bold);
+        canvas.put_within(row, col, right, value, Style::Plain);
+    }
+}
+
+/// Section headings have an empty description.
+const HELP: &[(&str, &str)] = &[
+    ("Input mode", ""),
+    ("  type  ←/→  Backspace", "edit the expression"),
+    ("  Tab / Shift-Tab", "complete the unit (cycles)"),
+    ("  ↑/↓", "highlight an earlier entry (the bar is kept)"),
+    ("  Enter  C  Esc", "while one is: edit it, copy its result, stop"),
+    ("  Enter", "evaluate"),
+    ("  Esc", "command mode"),
+    ("  exit + Enter", "quit (quit + Enter works too)"),
+    ("Command mode", ""),
+    ("  ←/→  h/l", "highlight a shortcut in the top bar (it scrolls)"),
+    ("  Enter", "open the highlighted shortcut"),
+    ("  T D S P R", "open one: Time, Data, Size (S: Length, Area,"),
+    ("", "Volume, Angle, Earth distance), Other physical"),
+    ("", "(P: Mass, Temperature, Speed, Pressure, Fuel"),
+    ("", "economy, Energy, Power), Trivia (R)"),
+    ("  /", "search the units"),
+    ("  N", "write `now` (dates: now + 3d, now unix, …)"),
+    ("  I  i", "input mode (Enter there evaluates)"),
+    ("  j/k  ↑/↓", "browse the history, as in input mode"),
+    ("  w/b  0/$  Home/End", "move the cursor"),
+    ("  x", "delete the character under the cursor"),
+    ("  C", "show / hide the keypad over the history"),
+    ("  PgUp/PgDn", "scroll the history"),
+    ("  E  ?", "this help"),
+    ("  A", "about: version, memory, last online sync"),
+    ("  q", "quit"),
+    ("Unit keys (on the keypad)", ""),
+    ("  ←↓↑→  h j k l", "move; circular, wraps around at the edges"),
+    ("  Tab / Shift-Tab", "the next / previous tab (Metric / Imperial:"),
+    ("", "opens on the device's system; Data, Time: the"),
+    ("", "first). Size, Other physical: one tab per"),
+    ("", "category; metric units on one row, imperial"),
+    ("", "below"),
+    ("  T D S P", "another shortcut's units"),
+    ("  Enter", "write the unit and a space; stay for the next,"),
+    ("", "or, with the target set, back to input mode"),
+    ("", "replaces the unit under the cursor, else fills"),
+    ("", "the source, then the target"),
+    ("  Esc", "back to the digits, without choosing"),
+    ("Help", ""),
+    ("  j/k  ↑/↓  PgUp/PgDn", "scroll"),
+    ("Anywhere", ""),
+    ("  Ctrl-C  Ctrl-L", "quit, redraw"),
+];
+
+/// The help window; scrolls (j/k) when the terminal is shorter than the help.
+fn help(canvas: &mut Canvas, rows: usize, scroll: usize) {
+    let (top, left, width, height) = centred(canvas, rows, 80, HELP.len() + 2, "Help · Esc close");
+    let right = left + width - 2;
+    let visible = height - 2;
+    let scroll = scroll.min(HELP.len() - visible);
+    for (i, (keys, what)) in HELP.iter().skip(scroll).take(visible).enumerate() {
+        let row = top + 1 + i;
+        let style = if what.is_empty() { Style::Bold } else { Style::Plain };
+        canvas.put_within(row, left + 2, right, keys, style);
+        canvas.put_within(row, left + 26, right, what, Style::Dim);
+    }
+    let bottom = top + height - 1;
+    // tally's memory, on the bottom border, always shown: now (where known) and the peak.
+    let memory = match crate::json::current_kb() {
+        Some(now) => format!(" Memory: {} now · peak {} ", crate::json::size(now), crate::json::size(crate::json::peak_kb())),
+        None => format!(" Memory: peak {} ", crate::json::size(crate::json::peak_kb())),
+    };
+    canvas.put_within(bottom, left + 2, right.saturating_sub(9), &memory, Style::Dim);
+    if scroll > 0 {
+        canvas.put_within(top, right - 7, right, " ↑ more ", Style::Dim);
+    }
+    if scroll + visible < HELP.len() {
+        canvas.put_within(bottom, right - 7, right, " ↓ more ", Style::Dim);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::keys::{self, Key};
+    use super::*;
+    use crate::config::Config;
+    use crate::Options;
+
+    fn plain(s: &str) -> String {
+        let mut out = String::new();
+        let mut chars = s.chars();
+        while let Some(c) = chars.next() {
+            if c == '\x1b' {
+                chars.by_ref().find(|c| c.is_ascii_alphabetic());
+            } else {
+                out.push(c);
+            }
+        }
+        out.trim_end().to_string()
+    }
+
+    /// Types `keys` (`\n` = Enter, `\x1b` = Esc) and renders.
+    const OPTS: Options<'static> = Options { positional: Vec::new(), precision: 4, silent: false, verbose: false };
+
+    fn screen(keys: &str, rows: usize, cols: usize) -> (Vec<String>, Option<(usize, usize, CursorShape)>) {
+        let config = Config::default();
+        // Verbose: the status line shows the notes.
+        let opts = Options { positional: Vec::new(), precision: 4, silent: false, verbose: true };
+        let mut app = App::new(&config, &opts);
+        for c in keys.chars() {
+            app.handle(match c {
+                '\n' => Key::Enter,
+                '\x1b' => Key::Esc,
+                '\t' => Key::Tab,
+                _ => Key::Char(c),
+            });
+        }
+        let frame = render(&app, rows, cols);
+        (frame.lines.iter().map(|l| plain(l)).collect(), frame.cursor)
+    }
+
+    #[test]
+    fn sections() {
+        let (lines, cursor) = screen("10 km mi\n(100+20)/120\n100 + 20 sqft m", 14, 100);
+        assert_eq!(lines.len(), 14);
+        // Input mode: the units are hidden, the bar explains the modes.
+        assert!(lines[0].starts_with("┌─ Input mode ─"));
+        assert!(lines[1].starts_with("│ Press <Esc> for command mode, and I to be back to input mode"), "{}", lines[1]);
+        assert!(!lines[1].contains("Length"));
+        assert!(lines[3].starts_with("┌─ History ─"));
+        assert_eq!(&lines[4..6], ["│".to_string() + &" ".repeat(98) + "│", "│".to_string() + &" ".repeat(98) + "│"]);
+        assert!(lines[6].starts_with("│   10 km mi      = 6.2137 mi"), "{}", lines[6]);
+        assert!(lines[7].starts_with("│   (100+20)/120  = 1"));
+        assert!(lines[8].starts_with("└"));
+        assert!(lines[9].starts_with("┌─ Expression ─"));
+        assert!(lines[10].starts_with("│ > 100 + 20 sqft m "));
+        assert!(lines[11].contains("Tab: mm2 m2 mi2"), "{}", lines[11]);
+        assert!(lines[13].starts_with(" INPUT  note: evaluated as (100 + 20) / 120"), "{}", lines[13]);
+        assert!(lines[13].ends_with("<Esc> command mode · exit quit"));
+        assert_eq!(cursor, Some((10, 19, CursorShape::Bar)));
+    }
+
+    #[test]
+    fn command_mode_status_and_cursor() {
+        let (lines, cursor) = screen("10 km\x1b", 12, 80);
+        assert!(lines[11].starts_with(" COMMAND "));
+        assert!(lines[11].ends_with("←→ menu · Enter open · <I> input · <C> keypad · <E> help · <q> quit"), "{}", lines[11]);
+        // Command mode: the units, and how to go back to input mode.
+        assert!(lines[0].starts_with("┌─ Units ─"));
+        // No hints on the border: the status line has them.
+        assert!(lines[0].ends_with("──┐") && !lines[0].contains("input mode"), "{}", lines[0]);
+        // In the menu's order, on one line.
+        // The search first; a space between the items.
+        assert!(lines[1].starts_with("│  /  Search   T  Time   D  Data   S  Size   P  Other physical   R  Trivia "), "{}", lines[1]);
+        assert!(lines[2].starts_with("└─"), "{}", lines[2]);
+        // Moving the highlight scrolls the bar: at 40 columns, → → → shows Other physical.
+        let (config, opts) = (Config::default(), OPTS);
+        let mut app = App::new(&config, &opts);
+        app.handle(Key::Esc);
+        for _ in 0..4 {
+            app.handle(Key::Right);
+        }
+        let narrow: Vec<String> = render(&app, 12, 40).lines.iter().map(|l| plain(l)).collect();
+        assert!(narrow[1].starts_with("│ ‹  S  Size   P  Other physical  ›"), "{}", narrow[1]);
+        // In a narrow terminal, still one line: the shortcuts that fit, and › for the hidden ones.
+        let (narrow, _) = screen("10 km\x1b", 12, 40);
+        assert!(narrow[1].starts_with("│  /  Search   T  Time   D  Data  ›"), "{}", narrow[1]);
+        assert!(narrow[2].starts_with("└─") && narrow[3].starts_with("┌─ History"), "{}", narrow.join("\n"));
+        // With a hidden shortcut's units open, it scrolls to show it; ‹ for the ones before.
+        let (narrow, _) = screen("10 km\x1bP", 24, 40);
+        assert!(narrow[1].starts_with("│ ‹  S  Size   P  Other physical  ›"), "{}", narrow[1]);
+        let (narrow, _) = screen("10 km\x1bPD", 24, 40);
+        assert!(narrow[1].starts_with("│  /  Search   T  Time   D  Data  ›"), "back to the start: {}", narrow[1]);
+        assert_eq!(cursor.unwrap().2, CursorShape::Block);
+        // No Tab suggestions in command mode.
+        assert!(!lines.join("\n").contains("Tab:"));
+    }
+
+    #[test]
+    fn unit_keys_replace_the_digits() {
+        // Esc D: the keypad shows the Data units, top-right in the history: the Decimal tab first;
+        // Tab switches to Binary. No search row.
+        let (lines, _) = screen("10\x1bD", 24, 80);
+        let text = lines.join("\n");
+        assert!(!text.contains("│ 7 │"), "digits replaced");
+        assert!(lines[4].contains("┌─ Data units ─") && lines[4].ends_with("┐ │"), "{}", lines[4]);
+        assert!(lines[5].contains("│  Decimal   Binary "), "{}", lines[5]);
+        assert!(lines[6].contains("├──"), "{}", lines[6]);
+        assert!(lines[7].contains("│  B  │ kB  │ MB  │ GB  │ TB  "), "{}", lines[7]);
+        assert!(lines[9].contains("└──") && !lines[9].contains("Enter"), "no keys on the border: {}", lines[9]);
+        assert!(!text.contains(" KiB "), "binary units on the other tab");
+        assert!(!lines[4..10].join("\n").contains("/ "), "no search row");
+        assert!(!text.contains("Type an expression"), "hint hidden while picking");
+        // The navigation keys are on the status line.
+        assert!(lines[23].starts_with(" COMMAND "));
+        assert!(lines[23].ends_with("←↓↑→ h j k l move · Tab system · Enter write · <Esc> digits"), "{}", lines[23]);
+        let (lines, _) = screen("10\x1bD\t", 24, 80);
+        assert!(lines[7].contains("│  B  │ KiB │ MiB │ GiB │ TiB "), "Tab: {}", lines[7]);
+        // Shown even when the digit keypad is hidden.
+        let (lines, _) = screen("\x1bCD", 24, 80);
+        assert!(lines.join("\n").contains("Data units"));
+        // Another shortcut's letter: its units.
+        let (lines, _) = screen("\x1bDT", 24, 80);
+        assert!(lines.join("\n").contains("Time units"));
+    }
+
+    #[test]
+    fn other_physical_groups_the_rest() {
+        // Esc P: Mass, Temperature, Speed, Pressure, Fuel economy, Energy, Power.
+        let (lines, _) = screen("10\x1bP", 24, 80);
+        assert!(lines[4].contains("┌─ Other physical units ─"), "{}", lines[4]);
+        assert!(lines[5].contains("│  Mass   Temperature   Speed   Pressure   Fuel economy   Energy   Power "), "{}", lines[5]);
+        assert!(lines[7].contains("│ mg │ g │ kg │ t "), "{}", lines[7]);
+        assert!(lines[8].contains("│ oz │ lb │ st "), "{}", lines[8]);
+        let (lines, _) = screen("10\x1bP\t\t\t", 24, 80);
+        assert!(lines[7].contains("│ Pa │ hPa │ kPa │ MPa │ mbar │ bar │ atm │ mmHg │ Torr "), "{}", lines[7]);
+        assert!(lines[8].contains("│ psi │ inHg "), "{}", lines[8]);
+        let (lines, _) = screen("10\x1bP\t\t\t\t\t", 24, 80);
+        assert!(lines[7].contains("│ J │ kJ │ MJ │ GJ │ Wh │ kWh │ MWh │ cal │ kcal │ eV "), "{}", lines[7]);
+        assert!(lines[8].contains("│ BTU │ therm │ ft-lbf "), "{}", lines[8]);
+        // The last tab: Power.
+        let (lines, _) = screen("10\x1bP\t\t\t\t\t\t", 24, 80);
+        assert!(lines[7].contains("│ W │ kW │ MW │ GW │ PS "), "{}", lines[7]);
+    }
+
+    #[test]
+    fn trivia_window() {
+        let (lines, _) = screen("\x1bR", 24, 80);
+        assert!(lines[1].contains("  R  Trivia "), "{}", lines[1]);
+        assert!(lines[4].contains("┌─ Trivia ─"), "{}", lines[4]);
+        assert!(lines[5].contains("│  Earth   Space   Satellites   Math   Physics "), "{}", lines[5]);
+        // Name, value, short description; the first is a tip.
+        assert!(lines[7].contains("│ Distance between places  London to Paris km  Just type the cities"), "{}", lines[7]);
+        assert!(lines[8].contains("│ Equator                        40075.017 km  Earth's circumference"), "{}", lines[8]);
+        assert!(lines[13].contains("Just type the city from and to: London [to] Paris [mi/km/…]."), "the description: {}", lines[13]);
+        // Space: km, and the astronomical unit in brackets.
+        let (lines, _) = screen("\x1bR\t", 24, 80);
+        assert!(lines[7].contains("│ Voyager 1 ") && lines[8].contains("│ Voyager 2 "), "the Voyagers first: {}", lines[7]);
+        assert!(lines[10].contains("│ Sun – Mercury ") && lines[10].contains(" 57909227 km (0.3871 au)  Mean distance"), "{}", lines[10]);
+        assert!(lines[23].starts_with(" TRIVIA ") && lines[23].ends_with("Enter details · <Esc> back"), "{}", lines[23]);
+        // Space: the Voyagers first, estimated (no retrieval in the tests), with their launch.
+        let (lines, _) = screen("\x1bR\t", 24, 80);
+        let text = lines.join("\n");
+        assert!(text.contains("│ Voyager 1 ") && text.contains("Launched 1977-09-05 12:56 UTC · estimated"), "{text}");
+        // Satellites: counts, as of their date offline.
+        let (lines, _) = screen("\x1bR\t\t", 24, 80);
+        let text = lines.join("\n");
+        assert!(text.contains("│ Active satellites ") && text.contains("16701") && text.contains("as of 2026-10-11"), "{text}");
+        // Math: pi with 10 decimals.
+        let (lines, _) = screen("\x1bR\t\t\t", 24, 80);
+        assert!(lines.join("\n").contains("3.1415926536"));
+    }
+
+    #[test]
+    fn trivia_popup_window() {
+        // Enter: the popup, with the description and the details; Esc back to the list.
+        let (lines, cursor) = screen("\x1bR\t\t\t\n", 30, 80);
+        let text = lines.join("\n");
+        assert!(cursor.is_none());
+        assert!(text.contains("┌─ π (pi) ─") && text.contains("Mathematician") && text.contains("Archimedes"), "{text}");
+        assert!(text.contains("Definition") && text.contains("π = C / d"), "{text}");
+        assert!(lines[29].ends_with("Enter write the value · <Esc> back"), "{}", lines[29]);
+        // A planet: its distances from the Sun and the Earth, with the next dates.
+        let (lines, _) = screen("\x1bR\tjjjjjj\n", 30, 80);
+        let text = lines.join("\n");
+        assert!(text.contains("Wikipedia: https://en.wikipedia.org/wiki/Mars"), "{text}");
+        assert!(text.contains("Mean distance from the Sun: 227943822 km - 1.5237 au"), "{text}");
+        assert!(text.contains("Closest to the Sun (perihelion): ") && text.contains(", next on "), "{text}");
+        assert!(text.contains("Closest to the Earth: "), "{text}");
+        // Voyager 1, as in the request: description, link, current distance, launch.
+        let (lines, _) = screen("\x1bR\t\n", 30, 80);
+        let text = lines.join("\n");
+        assert!(text.contains("┌─ Voyager 1 ─") && text.contains("Space probe launched by NASA"), "{text}");
+        assert!(text.contains("Wikipedia: https://en.wikipedia.org/wiki/Voyager_1"), "{text}");
+        // The estimate grows with time: the format, not today's figure.
+        assert!(text.contains("Current distance: ") && text.contains(" km - 1") && text.contains(" au - ") && text.contains("e-3 ly"), "{text}");
+        assert!(text.contains("(estimated, offline)"), "{text}");
+        assert!(text.contains("Launched: 1977-09-05 12:56 UTC"), "{text}");
+        let (lines, _) = screen("\x1bR\t\t\t\n\x1b", 30, 80);
+        assert!(!lines.join("\n").contains("Mathematician"), "Esc: back to the list");
+    }
+
+    #[test]
+    fn search_window() {
+        let (lines, cursor) = screen("\x1b/kilo", 24, 80);
+        assert!(cursor.is_none(), "the search has its own caret");
+        let text = lines.join("\n");
+        assert!(text.contains("┌─ Search units ─") && text.contains("│ / kilo▏"), "{text}");
+        assert!(text.contains("│ km       kilometre · Length "), "{text}");
+        assert!(lines[23].starts_with(" SEARCH "), "{}", lines[23]);
+        let (lines, _) = screen("\x1b/zzz", 24, 80);
+        assert!(lines.join("\n").contains("no unit matches"));
+    }
+
+    #[test]
+    fn earth_distance_tab() {
+        let (lines, _) = screen("\x1bS\t\t\t\t", 24, 80);
+        let text = lines.join("\n");
+        assert!(text.contains("Distance along the Earth's surface (WGS84)"), "{text}");
+    }
+
+    #[test]
+    fn size_groups_length_area_volume() {
+        // Esc S: the Size units, one tab per category, metric units on one row and imperial below;
+        // each button as wide as its unit.
+        let (lines, _) = screen("10\x1bS", 24, 80);
+        assert!(lines[4].contains("┌─ Size units ─"), "{}", lines[4]);
+        assert!(lines[5].contains("│  Length   Area   Volume   Angle   Earth distance "), "{}", lines[5]);
+        assert!(lines[7].contains("│ mm │ cm │ m │ km │ au │ ly │ pc "), "{}", lines[7]);
+        assert!(lines[8].contains("│ in │ ft │ yd │ mi "), "{}", lines[8]);
+        // A third row: room for the Earth distance tab's explanation.
+        assert!(lines[10].contains("└──"), "{}", lines[10]);
+        assert!(lines[23].ends_with("Tab next tab · Enter write · <Esc> digits"), "{}", lines[23]);
+        // Tab: Area; Tab again: Volume, whose nine imperial units fit in 80 columns.
+        let (lines, _) = screen("10\x1bS\t", 24, 80);
+        assert!(lines[7].contains("│ mm2 │ cm2 │ m2 │ ha │ km2 "), "{}", lines[7]);
+        assert!(lines[8].contains("│ in2 │ ft2 │ yd2 │ ac │ mi2 "), "{}", lines[8]);
+        let (lines, _) = screen("10\x1bS\t\t", 24, 80);
+        assert!(lines[7].contains("│ ml │ cl │ l │ m3 "), "{}", lines[7]);
+        assert!(lines[8].contains("│ floz-us │ pt-us │ qt-us │ gal-us │ cup │ floz-uk │ pt-uk │ qt-uk │ gal-uk │"), "{}", lines[8]);
+        // The card under the selected unit: ↓ → pt-us.
+        let (lines, _) = screen("10\x1bS\t\tjl", 24, 80);
+        assert!(lines.join("\n").contains("│ Volume · US pint "), "{}", lines.join("\n"));
+    }
+
+    #[test]
+    fn card_under_the_selected_unit() {
+        // Length, Metric: mm selected first; → → → km.
+        let config = Config::default();
+        let opts = Options { positional: Vec::new(), precision: 4, silent: false, verbose: false };
+        let mut app = App::new(&config, &opts);
+        for key in [Key::Esc, Key::Char('S'), Key::Right, Key::Right, Key::Right, Key::Down] {
+            app.handle(key);
+        }
+        let lines: Vec<String> = render(&app, 24, 80).lines.iter().map(|l| plain(l)).collect();
+        let button = lines.iter().position(|l| l.contains("│ in │ ft │ yd │ mi ")).unwrap();
+        let km = lines[button].chars().collect::<Vec<_>>().windows(4).position(|w| w == [' ', 'm', 'i', ' ']).unwrap();
+        // The window's bottom border follows (after Size's third row); the card starts under it,
+        // under mi, pointing up at it.
+        assert!(lines[button + 2].contains("└─"));
+        let card_top: Vec<char> = lines[button + 3].chars().collect();
+        // It starts under mi, or further left when it would not fit; ▲ is always under mi.
+        assert!(card_top[..=km].contains(&'┌'), "{}", lines[button + 3]);
+        assert_eq!(card_top[km + 2], '▲', "{}", lines[button + 3]);
+        assert!(lines[button + 4].contains("│ Length · mile "));
+        assert!(lines[button + 5].contains("│ aliases: mile, miles "));
+        assert!(lines[button + 6].contains("│ 1 mi = 1609.344 m "));
+        assert!(lines[button + 7].contains('└'));
+        // The history's right border is not covered.
+        assert!(lines[button + 3..button + 8].iter().all(|l| l.ends_with("│") || l.ends_with("┐") || l.ends_with("┘")));
+    }
+
+    #[test]
+    fn card_contents() {
+        // Base unit, no aliases, data, temperature, imperial.
+        let config = Config::default();
+        let opts = Options { positional: Vec::new(), precision: 4, silent: false, verbose: false };
+        let card = |category: &str, symbol: &str| {
+            let app = App::new(&config, &opts);
+            let cat = config.categories.iter().find(|c| c.name == category).unwrap();
+            let unit = cat.units.iter().find(|u| u.symbol == symbol).unwrap();
+            unit_card_lines(&app, cat, unit, false)
+        };
+        assert_eq!(card("Length", "m"), ["metre", "aliases: meter, meters, metre, metres", "base unit of Length"]);
+        assert_eq!(card("Data", "MB"), ["megabyte (10⁶ bytes)", "aliases: none", "1 MB = 8000000 b"]);
+        assert_eq!(card("Temperature", "C"), ["degree Celsius", "aliases: °C, celsius", "0 C = 273.15 K"]);
+        assert_eq!(card("Volume", "floz-uk")[1..], ["aliases: none".to_string(), "1 floz-uk = 0.0284130625 l".to_string()]);
+        assert_eq!(card("Mass", "lb")[2], "1 lb = 0.45359237 kg");
+        // Too small for 10 decimals: scientific notation.
+        assert_eq!(card("Energy", "eV")[2], "1 eV = 1.602176634e-19 J");
+        // In a group's window: what the unit measures.
+        let app = App::new(&config, &opts);
+        let energy = config.categories.iter().find(|c| c.name == "Energy").unwrap();
+        let kwh = energy.units.iter().find(|u| u.symbol == "kWh").unwrap();
+        assert_eq!(unit_card_lines(&app, energy, kwh, true)[0], "Energy · kilowatt-hour");
+    }
+
+    #[test]
+    fn card_stays_on_screen() {
+        // The last unit of the row is near the right edge: the card moves left. In a short terminal
+        // it goes above the button.
+        for (rows, cols) in [(24, 80), (12, 40), (14, 60)] {
+            for keys in ["\x1bS\x1b[C", "\x1bS\t\t\x1b[B", "\x1bD\t"] {
+                let config = Config::default();
+                let opts = Options { positional: Vec::new(), precision: 4, silent: false, verbose: false };
+                let mut app = App::new(&config, &opts);
+                for k in keys::decode(keys.as_bytes()).0 {
+                    app.handle(k);
+                }
+                for _ in 0..4 {
+                    app.handle(Key::Right);
+                }
+                let lines: Vec<String> = render(&app, rows, cols).lines.iter().map(|l| plain(l)).collect();
+                assert_eq!(lines.len(), rows);
+                assert!(lines.iter().all(|l| l.chars().count() <= cols), "{keys:?} {rows}x{cols}");
+                assert!(lines.join("\n").contains("aliases:"), "{keys:?} {rows}x{cols}: card shown");
+            }
+        }
+    }
+
+    #[test]
+    fn area_and_data_have_five_columns() {
+        let (lines, _) = screen("\x1bD", 24, 80);
+        // Bytes on the first row, bits below.
+        let bytes = lines.iter().position(|l| l.contains("│  B  │ kB  │ MB  │ GB  │ TB  ")).expect("bytes row");
+        assert!(lines[bytes + 1].contains("│  b  │ kb  │ Mb  │ Gb  │ Tb  "), "{}", lines[bytes + 1]);
+        assert!(lines[bytes - 1].starts_with("│") && lines[bytes - 1].contains("├─"), "first row of buttons");
+        let (lines, _) = screen("\x1bD\t", 24, 80);
+        let bytes = lines.iter().position(|l| l.contains("│  B  │ KiB │ MiB │ GiB │ TiB ")).expect("bytes row");
+        assert!(lines[bytes + 1].contains("│  b  │ Kib │ Mib │ Gib │ Tib "));
+    }
+
+    #[test]
+    fn time_window_durations_and_dates() {
+        // Durations: every time unit on the first tab.
+        let (lines, _) = screen("\x1bT", 24, 80);
+        let text = lines.join("\n");
+        assert!(lines[4].contains("─ Time units ─"), "{}", lines[4]);
+        assert!(text.contains(" Durations   Formats "));
+        assert!(text.contains("│ ns  │ us  │ ms  │  s  │ min ") && text.contains("│  h  │  d  │ wk  │ mo  │ yr "), "{text}");
+        assert!(text.contains("nanosecond"), "the card, inside the window: {text}");
+        // Formats: the table of formats, and the footer for the selected one (25 rows: with the
+        // two-line units bar, 24 rows scroll the table).
+        let (lines, _) = screen("\x1bT\t", 25, 80);
+        let text = lines.join("\n");
+        assert!(lines[4].contains("─ Time units ─"), "the title is not covered: {}", lines[4]);
+        for row in ["ISO           iso   │   utc   │  basic  │  date   │  time", "Unix/local     s    │   ms    │   µs    │   ns    │  local",
+            "YYYY/MM/DD   date   │   24h   │ 24h tz  │   12h   │ 12h tz", "MM/DD/YY     date   │   24h   │ 24h tz  │   12h   │ 12h tz"] {
+            assert!(text.contains(row), "{row}\n{text}");
+        }
+        // The footer: the selected format and now in it; the window stays inside the history.
+        assert!(text.contains("│ iso · 20"), "{text}");
+        assert!(lines[18].starts_with("│ ") && lines[19].starts_with("└"), "inside the history:\n{text}");
+        // l l: basic.
+        let (lines, _) = screen("\x1bT\tll", 24, 80);
+        assert!(lines.join("\n").contains("iso-basic · 20"));
+        // A pattern: its name and now in it, e.g. `DD/MM/YYYY-12h-tz · 10/10/2026 06:45:54 PM +02:00`.
+        let (lines, _) = screen("\x1bT\tjjjjjjllll", 24, 80);
+        assert!(lines.join("\n").contains("DD/MM/YYYY-12h-tz · "), "{}", lines.join("\n"));
+    }
+
+    #[test]
+    fn data_tabs_are_decimal_and_binary() {
+        let (lines, _) = screen("\x1bD", 24, 80);
+        let text = lines.join("\n");
+        assert!(text.contains(" Decimal   Binary "));
+        assert!(text.contains(" kB ") && !text.contains("KiB"));
+        let (lines, _) = screen("\x1bD\t", 24, 80);
+        let text = lines.join("\n");
+        assert!(text.contains(" KiB ") && !text.contains(" kB "));
+    }
+
+    #[test]
+    fn unit_keys_fit_every_category() {
+        let config = Config::default();
+        // The Trivia has its own window (`trivia_window`).
+        for shortcut in shortcuts(&config).into_iter().filter(|s| !s.categories.is_empty()) {
+            let key = shortcut.key;
+            for (rows, cols) in [(12, 40), (24, 80)] {
+                // Every tab: a category's two, a group's one per category.
+                let tabs = shortcut.categories.len().max(2);
+                let screens: Vec<Vec<String>> = (0..tabs).map(|t| screen(&format!("\x1b{key}{}", "\t".repeat(t)), rows, cols).0).collect();
+                let first = &screens[0];
+                assert!(first.join("\n").contains(&format!("{} units", shortcut.name)) || cols < 50, "{} {rows}x{cols}", shortcut.name);
+                assert!(screens.iter().flatten().all(|l| l.chars().count() <= cols));
+                // At 80 columns every unit is on one of the tabs, and visible there.
+                if cols == 80 {
+                    assert!(!first.join("\n").contains("Time units") || first[4].contains("Time units"), "the title is not covered");
+                    let all = screens.iter().map(|s| s.join("\n")).collect::<Vec<_>>().join("\n");
+                    for u in shortcut.categories.iter().flat_map(|&c| &config.categories[c].units) {
+                        assert!(all.contains(&format!(" {} ", u.symbol)), "{} missing", u.symbol);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn help_window() {
+        let (lines, cursor) = screen("\x1bE", 48, 90);
+        let text = lines.join("\n");
+        assert!(text.contains("Help · Esc close"));
+        assert!(text.contains("T D S P") && text.contains("this help") && text.contains("Ctrl-C"));
+        assert!(text.contains("exit + Enter"));
+        assert!(!text.contains("more"), "everything fits");
+        assert!(cursor.is_none());
+    }
+
+    #[test]
+    fn online_indicator() {
+        use crate::network::Status;
+        let config = Config::default();
+        let opts = Options { positional: Vec::new(), precision: 4, silent: false, verbose: false };
+        let top = |status: Status, cols: usize, command: bool| {
+            let mut app = App::new(&config, &opts);
+            *app.network.lock().unwrap() = status;
+            if command {
+                app.handle(Key::Esc);
+            }
+            plain(&render(&app, 12, cols).lines[0])
+        };
+        // Top right, in both modes; checking until the first answer.
+        assert!(top(Status::Checking, 80, false).ends_with(" ○ checking… ──┐"));
+        assert!(top(Status::Online, 80, false).ends_with(" ● online ──┐"));
+        assert!(top(Status::Online, 80, true).starts_with("┌─ Units ─") && top(Status::Online, 80, true).ends_with(" ● online ──┐"));
+        assert!(top(Status::Offline, 80, true).ends_with(" ● offline ──┐"));
+        assert!(top(Status::Forced, 80, false).ends_with(" ● offline (forced) ──┐"));
+        // Narrow: the short label.
+        assert!(top(Status::Forced, 40, false).ends_with(" ● offline ──┐"), "{}", top(Status::Forced, 40, false));
+        // A change is noticed once, for the redraw.
+        let mut app = App::new(&config, &opts);
+        assert!(!app.network_changed());
+        *app.network.lock().unwrap() = Status::Online;
+        assert!(app.network_changed());
+        assert!(!app.network_changed());
+    }
+
+    #[test]
+    fn about_window() {
+        let (lines, cursor) = screen("\x1bA", 24, 80);
+        let text = lines.join("\n");
+        assert!(cursor.is_none());
+        assert!(text.contains("┌─ About ─") && text.contains("|_   _|_ _| | |_  _"), "{text}");
+        assert!(text.contains("Tally — Ultralight calculator and converter made for humans"), "{text}");
+        assert!(text.contains("Memory: ") && text.contains("Last online sync: ") && text.contains("Version: "), "{text}");
+        assert!(lines[23].starts_with(" ABOUT "), "{}", lines[23]);
+        let (lines, _) = screen("\x1bA\x1b", 24, 80);
+        assert!(!lines.join("\n").contains("┌─ About ─"), "Esc closes it");
+    }
+
+    #[test]
+    fn help_shows_memory() {
+
+        // Short or tall, scrolled or not: the memory is on the bottom border.
+        for rows in [14, 48] {
+            let (lines, _) = screen("\x1bE", rows, 90);
+            let text = lines.join("\n");
+            assert!(text.contains(" Memory: ") && text.contains(" peak "), "{text}");
+            if cfg!(target_os = "linux") {
+                assert!(text.contains(" now · peak "), "{text}");
+            }
+        }
+    }
+
+    #[test]
+    fn help_scrolls_when_short() {
+        let (lines, _) = screen("\x1bE", 14, 80);
+        let text = lines.join("\n");
+        assert!(text.contains("Input mode") && text.contains("↓ more") && !text.contains("Ctrl-C"));
+        // Scrolled past the end: stops at the last line.
+        let (lines, _) = screen(&format!("\x1bE{}", "j".repeat(50)), 14, 80);
+        let text = lines.join("\n");
+        assert!(text.contains("Ctrl-C") && text.contains("↑ more") && !text.contains("↓ more"));
+    }
+
+    #[test]
+    fn help_fits_80_columns() {
+        let (lines, _) = screen("\x1bE", 48, 80);
+        for (keys, what) in HELP {
+            let text = format!("{keys}").trim().to_string();
+            assert!(text.is_empty() || lines.iter().any(|l| l.contains(&text)), "{text}");
+            assert!(what.is_empty() || lines.iter().any(|l| l.contains(what)), "cut: {what}");
+        }
+    }
+
+    #[test]
+    fn preview_shows_the_grouping() {
+        let (lines, _) = screen("12+12/3", 12, 80);
+        assert!(lines[9].starts_with("│   (12 + (12 / 3)) = 16"), "{}", lines[9]);
+        let (lines, _) = screen("100 + 20 + 50 / 10 sqft m2", 12, 80);
+        assert!(lines[9].starts_with("│   ((100 + 20) + (50 / 10)) = 11.6129 m2"), "{}", lines[9]);
+        // A plain conversion: just the result.
+        let (lines, _) = screen("10 km mi", 12, 80);
+        assert!(lines[9].starts_with("│   = 6.2137 mi"), "{}", lines[9]);
+        // Only the source unit so far: what comes next follows the grouping.
+        let (lines, _) = screen("1+2 km", 12, 100);
+        assert!(lines[9].starts_with("│   (1 + 2) · now the target unit"), "{}", lines[9]);
+        // A real error follows the grouping too.
+        let (lines, _) = screen("1+2 km mi m", 12, 100);
+        assert!(lines[9].starts_with("│   (1 + 2) · expected"), "{}", lines[9]);
+    }
+
+    #[test]
+    fn keypad_in_front_of_the_history() {
+        // Full size, top-right: 24 rows leave 14 history rows.
+        let (lines, _) = screen("", 24, 80);
+        assert!(lines[4].starts_with("│ Type an expression"), "{}", lines[4]);
+        assert!(lines[4].ends_with("┌───┬───┬───┬───┐ │"), "{}", lines[4]);
+        assert!(lines[5].ends_with("│ ( │ ) │ ^ │ / │ │"));
+        assert!(lines[6].ends_with("├───┼───┼───┼───┤ │"));
+        assert!(lines[7].ends_with("│ 7 │ 8 │ 9 │ * │ │"));
+        assert!(lines[13].ends_with("│ 0 │ . │ e │ = │ │"));
+        assert!(lines[14].ends_with("└───┴───┴───┴───┘ │"));
+        // Compact on a short terminal.
+        let (lines, _) = screen("", 17, 80);
+        let compact = [
+            "┌─────────────┐ │", "│ (  )  ^  /  │ │", "│ 7  8  9  *  │ │", "│ 4  5  6  -  │ │",
+            "│ 1  2  3  +  │ │", "│ 0  .  e  =  │ │", "└─────────────┘ │",
+        ];
+        for (line, want) in lines[4..11].iter().zip(compact) {
+            assert!(line.ends_with(want), "{line}");
+        }
+        // It covers the history lines under it; the newest lines (bottom) stay visible.
+        let wide: String = (1..=20).map(|i| format!("{}+{i}\n", "1".repeat(70))).collect();
+        let (lines, _) = screen(&wide, 24, 80);
+        assert!(lines[5].ends_with("│ ( │ ) │ ^ │ / │ │"));
+        assert!(lines[17].contains("+20"), "{}", lines[17]);
+        // C hides it and the lines show.
+        let (lines, _) = screen(&format!("{wide}\x1bC"), 24, 80);
+        assert!(!lines[5].contains("│ ( │"), "{}", lines[5]);
+        // Too short for even the compact one: not drawn.
+        let (lines, _) = screen("", 16, 80);
+        assert!(!lines.join("").contains("┌───"));
+    }
+
+    #[test]
+    fn keypad_lights_the_key_typed() {
+        let config = Config::default();
+        let opts = Options { positional: Vec::new(), precision: 4, silent: false, verbose: false };
+        let mut app = App::new(&config, &opts);
+        for digit in "0123456789".chars() {
+            app.handle(Key::Char(digit));
+            let frame = render(&app, 24, 80);
+            let lit: Vec<_> = frame.lines.iter().filter(|l| l.contains(&format!("\x1b[1;30;43m {digit} "))).collect();
+            assert_eq!(lit.len(), 1, "{digit} lit");
+            assert_eq!(frame.lines.iter().map(|l| l.matches("\x1b[1;30;43m").count()).sum::<usize>(), 1, "only {digit} lit");
+        }
+    }
+
+    #[test]
+    fn errors_and_preview() {
+        let (lines, _) = screen("10 km kg\n10 km m", 12, 100);
+        let text = lines.join("\n");
+        assert!(text.contains("10 km kg  ✗ cannot convert `km` to `kg`: different kinds of unit"));
+        assert!(lines[9].contains("= 10000 m"), "{}", lines[9]);
+        assert!(lines[11].starts_with(" INPUT  error: "));
+    }
+
+    #[test]
+    fn everything_fits() {
+        let long = "1+".repeat(60) + "1";
+        for (rows, cols) in [(12, 40), (24, 80), (50, 200)] {
+            for keys in [long.as_str(), "10 km mi\n\x1bS", "\x1bSkilometre", "\x1bE", "1\n2\n3\n4\n5\n6\n7\n8\n9\n"] {
+                let (lines, cursor) = screen(keys, rows, cols);
+                assert_eq!(lines.len(), rows);
+                assert!(lines.iter().all(|l| l.chars().count() <= cols), "{keys:?} at {rows}x{cols}");
+                if let Some((r, c, _)) = cursor {
+                    assert!(r < rows && c < cols, "{keys:?} at {rows}x{cols}: cursor {r},{c}");
+                }
+            }
+        }
+    }
+
+    /// Bug 003: no erase after a full-width line, and every line is exactly the screen width.
+    #[test]
+    fn frames_fill_the_width_without_erasing() {
+        let config = Config::default();
+        let opts = Options { positional: Vec::new(), precision: 4, silent: false, verbose: false };
+        let app = App::new(&config, &opts);
+        for (rows, cols) in [(24, 80), (12, 40), (8, 40)] {
+            let frame = render(&app, rows, cols);
+            let ansi = frame.to_ansi(true);
+            assert!(!ansi.contains("\x1b[K"), "{rows}x{cols}");
+            assert!(frame.lines.iter().all(|l| plain(l).chars().count() <= cols));
+            if rows >= MIN_ROWS {
+                let full = |l: &String| {
+                    let mut out = String::new();
+                    let mut chars = l.chars();
+                    while let Some(c) = chars.next() {
+                        if c == '\x1b' {
+                            chars.by_ref().find(|c| c.is_ascii_alphabetic());
+                        } else {
+                            out.push(c);
+                        }
+                    }
+                    out.chars().count()
+                };
+                assert!(frame.lines.iter().all(|l| full(l) == cols), "{rows}x{cols}: every line is full width");
+            }
+        }
+    }
+
+    #[test]
+    fn ambiguity_popup() {
+        let (lines, cursor) = screen("12/04/2026 unix\n", 24, 80);
+        let text = lines.join("\n");
+        assert!(text.contains("`12/04/2026` is ambiguous: which date?"), "{text}");
+        assert!(text.contains(" 1  ") && text.contains(" 2  ") && text.contains("DD/MM/YYYY   2026-04-12"), "{text}");
+        assert!(lines[23].starts_with(" CHOOSE ") && lines[23].ends_with("Enter confirm · <Esc> back"), "{}", lines[23]);
+        assert!(cursor.is_none());
+    }
+
+    #[test]
+    fn too_small() {
+        let (lines, cursor) = screen("", 8, 40);
+        assert_eq!(lines[0], "terminal too small (needs 40x12)");
+        assert!(cursor.is_none());
+    }
+}
