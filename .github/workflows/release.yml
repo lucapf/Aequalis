@@ -1,125 +1,146 @@
-# Builds tally for Linux (Ubuntu), Arch Linux / Omarchy (a pacman package) and macOS (universal:
-# Intel and Apple Silicon). On a tag `v*` the files are attached to a GitHub release; run by hand
-# (Actions → Release → Run workflow) they are only kept as the run's artifacts.
+# Every push to master is a release: the version goes up, tally is built for Linux (x86_64 and
+# aarch64) and macOS (Apple Silicon), and a GitHub release `v<version>` gets the archives.
+#
+# The version: the latest `v*` tag (none yet: Cargo.toml's) with the patch number up by one. A
+# commit message starting with `minor` or `major` (any case: `minor: add …`, `Major …`) raises that
+# number instead; with several commits in the push, the largest bump wins. Cargo.toml is not
+# changed in the repository: the tags are the version, written into Cargo.toml for the build only.
 name: Release
 
 on:
   push:
-    tags: ["v*"]
+    branches: [master]
   workflow_dispatch:
 
 permissions:
   contents: write
 
+# One release at a time, in push order: each version is computed from the previous one's tag.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # The version: the tag without its `v` (it must match Cargo.toml), else Cargo.toml's.
   version:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.v.outputs.version }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       - id: v
         run: |
-          cargo_version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
-          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
-            tag="${GITHUB_REF_NAME#v}"
-            if [ "$tag" != "$cargo_version" ]; then
-              echo "::error::tag $GITHUB_REF_NAME does not match Cargo.toml version $cargo_version"
-              exit 1
-            fi
+          # Already released (a re-run): the same version.
+          done=$(git tag --points-at HEAD --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -1)
+          if [ -n "$done" ]; then
+            echo "version=${done#v}" >> "$GITHUB_OUTPUT"
+            echo "HEAD is already $done"
+            exit 0
           fi
-          echo "version=$cargo_version" >> "$GITHUB_OUTPUT"
+          last=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -1)
+          if [ -n "$last" ]; then
+            base=${last#v}
+            range="$last..HEAD"
+          else
+            base=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+            range=HEAD
+          fi
+          subjects=$(git log --format=%s "$range")
+          bump=patch
+          if printf '%s\n' "$subjects" | grep -qiE '^major([^[:alnum:]]|$)'; then
+            bump=major
+          elif printf '%s\n' "$subjects" | grep -qiE '^minor([^[:alnum:]]|$)'; then
+            bump=minor
+          fi
+          IFS=. read -r major minor patch <<< "$base"
+          case $bump in
+            major) version="$((major + 1)).0.0" ;;
+            minor) version="$major.$((minor + 1)).0" ;;
+            patch) version="$major.$minor.$((patch + 1))" ;;
+          esac
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "${last:-Cargo.toml $base} → v$version ($bump)"
 
-  # Ubuntu 22.04: the binary needs glibc 2.35 or newer, so it also runs on newer Ubuntu, Debian,
+  # Ubuntu 22.04: the binaries need glibc 2.35 or newer, so they also run on newer Ubuntu, Debian,
   # Fedora and Arch Linux / Omarchy.
   linux:
     needs: version
-    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-22.04
+          - arch: aarch64
+            runner: ubuntu-22.04-arm
+    runs-on: ${{ matrix.runner }}
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
     steps:
       - uses: actions/checkout@v5
       - name: Toolchain
-        run: rustup toolchain install stable --profile minimal && rustup default stable
+        run: |
+          if ! command -v rustup >/dev/null; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+            export PATH="$HOME/.cargo/bin:$PATH"
+          fi
+          rustup toolchain install stable --profile minimal && rustup default stable
+      - name: Version
+        run: |
+          sed -i -E "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
+          sed -i -E "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" omarchy-widget/manifest.json
       - name: Test
         run: cargo test --release
       - name: Build
-        run: cargo build --release
+        run: |
+          cargo build --release
+          test "$(target/release/tally --version)" = "tally $VERSION"
+          target/release/tally 10 km mi
       - name: Package
         run: |
-          name=tally-${{ needs.version.outputs.version }}-x86_64-linux
+          name=tally-$VERSION-${{ matrix.arch }}-linux
           mkdir -p "dist/$name"
-          cp target/release/tally LICENSE README.md "dist/$name/"
-          cp -r docs omarchy-widget "dist/$name/"
+          cp target/release/tally LICENSE README.md docs/Accepted_Syntax.md "dist/$name/"
+          cp -r omarchy-widget "dist/$name/"
           tar -C dist -czf "dist/$name.tar.gz" "$name"
           (cd dist && sha256sum "$name.tar.gz" > "$name.tar.gz.sha256")
       - uses: actions/upload-artifact@v4
         with:
-          name: linux
+          name: linux-${{ matrix.arch }}
           path: dist/*.tar.gz*
 
-  # Arch Linux / Omarchy: a pacman package, built with makepkg in an Arch Linux container.
-  # Install it with `sudo pacman -U tally-<version>-1-x86_64.pkg.tar.zst`.
-  arch:
-    needs: version
-    runs-on: ubuntu-latest
-    container: archlinux:latest
-    steps:
-      - name: Tools
-        run: pacman -Syu --noconfirm --needed base-devel git rust tzdata
-      - uses: actions/checkout@v5
-      - name: Build the package
-        run: |
-          # makepkg does not run as root.
-          useradd -m builder
-          chown -R builder "$GITHUB_WORKSPACE"
-          sed -i "s/^pkgver=.*/pkgver=${{ needs.version.outputs.version }}/" packaging/arch/PKGBUILD
-          su builder -c "cd '$GITHUB_WORKSPACE/packaging/arch' && makepkg -f --nodeps"
-          mkdir -p dist
-          cp packaging/arch/*.pkg.tar.zst dist/
-          (cd dist && for f in *.pkg.tar.zst; do sha256sum "$f" > "$f.sha256"; done)
-      - name: Check the package
-        run: |
-          pacman -U --noconfirm dist/*.pkg.tar.zst
-          tally 10 km mi
-          tally --version
-      - uses: actions/upload-artifact@v4
-        with:
-          name: arch
-          path: dist/*
-
-  # macOS: one universal binary (Intel and Apple Silicon), built on an Apple Silicon runner.
+  # macOS on Apple Silicon (macOS 11 or newer).
   macos:
     needs: version
-    runs-on: macos-latest
+    runs-on: macos-14
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
     steps:
       - uses: actions/checkout@v5
       - name: Toolchain
-        run: |
-          rustup toolchain install stable --profile minimal
-          rustup default stable
-          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+      - name: Version
+        run: sed -i '' -E "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
       - name: Test
         # Not yet verified on macOS: reported, not blocking the release.
         continue-on-error: true
         run: cargo test --release
       - name: Build
         run: |
-          cargo build --release --target aarch64-apple-darwin
-          cargo build --release --target x86_64-apple-darwin
-          mkdir -p target/universal
-          lipo -create -output target/universal/tally \
-            target/aarch64-apple-darwin/release/tally target/x86_64-apple-darwin/release/tally
-          lipo -info target/universal/tally
-          target/universal/tally 10 km mi
+          cargo build --release
+          file target/release/tally
+          test "$(target/release/tally --version)" = "tally $VERSION"
+          target/release/tally 10 km mi
       - name: Package
         run: |
-          name=tally-${{ needs.version.outputs.version }}-universal-macos
+          name=tally-$VERSION-aarch64-macos
           mkdir -p "dist/$name"
-          cp target/universal/tally LICENSE README.md "dist/$name/"
-          cp -r docs "dist/$name/"
+          cp target/release/tally LICENSE README.md docs/Accepted_Syntax.md "dist/$name/"
           tar -C dist -czf "dist/$name.tar.gz" "$name"
           (cd dist && shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256")
       - uses: actions/upload-artifact@v4
@@ -127,17 +148,23 @@ jobs:
           name: macos
           path: dist/*.tar.gz*
 
-  # On a tag: a GitHub release with every file.
+  # The release `v<version>` on the pushed commit (the tag is created with it), with every archive.
   release:
-    if: github.ref_type == 'tag'
-    needs: [linux, arch, macos]
+    needs: [version, linux, macos]
     runs-on: ubuntu-latest
+    env:
+      TAG: v${{ needs.version.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
       - name: Publish
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "Tally $GITHUB_REF_NAME" --generate-notes
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+              --title "Tally $TAG" --generate-notes
+          fi
