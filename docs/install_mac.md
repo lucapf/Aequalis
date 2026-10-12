@@ -6,7 +6,7 @@
 
 1. open the terminal
 2. execute the following script:
-````
+
 ```
 curl -LO https://github.com/lucapf/tally/releases/download/v0.1.1/tally-0.1.1-aarch64-macos.tar.gz
 tar xzf tally-0.1.1-aarch64-macos.tar.gz
