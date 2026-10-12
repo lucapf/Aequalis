@@ -167,18 +167,27 @@ pub fn interval() -> i64 {
     parse_interval(std::env::var("TALLY_ONLINE_REFRESH_INTERVAL").ok().as_deref()).unwrap_or(DEFAULT_INTERVAL)
 }
 
-/// Whether the data needs a sync at `now`: never synced, or synced longer ago than `interval`;
-/// after a failed try, not before `RETRY_AFTER` (or the interval) has passed.
-pub fn expired(data: &Data, now: i64, interval: i64) -> bool {
+/// Whether the data needs a sync at `now`: never synced, synced longer ago than `interval`, or
+/// missing one of `names` (the exchange rates, which come all together or not at all: added since
+/// the last sync); after a failed try, not
+/// before `RETRY_AFTER` (or the interval) has passed.
+pub fn expired(data: &Data, now: i64, interval: i64, names: &[String]) -> bool {
     if let (Some(tried), false) = (data.attempted_at, data.ok) {
         if now - tried < RETRY_AFTER.min(interval) {
             return false;
         }
     }
-    data.synced_at.is_none_or(|t| now - t >= interval)
+    data.synced_at.is_none_or(|t| now - t >= interval) || names.iter().any(|n| data.get(n).is_none())
 }
 
-fn now() -> i64 {
+/// Every source: the Trivia's live values and the exchange rates.
+fn sources() -> Vec<Source> {
+    let mut sources = crate::trivia::sources();
+    sources.push(crate::currency::source());
+    sources
+}
+
+pub fn now() -> i64 {
     crate::time::now().ns.div_euclid(1_000_000_000) as i64
 }
 
@@ -187,7 +196,7 @@ fn now() -> i64 {
 /// Starts `tally --sync` in the background when the data has expired (and the network may be used,
 /// and no sync is running). Returns the process, for a long-running caller to reap.
 pub fn ensure_fresh() -> Option<std::process::Child> {
-    if !crate::network::allowed() || !expired(&load(), now(), interval()) || lock_held() {
+    if !crate::network::allowed() || !expired(&load(), now(), interval(), &crate::currency::source().names) || lock_held() {
         return None;
     }
     use std::os::unix::process::CommandExt;
@@ -255,7 +264,7 @@ pub fn sync() -> Result<usize, String> {
     }
     let _lock = take_lock()?;
     let path = path().ok_or("no home directory")?;
-    Ok(sync_into(&path, crate::trivia::sources(), interval(), &now))
+    Ok(sync_into(&path, sources(), interval(), &now))
 }
 
 /// The sync itself, on `path`: every source whose values are older than `interval` is fetched in
@@ -330,14 +339,16 @@ mod tests {
     #[test]
     fn expiry_and_retry() {
         let day = 86_400;
-        assert!(expired(&Data::default(), 1_000, day), "never synced");
+        assert!(expired(&Data::default(), 1_000, day, &[]), "never synced");
         let fresh = Data { synced_at: Some(1_000), attempted_at: Some(1_000), ok: true, values: Vec::new() };
-        assert!(!expired(&fresh, 1_000 + day - 1, day));
-        assert!(expired(&fresh, 1_000 + day, day));
+        assert!(!expired(&fresh, 1_000 + day - 1, day, &[]));
+        assert!(expired(&fresh, 1_000 + day, day, &[]));
+        // A source added since the last sync (the exchange rates): synced now.
+        assert!(expired(&fresh, 1_000 + 60, day, &["EUR/USD".to_string()]));
         // A failed try: not again for an hour.
         let failed = Data { synced_at: Some(0), attempted_at: Some(1_000_000), ok: false, values: Vec::new() };
-        assert!(!expired(&failed, 1_000_000 + 60, day));
-        assert!(expired(&failed, 1_000_000 + 3_600, day));
+        assert!(!expired(&failed, 1_000_000 + 60, day, &[]));
+        assert!(expired(&failed, 1_000_000 + 3_600, day, &[]));
     }
 
     #[test]

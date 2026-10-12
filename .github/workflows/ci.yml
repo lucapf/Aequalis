@@ -17,3 +17,41 @@ jobs:
         run: cargo build --release --no-default-features
       - name: Test
         run: cargo test
+
+  # The macOS menu bar app (macos/): built, and its tests run against the CLI built here.
+  macos-app:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v5
+      - name: Toolchain
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+      - name: CLI
+        run: cargo build --release
+      - name: App
+        working-directory: macos
+        run: |
+          swift build
+          TALLY_BIN="$GITHUB_WORKSPACE/target/release/tally" swift test
+      - name: Bundle
+        run: |
+          macos/build-app.sh 0.0.0 target/release/tally dist
+          ls -la dist dist/Tally.app/Contents/MacOS dist/Tally.app/Contents/Resources
+
+  # The Raycast extension (raycast/): lint and build.
+  raycast:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: raycast
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      # `ray lint` also checks the author on raycast.com: ESLint and Prettier here, and the types.
+      - run: npx eslint src
+      - run: npx prettier --check src
+      - run: npx tsc --noEmit
+      - run: npm run build
+

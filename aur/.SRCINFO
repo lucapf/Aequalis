@@ -1,0 +1,22 @@
+pkgbase = tally-calc-bin
+	pkgdesc = Ultralight calculator and converter made for humans, with an Omarchy bar widget
+	pkgver = 0.1.1
+	pkgrel = 1
+	url = https://github.com/lucapf/tally
+	arch = x86_64
+	arch = aarch64
+	license = MIT
+	depends = glibc
+	depends = gcc-libs
+	optdepends = curl: live values in the Trivia (spacecraft distances, satellites in orbit)
+	provides = tally-calc
+	conflicts = tally
+	conflicts = tally-calc
+	options = !debug
+	options = !strip
+	source_x86_64 = https://github.com/lucapf/tally/releases/download/v0.1.1/tally-0.1.1-x86_64-linux.tar.gz
+	sha256sums_x86_64 = 7fd0143a2d3f63a0cc54df0474c86736356d459a861dea4af7da228131f2613e
+	source_aarch64 = https://github.com/lucapf/tally/releases/download/v0.1.1/tally-0.1.1-aarch64-linux.tar.gz
+	sha256sums_aarch64 = 81e0d7242d55bcb806ce87eed1f4ec01ce21d1e38a65dd16d4e3999372e9d4c3
+
+pkgname = tally-calc-bin

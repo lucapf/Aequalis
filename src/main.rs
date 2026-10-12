@@ -5,6 +5,7 @@ mod calc;
 mod completion;
 mod config;
 mod convert;
+mod currency;
 mod geo;
 mod json;
 mod network;
@@ -27,7 +28,7 @@ Usage:
   tally <expression> [<from> <to>] [--precision N] [--silent]
   <input> | tally [<from>] [<to>] [options]
   tally                 (no arguments, in a terminal) interactive mode
-  tally --list
+  tally --list          units and currencies
   tally --trivia        useful values (Voyagers' distance live when online)
   tally --online        online, offline or offline (forced): can the live sources be reached
   tally --about         the logo, the version, memory and the last online sync
@@ -57,6 +58,7 @@ Examples:
   tally 5 l/100km mpg     47.0429 mpg
   tally 1 kWh MJ          3.6 MJ
   tally 100 hp kW         74.57 kW
+  tally 100 usd eur       89.44 EUR  (ECB reference rates, synced daily; any case; `to`/`in` optional)
   tally 9.81 m/s^2 ft/s2  32.185 ft/s2
   tally 100 Mb/s MB/s     12.5 MB/s
   tally sqrt 16           4
@@ -357,6 +359,18 @@ fn convert_request(config: &Config, opts: &Options, tokens: &[&str]) -> Result<O
     if input.trim().is_empty() {
         return usage(EXPECTED);
     }
+    // Currencies: `100 USD EUR`, from the synced rates (any request with a currency code in it).
+    if let Some(result) = currency::request(&input, &online::load(), online::now()) {
+        return match result {
+            Ok(c) => Ok(Output {
+                stdout: c.result,
+                warnings: if opts.silent { Vec::new() } else { c.warnings },
+                notes: if opts.verbose && !opts.silent { c.notes } else { Vec::new() },
+            }),
+            Err(currency::Error::Usage(msg)) => Err(CliError::Usage(msg)),
+            Err(currency::Error::NoRates(msg)) => Err(CliError::Convert(convert::ConvertError::Domain(msg))),
+        };
+    }
     // Distances on the Earth: `distance Rome to Paris km`.
     if let Some(result) = geo::request(config, &input, opts.precision) {
         let notes = |notes: Vec<String>| if opts.verbose && !opts.silent { notes } else { Vec::new() };
@@ -416,6 +430,8 @@ fn list(config: &Config) -> String {
         out.push('\n');
     }
     out.push_str("Compound units: units joined by / and *, with powers: km/h, m/s^2, Mb/s, mi/gal\n");
+    out.push('\n');
+    out.push_str(&currency::list());
     out.trim_end().to_string()
 }
 

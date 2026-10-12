@@ -179,13 +179,14 @@ mod imp {
 /// Switches to raw mode and the alternate screen until the guard is dropped.
 pub fn enter() -> Result<Guard, String> {
     imp::raw()?;
-    print_now("\x1b[?1049h");
+    // The alternate screen, and clicks reported (SGR): the keypad's keys can be clicked or tapped.
+    print_now("\x1b[?1049h\x1b[?1000h\x1b[?1006h");
     Ok(Guard(()))
 }
 
 /// Leaves the alternate screen, shows the cursor (default shape) and restores the terminal settings.
 pub fn leave() {
-    print_now("\x1b[0 q\x1b[?1049l\x1b[?25h");
+    print_now("\x1b[?1000l\x1b[?1006l\x1b[0 q\x1b[?1049l\x1b[?25h");
     imp::restore();
 }
 

@@ -48,6 +48,19 @@ economy, energy, power and angles.
 | `30 deg rad` | `0.5236 rad` |
 | `1 ly km` | `9460730472580.8 km` |
 
+### Currencies
+
+One amount and two currencies, as ISO codes in any case (`usd`, `USD`), with `to` or `in` if you
+like. The rates are the European Central Bank's reference rates, downloaded once a day in the
+background like the other online data: a conversion itself never waits for the network.
+`tally --list` lists the 30 currencies.
+
+| You type | Tally answers |
+|---|---|
+| `100 usd eur` | `89.44 EUR` |
+| `2500 JPY in GBP` | `11.91 GBP` |
+| `100 usd` | asks for the currency to convert to |
+
 ### Dates
 
 Calendar-aware date math, working days (`wd`) and dates written in many forms.
@@ -93,11 +106,15 @@ You can run Tally in several ways:
 
 - **Tally CLI**: the `tally` command. When you are already in your shell and for scripts.
 - **Tally widget**: for [Omarchy](https://omarchy.org/) only. Quick access from the bar when you need it.
+- **Tally menu bar app**: for macOS. The same quick access from the menu bar, or ⌃⌥T anywhere.
+- **Tally for Raycast**: for macOS, in Raycast's search bar.
 - **Tally TUI**: for something more complex, when you prefer to be guided through the options. Open it by:
   - typing `tally` in your terminal
   - the TUI button in the widget
   - the app launcher, once you add a launcher entry for it
 
+
+On a Mac, see [Install Tally on macOS](docs/install_mac.md).
 
 ## License
 

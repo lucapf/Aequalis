@@ -1867,7 +1867,29 @@ fn time_unit(config: &Config, name: &str) -> Option<&'static str> {
 /// that fails with a misspelt city (`10:00 Tokio`, within 2 letters) is an `Ambiguous` error with
 /// the cities it may be, each with the corrected request.
 pub fn request(config: &Config, input: &str, precision: usize, verbose: bool) -> Option<Result<(String, Vec<String>), TimeError>> {
-    request_with(config, input, precision, verbose, true)
+    request_with(config, &without_in(config, input), precision, verbose, true)
+}
+
+/// The request without `in` before a place (`now in Rome` → `now Rome`), or before a misspelt one
+/// (`now in katmandu` → `now katmandu`, then "did you mean Kathmandu?"). `in` anywhere else stays:
+/// it is also the inch (`10 in cm`).
+fn without_in(config: &Config, input: &str) -> String {
+    let words: Vec<&str> = input.split_whitespace().collect();
+    let place_at = |i: usize| {
+        (1..=(words.len() - i).min(3)).any(|n| {
+            let text = words[i..i + n].join(" ");
+            tz::city(&text).is_some()
+                || tz::country(&text).is_some()
+                || (words[i..i + n].iter().all(|w| w.chars().all(char::is_alphabetic)) && !reserved_word(config, &text) && !near_places(&text).is_empty())
+        })
+    };
+    let kept: Vec<&str> = words
+        .iter()
+        .enumerate()
+        .filter(|&(i, w)| !(i > 0 && i + 1 < words.len() && w.eq_ignore_ascii_case("in") && place_at(i + 1)))
+        .map(|(_, w)| *w)
+        .collect();
+    if kept.len() == words.len() { input.to_string() } else { kept.join(" ") }
 }
 
 /// `request`; with `typos` false, a request that fails is not checked for misspelt places (the
@@ -2104,8 +2126,20 @@ fn known_word(config: &Config, text: &str) -> bool {
     tz::city(text).is_some() || tz::country(text).is_some() || reserved_word(config, text)
 }
 
-/// Words that are neither places nor misspelt ones: units, formats, months, keywords.
+/// Words that are neither places nor misspelt ones: units, formats, months, keywords, currencies.
 fn reserved_word(config: &Config, text: &str) -> bool {
+    date_word(config, text) || crate::currency::code(text).is_some()
+}
+
+/// Whether a word means something to tally other than a currency: a unit, a format, a month, a
+/// keyword, a number word, a time zone, a city or a country (`currency.rs` checks its codes
+/// against it).
+#[cfg(test)]
+pub fn other_word(config: &Config, text: &str) -> bool {
+    date_word(config, text) || tz::city(text).is_some() || tz::country(text).is_some()
+}
+
+fn date_word(config: &Config, text: &str) -> bool {
     convert::find_unit(config, text).is_some()
         || is_format(text)
         || DATE_WORDS.contains(&text)
@@ -2234,13 +2268,15 @@ fn place_typos(config: &Config, input: &str, precision: usize, verbose: bool) ->
 
 /// Whether a request is a misspelt city request (`Tokio`), for the stdin rule.
 pub fn suggests_city(config: &Config, input: &str) -> bool {
-    place_typos(config, input, 0, false).is_some()
+    place_typos(config, &without_in(config, input), 0, false).is_some()
 }
 
 /// Whether a request names a city (`Paris`, `10:00AM New York to Paris`), for the stdin rule.
 pub fn names_city(input: &str) -> bool {
-    take_zone(input).is_ok_and(|(rest, _)| !matches!(take_cities(&rest), Ok((_, None))))
-        || countries_in(&Config::default(), input).is_some()
+    let config = Config::default();
+    let input = without_in(&config, input);
+    take_zone(&input).is_ok_and(|(rest, _)| !matches!(take_cities(&rest), Ok((_, None))))
+        || countries_in(&config, &input).is_some()
 }
 
 #[cfg(test)]
@@ -2575,6 +2611,32 @@ mod tests {
         }
         // Three cities, or a city in the middle, are still errors.
         assert!(request(&config, "now Rome Paris Tokyo", 4, false).unwrap().is_err());
+    }
+
+    /// `in` before a place is dropped (`now in Rome`), also before a misspelt one, which is then
+    /// asked about as usual; `in` anywhere else is the inch.
+    #[test]
+    fn in_before_a_place() {
+        let config = Config::default();
+        let ends = |s: &str, end: &str| {
+            let out = request(&config, s, 4, false).unwrap().unwrap().0;
+            assert!(out.ends_with(end), "{s}: {out}");
+        };
+        ends("now in Kathmandu", " Kathmandu");
+        ends("now IN rome", " Rome");
+        ends("10:00 in Rome", " Rome");
+        ends("10:00am Paris in New York", " New York");
+        ends("now in Italy", " Rome");
+        for (s, note, fixed) in [("now in katmandu", "`katmandu` is not a city", "now Kathmandu"), ("now in tokio", "`tokio` is not a city", "now Tokyo")] {
+            match request(&config, s, 4, false) {
+                Some(Err(TimeError::Ambiguous(a))) => assert_eq!((a.note.as_str(), a.choices[0].request.as_str()), (note, fixed), "{s}"),
+                other => panic!("{s}: {other:?}"),
+            }
+        }
+        assert_eq!(without_in(&config, "10 in cm"), "10 in cm");
+        assert_eq!(without_in(&config, "10 m in"), "10 m in");
+        assert_eq!(without_in(&config, "in Rome"), "in Rome", "not first");
+        assert!(names_city("now in Rome") && suggests_city(&config, "now in katmandu"));
     }
 
     #[test]

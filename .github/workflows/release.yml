@@ -1,5 +1,6 @@
 # Every push to master is a release: the version goes up, tally is built for Linux (x86_64 and
-# aarch64) and macOS (Apple Silicon), and a GitHub release `v<version>` gets the archives.
+# aarch64) and macOS (Apple Silicon, plus the menu bar app Tally.app), and a GitHub release
+# `v<version>` gets the archives.
 #
 # The version: the latest `v*` tag (none yet: Cargo.toml's) with the patch number up by one. A
 # commit message starting with `minor` or `major` (any case: `minor: add …`, `Major …`) raises that
@@ -143,10 +144,21 @@ jobs:
           cp target/release/tally LICENSE README.md docs/Accepted_Syntax.md "dist/$name/"
           tar -C dist -czf "dist/$name.tar.gz" "$name"
           (cd dist && shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256")
+      # The menu bar app, with this CLI inside: Tally-<version>-macos.zip.
+      - name: Menu bar app
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "13.0"
+        run: |
+          (cd macos && TALLY_BIN="$GITHUB_WORKSPACE/target/release/tally" swift test)
+          macos/build-app.sh "$VERSION" target/release/tally dist
+          (cd dist && shasum -a 256 "Tally-$VERSION-macos.zip" > "Tally-$VERSION-macos.zip.sha256")
+          test "$(dist/Tally.app/Contents/Resources/tally --version)" = "tally $VERSION"
       - uses: actions/upload-artifact@v4
         with:
           name: macos
-          path: dist/*.tar.gz*
+          path: |
+            dist/*.tar.gz*
+            dist/*.zip*
 
   # The release `v<version>` on the pushed commit (the tag is created with it), with every archive.
   release:
@@ -168,3 +180,111 @@ jobs:
             gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
               --title "Tally $TAG" --generate-notes
           fi
+
+  # The Omarchy plugin repository (github.com/lucapf/omarchy-tally, for `omarchy plugin add`): the
+  # widget with the release's version, its README and the license, at the root as Omarchy wants
+  # them. It needs the secret OMARCHY_PLUGIN_DEPLOY_KEY: the private half of a deploy key with write
+  # access to that repository. Without it this job only says so.
+  omarchy-plugin:
+    needs: [version, release]
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      DEPLOY_KEY: ${{ secrets.OMARCHY_PLUGIN_DEPLOY_KEY }}
+    steps:
+      - id: key
+        run: |
+          if [ -n "$DEPLOY_KEY" ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::OMARCHY_PLUGIN_DEPLOY_KEY is not set: lucapf/omarchy-tally is not updated"
+          fi
+      - uses: actions/checkout@v5
+        if: steps.key.outputs.ok == 'true'
+      - name: Publish
+        if: steps.key.outputs.ok == 'true'
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/plugin
+          chmod 600 ~/.ssh/plugin
+          export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/plugin -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+          git clone git@github.com:lucapf/omarchy-tally.git plugin
+          cd plugin
+          git checkout -B main
+          cp ../omarchy-widget/manifest.json ../omarchy-widget/Panel.qml ../omarchy-widget/README.md ../LICENSE .
+          sed -i -E "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" manifest.json
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No change"
+          else
+            git commit -q -m "Tally v$VERSION" -m "From lucapf/tally@$GITHUB_SHA"
+          fi
+          git tag -f "v$VERSION"
+          git push origin main
+          git push -f origin "v$VERSION"
+
+  # The AUR package tally-calc-bin (aur/PKGBUILD) with the release's version and checksums. It needs
+  # the secret AUR_SSH_KEY: the private half of an SSH key registered on the AUR account that owns
+  # the package. Without it this job only says so.
+  aur:
+    needs: [version, release]
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      AUR_KEY: ${{ secrets.AUR_SSH_KEY }}
+    steps:
+      - id: key
+        run: |
+          if [ -n "$AUR_KEY" ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::AUR_SSH_KEY is not set: the AUR package tally-calc-bin is not updated"
+          fi
+      - name: Tools
+        if: steps.key.outputs.ok == 'true'
+        run: pacman -Syu --noconfirm --needed git openssh
+      - uses: actions/checkout@v5
+        if: steps.key.outputs.ok == 'true'
+      - uses: actions/download-artifact@v4
+        if: steps.key.outputs.ok == 'true'
+        with:
+          pattern: linux-*
+          path: dist
+          merge-multiple: true
+      - name: Publish
+        if: steps.key.outputs.ok == 'true'
+        run: |
+          sum() { cut -d' ' -f1 "dist/tally-$VERSION-$1-linux.tar.gz.sha256"; }
+          # makepkg does not run as root.
+          useradd -m builder
+          mkdir -p /home/builder/.ssh
+          printf '%s\n' "$AUR_KEY" > /home/builder/.ssh/aur
+          chmod 600 /home/builder/.ssh/aur
+          su builder -c "cd ~ && GIT_SSH_COMMAND='ssh -i ~/.ssh/aur -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new' git clone ssh://aur@aur.archlinux.org/tally-calc-bin.git aur"
+          cp aur/PKGBUILD /home/builder/aur/
+          cd /home/builder/aur
+          sed -i -E \
+            -e "s/^pkgver=.*/pkgver=$VERSION/" \
+            -e "s/^pkgrel=.*/pkgrel=1/" \
+            -e "s/^sha256sums_x86_64=.*/sha256sums_x86_64=('$(sum x86_64)')/" \
+            -e "s/^sha256sums_aarch64=.*/sha256sums_aarch64=('$(sum aarch64)')/" \
+            PKGBUILD
+          chown -R builder /home/builder
+          # Build it once (downloads the release, checks the checksum), then publish.
+          su builder -c "cd ~/aur && makepkg -f --noconfirm && makepkg --printsrcinfo > .SRCINFO"
+          cat > /home/builder/publish <<'SH'
+          set -e
+          cd ~/aur
+          git checkout -B master
+          git add PKGBUILD .SRCINFO
+          if git diff --cached --quiet; then
+            echo "No change"
+            exit 0
+          fi
+          git -c user.name='Luca Palanca Falsini' -c user.email='lucapf@gmail.com' commit -q -m "Update to $VERSION"
+          GIT_SSH_COMMAND='ssh -i ~/.ssh/aur -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new' git push origin master
+          SH
+          su builder -c "VERSION=$VERSION bash /home/builder/publish"

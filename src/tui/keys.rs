@@ -19,6 +19,8 @@ pub enum Key {
     End,
     PageUp,
     PageDown,
+    /// A click or a tap (the left button pressed), at a screen row and column from 0.
+    Click { row: usize, col: usize },
 }
 
 enum Parsed {
@@ -92,7 +94,17 @@ fn csi(b: &[u8]) -> Parsed {
     let Some(&end) = b.get(i) else {
         return Parsed::Incomplete;
     };
-    let first = std::str::from_utf8(&b[2..i]).unwrap_or("").split(';').next().unwrap_or("");
+    let params = std::str::from_utf8(&b[2..i]).unwrap_or("");
+    // A mouse event (SGR reporting): `ESC[<button;column;rowM`, `m` when released.
+    if let Some(mouse) = params.strip_prefix('<') {
+        let n: Vec<usize> = mouse.split(';').filter_map(|v| v.parse().ok()).collect();
+        return match (end, n.as_slice()) {
+            // The left button pressed: no other button, no motion, no wheel.
+            (b'M', &[0, col, row]) if col > 0 && row > 0 => Parsed::Key(Key::Click { row: row - 1, col: col - 1 }, i + 1),
+            _ => Parsed::Skip(i + 1),
+        };
+    }
+    let first = params.split(';').next().unwrap_or("");
     let key = match end {
         b'A' => Key::Up,
         b'B' => Key::Down,
@@ -167,6 +179,12 @@ mod tests {
         assert_eq!(keys(b"\x1bbx"), [Key::Esc, Key::Char('b'), Key::Char('x')]);
         assert_eq!(keys("\x1b²".as_bytes()), [Key::Esc, Key::Char('²')]);
         assert_eq!(keys(b"\x1b[99~\x1b[5;2Px"), [Key::Char('x')]);
+        // Mouse: the left button pressed is a click; releases, other buttons, motion and the wheel
+        // are skipped.
+        assert_eq!(keys(b"\x1b[<0;10;5M"), [Key::Click { row: 4, col: 9 }]);
+        assert_eq!(keys(b"\x1b[<0;10;5m\x1b[<2;1;1M\x1b[<32;3;3M\x1b[<64;1;1M\x1b[<65;1;1Mq"), [Key::Char('q')]);
+        let (k, used) = decode(b"\x1b[<0;10");
+        assert_eq!((k.len(), used), (0, 0), "incomplete: kept for the next read");
     }
 
     #[test]

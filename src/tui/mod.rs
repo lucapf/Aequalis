@@ -85,6 +85,8 @@ pub struct App<'a> {
     cycle: Option<Cycle>,
     /// The keypad drawn over the history (`C` in command mode).
     keypad: bool,
+    /// The screen's rows and columns, as last drawn: where the keypad's keys are, for clicks.
+    pub size: (usize, usize),
     /// The measurement system the unit keys open on: the device's (`locale`).
     system: System,
     /// Decimal and thousands separators for the preview: the device's (`numbers`).
@@ -166,6 +168,7 @@ impl<'a> App<'a> {
             scroll: 0,
             cycle: None,
             keypad: true,
+            size: (24, 80),
             system: System::Metric,
             numbers: numbers::NumberFormat::default(),
             pressed: None,
@@ -305,6 +308,16 @@ impl<'a> App<'a> {
     }
 
     pub fn handle(&mut self, key: Key) {
+        // A click or a tap on a keypad key is that key, typed in input mode (`=` evaluates);
+        // elsewhere, or with a window open, it does nothing.
+        if let Key::Click { row, col } = key {
+            let pad = render::keypad_layout(self.size.0, self.size.1);
+            if let (None, true, Some(k)) = (&self.overlay, self.keypad, pad.and_then(|p| render::key_at(&p, row, col))) {
+                self.mode = Mode::Input;
+                self.handle(if k == '=' { Key::Enter } else { Key::Char(k) });
+            }
+            return;
+        }
         match key {
             Key::Ctrl('c') => return self.quit = true,
             Key::Ctrl('l') => return self.redraw = true,
@@ -710,6 +723,7 @@ pub fn run(config: &Config, opts: &Options) -> ExitCode {
         app.keep_online_fresh();
         dirty |= app.refresh_online();
         let size = term::size().unwrap_or((24, 80));
+        app.size = size;
         if dirty || drawn != Some(size) {
             let frame = render::render(&app, size.0, size.1);
             let _ = stdout.write_all(frame.to_ansi(clear || drawn != Some(size)).as_bytes());
@@ -1420,6 +1434,47 @@ mod tests {
         typed(&mut app, "quit");
         app.handle(Key::Enter);
         assert!(app.quit);
+    }
+
+    /// A click or a tap on a keypad key types it; `=` evaluates; clicks elsewhere, or with a window
+    /// open, do nothing.
+    #[test]
+    fn keypad_clicks() {
+        let config = Config::default();
+        let opts = options(&config);
+        let mut app = App::new(&config, &opts);
+        app.size = (40, 120);
+        let pad = render::keypad_layout(40, 120).unwrap();
+        let mut click = |app: &mut App, key: char| {
+            let (row, col) = (pad.top + 1..pad.top + pad.height - 1)
+                .flat_map(|r| (pad.left + 1..pad.left + pad.width - 1).map(move |c| (r, c)))
+                .find(|&(r, c)| render::key_at(&pad, r, c) == Some(key))
+                .unwrap();
+            app.handle(Key::Click { row, col });
+        };
+        // From command mode too: the click switches to input mode.
+        app.handle(Key::Esc);
+        for k in "12*(3+4)".chars() {
+            click(&mut app, k);
+        }
+        assert_eq!(app.line.text(), "12*(3+4)");
+        assert_eq!(app.pressed, Some(')'), "the key clicked is lit");
+        click(&mut app, '=');
+        assert_eq!(app.history.entries().back().map(|e| e.result.clone()), Some(Ok("84".to_string())));
+        assert!(app.line.is_empty());
+        // Outside the keypad: nothing.
+        app.handle(Key::Click { row: 1, col: 1 });
+        app.handle(Key::Click { row: pad.top + 2, col: pad.left - 3 });
+        assert!(app.line.is_empty());
+        // Hidden keypad, or a window open: nothing.
+        app.handle(Key::Esc);
+        app.handle(Key::Char('C'));
+        click(&mut app, '7');
+        assert!(app.line.is_empty());
+        app.handle(Key::Char('C'));
+        app.handle(Key::Char('E'));
+        click(&mut app, '7');
+        assert!(app.line.is_empty());
     }
 
     #[test]

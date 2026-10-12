@@ -180,7 +180,7 @@ pub fn render(app: &App, rows: usize, cols: usize) -> Frame {
             search(app, s, &mut canvas, rows, head);
             cursor = None;
         }
-        _ if app.keypad => keypad(app, &mut canvas, head + 1, rows - 7 - head),
+        _ if app.keypad => keypad(app, &mut canvas, rows),
         _ => {}
     }
     if let Some(Overlay::Trivia(v @ super::trivia::View { popup: Some(scroll), .. })) = &app.overlay {
@@ -352,47 +352,112 @@ const KEYPAD: [[char; 4]; 5] = [
     ['0', '.', 'e', '='],
 ];
 
-/// A numeric keypad in the top-right corner of the history, in front of its lines. Full size with a
-/// grid when there is room (11 rows), compact (7 rows) otherwise, not drawn when even that doesn't fit.
-/// The key typed last is lit.
-fn keypad(app: &App, canvas: &mut Canvas, top: usize, room: usize) {
-    let full = room >= 11;
-    if !full && room < 7 {
-        return;
+/// Where the keypad is drawn: its box. `full`: with a grid, keys sharing the room inside it (rows
+/// and columns differ by a line at most); otherwise compact (no grid, keys 3 columns by 1 line).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Pad {
+    pub top: usize,
+    pub left: usize,
+    pub width: usize,
+    pub height: usize,
+    pub full: bool,
+}
+
+/// The full keypad's smallest box, 17 columns by 11 rows: bigger ones keep its proportions.
+const PAD_WIDTH: usize = 17;
+const PAD_HEIGHT: usize = 11;
+
+/// The keypad for a `rows` × `cols` screen: as tall as the history window, with the proportions of
+/// the smallest one (17 × 11), but at most 2/3 of the history's width (then less tall) so its lines
+/// stay readable; compact (7 rows) when the full one doesn't fit; `None` when even that doesn't.
+pub fn keypad_layout(rows: usize, cols: usize) -> Option<Pad> {
+    let top = 3 + 1;
+    let room = rows.checked_sub(7 + 3)?;
+    let widest = (cols.saturating_sub(4) * 2 / 3).max(PAD_WIDTH);
+    let height = room.min(widest * PAD_HEIGHT / PAD_WIDTH);
+    if height < PAD_HEIGHT {
+        return (room >= 7).then_some(Pad { top, left: cols.checked_sub(2 + 15)?, width: 15, height: 7, full: false });
     }
-    let (cell, width, height) = if full { (4, 17, 11) } else { (3, 15, 7) };
-    let left = canvas.cols - 2 - width;
+    let width = ((height * PAD_WIDTH + PAD_HEIGHT / 2) / PAD_HEIGHT).min(widest);
+    Some(Pad { top, left: cols.checked_sub(2 + width)?, width, height, full: true })
+}
+
+impl Pad {
+    /// Where key row `r` starts (0..=5: 5 is the bottom border), as a screen row.
+    fn row(&self, r: usize) -> usize {
+        match self.full {
+            // The keys share the lines inside the box, less the 4 between them.
+            true => self.top + 1 + r + (self.height - 6) * r / KEYPAD.len(),
+            false => self.top + 1 + r,
+        }
+    }
+
+    /// Where key column `c` starts (0..=4: 4 is the right border), as a screen column.
+    fn col(&self, c: usize) -> usize {
+        match self.full {
+            true => self.left + 1 + c + (self.width - 5) * c / 4,
+            false => self.left + 1 + 3 * c,
+        }
+    }
+}
+
+/// The key at a screen position (a click or a tap), if it is on the keypad. A grid line counts as
+/// the key before it: a tap on a border still hits.
+pub fn key_at(pad: &Pad, row: usize, col: usize) -> Option<char> {
+    if row <= pad.top || row + 1 >= pad.top + pad.height || col <= pad.left || col + 1 >= pad.left + pad.width {
+        return None;
+    }
+    let r = (1..KEYPAD.len()).take_while(|&r| pad.row(r) <= row).count();
+    let c = (1..4).take_while(|&c| pad.col(c) <= col).count();
+    Some(KEYPAD[r][c])
+}
+
+/// A numeric keypad in the top-right corner of the history, in front of its lines
+/// (`keypad_layout`). The key typed or tapped last is lit.
+fn keypad(app: &App, canvas: &mut Canvas, rows: usize) {
+    let Some(pad) = keypad_layout(rows, canvas.cols) else { return };
+    let Pad { top, left, width, height, full } = pad;
     canvas.boxed(top, left, height, width, "");
     // Clear the empty title the box drew.
     canvas.cells[top][left + 1..left + width - 1].fill(('─', Style::Dim));
-    let key_row = |r: usize| if full { top + 1 + 2 * r } else { top + 1 + r };
+    // The grid: a line before each key but the first, in both directions.
     if full {
-        for r in 0..KEYPAD.len() {
-            for c in 1..4 {
-                canvas.cells[key_row(r)][left + 4 * c] = ('│', Style::Dim);
-                canvas.cells[top][left + 4 * c] = ('┬', Style::Dim);
-                canvas.cells[top + height - 1][left + 4 * c] = ('┴', Style::Dim);
+        for c in 1..4 {
+            let x = pad.col(c) - 1;
+            canvas.cells[top][x] = ('┬', Style::Dim);
+            canvas.cells[top + height - 1][x] = ('┴', Style::Dim);
+            for y in top + 1..top + height - 1 {
+                canvas.cells[y][x] = ('│', Style::Dim);
             }
-            if r + 1 < KEYPAD.len() {
-                let sep = key_row(r) + 1;
-                canvas.cells[sep][left + 1..left + width - 1].fill(('─', Style::Dim));
-                canvas.cells[sep][left] = ('├', Style::Dim);
-                canvas.cells[sep][left + width - 1] = ('┤', Style::Dim);
-                for c in 1..4 {
-                    canvas.cells[sep][left + 4 * c] = ('┼', Style::Dim);
-                }
+        }
+        for r in 1..KEYPAD.len() {
+            let y = pad.row(r) - 1;
+            canvas.cells[y][left + 1..left + width - 1].fill(('─', Style::Dim));
+            canvas.cells[y][left] = ('├', Style::Dim);
+            canvas.cells[y][left + width - 1] = ('┤', Style::Dim);
+            for c in 1..4 {
+                canvas.cells[y][pad.col(c) - 1] = ('┼', Style::Dim);
             }
         }
     }
+    let gap = usize::from(full);
     for (r, keys) in KEYPAD.iter().enumerate() {
+        let (y, lines) = (pad.row(r), pad.row(r + 1) - gap - pad.row(r));
         for (c, &key) in keys.iter().enumerate() {
-            let x = left + 1 + cell * c;
+            let (x, cell) = (pad.col(c), pad.col(c + 1) - gap - pad.col(c));
+            let lit = Some(key) == app.pressed;
+            // A lit key is lit whole, so a big key shows which one it was.
+            if lit {
+                for line in &mut canvas.cells[y..y + lines] {
+                    line[x..x + cell].fill((' ', Style::Lit));
+                }
+            }
             let style = match key {
-                k if Some(k) == app.pressed => Style::Lit,
+                _ if lit => Style::Lit,
                 '0'..='9' | '.' => Style::Bold,
                 _ => Style::Yellow,
             };
-            canvas.put(key_row(r), x, &format!(" {key} "), style);
+            canvas.put(y + (lines - 1) / 2, x + (cell - 3) / 2, &format!(" {key} "), style);
         }
     }
 }
@@ -960,7 +1025,7 @@ const HELP: &[(&str, &str)] = &[
     ("  j/k  ↑/↓", "browse the history, as in input mode"),
     ("  w/b  0/$  Home/End", "move the cursor"),
     ("  x", "delete the character under the cursor"),
-    ("  C", "show / hide the keypad over the history"),
+    ("  C", "show / hide the keypad; click or tap its keys"),
     ("  PgUp/PgDn", "scroll the history"),
     ("  E  ?", "this help"),
     ("  A", "about: version, memory, last online sync"),
@@ -1209,7 +1274,8 @@ mod tests {
         assert!(text.contains("Wikipedia: https://en.wikipedia.org/wiki/Voyager_1"), "{text}");
         // The estimate grows with time: the format, not today's figure.
         assert!(text.contains("Current distance: ") && text.contains(" km - 1") && text.contains(" au - ") && text.contains("e-3 ly"), "{text}");
-        assert!(text.contains("(estimated, not synced yet)"), "{text}");
+        // The figure grows, so where the line wraps changes: the words, wherever they are.
+        assert!(text.contains("(estimated,") && text.contains("not synced yet)"), "{text}");
         assert!(text.contains("Launched: 1977-09-05 12:56 UTC"), "{text}");
         let (lines, _) = screen("\x1bR\t\t\t\n\x1b", 30, 80);
         assert!(!lines.join("\n").contains("Mathematician"), "Esc: back to the list");
@@ -1518,15 +1584,18 @@ mod tests {
 
     #[test]
     fn keypad_in_front_of_the_history() {
-        // Full size, top-right: 24 rows leave 14 history rows.
+        // Top-right, as tall as the history: 24 rows leave 14 history rows, keys of 1 or 2 lines.
         let (lines, _) = screen("", 24, 80);
         assert!(lines[4].starts_with("│ Type an expression"), "{}", lines[4]);
-        assert!(lines[4].ends_with("┌───┬───┬───┬───┐ │"), "{}", lines[4]);
-        assert!(lines[5].ends_with("│ ( │ ) │ ^ │ / │ │"));
-        assert!(lines[6].ends_with("├───┼───┼───┼───┤ │"));
-        assert!(lines[7].ends_with("│ 7 │ 8 │ 9 │ * │ │"));
-        assert!(lines[13].ends_with("│ 0 │ . │ e │ = │ │"));
-        assert!(lines[14].ends_with("└───┴───┴───┴───┘ │"));
+        let full = [
+            "┌────┬────┬────┬─────┐ │", "│ (  │ )  │ ^  │  /  │ │", "├────┼────┼────┼─────┤ │", "│ 7  │ 8  │ 9  │  *  │ │",
+            "│    │    │    │     │ │", "├────┼────┼────┼─────┤ │", "│ 4  │ 5  │ 6  │  -  │ │", "├────┼────┼────┼─────┤ │",
+            "│ 1  │ 2  │ 3  │  +  │ │", "│    │    │    │     │ │", "├────┼────┼────┼─────┤ │", "│ 0  │ .  │ e  │  =  │ │",
+            "│    │    │    │     │ │", "└────┴────┴────┴─────┘ │",
+        ];
+        for (line, want) in lines[4..18].iter().zip(full) {
+            assert!(line.ends_with(want), "{line}");
+        }
         // Compact on a short terminal.
         let (lines, _) = screen("", 17, 80);
         let compact = [
@@ -1539,14 +1608,60 @@ mod tests {
         // It covers the history lines under it; the newest lines (bottom) stay visible.
         let wide: String = (1..=20).map(|i| format!("{}+{i}\n", "1".repeat(70))).collect();
         let (lines, _) = screen(&wide, 24, 80);
-        assert!(lines[5].ends_with("│ ( │ ) │ ^ │ / │ │"));
-        assert!(lines[17].contains("+20"), "{}", lines[17]);
+        assert!(lines[5].ends_with("│ (  │ )  │ ^  │  /  │ │"));
         // C hides it and the lines show.
         let (lines, _) = screen(&format!("{wide}\x1bC"), 24, 80);
-        assert!(!lines[5].contains("│ ( │"), "{}", lines[5]);
+        assert!(!lines[5].contains("│ (  │"), "{}", lines[5]);
         // Too short for even the compact one: not drawn.
         let (lines, _) = screen("", 16, 80);
         assert!(!lines.join("").contains("┌───"));
+    }
+
+    #[test]
+    fn keypad_fills_the_history_height_in_proportion() {
+        for (rows, cols) in [(21, 80), (24, 80), (30, 80), (40, 120), (50, 200), (80, 300)] {
+            let pad = keypad_layout(rows, cols).unwrap();
+            let room = rows - 10;
+            assert!(pad.full);
+            assert_eq!((pad.top, pad.height), (4, room), "{rows}x{cols}: as tall as the history");
+            let ratio = pad.width as f64 / pad.height as f64;
+            assert!((ratio - 17.0 / 11.0).abs() < 0.06, "{rows}x{cols}: {}x{} keeps 17x11", pad.width, pad.height);
+            assert_eq!(pad.left + pad.width, cols - 2, "right-aligned in the history");
+        }
+        // Narrow and tall: 2/3 of the width at most, in proportion (less tall than the history).
+        let pad = keypad_layout(60, 80).unwrap();
+        assert!(pad.width <= 76 * 2 / 3 && pad.height < 50, "{pad:?}");
+        assert!((pad.width as f64 / pad.height as f64 - 17.0 / 11.0).abs() < 0.06);
+        // Short: compact, then none.
+        assert!(!keypad_layout(17, 80).unwrap().full);
+        assert_eq!(keypad_layout(16, 80), None);
+    }
+
+    #[test]
+    fn keypad_keys_under_a_click() {
+        for (rows, cols) in [(17, 80), (24, 80), (50, 200)] {
+            let pad = keypad_layout(rows, cols).unwrap();
+            let (lines, _) = screen("", rows, cols);
+            // Every key's label is where `key_at` finds it.
+            for (r, keys) in KEYPAD.iter().enumerate() {
+                for (c, &key) in keys.iter().enumerate() {
+                    let row = (pad.row(r)..pad.row(r + 1)).find(|&y| plain(&lines[y]).chars().skip(pad.col(c)).take(pad.col(c + 1) - pad.col(c)).any(|ch| ch == key)).unwrap();
+                    let col = pad.col(c) + plain(&lines[row]).chars().skip(pad.col(c)).position(|ch| ch == key).unwrap();
+                    assert_eq!(key_at(&pad, row, col), Some(key), "{rows}x{cols} {key}");
+                    // The whole key hits, its grid lines too.
+                    assert_eq!(key_at(&pad, pad.row(r), pad.col(c)), Some(key));
+                    // The grid lines after it (the box's border after the last ones).
+                    if r + 1 < KEYPAD.len() && c + 1 < 4 {
+                        assert_eq!(key_at(&pad, pad.row(r + 1) - 1, pad.col(c + 1) - 1), Some(key));
+                    }
+                }
+            }
+            // The border and outside: nothing.
+            assert_eq!(key_at(&pad, pad.top, pad.left + 2), None);
+            assert_eq!(key_at(&pad, pad.top + 2, pad.left), None);
+            assert_eq!(key_at(&pad, pad.top + pad.height - 1, pad.left + 2), None);
+            assert_eq!(key_at(&pad, pad.top + 2, pad.left - 1), None);
+        }
     }
 
     #[test]
@@ -1559,7 +1674,10 @@ mod tests {
             let frame = render(&app, 24, 80);
             let lit: Vec<_> = frame.lines.iter().filter(|l| l.contains(&format!("\x1b[1;30;43m {digit} "))).collect();
             assert_eq!(lit.len(), 1, "{digit} lit");
-            assert_eq!(frame.lines.iter().map(|l| l.matches("\x1b[1;30;43m").count()).sum::<usize>(), 1, "only {digit} lit");
+            // Lit whole, on each of its lines (1 or 2 at this size), and nothing else.
+            let lines = frame.lines.iter().filter(|l| l.contains("\x1b[1;30;43m")).count();
+            assert!((1..=2).contains(&lines), "{digit}: {lines} lines lit");
+            assert_eq!(frame.lines.iter().map(|l| l.matches("\x1b[1;30;43m").count()).sum::<usize>(), lines, "only {digit} lit");
         }
     }
 

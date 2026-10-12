@@ -1,0 +1,57 @@
+{
+  "$schema": "https://www.raycast.com/schemas/extension.json",
+  "name": "tally",
+  "title": "Tally",
+  "description": "Ultralight calculator and converter made for humans: units, dates, time zones, currencies and distances, answered as you type",
+  "icon": "icon.png",
+  "author": "lucapf",
+  "categories": ["Productivity", "Developer Tools"],
+  "license": "MIT",
+  "commands": [
+    {
+      "name": "calculate",
+      "title": "Calculate with Tally",
+      "subtitle": "Tally",
+      "description": "Type 10 km mi, 12+4/2, 100 usd eur or 10:00 Paris to Tokyo; Enter copies the answer",
+      "mode": "view"
+    }
+  ],
+  "preferences": [
+    {
+      "name": "tallyPath",
+      "type": "textfield",
+      "required": false,
+      "title": "tally Command",
+      "description": "The tally binary, when it is not in ~/.local/bin, /opt/homebrew/bin or /usr/local/bin",
+      "placeholder": "automatic"
+    },
+    {
+      "name": "offline",
+      "type": "checkbox",
+      "required": false,
+      "default": false,
+      "title": "Network",
+      "label": "Offline (TALLY_MODE=offline)",
+      "description": "Never use the network: exchange rates and live values stay as last synced"
+    }
+  ],
+  "dependencies": {
+    "@raycast/api": "^2.7.3",
+    "@raycast/utils": "^2.3.2"
+  },
+  "devDependencies": {
+    "@raycast/eslint-config": "^2.2.0",
+    "@types/node": "22.19.17",
+    "@types/react": "19.0.10",
+    "eslint": "^9.39.0",
+    "prettier": "^3.9.10",
+    "typescript": "~6.0.0"
+  },
+  "scripts": {
+    "build": "ray build",
+    "dev": "ray develop",
+    "fix-lint": "ray lint --fix",
+    "lint": "ray lint",
+    "publish": "npx @raycast/api@latest publish"
+  }
+}

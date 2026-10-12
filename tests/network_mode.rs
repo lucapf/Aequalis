@@ -24,7 +24,12 @@ fn now() -> u64 {
 /// Fresh data (synced now): no sync is needed.
 fn fresh(ok: bool) -> String {
     let t = now();
-    format!(r#"{{"format":1,"synced_at":{t},"attempted_at":{t},"ok":{ok},"values":{{"Voyager 1":{{"value":180.5,"at":{t}}},"Starlink":{{"value":12345,"at":{t}}}}}}}"#)
+    // The exchange rates too: without them a sync starts at once.
+    let rates: String = "USD JPY CZK DKK GBP HUF PLN RON SEK CHF ISK NOK TRY AUD BRL CAD CNY HKD IDR ILS INR KRW MXN MYR NZD PHP SGD THB ZAR"
+        .split(' ')
+        .map(|c| format!(r#","EUR/{c}":{{"value":1.5,"at":{t}}}"#))
+        .collect();
+    format!(r#"{{"format":1,"synced_at":{t},"attempted_at":{t},"ok":{ok},"values":{{"Voyager 1":{{"value":180.5,"at":{t}}},"Starlink":{{"value":12345,"at":{t}}},"ECB rates date":{{"value":{day},"at":{t}}}{rates}}}}}"#, day = t - t % 86_400)
 }
 
 fn tally(mode: Option<&str>, dir: &PathBuf, args: &[&str]) -> Output {
@@ -89,4 +94,26 @@ fn fresh_data_is_used_offline() {
     let failed = format!(r#"{{"format":1,"synced_at":{old},"attempted_at":{t},"ok":false,"values":{{"Starlink":{{"value":12345,"at":{old}}}}}}}"#, old = t - 100);
     let dir = config("failed", &failed);
     assert_eq!(text(&tally(None, &dir, &["--online"])), "offline");
+}
+
+#[test]
+fn currencies_from_the_synced_rates() {
+    // Every rate is 1.5 per euro in the fixture: 100 USD is 66.67 EUR, 100 USD is 100 GBP.
+    let dir = config("currency", &fresh(true));
+    assert_eq!(text(&tally(None, &dir, &["100", "usd", "eur"])), "66.67 EUR");
+    assert_eq!(text(&tally(None, &dir, &["100", "USD", "to", "Gbp"])), "100.00 GBP");
+    // The amounts on stdin, like `tally km mi`.
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_tally"));
+    cmd.args(["usd", "eur"]).env("XDG_CONFIG_HOME", &dir).env_remove("TALLY_MODE").stdin(Stdio::piped()).stdout(Stdio::piped());
+    let mut child = cmd.spawn().unwrap();
+    std::io::Write::write_all(&mut child.stdin.take().unwrap(), b"100\n300\n").unwrap();
+    assert_eq!(String::from_utf8_lossy(&child.wait_with_output().unwrap().stdout), "66.67 EUR\n200.00 EUR\n");
+    let out = tally(None, &dir, &["100", "usd", "eur", "gbp"]);
+    assert_eq!(out.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("one amount and two currencies"));
+    // Never synced, offline: no rates, exit 1.
+    let dir = config("currency-none", "");
+    let out = tally(Some("offline"), &dir, &["1", "usd", "eur"]);
+    assert_eq!(out.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("no exchange rates: they were never downloaded"), "{:?}", out);
 }

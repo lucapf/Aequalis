@@ -1,0 +1,30 @@
+# Maintainer: Luca Palanca Falsini <lucapf at gmail dot com>
+#
+# The AUR package tally-calc-bin: the release binaries from GitHub. The release workflow
+# (.github/workflows/release.yml) writes pkgver and the checksums of each new release and pushes it
+# to the AUR. (`tally` on the AUR is another program, a wc(1) clone, with the same command name.)
+pkgname=tally-calc-bin
+pkgver=0.1.1
+pkgrel=1
+pkgdesc="Ultralight calculator and converter made for humans, with an Omarchy bar widget"
+arch=('x86_64' 'aarch64')
+url="https://github.com/lucapf/tally"
+license=('MIT')
+depends=('glibc' 'gcc-libs')
+optdepends=('curl: live values in the Trivia (spacecraft distances, satellites in orbit)')
+provides=('tally-calc')
+conflicts=('tally' 'tally-calc')
+options=('!debug' '!strip')
+source_x86_64=("$url/releases/download/v$pkgver/tally-$pkgver-x86_64-linux.tar.gz")
+source_aarch64=("$url/releases/download/v$pkgver/tally-$pkgver-aarch64-linux.tar.gz")
+sha256sums_x86_64=('7fd0143a2d3f63a0cc54df0474c86736356d459a861dea4af7da228131f2613e')
+sha256sums_aarch64=('81e0d7242d55bcb806ce87eed1f4ec01ce21d1e38a65dd16d4e3999372e9d4c3')
+
+package() {
+  cd "tally-$pkgver-$CARCH-linux"
+  install -Dm755 tally "$pkgdir/usr/bin/tally"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 README.md Accepted_Syntax.md -t "$pkgdir/usr/share/doc/$pkgname/"
+  # The Omarchy widget, for a manual install; `omarchy plugin add` uses its own repository.
+  install -Dm644 omarchy-widget/manifest.json omarchy-widget/Panel.qml -t "$pkgdir/usr/share/tally/omarchy-widget/"
+}
