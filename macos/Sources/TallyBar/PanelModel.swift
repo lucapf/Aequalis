@@ -111,7 +111,8 @@ final class PanelModel: ObservableObject {
         if showAbout { refreshAbout() }
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.refreshStatus() }
+            guard let model = self else { return }
+            Task { @MainActor in model.refreshStatus() }
         }
     }
 
