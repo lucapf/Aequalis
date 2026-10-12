@@ -15,6 +15,8 @@ $ tally 10:00AM Paris to New York
 11 Oct 26 4:00 AM GMT-4 New York
 ```
 
+Installation guides [Mac Os](./docs/install_mac.md)
+
 ## What Tally can do
 
 Tally accepts a loose syntax, so the learning curve is flat (almost :P).
@@ -29,7 +31,7 @@ Normal precedence, powers (`^` or `**`), percentages and scientific functions:
 | `12+4/2` | `14` (the TUI preview shows the grouping: `(12 + (4 / 2)) = 14`) |
 | `2^10` | `1024` |
 | `sqrt 16` | `4` |
-| `sin(30°)` | `0.5` |
+| $\sin(30^\circ)$ | `0.5` |
 | `150 + 20%` | `180` |
 | `20% of 150` | `30` |
 
@@ -83,7 +85,7 @@ Examples of info you can find:
 - live distance of the Voyager probes 
 - distance between the planets in the solar system 
 - how many satellites in orbit right now?
-- math: π, e and more.
+- math: $\pi$, $e$ and more.
 
 ## How to use it
 
@@ -95,6 +97,7 @@ You can run Tally in several ways:
   - typing `tally` in your terminal
   - the TUI button in the widget
   - the app launcher, once you add a launcher entry for it
+
 
 ## License
 
