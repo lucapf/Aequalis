@@ -34,6 +34,11 @@ fn download_then_any_city() {
     let o = common::tally(&dir, &["--sync"]);
     assert_eq!(common::out(&o), "9 cities\n0 exchange rates\n0 live values", "{}", common::err(&o));
     assert!(dir.join("tally/cities.json").exists());
+    // One place so far (an archive city, alone or before `to`): what comes next, not "not a number".
+    for typed in [&["Springfield,", "Illinois"][..], &["Springfield,", "Illinois", "to"], &["distance", "Springfield,", "Illinois"]] {
+        let o = common::tally(&dir, typed);
+        assert_eq!(common::err(&o), "tally: error: now the place to go to: `Springfield, Illinois to Paris`", "{typed:?}");
+    }
     // Two parameters: the default unit; three: the given one.
     assert_eq!(common::out(&common::tally(&dir, &["Springfield,", "Illinois", "Chicago"])), "283 km");
     assert_eq!(common::out(&common::tally(&dir, &["Springfield,", "Illinois", "Chicago", "mi"])), "176 mi");

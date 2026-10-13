@@ -1551,7 +1551,8 @@ fn take_cities(input: &str) -> Result<(String, Option<Cities>), String> {
     let Some(&(t_at, t_len, target)) = found.last() else { return Ok((input.to_string(), None)) };
     // Being typed: `10:00AM New York to`.
     if t_at + t_len + 1 == words.len() && ["to", "->"].contains(&words[t_at + t_len]) {
-        return Err(format!("now the city to convert to: `{} to Paris`", target.name));
+        let other = if target.name == "Paris" { "Rome" } else { "Paris" };
+        return Err(format!("now the city to convert to: `{} to {other}`", target.name));
     }
     let misplaced = || format!("put the city at the end (`10:00 Paris`), or `<city> [to] <city>`: `{}`", words[found[0].0]);
     if t_at + t_len != words.len() {

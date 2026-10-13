@@ -204,12 +204,46 @@ pub fn request_in(
 ) -> Option<Result<(String, Vec<String>), Error>> {
     if is_request(input) {
         let rest = input.trim_start()["distance".len()..].trim();
-        return Some(between(config, rest, precision, format, unit, store, local, true));
+        // Being typed: one place so far (`distance Rieti`): what comes next.
+        return Some(match between(config, rest, precision, format, unit, store, local, true) {
+            Err(Error::Usage(usage)) => Err(Error::Usage(next_place(config, input, store).unwrap_or(usage))),
+            other => other,
+        });
     }
     // Without the word: only when both sides are places (a choice among them included).
     match between(config, input, precision, format, unit, store, local, false) {
         Err(Error::Usage(_)) => None,
         other => Some(other),
+    }
+}
+
+/// When a request is one place so far, maybe followed by `to` (`Rieti`, `distance Rieti to`):
+/// what comes next (`now the place to go to: \`Rieti to Paris\``), instead of an error that
+/// would say the request is wrong. For the requests nothing else reads (`Rome` alone is the time
+/// in Rome: the caller asks last).
+pub fn being_typed(config: &Config, input: &str) -> Option<String> {
+    next_place(config, input, crate::cities::store().as_ref())
+}
+
+fn next_place(config: &Config, input: &str, store: Option<&crate::cities::Store>) -> Option<String> {
+    let place = one_place_so_far(config, input, store)?;
+    let other = if place.eq_ignore_ascii_case("Paris") { "Rome" } else { "Paris" };
+    Some(format!("now the place to go to: `{place} to {other}`"))
+}
+
+/// The place written so far when a request is one place, maybe followed by `to`, as written.
+fn one_place_so_far(config: &Config, input: &str, store: Option<&crate::cities::Store>) -> Option<String> {
+    let mut words: Vec<&str> = input.split_whitespace().collect();
+    if words.first().is_some_and(|w| w.eq_ignore_ascii_case("distance")) {
+        words.remove(0);
+    }
+    if words.last().is_some_and(|w| ["to", "->"].contains(&w.to_ascii_lowercase().as_str())) {
+        words.pop();
+    }
+    let text = words.join(" ");
+    match side(config, &text, store, false)? {
+        Side::One(..) | Side::Several(..) => Some(text),
+        Side::Misspelt(..) => None,
     }
 }
 
@@ -492,7 +526,7 @@ mod tests {
         assert_eq!(note, ["41.9028, 12.4964 to Paris (48.8566, 2.3522), along the Earth's surface (WGS84)"]);
         assert!(r("distance Rmoe to Paris").unwrap_err().contains("did you mean Rome?"));
         assert!(r("distance Atlantis to Paris").unwrap_err().contains("not a known place"));
-        assert!(r("distance Rome").unwrap_err().contains("distance <place> [to] <place>"));
+        assert_eq!(r("distance Rome").unwrap_err(), "now the place to go to: `Rome to Paris`", "one place so far: what comes next");
         // `to` is optional: where both sides are places.
         assert_eq!(r("Rome Paris"), r("Rome to Paris"));
         assert_eq!(r("london paris mi"), r("London to Paris mi"));

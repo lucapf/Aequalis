@@ -415,7 +415,11 @@ fn convert_request(config: &Config, opts: &Options, tokens: &[&str]) -> Result<O
             time::TimeError::Ambiguous(a) => CliError::Ambiguous(a),
         });
     }
-    let (expr, rest) = calc::parse_prefix(&input).map_err(calc_error)?;
+    // Not a number: one place so far (`Rieti`, `Rieti to`) is a distance on its way.
+    let (expr, rest) = calc::parse_prefix(&input).map_err(|e| match geo::being_typed(config, &input) {
+        Some(next) => CliError::Usage(next),
+        None => calc_error(e),
+    })?;
     let value = expr.eval().map_err(calc_error)?;
     if !value.is_finite() {
         return Err(CliError::Convert(convert::ConvertError::NotFinite));

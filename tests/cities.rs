@@ -94,6 +94,7 @@ fn errors() {
         ("10:00 Atlantis", "`Atlantis` is not a city"),
         ("10:00AM", "a time alone takes a city"),
         ("10:00AM New York to", "now the city to convert to"),
+        ("Paris to", "now the city to convert to: `Paris to Rome`"),
         ("10:00 GMT+2 London to Paris", "two time zones"),
         ("2026-12-04T10:00Z New York to Paris", "has its own time zone"),
         ("2026-12-25 - 2026-12-04 Paris", "a difference of dates is a duration"),

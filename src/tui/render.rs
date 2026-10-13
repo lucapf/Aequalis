@@ -1598,8 +1598,10 @@ mod tests {
         // Only the source unit so far: what comes next follows the grouping.
         let (lines, _) = screen("1+2 km", 12, 100);
         assert!(lines[9].starts_with("│   (1 + 2) · now the target unit"), "{}", lines[9]);
-        // A real error follows the grouping too.
+        // A real error follows the grouping too, once the word is typed (a space after it).
         let (lines, _) = screen("1+2 km mi m", 12, 100);
+        assert!(lines[9].starts_with("│   (1 + 2)") && !lines[9].contains("expected"), "{}", lines[9]);
+        let (lines, _) = screen("1+2 km mi m ", 12, 100);
         assert!(lines[9].starts_with("│   (1 + 2) · expected"), "{}", lines[9]);
     }
 

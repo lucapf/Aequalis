@@ -8,7 +8,8 @@ import qs.Ui
 // request is evaluated by the tally CLI (`tally --json …`), so the widget accepts exactly
 // what the command line does: units (`10 km mi`), the calculator (`12+12/3`), dates
 // (`2026/12/04 - 12d`, `now unix`). Enter copies the value and keeps the request in Recent; an
-// ambiguous date (`12/04/2026 unix`) shows one button per reading.
+// ambiguous date (`12/04/2026 unix`) shows one button per reading. While a word is being typed
+// (no space after it yet, no Enter) errors and questions wait: only a result shows.
 //
 // Settings (this widget's entry in ~/.config/omarchy/shell.json):
 //   "command": the tally binary, when it is not on the shell's PATH (default "tally").
@@ -29,6 +30,11 @@ Panel {
   property string query: ""
   // The parsed `--json` object for `query` (null: nothing typed yet).
   property var reply: null
+  // Enter was pressed on this query: its error is shown even in the middle of a word.
+  property bool submitted: false
+  // A word is being typed (no space after it, no Enter): no error or question yet, only a
+  // result (`Rie` on the way to `Rieti to Rome` is no mistake).
+  readonly property bool typing: root.reply !== null && !root.reply.ok && !root.submitted && !/\s$/.test(root.query)
   // The command could not be run (not installed, or not on PATH).
   property bool missing: false
   // [{input, result}], newest first.
@@ -116,6 +122,7 @@ Panel {
 
   // Enter: copy the value and remember the request.
   function commit() {
+    root.submitted = true
     if (!root.reply || !root.reply.ok) return
     var entry = { input: root.query.trim(), result: root.reply.result }
     root.recent = [entry].concat(root.recent.filter(function(e) { return e.input !== entry.input })).slice(0, 6)
@@ -613,6 +620,7 @@ Panel {
         placeholderText: "10 km mi  ·  12+12/3  ·  2026/12/04 - 12d  ·  now unix"
         onTextChanged: {
           root.query = text
+          root.submitted = false
           root.copied = ""
           debounce.restart()
         }
@@ -639,7 +647,7 @@ Panel {
           font.pixelSize: root.reply && root.reply.ok ? Style.font.subtitle : Style.font.body
           text: root.missing
             ? "`" + root.command + "` not found: install tally (see docs/omarchy-widget.md)"
-            : !root.reply ? ""
+            : !root.reply || root.typing ? ""
             : root.reply.ok ? "= " + root.reply.result
             : root.reply.ambiguous && root.reply.ambiguous.kind === "city" ? (root.reply.ambiguous.note || "`" + root.reply.ambiguous.text + "` is not a city") + ": did you mean…"
             : root.reply.ambiguous && root.reply.ambiguous.kind === "country" ? "`" + root.reply.ambiguous.text + "` has several time zones: which one?"
@@ -680,7 +688,7 @@ Panel {
       Flow {
         width: parent.width
         spacing: Style.space(6)
-        visible: root.reply !== null && root.reply.ambiguous !== undefined
+        visible: root.reply !== null && root.reply.ambiguous !== undefined && !root.typing
         Repeater {
           model: root.reply && root.reply.ambiguous ? root.reply.ambiguous.choices : []
           Button {

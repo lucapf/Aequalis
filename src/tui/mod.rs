@@ -721,7 +721,7 @@ impl<'a> App<'a> {
                 }
             }
         }
-        Some(match &*self.evaluated(&input) {
+        let preview = match &*self.evaluated(&input) {
             // An ambiguous request: Enter asks which reading is meant.
             Err(crate::CliError::Ambiguous(a)) => {
                 let patterns: Vec<&str> = a.choices.iter().map(|c| c.pattern.as_str()).collect();
@@ -738,7 +738,13 @@ impl<'a> App<'a> {
             Ok(out) if out.formatted => Ok(out.stdout.clone()),
             Ok(out) => Ok(self.numbers.apply_to_result(&out.stdout)),
             Err(e) => Err(e.to_string()),
-        })
+        };
+        // A word being typed (no space after it yet): no error or question, which would say a
+        // request on its way (`Rie` → `Rieti to Rome`) is wrong; a space or Enter shows them.
+        if preview.is_err() && !input.ends_with(char::is_whitespace) {
+            return None;
+        }
+        Some(preview)
     }
 
     /// When countries stand for currencies, the currencies used (`United States: US dollar (USD,
@@ -1334,7 +1340,9 @@ mod tests {
         assert_eq!(app.preview(), Some(Err("now the target unit".into())));
         app.handle(Key::Ctrl('u'));
         typed(&mut app, "25 foo");
-        assert!(matches!(app.preview(), Some(Err(m)) if m.contains("expected")), "unknown unit: the real error");
+        assert_eq!(app.preview(), None, "a word being typed: no error yet");
+        typed(&mut app, " ");
+        assert!(matches!(app.preview(), Some(Err(m)) if m.contains("expected")), "unknown unit after the space: the real error");
         app.handle(Key::Ctrl('u'));
         typed(&mut app, "12/04/2026");
         assert_eq!(app.preview(), Some(Err("now the target format (T, then Tab: Formats)".into())));
@@ -1343,11 +1351,35 @@ mod tests {
         typed(&mut app, "2026/12/04 10:00 PM");
         assert!(matches!(app.preview(), Some(Ok(p)) if p.starts_with("04 Dec 26 10:00 PM GMT")), "for people: {:?}", app.preview());
         app.handle(Key::Ctrl('u'));
-        typed(&mut app, "12/04/26 3:20PM");
+        typed(&mut app, "12/04/26 3:20PM ");
         assert!(matches!(app.preview(), Some(Err(m)) if m.starts_with("ambiguous")), "{:?}", app.preview());
         app.handle(Key::Ctrl('u'));
         typed(&mut app, "12/4");
         assert_eq!(app.preview(), Some(Ok("3".into())), "a division stays a division");
+    }
+
+    /// Typing `Rieti to Roma`: no error on the way (`Rie`, `Rieti`, `Rieti to Ro`), only once a
+    /// word is typed (a space after it) or on Enter.
+    #[test]
+    fn no_error_while_a_word_is_typed() {
+        let config = Config::default();
+        let opts = options(&config);
+        let mut app = App::new(&config, &opts);
+        for c in "Rieti to Roma".chars() {
+            typed(&mut app, &c.to_string());
+            let text = app.line.text();
+            if !text.ends_with(' ') {
+                assert_eq!(app.preview(), None, "{text:?}");
+            }
+        }
+        // A result shows at once: `12+4` mid-word too.
+        app.handle(Key::Ctrl('u'));
+        typed(&mut app, "12+4");
+        assert_eq!(app.preview(), Some(Ok("16".into())));
+        // After a space the error shows (no city archive in the tests: `Rieti` is unknown).
+        app.handle(Key::Ctrl('u'));
+        typed(&mut app, "Rieti ");
+        assert!(matches!(app.preview(), Some(Err(_))), "{:?}", app.preview());
     }
 
     #[test]
@@ -1441,6 +1473,8 @@ mod tests {
         let opts = options(&config);
         let mut app = App::new(&config, &opts);
         typed(&mut app, "12/04/2026 unix");
+        assert_eq!(app.preview(), None, "being typed: the question waits");
+        typed(&mut app, " ");
         assert!(matches!(app.preview(), Some(Err(m)) if m.starts_with("ambiguous: ") && m.contains("DD/MM/YYYY")));
         app.handle(Key::Enter);
         let Some(Overlay::Choice(a, 0)) = &app.overlay else { panic!("no popup") };
