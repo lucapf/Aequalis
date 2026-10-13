@@ -1,5 +1,8 @@
 //! The single configuration object: unit tables, aliases and output defaults.
 
+use std::collections::HashMap;
+use std::sync::OnceLock;
+
 /// A unit is converted through its category's base unit:
 /// `base = value * factor + offset`, or `base = factor / value` for an `inverse` unit (`l/100km`,
 /// whose base is `km/l`).
@@ -59,8 +62,7 @@ pub type Dims = [i8; 5];
 
 pub struct Category {
     pub name: &'static str,
-    /// The interactive mode's shortcut (upper case; command keys take the lower case first).
-    /// Unused for a category in a group (`Config::groups`): the group's key opens it.
+    /// Its key in the interactive mode's Measures list (upper case; unique among the categories).
     #[cfg_attr(not(feature = "tui"), allow(dead_code))]
     pub key: char,
     pub base: &'static str,
@@ -81,39 +83,67 @@ pub struct Category {
     pub units: Vec<Unit>,
 }
 
-/// Categories shown together in the interactive mode, under one shortcut: their names are the
-/// tabs of the unit keys, and each shows its metric units on one row and the imperial ones below.
-/// Conversions still need two units of the same category (no metres to litres).
-#[cfg_attr(not(feature = "tui"), allow(dead_code))]
-pub struct Group {
-    pub name: &'static str,
-    pub key: char,
-    pub members: &'static [&'static str],
-    /// More tabs after the categories, for requests that are not unit conversions: `Earth distance`.
-    pub tools: &'static [&'static str],
-}
-
 /// The interactive mode's unit search: a `Config::menu` name and its shortcut, the first.
 pub const SEARCH: (&str, char) = ("Search", '/');
+
+/// The interactive mode's measures (`tui/measures.rs`): every unit class, then its units.
+pub const MEASURES: (&str, char) = ("Measures", 'M');
+
+/// The interactive mode's currencies (`tui/currencies.rs`): every currency, to write its code.
+pub const CURRENCIES: (&str, char) = ("Currencies", 'U');
+
+/// The category of durations, whose second tab lists the date formats.
+pub const TIME: &str = "Date & Time";
+
+/// The category of digital information: bits and bytes, decimal and binary.
+pub const BITS: &str = "Bits & Bytes";
 
 /// The interactive mode's Trivia (`trivia.rs`): a `Config::menu` name and its shortcut.
 pub const TRIVIA: (&str, char) = ("Trivia", 'R');
 
-/// The Size group's tool: the distance between two places on the Earth (`geo.rs`).
-pub const EARTH_DISTANCE: &str = "Earth distance";
+/// The interactive mode's Settings window (`tui/settings.rs`): a `Config::menu` name and its key.
+pub const SETTINGS: (&str, char) = ("⚙ Settings", 'O');
 
 pub struct Config {
     pub categories: Vec<Category>,
-    #[cfg_attr(not(feature = "tui"), allow(dead_code))]
-    pub groups: Vec<Group>,
-    /// The interactive mode's shortcuts, in order: names of groups and of categories outside them.
+    /// The interactive mode's top bar, in order (`SEARCH`, `MEASURES`, …).
     #[cfg_attr(not(feature = "tui"), allow(dead_code))]
     pub menu: Vec<&'static str>,
+    /// The decimal places when no precision is given (the `precision` setting's default).
+    #[cfg_attr(not(test), allow(dead_code))]
     pub default_precision: usize,
     pub max_precision: usize,
     /// Entries kept in the interactive mode's history (the oldest are dropped).
     #[cfg_attr(not(feature = "tui"), allow(dead_code))]
     pub max_history: usize,
+    /// Every unit by name (`Config::unit_names`), built on first use.
+    unit_names: OnceLock<UnitNames>,
+}
+
+/// The units by symbol and alias, as (category, unit) indexes: written exactly, and in lower case
+/// for the categories where case does not matter. The first unit with a name wins.
+pub struct UnitNames {
+    pub exact: HashMap<&'static str, (usize, usize)>,
+    pub lower: HashMap<String, (usize, usize)>,
+}
+
+impl Config {
+    pub fn unit_names(&self) -> &UnitNames {
+        self.unit_names.get_or_init(|| {
+            let mut names = UnitNames { exact: HashMap::new(), lower: HashMap::new() };
+            for (c, category) in self.categories.iter().enumerate() {
+                for (u, unit) in category.units.iter().enumerate() {
+                    for name in std::iter::once(unit.symbol).chain(unit.aliases.iter().copied()) {
+                        names.exact.entry(name).or_insert((c, u));
+                        if !category.case_sensitive {
+                            names.lower.entry(name.to_lowercase()).or_insert((c, u));
+                        }
+                    }
+                }
+            }
+            names
+        })
+    }
 }
 
 const fn metric(symbol: &'static str, name: &'static str, aliases: &'static [&'static str], factor: f64) -> Unit {
@@ -179,20 +209,12 @@ impl Default for Config {
             default_precision: 4,
             max_precision: 15,
             max_history: 500,
-            // The interactive mode's shortcuts, in this order: categories and groups.
-            menu: vec![SEARCH.0, "Time", "Data", "Size", "Other physical", TRIVIA.0],
-            groups: vec![
-                Group { name: "Size", key: 'S', members: &["Length", "Area", "Volume", "Angle"], tools: &[EARTH_DISTANCE] },
-                Group {
-                    name: "Other physical",
-                    key: 'P',
-                    members: &["Mass", "Temperature", "Speed", "Pressure", "Fuel economy", "Energy", "Power"],
-                    tools: &[],
-                },
-            ],
+            unit_names: OnceLock::new(),
+            // The interactive mode's top bar, in this order.
+            menu: vec![SEARCH.0, MEASURES.0, CURRENCIES.0, TRIVIA.0, SETTINGS.0],
             categories: vec![
                 Category {
-                    name: "Time",
+                    name: TIME,
                     key: 'T',
                     columns: 5,
                     base: "s",
@@ -215,8 +237,8 @@ impl Default for Config {
                     ],
                 },
                 Category {
-                    name: "Data",
-                    key: 'D',
+                    name: BITS,
+                    key: 'B',
                     columns: 5,
                     base: "b",
                     dims: [0, 0, 0, 0, 1],
@@ -509,7 +531,7 @@ mod tests {
         use System::*;
         assert_eq!(systems("Length"), [("mm", Metric), ("cm", Metric), ("m", Metric), ("km", Metric), ("au", Metric), ("ly", Metric), ("pc", Metric), ("in", Imperial), ("ft", Imperial), ("yd", Imperial), ("mi", Imperial)]);
         assert_eq!(systems("Temperature"), [("K", Metric), ("C", Metric), ("F", Imperial)]);
-        for (symbol, system) in systems("Data") {
+        for (symbol, system) in systems(BITS) {
             let want = if symbol.contains('i') { Imperial } else if symbol.len() == 1 { Both } else { Metric };
             assert_eq!(system, want, "{symbol}");
         }
@@ -517,7 +539,7 @@ mod tests {
             // Both tabs have units.
             for tab in [Metric, Imperial] {
                 // Time's second tab holds the date formats, not units.
-                let formats_tab = cat.name == "Time" && tab == Imperial;
+                let formats_tab = cat.name == TIME && tab == Imperial;
                 assert!(formats_tab || cat.units.iter().any(|u| u.system == tab), "{} has no {tab:?} unit", cat.name);
             }
             assert_eq!(cat.case_sensitive, cat.systems == ["Decimal", "Binary"], "{}", cat.name);
@@ -541,7 +563,7 @@ mod tests {
     #[test]
     fn time_units() {
         let config = Config::default();
-        let time = config.categories.iter().find(|c| c.name == "Time").unwrap();
+        let time = config.categories.iter().find(|c| c.name == TIME).unwrap();
         let symbols: Vec<_> = time.units.iter().map(|u| (u.symbol, u.system)).collect();
         use System::*;
         // All the durations on the first tab; the second lists the date formats (in the TUI).

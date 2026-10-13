@@ -17,26 +17,37 @@ pub const TAGLINE: &str = "Ultralight calculator and converter made for humans";
 /// the mode.
 pub fn facts(memory: &str) -> Vec<(&'static str, String)> {
     let sync = match crate::online::load().last_sync() {
-        Some(t) => crate::time::human(&crate::time::Instant { ns: t as i128 * 1_000_000_000, zone: crate::time::Zone::Local }, false),
+        Some(t) => crate::time::human_moment(t),
         None => "never".to_string(),
     };
-    let mode = crate::network::mode().map_or("online", |m| match m {
+    let mode = match crate::network::mode() {
         crate::network::Mode::Online => "online",
-        crate::network::Mode::Offline => "offline (forced: TALLY_MODE=offline)",
-    });
+        crate::network::Mode::Offline => "offline (the offline setting)",
+    };
     // The exchange rates: their date and where they come from (its terms ask to name it).
     let rates = match crate::currency::load().get(crate::currency::RATES_DATE) {
         Some(day) => {
-            let day = crate::time::human(&crate::time::Instant { ns: day.value as i128 * 1_000_000_000, zone: crate::time::Zone::Fixed(0) }, true);
+            let day = crate::time::human_day(day.value as i64);
             format!("of {day}, {}", crate::currency::SOURCE)
         }
         None => format!("not synced yet, {}", crate::currency::SOURCE),
+    };
+    // The city archive: how many, of when, from where (GeoNames, CC BY 4.0), the policy.
+    let settings = crate::settings::current();
+    let cities = match (settings.cities_enabled(), crate::cities::meta()) {
+        (false, _) => "off (the cities.enabled setting)".to_string(),
+        (true, Some(m)) => {
+            let day = crate::time::human_day(m.built_at);
+            format!("{} of {day}, {} (refresh: {})", crate::numbers::device().apply(&m.count.to_string()), crate::cities::SOURCE, settings.get("cities.refresh"))
+        }
+        (true, None) => format!("not downloaded (tally --sync), {}", crate::cities::SOURCE),
     };
     vec![
         ("Version", env!("CARGO_PKG_VERSION").to_string()),
         ("Memory", memory.to_string()),
         ("Last online sync", sync),
         ("Exchange rates", rates),
+        ("Cities", cities),
         ("Mode", mode.to_string()),
     ]
 }
@@ -78,5 +89,6 @@ mod tests {
         assert!(text.contains("\nVersion: ") && text.contains("\nMemory: ") && text.contains(" peak "), "{text}");
         assert!(text.contains("\nLast online sync: "), "{text}");
         assert!(text.contains("\nExchange rates: ") && text.contains("ExchangeRate-API (https://www.exchangerate-api.com)"), "{text}");
+        assert!(text.contains("\nCities: ") && text.contains("GeoNames (https://www.geonames.org), CC BY 4.0"), "{text}");
     }
 }

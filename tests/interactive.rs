@@ -1,7 +1,7 @@
 //! Interactive mode, driven in a real pseudo-terminal through util-linux `script`
 //! (Linux only; skipped when `script` is missing). Keys are sent with pauses, as typed.
 
-#![cfg(target_os = "linux")]
+#![cfg(all(target_os = "linux", feature = "tui"))]
 
 use std::io::{Read, Write};
 use std::process::{Command, Stdio};

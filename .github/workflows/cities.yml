@@ -1,0 +1,52 @@
+# The city archive for distances (scripts/build-cities.py, from GeoNames), rebuilt on the 1st of
+# each month, on demand, and when its build changes on master; published as the assets of the
+# release `cities`: cities.json.gz (what Tally downloads) and cities.version (to check for a new
+# one cheaply). That release is data, not an app version: it is never marked latest, and nothing
+# is pushed, so no app release starts.
+name: Cities
+
+on:
+  schedule:
+    - cron: "17 3 1 * *"
+  workflow_dispatch:
+  # And when the build changes on master: the first merge publishes the first archive.
+  push:
+    branches: [master]
+    paths:
+      - scripts/build-cities.py
+      - .github/workflows/cities.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cities
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build
+        run: python3 scripts/build-cities.py dist
+      - name: Check
+        run: |
+          python3 - <<'EOF'
+          import json
+          d = json.load(open("dist/cities.json"))
+          assert d["count"] > 60000, d["count"]
+          names = {c["name"] for c in d["cities"]}
+          for city in ["Rome", "New York City", "Tokyo", "Paris", "Sydney"]:
+              assert city in names, city
+          print(d["count"], "cities")
+          EOF
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view cities --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create cities --repo "$GITHUB_REPOSITORY" --latest=false --title "City archive" \
+              --notes "Cities for Tally's distances, from GeoNames (https://www.geonames.org, CC BY 4.0). Rebuilt monthly by .github/workflows/cities.yml; Tally downloads cities.json.gz."
+          fi
+          gh release upload cities dist/cities.json.gz dist/cities.version --repo "$GITHUB_REPOSITORY" --clobber

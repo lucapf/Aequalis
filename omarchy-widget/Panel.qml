@@ -16,7 +16,8 @@ import qs.Ui
 // which gets the focus; it is disabled while that terminal is open. Clicking the title shows
 // About: the logo, the tagline, the memory footprint (the last request's peak, the open TUI, the
 // binary), the version and the last online sync (`tally --about`). The header shows online
-// or offline (`tally --online`), forced offline by TALLY_MODE=offline.
+// or offline (`tally --online`), forced by the offline setting (`tally --set offline=true`).
+// Notices (a new city archive, out-of-date data, from `--json`) come with a Download button.
 Panel {
   id: root
   moduleName: "lucapf.tally"
@@ -58,8 +59,17 @@ Panel {
   onShowMemoryChanged: if (root.showMemory) root.refreshAbout()
 
   // Online or offline (`tally --online`): "checking", "online", "offline" or "offline (forced)"
-  // (TALLY_MODE=offline in the shell's environment). Checked when the popup opens and every 30 s.
+  // (the offline setting). Checked when the popup opens and every 30 s.
   property string netStatus: "checking"
+  // Notices from `tally --online --json` (the city archive not downloaded, out-of-date data), each
+  // with a Download button; refreshed with the online state and after a download.
+  property var notices: []
+  // The Settings section (the gear): every setting from `tally --settings --json`, changed with
+  // `tally --set`; the message is what the last change or download said.
+  property bool showSettings: false
+  property var settingsList: []
+  property string settingsMessage: ""
+  onShowSettingsChanged: if (root.showSettings) { root.showMemory = false; root.refreshSettings() }
   property int tuiKb: -1      // -1: the TUI is not running
   property int binaryKb: -1   // -1: unknown
 
@@ -139,6 +149,31 @@ Panel {
     return "Memory · " + parts.join(" · ")
   }
 
+  function refreshSettings() {
+    if (!settingsProc.running) settingsProc.running = true
+  }
+
+  // A setting changed (`null`: back to its default).
+  function setValue(key, value) {
+    setProc.command = value === null ? [root.command, "--set", key] : [root.command, "--set", key + "=" + value]
+    setProc.running = true
+  }
+
+  // A yes/no or a choice: the next value.
+  function nextValue(s) {
+    if (s.kind === "bool") return s.value === "true" ? "false" : "true"
+    var i = s.options.indexOf(s.value)
+    return s.options[(i + 1) % s.options.length]
+  }
+
+  // `tally --sync` (everything) in the background; the notices follow when it ends.
+  function download() {
+    if (syncProc.running) return
+    root.settingsMessage = "Downloading everything…"
+    syncProc.command = [root.command, "--sync"]
+    syncProc.running = true
+  }
+
   function refreshAbout() {
     if (!aboutProc.running) aboutProc.running = true
   }
@@ -178,6 +213,43 @@ Panel {
   }
 
   Process { id: copyProc }
+  // A download asked for from a notice or the Settings (`tally --sync`).
+  Process {
+    id: syncProc
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: if (String(text || "").trim() !== "") root.settingsMessage = String(text).trim()
+    }
+    stderr: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: if (String(text || "").trim() !== "") root.settingsMessage = String(text).trim()
+    }
+    onExited: { if (!netProc.running) netProc.running = true }
+  }
+
+  Process {
+    id: settingsProc
+    command: [root.command, "--settings", "--json"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        try { root.settingsList = JSON.parse(String(text || "{}")).settings || [] } catch (e) { root.settingsList = [] }
+      }
+    }
+  }
+
+  Process {
+    id: setProc
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: if (String(text || "").trim() !== "") root.settingsMessage = "Saved: " + String(text).trim()
+    }
+    stderr: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: if (String(text || "").trim() !== "") root.settingsMessage = String(text).trim().replace(/^tally: error: /, "")
+    }
+    onExited: { root.refreshSettings(); if (!netProc.running) netProc.running = true }
+  }
 
   // The binary's size, and the resident memory of the TUI: the `tally` process with no arguments.
   Process {
@@ -203,12 +275,14 @@ Panel {
 
   Process {
     id: netProc
-    command: [root.command, "--online"]
+    command: [root.command, "--online", "--json"]
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
-        var word = String(text || "").trim()
-        root.netStatus = word === "" ? "offline" : word
+        var reply = null
+        try { reply = JSON.parse(String(text || "")) } catch (e) {}
+        root.netStatus = reply && reply.result ? reply.result : "offline"
+        root.notices = reply && reply.notices ? reply.notices : []
       }
     }
   }
@@ -281,6 +355,7 @@ Panel {
     // Clicking the title: show or hide About.
     function memory(): void { root.showMemory = !root.showMemory }
     function about(): void { root.showMemory = !root.showMemory }
+    function settings(): void { root.showSettings = !root.showSettings }
   }
 
   // Wait for a short pause in typing before running tally.
@@ -365,8 +440,18 @@ Panel {
 
             PanelToolTip {
               visible: netMouse.containsMouse
-              text: root.netStatus === "offline (forced)" ? "TALLY_MODE=offline" : "Can JPL Horizons and CelesTrak be reached (the Trivia's live values)"
+              text: root.netStatus === "offline (forced)" ? "The offline setting (tally --set offline=false)" : "The last download of the online data"
             }
+          }
+
+          // The gear: the Settings section.
+          Button {
+            id: settingsButton
+            iconText: "\uf013"  // Nerd Font: gear
+            text: ""
+            fontSize: Style.font.caption
+            tooltipText: root.showSettings ? "Back to the calculator" : "Settings"
+            onClicked: root.showSettings = !root.showSettings
           }
 
           Button {
@@ -422,6 +507,106 @@ Panel {
         }
       }
 
+      // Settings (the gear): each setting with its value; a yes/no or a choice changes with a click,
+      // the others are typed (Enter saves); "default" puts back the default. Then the downloads.
+      Column {
+        width: parent.width
+        visible: root.showSettings
+        spacing: Style.space(4)
+
+        Text {
+          text: "\uf013  Settings"
+          color: Color.foreground
+          font.family: Style.font.family
+          font.pixelSize: Style.font.body
+          font.bold: true
+        }
+
+        Repeater {
+          model: root.settingsList
+          Item {
+            width: parent.width
+            implicitHeight: Math.max(keyText.implicitHeight, valueControl.implicitHeight)
+
+            Text {
+              id: keyText
+              anchors.left: parent.left
+              anchors.verticalCenter: parent.verticalCenter
+              width: Style.space(150)
+              elide: Text.ElideRight
+              text: modelData.key
+              color: modelData.value === modelData["default"] ? Color.foreground : Color.accent
+              font.family: Style.font.family
+              font.pixelSize: Style.font.caption
+
+              MouseArea {
+                id: keyMouse
+                anchors.fill: parent
+                hoverEnabled: true
+              }
+
+              PanelToolTip {
+                visible: keyMouse.containsMouse
+                text: modelData.about + " (default: " + modelData["default"] + ")"
+              }
+            }
+
+            Item {
+              id: valueControl
+              anchors.left: keyText.right
+              anchors.right: resetButton.left
+              anchors.rightMargin: Style.space(4)
+              anchors.verticalCenter: parent.verticalCenter
+              implicitHeight: modelData.kind === "text" ? typed.implicitHeight : picked.implicitHeight
+
+              Button {
+                id: picked
+                visible: modelData.kind !== "text"
+                bordered: true
+                text: modelData.value
+                fontSize: Style.font.caption
+                tooltipText: "Click: " + root.nextValue(modelData)
+                onClicked: root.setValue(modelData.key, root.nextValue(modelData))
+              }
+
+              TextField {
+                id: typed
+                visible: modelData.kind === "text"
+                width: parent.width
+                text: modelData.value
+                onAccepted: root.setValue(modelData.key, text)
+              }
+            }
+
+            Button {
+              id: resetButton
+              anchors.right: parent.right
+              anchors.verticalCenter: parent.verticalCenter
+              visible: modelData.value !== modelData["default"]
+              text: "default"
+              fontSize: Style.font.caption
+              onClicked: root.setValue(modelData.key, null)
+            }
+          }
+        }
+
+        Row {
+          spacing: Style.space(6)
+          Button { text: "Download everything"; fontSize: Style.font.caption; onClicked: root.download() }
+        }
+
+        Text {
+          width: parent.width
+          visible: root.settingsMessage !== ""
+          wrapMode: Text.Wrap
+          textFormat: Text.PlainText
+          text: root.settingsMessage
+          color: Color.accent
+          font.family: Style.font.family
+          font.pixelSize: Style.font.caption
+        }
+      }
+
       TextField {
         id: field
         width: parent.width
@@ -458,7 +643,7 @@ Panel {
             : root.reply.ok ? "= " + root.reply.result
             : root.reply.ambiguous && root.reply.ambiguous.kind === "city" ? (root.reply.ambiguous.note || "`" + root.reply.ambiguous.text + "` is not a city") + ": did you mean…"
             : root.reply.ambiguous && root.reply.ambiguous.kind === "country" ? "`" + root.reply.ambiguous.text + "` has several time zones: which one?"
-            : root.reply.ambiguous && root.reply.ambiguous.kind === "currency" ? root.reply.ambiguous.note + ": which one?"
+            : root.reply.ambiguous && (root.reply.ambiguous.kind === "currency" || root.reply.ambiguous.kind === "place") ? root.reply.ambiguous.note + ": which one?"
             : root.reply.ambiguous ? "Which date is " + root.reply.ambiguous.text + "?"
             : root.reply.error
         }
@@ -500,10 +685,40 @@ Panel {
           model: root.reply && root.reply.ambiguous ? root.reply.ambiguous.choices : []
           Button {
             bordered: true
-            text: modelData.pattern + "   " + modelData.date
+            // A city: its name (population and map link as tooltip).
+            text: root.reply.ambiguous.kind === "place" ? modelData.pattern : modelData.pattern + "   " + modelData.date
+            tooltipText: root.reply.ambiguous.kind === "place" ? modelData.date : ""
             onClicked: root.use(modelData.request)
           }
         }
+      }
+
+      // Notices: a new city archive, out-of-date data (the `notify` refresh policies).
+      Repeater {
+        model: root.notices
+        Row {
+          spacing: Style.space(8)
+          Text {
+            anchors.verticalCenter: parent.verticalCenter
+            text: modelData
+            color: Color.accent
+            font.family: Style.font.family
+            font.pixelSize: Style.font.caption
+          }
+          Button {
+            text: "Download"
+            fontSize: Style.font.caption
+            onClicked: root.download()
+          }
+        }
+      }
+
+      Text {
+        visible: syncProc.running
+        text: "Downloading… (" + root.settingsMessage.replace(/^Downloading /, "").replace(/…$/, "") + ")"
+        color: Color.muted
+        font.family: Style.font.family
+        font.pixelSize: Style.font.caption
       }
 
       Text {

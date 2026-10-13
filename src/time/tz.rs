@@ -3,7 +3,7 @@
 //! times after its last transition. And the cities that name them: every country's capital and
 //! major cities (`Paris`, `New York`, `Tokyo`), or a zone's own name (`Europe/Paris`).
 
-use super::{civil_from_days, days_from_civil, days_in_month, fold, weekday};
+use super::{civil_from_days, days_from_civil, days_in_month, unaccented, weekday};
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
@@ -614,6 +614,8 @@ const CITIES: &[(&str, &str)] = &[
 /// relevant first.
 #[derive(Debug)]
 pub struct Country {
+    /// ISO 3166 code: `IT`.
+    pub code: String,
     pub name: String,
     pub aliases: Vec<String>,
     pub cities: Vec<String>,
@@ -636,6 +638,7 @@ pub fn countries() -> &'static [Country] {
             .iter()
             .filter_map(|c| {
                 Some(Country {
+                    code: c.get("code").and_then(|v| v.str()).unwrap_or_default().to_string(),
                     name: c.get("name")?.str()?.to_string(),
                     aliases: strings(c.get("aliases")),
                     cities: strings(c.get("cities")),
@@ -646,61 +649,178 @@ pub fn countries() -> &'static [Country] {
     })
 }
 
+/// The built-in names, normalised once (`squeeze`): every lookup is then a hash lookup instead of
+/// a scan that normalises each name again.
+struct Names {
+    /// A city's name → its index in `CITIES` (the first city with that name).
+    cities: HashMap<String, usize>,
+    /// Each city's normalised name, in `CITIES` order (misspellings are measured against them).
+    city_keys: Vec<String>,
+    /// A country's name or alias → its index in `countries()` (the first with that name).
+    countries: HashMap<String, usize>,
+    /// Every country name and alias, normalised, with the country's index.
+    country_keys: Vec<(String, usize)>,
+    /// A time zone → the country it belongs to (the first whose cities are in it).
+    zones: HashMap<&'static str, usize>,
+    /// The most words in a city name (`Sri Jayawardenepura Kotte`) and in a country name (`Saint
+    /// Vincent and the Grenadines`).
+    longest_city: usize,
+    longest_country: usize,
+}
+
+fn names() -> &'static Names {
+    static NAMES: OnceLock<Names> = OnceLock::new();
+    NAMES.get_or_init(|| {
+        // Each name normalised once: its words counted, then squeezed.
+        let mut longest_city = 1;
+        let city_keys: Vec<String> = CITIES
+            .iter()
+            .map(|(n, _)| {
+                let k = key(n);
+                longest_city = longest_city.max(k.split(' ').count());
+                k.replace(' ', "")
+            })
+            .collect();
+        let mut cities = HashMap::new();
+        for (i, k) in city_keys.iter().enumerate() {
+            cities.entry(k.clone()).or_insert(i);
+        }
+        let mut country_keys = Vec::new();
+        let mut by_name = HashMap::new();
+        let mut zones = HashMap::new();
+        let mut longest_country = 1;
+        for (i, c) in countries().iter().enumerate() {
+            for name in std::iter::once(&c.name).chain(&c.aliases) {
+                let k = key(name);
+                longest_country = longest_country.max(k.split(' ').count());
+                let k = k.replace(' ', "");
+                by_name.entry(k.clone()).or_insert(i);
+                country_keys.push((k, i));
+            }
+            for city in &c.cities {
+                if let Some(&ci) = cities.get(&squeeze(city)) {
+                    for zone in CITIES[ci].1.split('|') {
+                        zones.entry(zone).or_insert(i);
+                    }
+                }
+            }
+        }
+        Names {
+            longest_city,
+            longest_country,
+            cities,
+            city_keys,
+            countries: by_name,
+            country_keys,
+            zones,
+        }
+    })
+}
+
+/// A name as compared, spaces aside too: `New York`, `new-york` and `NewYork` are `newyork`.
+pub(crate) fn squeeze(name: &str) -> String {
+    key(name).replace(' ', "")
+}
+
 /// The country a name gives (any case, accents optional, spaces and dots aside: `usa`, `U.S.`,
 /// `Turkiye`).
 pub fn country(name: &str) -> Option<&'static Country> {
-    let wanted = key(name).replace(' ', "");
-    if wanted.is_empty() {
-        return None;
-    }
-    countries().iter().find(|c| std::iter::once(&c.name).chain(&c.aliases).any(|n| key(n).replace(' ', "") == wanted))
+    names().countries.get(&squeeze(name)).map(|&i| &countries()[i])
+}
+
+/// The country a time zone belongs to (`Europe/Rome`: Italy), from its cities.
+pub fn zone_country(zone: &str) -> Option<&'static Country> {
+    names().zones.get(zone).map(|&i| &countries()[i])
 }
 
 /// How far a misspelt name is from a place's names (Levenshtein, case, accents and spaces aside).
 pub fn distance(name: &str, names: &[&str]) -> usize {
-    let squeeze = |s: &str| key(s).replace(' ', "");
-    names.iter().map(|n| levenshtein(&squeeze(name), &squeeze(n))).min().unwrap_or(usize::MAX)
+    let wanted = squeeze(name);
+    names.iter().map(|n| levenshtein(&wanted, &squeeze(n))).min().unwrap_or(usize::MAX)
+}
+
+/// The candidates nearest `wanted` (normalised), within `limit` letters: only those at the best
+/// distance, in their order. `None` when one is `wanted` exactly (it is no misspelling).
+pub(crate) fn nearest<'a, T: Copy>(wanted: &str, candidates: impl IntoIterator<Item = (&'a str, T)>, limit: usize) -> Option<(usize, Vec<T>)> {
+    let len = wanted.chars().count();
+    let mut best: Option<(usize, Vec<T>)> = None;
+    for (k, item) in candidates {
+        // Lengths further apart than the limit can't be within it.
+        if k.chars().count().abs_diff(len) > limit {
+            continue;
+        }
+        let d = levenshtein(wanted, k);
+        if d == 0 {
+            return None;
+        }
+        match &mut best {
+            Some((b, items)) if d == *b => items.push(item),
+            Some((b, _)) if d > *b => {}
+            _ if d <= limit => best = Some((d, vec![item])),
+            _ => {}
+        }
+    }
+    best
 }
 
 /// The countries whose names (or aliases) are nearest a misspelt one, within 2 letters (`Jappan`:
-/// Japan), case, accents and spaces aside; none for an exact name or fewer than 3 letters.
+/// Japan), case, accents and spaces aside; none for an exact name or fewer than 3 letters. Short
+/// aliases (`US`, `UK`) only match exactly.
 pub fn near_countries(name: &str) -> Vec<&'static Country> {
-    let squeeze = |s: &str| key(s).replace(' ', "");
     let wanted = squeeze(name);
-    if wanted.chars().count() < 3 {
+    let len = wanted.chars().count();
+    if len < 3 {
         return Vec::new();
     }
-    let mut best: Vec<(usize, &Country)> = Vec::new();
-    for c in countries() {
-        let Some(d) = std::iter::once(&c.name).chain(&c.aliases).map(|n| levenshtein(&wanted, &squeeze(n))).min() else { continue };
-        if d == 0 {
-            return Vec::new();
-        }
-        // Short aliases (`US`, `UK`) only match exactly.
-        if d <= 2 && wanted.chars().count() > d + 2 && best.first().is_none_or(|b| d <= b.0) {
-            if best.first().is_some_and(|b| d < b.0) {
-                best.clear();
-            }
-            best.push((d, c));
-        }
+    let candidates = names().country_keys.iter().map(|(k, i)| (k.as_str(), *i));
+    let Some((d, mut found)) = nearest(&wanted, candidates, 2) else { return Vec::new() };
+    if len <= d + 2 {
+        return Vec::new();
     }
-    best.into_iter().map(|(_, c)| c).collect()
+    found.dedup();
+    found.into_iter().map(|i| &countries()[i]).collect()
+}
+
+/// Every country name and alias, normalised (`squeeze`), with its country: for misspellings.
+pub(crate) fn country_keys() -> impl Iterator<Item = (&'static str, &'static Country)> {
+    names().country_keys.iter().map(|(k, i)| (k.as_str(), &countries()[*i]))
 }
 
 /// The number of words of the longest country name (`Saint Vincent and the Grenadines`).
 pub fn longest_country() -> usize {
-    countries().iter().flat_map(|c| std::iter::once(&c.name).chain(&c.aliases)).map(|n| key(n).split(' ').count()).max().unwrap_or(1)
+    names().longest_country
 }
 
 /// A city name as compared: lowercase, no accents, `- _ . '` as spaces, one space between words.
+/// One pass, one allocation: every lookup normalises its text.
 pub(crate) fn key(name: &str) -> String {
-    fold(name).replace(['-', '_', '.', '\'', '’'], " ").split_whitespace().collect::<Vec<_>>().join(" ")
+    let mut out = String::with_capacity(name.len());
+    let mut space = false;
+    let mut push = |c: char| {
+        if c.is_whitespace() || matches!(c, '-' | '_' | '.' | '\'' | '’') {
+            space = !out.is_empty();
+        } else {
+            if space {
+                out.push(' ');
+                space = false;
+            }
+            out.push(c);
+        }
+    };
+    for c in name.chars() {
+        // ASCII (most names) without the Unicode tables.
+        if c.is_ascii() {
+            push(c.to_ascii_lowercase());
+        } else {
+            c.to_lowercase().map(unaccented).for_each(&mut push);
+        }
+    }
+    out
 }
 
-/// The zones a city name is in (`Rome` → `Europe/Rome`), without loading them; `None`: not a city.
-pub fn zones_of(name: &str) -> Option<&'static str> {
-    let wanted = key(name).replace(' ', "");
-    CITIES.iter().find(|(n, _)| key(n).replace(' ', "") == wanted).map(|&(_, zones)| zones)
+/// The index in `CITIES` of the city a name gives.
+fn city_index(name: &str) -> Option<usize> {
+    names().cities.get(&squeeze(name)).copied()
 }
 
 /// The city a name gives (any case, accents optional: `new york`, `Sao Paulo`), or a zone's own
@@ -708,8 +828,8 @@ pub fn zones_of(name: &str) -> Option<&'static str> {
 /// installed.
 pub fn city(name: &str) -> Option<Result<City, String>> {
     // Spaces aside: `NewYork` is New York.
-    let wanted = key(name).replace(' ', "");
-    if let Some(&(display, zones)) = CITIES.iter().find(|(n, _)| key(n).replace(' ', "") == wanted) {
+    if let Some(i) = city_index(name) {
+        let (display, zones) = CITIES[i];
         let mut error = String::new();
         for zone in zones.split('|') {
             match load(zone) {
@@ -732,8 +852,7 @@ pub fn city(name: &str) -> Option<Result<City, String>> {
 /// The name of the place `name` is, as shown (`new york` → `New York`), case, accents and spaces
 /// aside; without loading its time zone.
 pub fn place_name(name: &str) -> Option<&'static str> {
-    let wanted = key(name).replace(' ', "");
-    CITIES.iter().find(|(n, _)| key(n).replace(' ', "") == wanted).map(|(n, _)| *n)
+    city_index(name).map(|i| CITIES[i].0)
 }
 
 /// The places' names, as shown.
@@ -742,16 +861,24 @@ pub fn place_names() -> impl Iterator<Item = &'static str> {
     CITIES.iter().map(|(n, _)| *n)
 }
 
-/// The places nearest a misspelt name, within 2 letters (`Rmoe`: Rome), as `near` does.
-pub fn near_names(name: &str) -> Vec<&'static str> {
-    let squeeze = |s: &str| key(s).replace(' ', "");
+/// The built-in cities nearest a misspelt name, within 2 letters, as indexes in `CITIES`; none
+/// for an exact name or fewer than 3 letters.
+fn near_indexes(name: &str) -> Vec<usize> {
     let wanted = squeeze(name);
     if wanted.chars().count() < 3 {
         return Vec::new();
     }
-    let scored: Vec<(usize, &str)> = CITIES.iter().map(|(n, _)| (levenshtein(&wanted, &squeeze(n)), *n)).filter(|(d, _)| *d <= 2).collect();
-    let best = scored.iter().map(|(d, _)| *d).min();
-    let mut names: Vec<&str> = scored.into_iter().filter(|(d, _)| Some(*d) == best).map(|(_, n)| n).collect();
+    let candidates = names().city_keys.iter().enumerate().map(|(i, k)| (k.as_str(), i));
+    nearest(&wanted, candidates, 2).map_or_else(Vec::new, |(_, found)| found)
+}
+
+/// The places nearest a misspelt name, within 2 letters (`Rmoe`: Rome), as `near` does.
+pub fn near_names(name: &str) -> Vec<&'static str> {
+    // An exact name is its own suggestion.
+    if let Some(i) = city_index(name) {
+        return vec![CITIES[i].0];
+    }
+    let mut names: Vec<&str> = near_indexes(name).into_iter().map(|i| CITIES[i].0).collect();
     names.dedup();
     names
 }
@@ -776,32 +903,18 @@ pub(crate) fn levenshtein(a: &str, b: &str) -> usize {
 /// accents and spaces aside. Several only at the same distance; none for an exact name or fewer
 /// than 3 letters.
 pub fn near(name: &str) -> Vec<City> {
-    let squeeze = |s: &str| key(s).replace(' ', "");
-    let wanted = squeeze(name);
-    if wanted.chars().count() < 3 {
-        return Vec::new();
-    }
-    let mut best: Vec<(usize, &str, &str)> = Vec::new();
-    for &(display, zones) in CITIES {
-        let d = levenshtein(&wanted, &squeeze(display));
-        if d == 0 {
-            return Vec::new();
-        }
-        if d <= 2 && best.first().is_none_or(|b| d <= b.0) {
-            if best.first().is_some_and(|b| d < b.0) {
-                best.clear();
-            }
-            best.push((d, display, zones));
-        }
-    }
-    best.into_iter()
-        .filter_map(|(_, display, zones)| zones.split('|').find_map(|z| load(z).ok()).map(|tz| City { name: display, tz }))
+    near_indexes(name)
+        .into_iter()
+        .filter_map(|i| {
+            let (display, zones) = CITIES[i];
+            zones.split('|').find_map(|z| load(z).ok()).map(|tz| City { name: display, tz })
+        })
         .collect()
 }
 
 /// The number of words of the longest city name (`Sri Jayawardenepura Kotte`).
 pub fn longest_name() -> usize {
-    CITIES.iter().map(|(n, _)| key(n).split(' ').count()).max().unwrap_or(1)
+    names().longest_city
 }
 
 #[cfg(test)]

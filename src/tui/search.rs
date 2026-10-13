@@ -20,9 +20,7 @@ pub fn matches<'a>(config: &'a Config, query: &str) -> Vec<(&'a Category, &'a Un
             order += 1;
             let names: Vec<String> = std::iter::once(u.symbol).chain(u.aliases.iter().copied()).map(str::to_lowercase).collect();
             let name = u.name.to_lowercase();
-            let score = if q.is_empty() {
-                Some(0)
-            } else if names.iter().any(|n| *n == q) {
+            let score = if q.is_empty() || names.contains(&q) {
                 Some(0)
             } else if names.iter().any(|n| n.starts_with(&q)) {
                 Some(1)

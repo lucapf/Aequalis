@@ -1,6 +1,8 @@
 //! By default only the result: no notes (stderr, the TUI's status line, `--json`) and no ISO side
 //! (`<iso> iso = …`). `-v` / `--verbose` adds both. `TZ` and the locale are pinned.
 
+mod common;
+
 use std::process::{Command, Stdio};
 
 const BIN: &str = env!("CARGO_BIN_EXE_tally");
@@ -23,7 +25,7 @@ fn dates_show_only_the_result() {
     for (request, quiet, verbose) in [
         ("2026/04/12 date unix", "1775944800 unix", "2026-04-12T00:00+02:00 iso = 1775944800 unix"),
         ("1775944800 unix iso-week", "2026-W15-7 iso-week", "2026-04-12T00:00+02:00 iso = 2026-W15-7 iso-week"),
-        // A date alone: for people (`TALLY_FORMAT_DATE`, `TALLY_FORMAT_DATETIME`).
+        // A date alone: for people (the `format.date`, `format.datetime` settings).
         ("2026/12/04 10:00 PM", "04 Dec 26 10:00 PM GMT+1", "2026-12-04T22:00+01:00 iso = 2026/12/04 10:00:00 PM YYYY/MM/DD-12h"),
         ("1796338800 unix", "04 Dec 26", "2026-12-04T00:00+01:00 iso = 1796338800 unix"),
         ("12 Sept 2026", "12 Sept 26", "2026-09-12T00:00+02:00 iso = 12/09/2026 DD/MM/YYYY"),
@@ -65,14 +67,16 @@ fn cities_show_only_the_time_there() {
 
 /// (stdout) with the human formats set.
 fn with_formats(date: Option<&str>, datetime: Option<&str>, args: &str) -> String {
-    let mut cmd = Command::new(BIN);
-    cmd.args(args.split_whitespace()).env("TZ", "Europe/Rome").env_remove("TALLY_FORMAT_DATE").env_remove("TALLY_FORMAT_DATETIME");
+    let mut settings = Vec::new();
     if let Some(f) = date {
-        cmd.env("TALLY_FORMAT_DATE", f);
+        settings.push(("format.date", f));
     }
     if let Some(f) = datetime {
-        cmd.env("TALLY_FORMAT_DATETIME", f);
+        settings.push(("format.datetime", f));
     }
+    let dir = common::config(&format!("formats-{}", settings.len() + date.map_or(0, str::len) * 7 + datetime.map_or(0, str::len) * 13), &settings);
+    let mut cmd = Command::new(BIN);
+    cmd.args(args.split_whitespace()).env("TZ", "Europe/Rome").env("XDG_CONFIG_HOME", &dir);
     String::from_utf8(cmd.output().unwrap().stdout).unwrap().trim_end().to_string()
 }
 
@@ -93,6 +97,6 @@ fn dates_for_people() {
     assert_eq!(with_formats(Some("dddd D MMMM YYYY"), None, "12 Sept 2026"), "Saturday 12 September 2026");
     assert_eq!(with_formats(None, Some("ddd DD/MM/YYYY hh:mm A ZZ [at] tz"), "2026/12/04 10:00 PM"), "Fri 04/12/2026 10:00 PM +01:00 at GMT+1");
     assert_eq!(with_formats(None, Some("YYYY-MM-DD H:mm:ss"), "2026-12-04 9:05:07"), "2026-12-04 9:05:07");
-    assert_eq!(with_formats(Some(""), None, "12 Sept 2026"), "12 Sept 26", "empty: the default");
+    assert_eq!(with_formats(Some(""), None, "12 Sept 2026"), "", "empty: rejected (the setting needs a pattern)");
     assert_eq!(with_formats(None, Some("h:mm A tz"), "10:00 PM Paris"), with_formats(None, Some("h:mm A tz"), "22:00 Paris"));
 }

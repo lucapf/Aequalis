@@ -85,12 +85,18 @@ Every capital and major city, and countries too.
 
 ### Distances
 
-Between cities, countries or coordinates, along the Earth's surface.
+Between two cities, countries or coordinates, along the Earth's surface; a third word is the
+unit. With the city archive (`tally --sync`, about 70,000 cities from
+[GeoNames](https://www.geonames.org)), any city of 5,000 inhabitants or more, by any of its names
+in any language. When several cities share a name, Tally asks which one: those in the other
+city's country first, then in yours.
 
 | You type | Tally answers |
 |---|---|
-| `Rome to Paris` | `1,107 km` |
+| `Rome Paris` | `1,107 km` (or miles, where your device is imperial) |
 | `Rome Doha mi` | `2,497 mi` |
+| `Springfield, Illinois Chicago` | `283 km` |
+| `Springfield Chicago` | asks which Springfield (Missouri, Massachusetts, Illinois…) |
 
 ### Trivia
 
@@ -112,6 +118,15 @@ You can run Tally in several ways:
   - the TUI button in the widget
   - the app launcher, once you add a launcher entry for it
 
+## Settings
+
+Everything you can configure is in one place, `~/.config/tally/settings.json`: offline mode,
+whether and how the online data is refreshed (city archive, exchange rates, the Trivia's live
+values: in the background, with a notice, or only when you ask), your local currency, the
+distance unit, the decimal places and the date formats. Change them with the **⚙ Settings**
+section: in the TUI (`O`, or the top bar), in the widget (the gear button), or with
+`tally --set key=value`; `tally --settings` shows them all. Both also offer the downloads, and
+say when the city archive is not downloaded yet.
 
 ## License
 

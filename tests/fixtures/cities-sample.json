@@ -1,0 +1,11 @@
+{"format": 1, "source": "GeoNames (https://www.geonames.org)", "license": "CC BY 4.0", "built_at": 1791877958, "count": 9, "cities": [
+{"id":2988507,"name":"Paris","aliases":["Lutetia","Paname","Parigi","Париж"],"lat":48.85341,"lon":2.3488,"population":2138551,"country":"France","country_code":"FR","region":"Île-de-France","updated":"2026-01-01"},
+{"id":3169070,"name":"Rome","aliases":["Roma","Rom","Рим"],"lat":41.89193,"lon":12.51133,"population":2318895,"country":"Italy","country_code":"IT","region":"Lazio","updated":"2026-01-01"},
+{"id":4250542,"name":"Springfield","aliases":[],"lat":39.80172,"lon":-89.64371,"population":114394,"country":"United States","country_code":"US","region":"Illinois","updated":"2026-01-01"},
+{"id":4409896,"name":"Springfield","aliases":[],"lat":37.21533,"lon":-93.29824,"population":169176,"country":"United States","country_code":"US","region":"Missouri","updated":"2026-01-01"},
+{"id":4951788,"name":"Springfield","aliases":[],"lat":42.10148,"lon":-72.58981,"population":155929,"country":"United States","country_code":"US","region":"Massachusetts","updated":"2026-01-01"},
+{"id":4717560,"name":"Paris","aliases":[],"lat":33.66094,"lon":-95.55551,"population":24782,"country":"United States","country_code":"US","region":"Texas","updated":"2026-01-01"},
+{"id":4219762,"name":"Rome","aliases":[],"lat":34.25704,"lon":-85.16467,"population":37713,"country":"United States","country_code":"US","region":"Georgia","updated":"2026-01-01"},
+{"id":4887398,"name":"Chicago","aliases":["Chi-Town"],"lat":41.85003,"lon":-87.65005,"population":2746388,"country":"United States","country_code":"US","region":"Illinois","updated":"2026-01-01"},
+{"id":3193044,"name":"Bar","aliases":["Antivari"],"lat":42.0931,"lon":19.1003,"population":13719,"country":"Montenegro","country_code":"ME","region":"Opština Bar","updated":"2026-01-01"}
+]}

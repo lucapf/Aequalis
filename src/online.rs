@@ -1,9 +1,11 @@
-//! The online data (the Trivia's live values: the Voyagers' distances, the satellite counts), kept
-//! in `~/.config/tally/online.json` (and the exchange rates, in `currencies.json`, `currency.rs`) (`$XDG_CONFIG_HOME`) with the time each was synced. Tally reads
-//! only this file: while it is fresh no network is used at all. When it is older than
-//! `TALLY_ONLINE_REFRESH_INTERVAL` (default `24h`), any run of tally starts a sync in the
-//! background (`tally --sync`, a separate process, so nothing waits for it) unless one is running
-//! (`online.lock`) or `TALLY_MODE=offline`.
+//! The online data, in three groups, each with its refresh policy and interval in the settings
+//! (`settings.rs`): the Trivia's live values (`live`: the Voyagers' distances, the satellite counts)
+//! in `~/.config/tally/online.json`, the exchange rates (`rates`, `currency.rs`) in
+//! `currencies.json`, the city archive (`cities`, `cities.rs`). Tally reads only these files: no
+//! request ever waits for the network. Under the `silent` policy, any run of tally starts a sync
+//! in the background (`tally --sync --auto`, a separate process) when a group is out of date,
+//! unless one is running (`online.lock`) or the `offline` setting is on; under `notify` it says so
+//! (`notify.rs`); under `manual` only `tally --sync` (or Settings) downloads.
 //!
 //! The sync may be interrupted at any time and the file stays consistent: it is never edited in
 //! place, a new version is written next to it and renamed over it (atomic), after every 10 values
@@ -19,8 +21,6 @@ use crate::json::{self, Value};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-/// The refresh interval when `TALLY_ONLINE_REFRESH_INTERVAL` is not set: 24 hours.
-pub const DEFAULT_INTERVAL: i64 = 24 * 3600;
 /// After a failed sync (offline), the next try waits this long (or the interval, if shorter).
 const RETRY_AFTER: i64 = 3600;
 /// A new version of the file every this many values, or this many seconds.
@@ -67,15 +67,15 @@ impl Data {
     }
 
     pub fn to_json(&self) -> String {
-        let opt = |v: Option<i64>| v.map_or("null".to_string(), |t| t.to_string());
-        let values: Vec<String> = self.values.iter().map(|(n, s)| format!(r#"{}:{{"value":{},"at":{}}}"#, json::string(n), s.value, s.at)).collect();
-        format!(
-            r#"{{"format":1,"synced_at":{},"attempted_at":{},"ok":{},"values":{{{}}}}}"#,
-            opt(self.synced_at),
-            opt(self.attempted_at),
-            self.ok,
-            values.join(",")
-        ) + "\n"
+        let values = self.values.iter().fold(json::Object::new(), |o, (n, s)| o.raw(n, &json::Object::new().num("value", s.value).num("at", s.at).finish()));
+        json::Object::new()
+            .num("format", 1)
+            .opt("synced_at", self.synced_at)
+            .opt("attempted_at", self.attempted_at)
+            .num("ok", self.ok)
+            .raw("values", &values.finish())
+            .finish()
+            + "\n"
     }
 
     pub fn from_json(text: &str) -> Option<Data> {
@@ -98,17 +98,9 @@ impl Data {
 
 // ---------------------------------------------------------------- the file
 
-/// `~/.config/tally` (`$XDG_CONFIG_HOME/tally`).
-pub fn dir() -> Option<PathBuf> {
-    let base = std::env::var_os("XDG_CONFIG_HOME")
-        .filter(|v| !v.is_empty())
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
-    Some(base.join("tally"))
-}
 
 pub fn path() -> Option<PathBuf> {
-    dir().map(|d| d.join("online.json"))
+    crate::files::dir().map(|d| d.join("online.json"))
 }
 
 /// The stored data; empty when there is no file (or it cannot be read).
@@ -123,49 +115,10 @@ pub fn load_from(path: &Path) -> Data {
 /// Writes a new version next to the file, then renames it over the file: readers see the old
 /// version or the new one, never a part.
 pub fn save_to(path: &Path, data: &Data) -> std::io::Result<()> {
-    use std::io::Write;
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let tmp = path.with_extension(format!("json.{}.tmp", std::process::id()));
-    let mut file = std::fs::File::create(&tmp)?;
-    file.write_all(data.to_json().as_bytes())?;
-    file.sync_all()?;
-    std::fs::rename(&tmp, path)
+    crate::files::write_atomic(path, data.to_json().as_bytes())
 }
 
 // ---------------------------------------------------------------- when
-
-/// `TALLY_ONLINE_REFRESH_INTERVAL`: `24h` (the default), `90m`, `2d`, `45s`, or seconds (`3600`).
-pub fn parse_interval(value: Option<&str>) -> Result<i64, String> {
-    let text = match value.map(str::trim).filter(|v| !v.is_empty()) {
-        None => return Ok(DEFAULT_INTERVAL),
-        Some(t) => t.to_ascii_lowercase(),
-    };
-    let digits = text.find(|c: char| !c.is_ascii_digit()).unwrap_or(text.len());
-    let (number, unit) = text.split_at(digits);
-    let n: i64 = number.parse().map_err(|_| interval_error(value))?;
-    let seconds = match unit.trim() {
-        "" | "s" => n,
-        "m" | "min" => n * 60,
-        "h" => n * 3600,
-        "d" => n * 86_400,
-        _ => return Err(interval_error(value)),
-    };
-    if seconds < 60 {
-        return Err(interval_error(value));
-    }
-    Ok(seconds)
-}
-
-fn interval_error(value: Option<&str>) -> String {
-    format!("TALLY_ONLINE_REFRESH_INTERVAL must be a duration of a minute or more, such as 24h, 90m or 2d (it is `{}`)", value.unwrap_or_default())
-}
-
-/// The interval from the environment (invalid: the default; the command line reports it).
-pub fn interval() -> i64 {
-    parse_interval(std::env::var("TALLY_ONLINE_REFRESH_INTERVAL").ok().as_deref()).unwrap_or(DEFAULT_INTERVAL)
-}
 
 /// Whether the data needs a sync at `now`: never synced, or synced longer ago than `interval`;
 /// after a failed try, not before `RETRY_AFTER` (or the interval) has passed.
@@ -178,25 +131,84 @@ pub fn expired(data: &Data, now: i64, interval: i64) -> bool {
     data.synced_at.is_none_or(|t| now - t >= interval)
 }
 
-pub fn now() -> i64 {
-    crate::time::now().ns.div_euclid(1_000_000_000) as i64
-}
 
 // ---------------------------------------------------------------- the background sync
 
-/// Starts `tally --sync` in the background when the data has expired (and the network may be used,
-/// and no sync is running). Returns the process, for a long-running caller to reap.
+/// A group of online data.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Group {
+    Live,
+    Rates,
+    Cities,
+}
+
+impl Group {
+    pub const ALL: [Group; 3] = [Group::Cities, Group::Rates, Group::Live];
+
+    /// Its name in the settings (`rates.refresh`).
+    pub fn name(self) -> &'static str {
+        match self {
+            Group::Live => "live",
+            Group::Rates => "rates",
+            Group::Cities => "cities",
+        }
+    }
+
+    pub fn title(self) -> &'static str {
+        match self {
+            Group::Live => "the Trivia's live values",
+            Group::Rates => "the exchange rates",
+            Group::Cities => "the city archive",
+        }
+    }
+}
+
+/// Whether a group's data is older than its interval (or missing). For the city archive: whether
+/// it is time to look for a new one.
+pub fn stale(group: Group, settings: &crate::settings::Settings, now: i64) -> bool {
+    let interval = settings.interval(group.name());
+    match group {
+        Group::Live => expired(&load(), now, interval),
+        Group::Rates => expired(&crate::currency::load(), now, interval),
+        Group::Cities => {
+            let checked = crate::cities::meta().map_or(0, |m| m.downloaded_at).max(crate::notify::load().cities_checked_at);
+            now - checked >= interval
+        }
+    }
+}
+
+/// The groups a background sync has work for: out of date under `silent`; the city archive's
+/// check under `notify`.
+pub fn due(settings: &crate::settings::Settings, now: i64) -> Vec<Group> {
+    due_when(settings, &|g| stale(g, settings, now))
+}
+
+/// `due`, with `stale` saying which groups are out of date.
+fn due_when(settings: &crate::settings::Settings, stale: &dyn Fn(Group) -> bool) -> Vec<Group> {
+    use crate::settings::Refresh;
+    Group::ALL
+        .into_iter()
+        .filter(|&g| g != Group::Cities || settings.cities_enabled())
+        .filter(|&g| match settings.refresh(g.name()) {
+            Refresh::Silent => stale(g),
+            Refresh::Notify => g == Group::Cities && stale(g),
+            Refresh::Manual => false,
+        })
+        .collect()
+}
+
+/// Starts `tally --sync --auto` in the background when a group has work (and the network may be
+/// used, and no sync is running). Returns the process, for a long-running caller to reap.
 pub fn ensure_fresh() -> Option<std::process::Child> {
-    let currencies = crate::currency::path().map(|p| load_from(&p)).unwrap_or_default();
-    let stale = expired(&load(), now(), interval()) || expired(&currencies, now(), interval());
-    if !crate::network::allowed() || !stale || lock_held() {
+    let settings = crate::settings::current();
+    if settings.offline() || lock_held() || due(&settings, crate::time::unix_now()).is_empty() {
         return None;
     }
     use std::os::unix::process::CommandExt;
     use std::process::{Command, Stdio};
     let exe = std::env::current_exe().ok()?;
     Command::new(exe)
-        .arg("--sync")
+        .args(["--sync", "--auto"])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -207,7 +219,7 @@ pub fn ensure_fresh() -> Option<std::process::Child> {
 }
 
 fn lock_path() -> Option<PathBuf> {
-    dir().map(|d| d.join("online.lock"))
+    crate::files::dir().map(|d| d.join("online.lock"))
 }
 
 /// Whether a sync is running (a lock that is not stale).
@@ -246,21 +258,78 @@ fn take_lock() -> Result<Lock, String> {
 /// A source of live values: its values' names, and how to fetch them (`None`: it did not answer).
 pub struct Source {
     pub names: Vec<String>,
-    pub fetch: Box<dyn Fn() -> Option<Vec<(String, f64)>>>,
+    pub fetch: Fetch,
 }
 
-/// `tally --sync`: fetches what has expired, under the lock, saving as it goes. Returns how many
-/// values were updated.
-pub fn sync() -> Result<usize, String> {
-    if !crate::network::allowed() {
-        return Err("TALLY_MODE=offline: no sync".into());
+/// How a source is fetched: its values by name, `None` when it did not answer.
+pub type Fetch = Box<dyn Fn() -> Option<Vec<(String, f64)>>>;
+
+/// `tally --sync` (`auto`: the background sync, `--auto`): under the lock, by hand every group
+/// is downloaded again; the background sync does what the policies say (`due`). Returns a line
+/// per group.
+pub fn sync(auto: bool) -> Result<Vec<String>, String> {
+    let settings = crate::settings::current();
+    if settings.offline() {
+        return Err("the offline setting is on: no sync".into());
     }
     let _lock = take_lock()?;
-    let path = path().ok_or("no home directory")?;
-    let trivia = sync_into(&path, crate::trivia::sources(), interval(), &now);
-    // The exchange rates, in their own file.
-    let rates = crate::currency::path().ok_or("no home directory")?;
-    Ok(trivia + sync_into(&rates, vec![crate::currency::source()], interval(), &now))
+    let now = crate::time::unix_now();
+    let groups: Vec<Group> = if auto { due(&settings, now) } else { Group::ALL.to_vec() };
+    let mut out = Vec::new();
+    for group in groups {
+        let interval = if auto { settings.interval(group.name()) } else { 0 };
+        let line = match group {
+            Group::Live => {
+                let n = sync_into(&path().ok_or("no home directory")?, crate::trivia::sources(), interval, &crate::time::unix_now);
+                format!("{n} live value{}", if n == 1 { "" } else { "s" })
+            }
+            Group::Rates => {
+                let path = crate::currency::path().ok_or("no home directory")?;
+                let n = sync_into(&path, vec![crate::currency::source()], interval, &crate::time::unix_now);
+                format!("{n} exchange rate{}", if n == 1 { "" } else { "s" })
+            }
+            Group::Cities => {
+                let base = crate::files::dir().ok_or("no home directory")?;
+                sync_cities(&base, &settings, auto, now, &|text| crate::notify::desktop("Tally", text))?
+            }
+        };
+        out.push(line);
+    }
+    Ok(out)
+}
+
+/// The city archive: under `notify` (in the background) only its version is checked, and a newer
+/// one noted (with a desktop notification, once); otherwise downloaded when newer (by hand:
+/// always).
+/// In the folder `base` (the archive, `state.json`); `notify` shows a desktop notification.
+fn sync_cities(base: &Path, settings: &crate::settings::Settings, auto: bool, now: i64, notify: &dyn Fn(&str)) -> Result<String, String> {
+    if !settings.cities_enabled() {
+        return Ok("cities: off (the cities.enabled setting)".into());
+    }
+    let url = settings.get("cities.url");
+    let state_path = base.join("state.json");
+    let mut state = crate::notify::load_from(&state_path);
+    let current = crate::cities::meta_in(base).map(|m| m.version).unwrap_or_default();
+    let published = crate::cities::remote_version(url);
+    state.cities_checked_at = now;
+    if let Some(v) = &published {
+        state.cities_available = v.clone();
+    }
+    let newer = published.as_deref().is_some_and(|v| v != current);
+    if auto && settings.refresh("cities") == crate::settings::Refresh::Notify {
+        if newer && state.cities_notified != state.cities_available {
+            notify("A new city archive is available: tally --sync");
+            state.cities_notified = state.cities_available.clone();
+        }
+        crate::notify::save_to(&state_path, &state);
+        return Ok(if newer { "cities: a new archive is available".into() } else { "cities: up to date".into() });
+    }
+    crate::notify::save_to(&state_path, &state);
+    if auto && !newer {
+        return Ok("cities: up to date".into());
+    }
+    let count = crate::cities::download(base, url, now)?;
+    Ok(format!("{count} cities"))
 }
 
 /// The sync itself, on `path`: every source whose values are older than `interval` is fetched in
@@ -292,11 +361,9 @@ pub fn sync_into(path: &Path, sources: Vec<Source>, interval: i64, clock: &dyn F
             }
             None => all_answered = false,
         }
-        if pending >= BATCH || last_save.elapsed().as_secs() >= BATCH_SECONDS {
-            if save_to(path, &data).is_ok() {
-                pending = 0;
-                last_save = Instant::now();
-            }
+        if (pending >= BATCH || last_save.elapsed().as_secs() >= BATCH_SECONDS) && save_to(path, &data).is_ok() {
+            pending = 0;
+            last_save = Instant::now();
         }
     }
     data.ok = all_answered;
@@ -319,17 +386,73 @@ mod tests {
         dir.join("online.json")
     }
 
+    /// What the background sync does, by policy, for out-of-date and fresh data.
     #[test]
-    fn intervals() {
-        assert_eq!(parse_interval(None), Ok(86_400));
-        assert_eq!(parse_interval(Some("")), Ok(86_400));
-        assert_eq!(parse_interval(Some("24h")), Ok(86_400));
-        assert_eq!(parse_interval(Some("90m")), Ok(5_400));
-        assert_eq!(parse_interval(Some("2d")), Ok(172_800));
-        assert_eq!(parse_interval(Some("3600")), Ok(3_600));
-        assert_eq!(parse_interval(Some("45 MIN")), Ok(2_700));
-        assert!(parse_interval(Some("30s")).unwrap_err().contains("a minute or more"));
-        assert!(parse_interval(Some("soon")).is_err());
+    fn the_policies_decide_what_is_due() {
+        use crate::settings::Settings;
+        let with = |pairs: &[(&str, &str)]| {
+            let mut s = Settings::default();
+            for (k, v) in pairs {
+                s.set(k, Some(v)).unwrap();
+            }
+            s
+        };
+        let all_stale = |_: Group| true;
+        let none_stale = |_: Group| false;
+        // The defaults: cities manual, rates silent, live manual.
+        assert_eq!(due_when(&Settings::default(), &all_stale), [Group::Rates]);
+        assert!(due_when(&Settings::default(), &none_stale).is_empty());
+        // Silent: when out of date; notify: only the archive's check; manual: never.
+        let s = with(&[("cities.refresh", "silent"), ("live.refresh", "silent")]);
+        assert_eq!(due_when(&s, &all_stale), [Group::Cities, Group::Rates, Group::Live]);
+        let s = with(&[("cities.refresh", "notify"), ("rates.refresh", "notify"), ("live.refresh", "notify")]);
+        assert_eq!(due_when(&s, &all_stale), [Group::Cities], "rates and live values out of date are only said");
+        assert_eq!(due_when(&s, &|g| g != Group::Cities), Vec::<Group>::new());
+        let s = with(&[("rates.refresh", "manual")]);
+        assert!(due_when(&s, &all_stale).is_empty());
+        // The cities off: never, whatever the policy.
+        let s = with(&[("cities.refresh", "silent"), ("cities.enabled", "false")]);
+        assert_eq!(due_when(&s, &all_stale), [Group::Rates]);
+    }
+
+    /// The city archive's sync, from a local copy of the sample archive (`file://`, no network):
+    /// under `notify` only its version is checked (one desktop notification per new archive), under
+    /// `silent` it is downloaded when newer, by hand always.
+    #[test]
+    fn the_city_archive_by_policy() {
+        use crate::settings::Settings;
+        use std::cell::RefCell;
+        let base = scratch("cities-sync");
+        let served = base.join("served");
+        std::fs::create_dir_all(&served).unwrap();
+        let json = served.join("cities.json");
+        std::fs::write(&json, crate::cities::tests::SAMPLE).unwrap();
+        let gz = std::fs::File::create(served.join("cities.json.gz")).unwrap();
+        assert!(std::process::Command::new("gzip").arg("-c").arg(&json).stdout(gz).status().unwrap().success());
+        std::fs::write(served.join("cities.version"), "1791877958 sample\n").unwrap();
+        let mut settings = Settings::default();
+        settings.set("cities.url", Some(&format!("file://{}", served.join("cities.json.gz").display()))).unwrap();
+        settings.set("cities.refresh", Some("notify")).unwrap();
+        let shown = RefCell::new(Vec::new());
+        let notify = |text: &str| shown.borrow_mut().push(text.to_string());
+        let home = base.join("home");
+        // Notify: said once, nothing downloaded.
+        assert_eq!(sync_cities(&home, &settings, true, 1_000, &notify).unwrap(), "cities: a new archive is available");
+        assert_eq!(sync_cities(&home, &settings, true, 2_000, &notify).unwrap(), "cities: a new archive is available");
+        assert_eq!(shown.borrow().len(), 1, "one notification per new archive");
+        assert!(crate::cities::meta_in(&home).is_none());
+        let state = crate::notify::load_from(&home.join("state.json"));
+        assert_eq!((state.cities_available.as_str(), state.cities_checked_at), ("1791877958 sample", 2_000));
+        // Silent: downloaded when newer, then up to date.
+        settings.set("cities.refresh", Some("silent")).unwrap();
+        assert_eq!(sync_cities(&home, &settings, true, 3_000, &notify).unwrap(), "9 cities");
+        assert_eq!(sync_cities(&home, &settings, true, 4_000, &notify).unwrap(), "cities: up to date");
+        // By hand: always.
+        assert_eq!(sync_cities(&home, &settings, false, 5_000, &notify).unwrap(), "9 cities");
+        // Off: nothing.
+        settings.set("cities.enabled", Some("false")).unwrap();
+        assert_eq!(sync_cities(&home, &settings, false, 6_000, &notify).unwrap(), "cities: off (the cities.enabled setting)");
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]

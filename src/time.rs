@@ -91,6 +91,10 @@ pub enum AmbiguityKind {
     /// Currencies (`currency.rs`): a name several share (`dollar`) or a misspelt one (`dolar`);
     /// `pattern` is the currencies (`US dollar`), `date` their codes (`USD`).
     Currency,
+    /// Cities for a distance (`geo.rs`): a name several share (`Springfield`) or a misspelt one;
+    /// `pattern` is the cities (`Springfield, Illinois, United States`), `date` their population
+    /// and where they are on a map.
+    Place,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -109,7 +113,7 @@ impl Ambiguity {
     pub fn message(&self) -> String {
         let names: Vec<&str> = self.choices.iter().map(|c| c.pattern.as_str()).collect();
         match self.kind {
-            AmbiguityKind::City | AmbiguityKind::Currency => {
+            AmbiguityKind::City | AmbiguityKind::Currency | AmbiguityKind::Place => {
                 return format!("{}: did you mean {}? (`{}`)", self.note, names.join(" or "), self.choices[0].request);
             }
             AmbiguityKind::Country => {
@@ -403,6 +407,8 @@ fn parse_zone(c: &mut Cursor) -> Option<Option<i32>> {
 
 /// The order of day and month in dates that do not start with the year.
 #[derive(Debug, Clone, Copy, PartialEq)]
+// The names people use: day first, month first, year first.
+#[allow(clippy::enum_variant_names)]
 pub enum Order {
     DayFirst,
     MonthFirst,
@@ -514,7 +520,7 @@ impl Pattern {
             Clock::None => {}
             Clock::H24 => out.push_str(&format!(" {:02}:{secs}", c.hour)),
             Clock::H12 => {
-                let h = if c.hour % 12 == 0 { 12 } else { c.hour % 12 };
+                let h = if c.hour.is_multiple_of(12) { 12 } else { c.hour % 12 };
                 out.push_str(&format!(" {h:02}:{secs} {}", if c.hour < 12 { "AM" } else { "PM" }));
             }
         }
@@ -625,19 +631,21 @@ const ENGLISH_MONTHS: [&str; 12] =
 
 /// Lowercase, without accents: `Févr` → `fevr`, `März` → `marz`, `Março` → `marco`.
 fn fold(word: &str) -> String {
-    word.chars()
-        .flat_map(char::to_lowercase)
-        .map(|c| match c {
-            'à' | 'á' | 'â' | 'ã' | 'ä' => 'a',
-            'ç' => 'c',
-            'è' | 'é' | 'ê' | 'ë' => 'e',
-            'ì' | 'í' | 'î' | 'ï' => 'i',
-            'ñ' => 'n',
-            'ò' | 'ó' | 'ô' | 'õ' | 'ö' => 'o',
-            'ù' | 'ú' | 'û' | 'ü' => 'u',
-            c => c,
-        })
-        .collect()
+    word.chars().flat_map(char::to_lowercase).map(unaccented).collect()
+}
+
+/// A lower-case letter without its accent: `é` → `e`.
+pub(crate) fn unaccented(c: char) -> char {
+    match c {
+        'à' | 'á' | 'â' | 'ã' | 'ä' => 'a',
+        'ç' => 'c',
+        'è' | 'é' | 'ê' | 'ë' => 'e',
+        'ì' | 'í' | 'î' | 'ï' => 'i',
+        'ñ' => 'n',
+        'ò' | 'ó' | 'ô' | 'õ' | 'ö' => 'o',
+        'ù' | 'ú' | 'û' | 'ü' => 'u',
+        c => c,
+    }
 }
 
 /// Whether `a` and `b` are at most one edit apart: a letter added, removed, changed, or two
@@ -1121,7 +1129,7 @@ fn format_as(instant: &Instant, word: &str, seconds: bool) -> Result<String, Tim
 
 // ---------------------------------------------------------------- human format
 
-/// The default human formats (`TALLY_FORMAT_DATE`, `TALLY_FORMAT_DATETIME`).
+/// The default human formats (the `format.date` and `format.datetime` settings).
 pub const HUMAN_DATE: &str = "DD MMM YY";
 pub const HUMAN_DATETIME: &str = "DD MMM YY h:mm AM tz";
 
@@ -1141,6 +1149,22 @@ const HUMAN_TOKENS: [&str; 22] = [
 /// `dddd` Saturday · `ddd` Sat · `H24` / `HH` 20 (24-hour) · `H` 20 · `H12` / `hh` 08 · `h` 8 ·
 /// `mm` 05 · `ss` 07 · `AM` / `A` PM · `tz` GMT+2 (GMT+5:30, GMT) · `ZZ` +02:00.
 /// A day for people, in the local zone: `3 Jan 2027`.
+/// Now, in Unix seconds.
+pub fn unix_now() -> i64 {
+    now().ns.div_euclid(NS) as i64
+}
+
+/// A day (the date only, UTC: a day of data, not a moment) for people, in the `format.date`
+/// setting: `12 Oct 26`.
+pub fn human_day(unix_seconds: i64) -> String {
+    human(&Instant { ns: i128::from(unix_seconds) * NS, zone: Zone::Fixed(0) }, true)
+}
+
+/// A moment (Unix seconds) for people, in local time and the `format.datetime` setting.
+pub fn human_moment(unix_seconds: i64) -> String {
+    human(&Instant { ns: i128::from(unix_seconds) * NS, zone: Zone::Local }, false)
+}
+
 pub fn day_for_people(unix_seconds: f64) -> String {
     format_human(&Instant { ns: unix_seconds as i128 * NS, zone: Zone::Local }, "D MMM YYYY")
 }
@@ -1148,7 +1172,7 @@ pub fn day_for_people(unix_seconds: f64) -> String {
 pub fn format_human(instant: &Instant, format: &str) -> String {
     let c = instant.civil();
     let offset = instant.offset();
-    let h12 = if c.hour % 12 == 0 { 12 } else { c.hour % 12 };
+    let h12 = if c.hour.is_multiple_of(12) { 12 } else { c.hour % 12 };
     let wd = weekday(days_from_civil(c.year, c.month, c.day)) as usize - 1;
     let mut out = String::new();
     let mut rest = format;
@@ -1196,12 +1220,11 @@ pub fn format_human(instant: &Instant, format: &str) -> String {
     out
 }
 
-/// A date for people, in `TALLY_FORMAT_DATETIME` (default `DD MMM YY H24:mm tz`: `12 Sept 26 20:00
-/// GMT+2`), or `TALLY_FORMAT_DATE` (`DD MMM YY`: `12 Sept 26`) when `date_only`.
+/// A date for people, in the `format.datetime` setting (default `DD MMM YY h:mm AM tz`: `12 Sept 26
+/// 8:00 PM GMT+2`), or `format.date` (`DD MMM YY`: `12 Sept 26`) when `date_only`.
 pub fn human(instant: &Instant, date_only: bool) -> String {
-    let (var, default) = if date_only { ("TALLY_FORMAT_DATE", HUMAN_DATE) } else { ("TALLY_FORMAT_DATETIME", HUMAN_DATETIME) };
-    let format = std::env::var(var).ok().filter(|f| !f.trim().is_empty());
-    format_human(instant, format.as_deref().unwrap_or(default))
+    let settings = crate::settings::current();
+    format_human(instant, if date_only { settings.format_date() } else { settings.format_datetime() })
 }
 
 /// The date in ISO and in `target`, each named: `2026-04-12T00:00:00+02:00 iso = 1775944800 unix`.
@@ -1587,7 +1610,7 @@ impl<'a> Parser<'a> {
 
     /// The next whitespace-separated word, without consuming it.
     fn word(&self) -> &'a str {
-        self.rest().trim_start().split_whitespace().next().unwrap_or("")
+        self.rest().split_whitespace().next().unwrap_or("")
     }
 
     fn take_word(&mut self) -> &'a str {
@@ -1860,7 +1883,7 @@ fn time_unit(config: &Config, name: &str) -> Option<&'static str> {
         return Some(WORKDAY);
     }
     let (category, unit) = convert::find_unit(config, name)?;
-    (category.name == "Time").then_some(unit.symbol)
+    (category.name == crate::config::TIME).then_some(unit.symbol)
 }
 
 /// Evaluates a date request: the result and notes on how guessed dates were read. `None` if
@@ -2081,7 +2104,7 @@ fn countries_in(config: &Config, input: &str) -> Option<Result<(String, String),
             continue;
         }
         // Several zones: one choice per zone, with its most relevant city and its offset now.
-        let now = now().ns.div_euclid(NS) as i64;
+        let now = unix_now();
         let choices = country
             .cities
             .iter()
@@ -2109,6 +2132,12 @@ fn known_word(config: &Config, text: &str) -> bool {
 
 /// Words that are neither places nor misspelt ones: units, formats, months, keywords, currencies.
 fn reserved_word(config: &Config, text: &str) -> bool {
+    convert::find_unit(config, text).is_some() || date_word(text) || crate::currency::exact(text).is_some_and(|_| tz::country(text).is_none())
+}
+
+/// Whether a word is something else than a place to tally: a unit, a currency (not a country), a
+/// format, a month, a keyword (`geo.rs`: such a word is not a city unless qualified).
+pub fn reserved(config: &Config, text: &str) -> bool {
     convert::find_unit(config, text).is_some() || date_word(text) || crate::currency::exact(text).is_some_and(|_| tz::country(text).is_none())
 }
 
@@ -2245,11 +2274,6 @@ fn place_typos(config: &Config, input: &str, precision: usize, verbose: bool) ->
         _ => format!("{} are not known places", misspelt.iter().map(|m| format!("`{m}`")).collect::<Vec<_>>().join(", ")),
     };
     Some(TimeError::Ambiguous(Ambiguity { text: misspelt.join(", "), choices, kind: AmbiguityKind::City, note }))
-}
-
-/// Whether a request is a misspelt city request (`Tokio`), for the stdin rule.
-pub fn suggests_city(config: &Config, input: &str) -> bool {
-    place_typos(config, input, 0, false).is_some()
 }
 
 /// Whether a request names a city (`Paris`, `10:00AM New York to Paris`), for the stdin rule.
@@ -2419,7 +2443,7 @@ mod tests {
         assert_eq!(req("20261010T150000Z iso-date").unwrap(), "2026-10-10T15:00:00Z iso = 2026-10-10 iso-date", "seconds written");
         // The date word with a zone (so independent of the machine's zone).
         assert_eq!(req("2026/04/12 00:00Z date unix").unwrap(), "2026-04-12T00:00Z iso = 1775952000 unix");
-        assert_eq!(req("20261010T15Z iso iso-ordinal").is_err(), true, "iso input word takes a single literal");
+        assert!(req("20261010T15Z iso iso-ordinal").is_err(), "iso input word takes a single literal");
     }
 
     #[test]

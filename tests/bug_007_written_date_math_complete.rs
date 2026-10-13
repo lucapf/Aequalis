@@ -17,7 +17,7 @@ fn reported_case_on_the_command_line() {
     assert_eq!(String::from_utf8(out.stdout).unwrap(), "2026/12/12 YYYY/MM/DD\n");
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "tui"))]
 #[test]
 fn reported_case_in_the_tui() {
     use std::io::{Read, Write};
