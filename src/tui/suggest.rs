@@ -18,7 +18,7 @@ pub fn suggest(config: &Config, line: &str, cursor: usize) -> Option<Suggestions
     let before: String = line.chars().take(cursor).collect();
     let Ok((_, rest)) = calc::parse_prefix(&before) else {
         // Not an expression: a place, for a distance.
-        return cities(config, &before, crate::cities::store().as_ref());
+        return cities(config, &before, crate::cities::store().as_ref(), crate::geo::local_country().as_deref());
     };
     let words: Vec<&str> = rest.split_whitespace().collect();
     let (done, prefix) = match words.split_last() {
@@ -38,10 +38,11 @@ pub fn suggest(config: &Config, line: &str, cursor: usize) -> Option<Suggestions
     (!names.is_empty()).then(|| Suggestions { start: cursor - prefix.chars().count(), names })
 }
 
-/// Cities whose name starts with the last words typed (up to 3: `New Yo`), the most populous
-/// first; a name several cities share is written qualified (`Springfield, Illinois, United
-/// States`). Not after a word that is no place (a unit, a keyword).
-pub fn cities(config: &Config, before: &str, store: Option<&crate::cities::Store>) -> Option<Suggestions> {
+/// Cities whose name starts with the last words typed (up to 3: `New Yo`; never across `to`), in
+/// the order of `cities::rank` (`local`: the device's country); a name several cities share is
+/// written qualified (`Springfield, Illinois, United States`). Not after a word that is no place
+/// (a unit, a keyword).
+pub fn cities(config: &Config, before: &str, store: Option<&crate::cities::Store>, local: Option<&str>) -> Option<Suggestions> {
     let store = store?;
     if before.ends_with(char::is_whitespace) {
         return None;
@@ -52,7 +53,11 @@ pub fn cities(config: &Config, before: &str, store: Option<&crate::cities::Store
         if n == 1 && crate::time::reserved(config, &typed) {
             return None;
         }
-        let found = store.starting_with(&typed, 8);
+        // `Rieti to R`: the place after `to`, not one named `to R…`.
+        if n > 1 && words[words.len() - n..].iter().any(|w| ["to", "->"].contains(&w.to_ascii_lowercase().as_str())) {
+            continue;
+        }
+        let found = store.starting_with(&typed, 8, local);
         if found.is_empty() {
             continue;
         }
@@ -170,7 +175,7 @@ mod tests {
     fn cities() {
         let config = Config::default();
         let (_, store) = crate::cities::tests::sample("suggest");
-        let names = |before: &str| super::cities(&config, before, Some(&store)).map(|s| (s.start, s.names));
+        let names = |before: &str| super::cities(&config, before, Some(&store), None).map(|s| (s.start, s.names));
         let (start, found) = names("Rome to Chi").unwrap();
         assert_eq!((start, found), (8, vec!["Chicago".to_string()]));
         let (_, found) = names("spr").unwrap();

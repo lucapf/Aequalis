@@ -160,6 +160,15 @@ pub struct Store {
     idx_len: u64,
 }
 
+/// The order of cities offered for what was `typed` (Tab, "which one?"): the city named
+/// exactly so first (its name, not an alias: `Alessandria` is Alessandria, Piedmont, before
+/// Alexandria, Egypt, whose Italian name it is), then those in the device's country `local`, then
+/// the others; the most populous first in each (`cities` come in that order: the sort is stable).
+pub fn rank(cities: &mut [City], typed: &str, local: Option<&str>) {
+    let target = tz::key(typed.split(',').next().unwrap_or(""));
+    cities.sort_by_key(|c| (tz::key(&c.name) != target, local != Some(c.country_code.as_str())));
+}
+
 impl Store {
     pub fn open(base: &Path, meta: &Meta) -> Option<Store> {
         let dir = base.join(&meta.dir);
@@ -255,15 +264,17 @@ impl Store {
             .collect()
     }
 
-    /// Cities whose name or alias starts with `prefix`, the most populous first (Tab).
+    /// Cities whose name or alias starts with `prefix` (Tab), in the order of `rank` (`local`: the
+    /// device's country).
     #[cfg_attr(not(feature = "tui"), allow(dead_code))]
-    pub fn starting_with(&self, prefix: &str, limit: usize) -> Vec<City> {
+    pub fn starting_with(&self, prefix: &str, limit: usize, local: Option<&str>) -> Vec<City> {
         let target = tz::key(prefix);
         if target.chars().count() < 2 {
             return Vec::new();
         }
         let hits = self.scan(self.lower_bound(&target), 2000, &|k| k.starts_with(target.as_str()));
         let mut found = self.cities(hits.into_iter().map(|(_, o)| o));
+        rank(&mut found, prefix, local);
         found.truncate(limit);
         found
     }
@@ -536,6 +547,43 @@ pub mod tests {
         cities.iter().map(City::qualified).collect()
     }
 
+    /// The order of the cities offered: the exact name (not an alias), then the device's country,
+    /// then the others; by population within each.
+    #[test]
+    fn ranked_exact_name_then_the_device_s_country() {
+        let city = |name: &str, region: &str, country: &str, code: &str, population: u64, aliases: &[&str]| City {
+            id: population,
+            name: name.into(),
+            lat: 0.0,
+            lon: 0.0,
+            population,
+            country_code: code.into(),
+            country: country.into(),
+            region: region.into(),
+            updated: String::new(),
+            aliases: aliases.iter().map(|a| a.to_string()).collect(),
+        };
+        // By population, as the archive gives them.
+        let all = vec![
+            city("Alexandria", "Alexandria", "Egypt", "EG", 3_811_516, &["Alessandria"]),
+            city("Alexandria", "Virginia", "United States", "US", 159_428, &["Alessandria"]),
+            city("Alessandria", "Piedmont", "Italy", "IT", 89_411, &[]),
+            city("Alessano", "Apulia", "Italy", "IT", 6_400, &[]),
+        ];
+        let order = |typed: &str, local: Option<&str>| {
+            let mut cities = all.clone();
+            rank(&mut cities, typed, local);
+            cities.iter().map(|c| format!("{} {}", c.name, c.country_code)).collect::<Vec<_>>()
+        };
+        // Its own name first, wherever the device is; then the device's country.
+        assert_eq!(order("Alessandria", Some("IT")), ["Alessandria IT", "Alessano IT", "Alexandria EG", "Alexandria US"]);
+        assert_eq!(order("alessandria", Some("US")), ["Alessandria IT", "Alexandria US", "Alexandria EG", "Alessano IT"]);
+        assert_eq!(order("Alessandria, Piedmont", None)[0], "Alessandria IT", "a qualified name: its first part");
+        // Typing (no exact name yet): the device's country first.
+        assert_eq!(order("Alessan", Some("IT")), ["Alessandria IT", "Alessano IT", "Alexandria EG", "Alexandria US"]);
+        assert_eq!(order("Alessan", None), ["Alexandria EG", "Alexandria US", "Alessandria IT", "Alessano IT"], "by population");
+    }
+
     #[test]
     fn exact_names_and_aliases_any_case() {
         let (_, store) = sample("exact");
@@ -562,9 +610,9 @@ pub mod tests {
     #[test]
     fn prefixes_and_misspellings() {
         let (_, store) = sample("prefix");
-        assert_eq!(names(&store.starting_with("spr", 2)), ["Springfield, Missouri, United States", "Springfield, Massachusetts, United States"]);
-        assert_eq!(store.starting_with("Par", 8).len(), 2);
-        assert!(store.starting_with("p", 8).is_empty(), "at least 2 letters");
+        assert_eq!(names(&store.starting_with("spr", 2, None)), ["Springfield, Missouri, United States", "Springfield, Massachusetts, United States"]);
+        assert_eq!(store.starting_with("Par", 8, None).len(), 2);
+        assert!(store.starting_with("p", 8, None).is_empty(), "at least 2 letters");
         assert_eq!(store.near("Sprinfield").len(), 3);
         assert_eq!(names(&store.near("Chicaco")), ["Chicago, Illinois, United States"]);
         assert!(store.near("Rome").is_empty(), "an exact name is not a misspelling");
@@ -637,7 +685,7 @@ pub mod tests {
             ("exact New York", Box::new(|| store.find("New York").len())),
             ("exact Springfield", Box::new(|| store.find("Springfield").len())),
             ("qualified Springfield, Illinois", Box::new(|| store.find("Springfield, Illinois").len())),
-            ("prefix Spr", Box::new(|| store.starting_with("Spr", 8).len())),
+            ("prefix Spr", Box::new(|| store.starting_with("Spr", 8, None).len())),
             ("near Sprngfield", Box::new(|| store.near("Sprngfield").len())),
             ("near Chicaco", Box::new(|| store.near("Chicaco").len())),
         ] {

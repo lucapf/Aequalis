@@ -186,7 +186,7 @@ pub fn request(config: &Config, input: &str, precision: usize) -> Option<Result<
 }
 
 /// The ISO code of the device time zone's country (`IT` for Europe/Rome), to offer its cities first.
-fn local_country() -> Option<String> {
+pub fn local_country() -> Option<String> {
     crate::time::tz::zone_country(&crate::currency::local_zone()?).map(|c| c.code.clone())
 }
 
@@ -396,31 +396,22 @@ fn between(
 
 /// Which cities, when a side is several cities or misspelt: each combination (at most
 /// `cities::MAX_CHOICES`), as an unambiguous request (`Springfield, Illinois, United States to
-/// Paris km`). Cities in the other place's country first (when that one is a single city or a
-/// country), then in the device's country, then the others; by population within each.
+/// Paris km`), in the order of `cities::rank`: the city named exactly as written, then those in
+/// the device's country, then the others; by population within each.
 fn question(a: &Side, b: &Side, unit: &str, local: Option<&str>) -> crate::time::Ambiguity {
     use crate::cities::City;
-    let country_of = |s: &Side| match s {
-        Side::One(_, Some(c)) => Some(c.country_code.clone()),
-        _ => None,
-    };
-    let ranked = |s: &Side, other: Option<String>| -> Vec<(String, Option<City>)> {
+    let ranked = |s: &Side| -> Vec<(String, Option<City>)> {
         match s {
             Side::One(p, c) => vec![(c.as_ref().map_or(p.name.clone(), City::qualified), c.clone())],
-            Side::Several(_, cities) | Side::Misspelt(_, cities) => {
+            Side::Several(typed, cities) | Side::Misspelt(typed, cities) => {
                 let mut cities = cities.clone();
-                // Stable: population order kept within each group.
-                cities.sort_by_key(|c| match (other.as_deref() == Some(c.country_code.as_str()), local == Some(c.country_code.as_str())) {
-                    (true, _) => 0,
-                    (false, true) => 1,
-                    _ => 2,
-                });
+                crate::cities::rank(&mut cities, typed, local);
                 cities.into_iter().map(|c| (c.qualified(), Some(c))).collect()
             }
         }
     };
-    let options_a = ranked(a, country_of(b));
-    let options_b = ranked(b, country_of(a));
+    let options_a = ranked(a);
+    let options_b = ranked(b);
     let mut choices = Vec::new();
     'outer: for (name_a, city_a) in &options_a {
         for (name_b, city_b) in &options_b {
@@ -592,12 +583,15 @@ mod tests {
 
         #[test]
         fn several_cities_are_asked_in_order() {
-            // The other place is one city in the US: the US Paris first.
+            // The exact name, then the device's country, then by population (not the other
+            // place's country: Chicago does not put the US Paris first).
             let a = ask("Chicago Paris", None);
             assert_eq!(a.kind, crate::time::AmbiguityKind::Place);
             assert_eq!(a.note, "`Paris` is several places");
-            assert_eq!(a.choices.iter().map(|c| c.pattern.as_str()).collect::<Vec<_>>(), ["Paris, Texas, United States", "Paris, Île-de-France, France"]);
-            assert_eq!(a.choices[0].request, "distance Chicago, Illinois, United States to Paris, Texas, United States km");
+            assert_eq!(a.choices.iter().map(|c| c.pattern.as_str()).collect::<Vec<_>>(), ["Paris, Île-de-France, France", "Paris, Texas, United States"]);
+            assert_eq!(a.choices[0].request, "distance Chicago, Illinois, United States to Paris, Île-de-France, France km");
+            let a = ask("Chicago Paris", Some("US"));
+            assert_eq!(a.choices[0].pattern, "Paris, Texas, United States", "the device's country");
             assert!(a.choices[0].date.contains("inhabitants · https://www.google.com/maps?q="));
             // Each choice converts.
             for c in &a.choices {
@@ -608,7 +602,7 @@ mod tests {
             assert_eq!(a.note, "`Rome`, `Springfield` are several places each");
             assert!(a.choices[0].pattern.starts_with("Rome, Lazio, Italy → Springfield, Missouri"), "{}", a.choices[0].pattern);
             let a = ask("Rome Chicago", Some("US"));
-            assert_eq!(a.choices[0].pattern, "Rome, Georgia, United States", "same country as Chicago");
+            assert_eq!(a.choices[0].pattern, "Rome, Georgia, United States", "the device's country");
             let a = ask("Rome Paris, France", Some("FR"));
             assert_eq!(a.choices[0].pattern, "Rome, Lazio, Italy", "by population when no rule applies");
             assert!(a.choices.len() <= crate::cities::MAX_CHOICES);

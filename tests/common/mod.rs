@@ -40,6 +40,15 @@ pub fn tally(dir: &PathBuf, args: &[&str]) -> Output {
         .expect("run tally")
 }
 
+/// `tally`, on a device in the time zone `zone` (its country orders the cities offered).
+pub fn tally_in(zone: &str, dir: &PathBuf, args: &[&str]) -> Output {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_tally"));
+    for var in ["http_proxy", "https_proxy", "HTTPS_PROXY", "ALL_PROXY", "all_proxy"] {
+        command.env(var, "http://127.0.0.1:9");
+    }
+    command.args(args).env("XDG_CONFIG_HOME", dir).env("LC_ALL", "C").env("TZ", zone).stdin(Stdio::null()).output().expect("run tally")
+}
+
 pub fn out(o: &Output) -> String {
     String::from_utf8_lossy(&o.stdout).trim_end().to_string()
 }

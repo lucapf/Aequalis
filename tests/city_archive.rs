@@ -43,10 +43,13 @@ fn download_then_any_city() {
     assert_eq!(common::out(&common::tally(&dir, &["Springfield,", "Illinois", "Chicago"])), "283 km");
     assert_eq!(common::out(&common::tally(&dir, &["Springfield,", "Illinois", "Chicago", "mi"])), "176 mi");
     assert_eq!(common::out(&common::tally(&dir, &["distance", "Рим", "to", "Chicago"])), "7765 km");
-    // Several: asked (exit 2 in scripts, choices in --json, ordered).
-    let o = common::tally(&dir, &["Chicago", "Paris"]);
+    // Several: asked (exit 2 in scripts, choices in --json), ordered: the exact name, then the
+    // device's country (its time zone), then by population.
+    let o = common::tally_in("Europe/Rome", &dir, &["Chicago", "Paris"]);
     assert_eq!(o.status.code(), Some(2));
-    assert!(common::err(&o).contains("`Paris` is several places: did you mean Paris, Texas, United States or Paris, Île-de-France, France?"), "{}", common::err(&o));
+    assert!(common::err(&o).contains("`Paris` is several places: did you mean Paris, Île-de-France, France or Paris, Texas, United States?"), "{}", common::err(&o));
+    let o = common::tally_in("America/Chicago", &dir, &["Chicago", "Paris"]);
+    assert!(common::err(&o).contains("did you mean Paris, Texas, United States or Paris, Île-de-France, France?"), "in the US: {}", common::err(&o));
     let json = common::out(&common::tally(&dir, &["--json", "Chicago", "Paris"]));
     assert!(json.contains(r#""kind":"place""#) && json.contains("google.com/maps?q="), "{json}");
     // -v: where they are.
