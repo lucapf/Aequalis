@@ -145,7 +145,7 @@ pub enum Group {
 impl Group {
     pub const ALL: [Group; 3] = [Group::Cities, Group::Rates, Group::Live];
 
-    /// Its name in the settings and in `tally --sync <group>`.
+    /// Its name in the settings (`rates.refresh`).
     pub fn name(self) -> &'static str {
         match self {
             Group::Live => "live",
@@ -160,10 +160,6 @@ impl Group {
             Group::Rates => "the exchange rates",
             Group::Cities => "the city archive",
         }
-    }
-
-    pub fn parse(name: &str) -> Option<Group> {
-        Group::ALL.into_iter().find(|g| g.name().eq_ignore_ascii_case(name))
     }
 }
 
@@ -268,21 +264,17 @@ pub struct Source {
 /// How a source is fetched: its values by name, `None` when it did not answer.
 pub type Fetch = Box<dyn Fn() -> Option<Vec<(String, f64)>>>;
 
-/// `tally --sync [group…]` (`auto`: the background sync, `--auto`): under the lock, each group
-/// asked for (all when none). By hand everything is downloaded again; the background sync does
-/// what the policies say (`due`). Returns a line per group.
-pub fn sync(groups: &[Group], auto: bool) -> Result<Vec<String>, String> {
+/// `tally --sync` (`auto`: the background sync, `--auto`): under the lock, by hand every group
+/// is downloaded again; the background sync does what the policies say (`due`). Returns a line
+/// per group.
+pub fn sync(auto: bool) -> Result<Vec<String>, String> {
     let settings = crate::settings::current();
     if settings.offline() {
         return Err("the offline setting is on: no sync".into());
     }
     let _lock = take_lock()?;
     let now = crate::time::unix_now();
-    let groups: Vec<Group> = match (auto, groups.is_empty()) {
-        (true, _) => due(&settings, now),
-        (false, true) => Group::ALL.to_vec(),
-        (false, false) => groups.to_vec(),
-    };
+    let groups: Vec<Group> = if auto { due(&settings, now) } else { Group::ALL.to_vec() };
     let mut out = Vec::new();
     for group in groups {
         let interval = if auto { settings.interval(group.name()) } else { 0 };
@@ -326,7 +318,7 @@ fn sync_cities(base: &Path, settings: &crate::settings::Settings, auto: bool, no
     let newer = published.as_deref().is_some_and(|v| v != current);
     if auto && settings.refresh("cities") == crate::settings::Refresh::Notify {
         if newer && state.cities_notified != state.cities_available {
-            notify("A new city archive is available: tally --sync cities");
+            notify("A new city archive is available: tally --sync");
             state.cities_notified = state.cities_available.clone();
         }
         crate::notify::save_to(&state_path, &state);

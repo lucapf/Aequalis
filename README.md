@@ -86,7 +86,7 @@ Every capital and major city, and countries too.
 ### Distances
 
 Between two cities, countries or coordinates, along the Earth's surface; a third word is the
-unit. With the city archive (`tally --sync cities`, about 70,000 cities from
+unit. With the city archive (`tally --sync`, about 70,000 cities from
 [GeoNames](https://www.geonames.org)), any city of 5,000 inhabitants or more, by any of its names
 in any language. When several cities share a name, Tally asks which one: those in the other
 city's country first, then in yours.

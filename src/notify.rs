@@ -55,7 +55,7 @@ pub fn save_to(path: &std::path::Path, state: &State) {
 }
 
 /// The city archive was never downloaded.
-pub const NOT_DOWNLOADED: &str = "the city archive is not downloaded yet: tally --sync cities";
+pub const NOT_DOWNLOADED: &str = "the city archive is not downloaded yet: tally --sync";
 
 /// The notices now: the city archive never downloaded, and each group under `notify` that has
 /// something new or is out of date.
@@ -76,10 +76,10 @@ pub fn notices(settings: &Settings, state: &State, cities_version: Option<&str>,
             Group::Cities => {
                 let newer = !state.cities_available.is_empty() && Some(state.cities_available.as_str()) != cities_version;
                 if settings.cities_enabled() && newer {
-                    out.push("a new city archive is available: tally --sync cities".to_string());
+                    out.push("a new city archive is available: tally --sync".to_string());
                 }
             }
-            _ if stale(group) => out.push(format!("{} are out of date: tally --sync {}", group.title(), group.name())),
+            _ if stale(group) => out.push(format!("{} are out of date: tally --sync", group.title())),
             _ => {}
         }
     }
@@ -134,7 +134,7 @@ mod tests {
         s.set("rates.refresh", Some("notify")).unwrap();
         assert_eq!(
             notices(&s, &state, Some("1 aaa"), &all_stale),
-            ["a new city archive is available: tally --sync cities", "the exchange rates are out of date: tally --sync rates"]
+            ["a new city archive is available: tally --sync", "the exchange rates are out of date: tally --sync"]
         );
         // Up to date: nothing.
         assert_eq!(notices(&s, &state, Some("2 bbb"), &|_| false), Vec::<String>::new());

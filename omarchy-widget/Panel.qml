@@ -166,11 +166,11 @@ Panel {
     return s.options[(i + 1) % s.options.length]
   }
 
-  // `tally --sync <group>` in the background; the notices follow when it ends.
-  function download(group) {
+  // `tally --sync` (everything) in the background; the notices follow when it ends.
+  function download() {
     if (syncProc.running) return
-    root.settingsMessage = "Downloading " + group + "…"
-    syncProc.command = [root.command, "--sync", group]
+    root.settingsMessage = "Downloading everything…"
+    syncProc.command = [root.command, "--sync"]
     syncProc.running = true
   }
 
@@ -213,7 +213,7 @@ Panel {
   }
 
   Process { id: copyProc }
-  // A download asked for from a notice (`tally --sync <group>`).
+  // A download asked for from a notice or the Settings (`tally --sync`).
   Process {
     id: syncProc
     stdout: StdioCollector {
@@ -592,9 +592,7 @@ Panel {
 
         Row {
           spacing: Style.space(6)
-          Button { text: "Download cities"; fontSize: Style.font.caption; onClicked: root.download("cities") }
-          Button { text: "Download rates"; fontSize: Style.font.caption; onClicked: root.download("rates") }
-          Button { text: "Download live values"; fontSize: Style.font.caption; onClicked: root.download("live") }
+          Button { text: "Download everything"; fontSize: Style.font.caption; onClicked: root.download() }
         }
 
         Text {
@@ -710,7 +708,7 @@ Panel {
           Button {
             text: "Download"
             fontSize: Style.font.caption
-            onClicked: root.download(modelData.split("tally --sync ")[1] || "cities")
+            onClicked: root.download()
           }
         }
       }

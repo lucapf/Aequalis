@@ -265,6 +265,28 @@ fn distance_in_units(config: &Config, entry: &Entry, km: f64, precision: usize, 
     out.join(" - ")
 }
 
+/// The Sun's gravitational parameter GM, km³/s².
+const GM_SUN: f64 = 1.327_124_400_18e11;
+
+/// A speed for people: `16.88 km/s - 60,768 km/h - 37,759 mph` (km/h and mph whole, through
+/// `number`).
+fn speed_text(km_s: f64, number: &dyn Fn(String) -> String) -> String {
+    let per_hour = km_s * 3600.0;
+    format!(
+        "{} km/s - {} km/h - {} mph",
+        number(convert::format_value(km_s, 2)),
+        number(convert::format_value(per_hour, 0)),
+        number(convert::format_value(per_hour / 1.609_344, 0))
+    )
+}
+
+/// The speed along an orbit around the Sun at `r` au from it, the orbit's semi-major axis `a` au
+/// (vis-viva: v² = GM (2/r − 1/a)), in km/s.
+fn orbital_speed(r: f64, a: f64) -> f64 {
+    let au = crate::planets::AU_KM;
+    (GM_SUN * (2.0 / (r * au) - 1.0 / (a * au))).sqrt()
+}
+
 /// The value as written into an expression: its first unit, plain digits, the entry's decimals
 /// (else 10): `57909050 km`, `3.1415926536`.
 #[cfg_attr(not(feature = "tui"), allow(dead_code))]
@@ -279,9 +301,10 @@ pub fn written(config: &Config, entry: &Entry, value: f64) -> String {
 
 /// The popup of an entry (Enter in the Trivia): (label, text) lines after its description, in
 /// order: its Wikipedia link; its value (`Current distance: 25,794,004,533 km - 172.4223 au
-/// (updated now)`); its details; a spacecraft's launch; for a planet, its distances from the Sun
-/// and from the Earth: now, mean, the next minimum and maximum with their dates. Kilometres are
-/// whole, through `number` (the device's separators).
+/// (updated now)`); a spacecraft's speed; its details (the Moon's and the satellites' speeds are
+/// there); a spacecraft's launch; for a planet, its distances from the Sun and from the Earth:
+/// now, mean, the next minimum and maximum with their dates, and its orbital speed. Kilometres
+/// are whole, through `number` (the device's separators).
 pub fn popup(config: &Config, entry: &Entry, synced: Option<crate::online::Stored>, now: i64, precision: usize, number: &dyn Fn(String) -> String) -> Vec<(String, String)> {
     let mut lines = Vec::new();
     if let Some(link) = &entry.wikipedia {
@@ -297,6 +320,9 @@ pub fn popup(config: &Config, entry: &Entry, synced: Option<crate::online::Store
             }
         }
     }
+    if let Source::Spacecraft { estimate, .. } = &entry.source {
+        lines.push(("Speed".to_string(), format!("{}, away from the Sun", speed_text(estimate.km_per_s, number))));
+    }
     lines.extend(entry.details.iter().cloned());
     if let Some(launched) = &entry.launched {
         lines.push(("Launched".to_string(), launched.clone()));
@@ -309,6 +335,10 @@ pub fn popup(config: &Config, entry: &Entry, synced: Option<crate::online::Store
             lines.push(("Distance from the Sun now".to_string(), km(d.now)));
             lines.push(("Closest to the Sun (perihelion)".to_string(), format!("{}{}", km(d.min.au), when(d.min))));
             lines.push(("Farthest from the Sun (aphelion)".to_string(), format!("{}{}", km(d.max.au), when(d.max))));
+            // Fastest at perihelion, slowest at aphelion.
+            lines.push(("Orbital speed now".to_string(), speed_text(orbital_speed(d.now, d.mean), number)));
+            lines.push(("Fastest (perihelion)".to_string(), speed_text(orbital_speed(d.min.au, d.mean), number)));
+            lines.push(("Slowest (aphelion)".to_string(), speed_text(orbital_speed(d.max.au, d.mean), number)));
         }
         if let Some(d) = crate::planets::from_earth(planet, t) {
             lines.push(("Distance from the Earth now".to_string(), km(d.now)));
@@ -584,7 +614,8 @@ mod tests {
         let v1 = popup_of("Voyager 1");
         assert_eq!(v1[0], ("Wikipedia".to_string(), "https://en.wikipedia.org/wiki/Voyager_1".to_string()));
         assert_eq!(v1[1], ("Current distance".to_string(), "25794004453 km - 172.4223 au - 2.7264e-3 ly (estimated, not synced yet)".to_string()));
-        assert_eq!(v1[2], ("Launched".to_string(), "1977-09-05 12:56 UTC".to_string()));
+        assert_eq!(v1[2], ("Speed".to_string(), "16.88 km/s - 60768 km/h - 37759 mph, away from the Sun".to_string()));
+        assert_eq!(v1[3], ("Launched".to_string(), "1977-09-05 12:56 UTC".to_string()));
         let live = popup(&config, get("Voyager 1"), Some(crate::online::Stored { value: 172.5, at: 1_791_676_800 }), 1_791_676_800, 4, &|n| n);
         assert!(live[1].1.contains(" - 172.5 au - 2.7277e-3 ly (synced ") && live[1].1.ends_with(" from JPL Horizons)"), "{:?}", live[1]);
         // A planet: from the Sun and from the Earth, the next dates.
@@ -599,6 +630,18 @@ mod tests {
         // Mars's next closest approach: the opposition of February 2027, about 101 million km.
         assert!(text("Closest to the Earth").starts_with("1014") && text("Closest to the Earth").contains(" Feb 2027"), "{mars:?}");
         assert!(!popup_of("Sun – Earth").iter().any(|(l, _)| l == "Closest to the Earth"));
+        // Orbital speeds: the Earth's 29.78 km/s on average, 30.29 at perihelion, 29.29 at aphelion.
+        let earth = popup_of("Sun – Earth");
+        let speed = |label: &str| earth.iter().find(|(l, _)| l == label).map(|(_, t)| t.clone()).unwrap();
+        assert!(speed("Fastest (perihelion)").starts_with("30.29 km/s - 109"), "{earth:?}");
+        assert!(speed("Slowest (aphelion)").starts_with("29.29 km/s - 105"), "{earth:?}");
+        let now: f64 = speed("Orbital speed now").split(' ').next().unwrap().parse().unwrap();
+        assert!((29.29..=30.29).contains(&now), "{earth:?}");
+        assert!(text("Fastest (perihelion)").starts_with("26.5"), "Mars: {mars:?}");
+        // Every Space object and satellite orbit has a speed.
+        for e in entries().iter().filter(|e| (e.section == "Space" && e.name != "Light-year") || e.section == "Satellites") {
+            assert!(popup_of(&e.name).iter().any(|(l, _)| l.contains("peed") || l.starts_with("Fastest")), "{}", e.name);
+        }
         // Every Space entry: a link and a labelled value.
         for e in entries().iter().filter(|e| e.section == "Space") {
             let lines = popup_of(&e.name);

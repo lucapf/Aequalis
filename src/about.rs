@@ -40,7 +40,7 @@ pub fn facts(memory: &str) -> Vec<(&'static str, String)> {
             let day = crate::time::human_day(m.built_at);
             format!("{} of {day}, {} (refresh: {})", crate::numbers::device().apply(&m.count.to_string()), crate::cities::SOURCE, settings.get("cities.refresh"))
         }
-        (true, None) => format!("not downloaded (tally --sync cities), {}", crate::cities::SOURCE),
+        (true, None) => format!("not downloaded (tally --sync), {}", crate::cities::SOURCE),
     };
     vec![
         ("Version", env!("CARGO_PKG_VERSION").to_string()),

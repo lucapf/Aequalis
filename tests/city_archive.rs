@@ -1,4 +1,4 @@
-//! The city archive through the binary: downloaded with `tally --sync cities` (from a local copy,
+//! The city archive through the binary: downloaded with `tally --sync` (from a local copy,
 //! `cities.url` = file://…, so no network), then distances between any two cities, choices,
 //! About, and the default unit.
 
@@ -30,8 +30,9 @@ fn download_then_any_city() {
     // Before: the built-in places only.
     let o = common::tally(&dir, &["Springfield, Illinois", "Chicago"]);
     assert_ne!(o.status.code(), Some(0), "{}", common::out(&o));
-    let o = common::tally(&dir, &["--sync", "cities"]);
-    assert_eq!(common::out(&o), "9 cities", "{}", common::err(&o));
+    // Everything: the archive (a local copy), the rates and live values (no network: none).
+    let o = common::tally(&dir, &["--sync"]);
+    assert_eq!(common::out(&o), "9 cities\n0 exchange rates\n0 live values", "{}", common::err(&o));
     assert!(dir.join("tally/cities.json").exists());
     // Two parameters: the default unit; three: the given one.
     assert_eq!(common::out(&common::tally(&dir, &["Springfield,", "Illinois", "Chicago"])), "283 km");
@@ -70,9 +71,11 @@ fn the_default_unit_follows_the_device() {
 #[test]
 fn offline_no_download() {
     let dir = common::config("offline", &[]);
-    let o = common::tally(&dir, &["--sync", "cities"]);
+    let o = common::tally(&dir, &["--sync"]);
     assert_eq!(o.status.code(), Some(1));
     assert_eq!(common::err(&o), "tally: the offline setting is on: no sync");
-    let o = common::tally(&dir, &["--sync", "weather"]);
+    // No group: everything or nothing.
+    let o = common::tally(&dir, &["--sync", "cities"]);
     assert_eq!(o.status.code(), Some(2));
+    assert_eq!(common::err(&o), "tally: error: `--sync` downloads everything: no `cities` after it");
 }

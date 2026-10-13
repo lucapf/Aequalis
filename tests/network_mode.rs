@@ -118,7 +118,7 @@ fn notices_under_the_notify_policy() {
     // In a script (stderr not a terminal): nothing on stderr; in --json, always.
     assert!(String::from_utf8_lossy(&out.stderr).is_empty());
     let json = text(&tally(&notify, &dir, &["--json", "1", "km", "m"]));
-    assert!(json.contains(r#""notices":["the exchange rates are out of date: tally --sync rates"]"#), "{json}");
+    assert!(json.contains(r#""notices":["the exchange rates are out of date: tally --sync"]"#), "{json}");
     std::thread::sleep(std::time::Duration::from_millis(300));
     assert!(!dir.join("tally/online.lock").exists(), "nothing downloaded");
     // Manual: nothing said.
@@ -126,5 +126,5 @@ fn notices_under_the_notify_policy() {
     // The city archive never downloaded: said whatever the policy, with the online state too
     // (the widget shows it).
     let json = text(&tally(&[("rates.refresh", "manual")], &dir, &["--json", "--online"]));
-    assert!(json.contains(r#""notices":["the city archive is not downloaded yet: tally --sync cities"]"#), "{json}");
+    assert!(json.contains(r#""notices":["the city archive is not downloaded yet: tally --sync"]"#), "{json}");
 }

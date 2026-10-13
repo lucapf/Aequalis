@@ -49,8 +49,8 @@ fn installing_the_city_archive_stays_below_10_mb() {
     std::fs::write(serve.join("cities.version"), "1 sample\n").unwrap();
     let url = format!("file://{}", serve.join("cities.json.gz").display());
     let dir = common::config("memory-archive", &[("offline", "false"), ("cities.refresh", "manual"), ("rates.refresh", "manual"), ("live.refresh", "manual"), ("cities.url", &url)]);
-    let reply = common::out(&common::tally(&dir, &["--json", "--sync", "cities"]));
-    assert!(reply.starts_with(r#"{"ok":true,"result":"9 cities""#), "{reply}");
+    let reply = common::out(&common::tally(&dir, &["--json", "--sync"]));
+    assert!(reply.starts_with(r#"{"ok":true,"result":"9 cities\n"#), "{reply}");
     let kb = peak_kb(&reply);
     assert!(kb > 0 && kb < LIMIT_KB, "{kb} KB");
 }

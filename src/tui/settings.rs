@@ -3,17 +3,16 @@
 //!
 //! ↑↓ (j k) choose; a yes/no or a choice changes with Enter, Space or ← →; the others (durations,
 //! numbers, formats, the currency, the address) are typed in an edit line, Enter saves, Esc
-//! cancels; `d` puts back the default. The last rows start a download in the background
-//! (`tally --sync <group>`).
+//! cancels; `d` puts back the default. The last row downloads all the online data in the
+//! background (`tally --sync`).
 
-use crate::online::Group;
 use crate::settings::{self, Kind, Settings, KEYS};
 use std::path::PathBuf;
 
 /// The window's state.
 #[derive(Debug, Clone, PartialEq)]
 pub struct View {
-    /// The row chosen: a setting (`KEYS`), then the downloads.
+    /// The row chosen: a setting (`KEYS`), then the download.
     pub selected: usize,
     /// The value being typed, for a setting typed in.
     pub edit: Option<String>,
@@ -39,16 +38,12 @@ impl Default for View {
     }
 }
 
-/// The downloads offered after the settings.
-pub const DOWNLOADS: [(Group, &str); 3] = [
-    (Group::Cities, "Download the city archive now"),
-    (Group::Rates, "Download the exchange rates now"),
-    (Group::Live, "Download the live values now"),
-];
+/// The row after the settings: everything online, downloaded again.
+pub const DOWNLOAD: &str = "Download everything now";
 
-/// How many rows: the settings, then the downloads.
+/// How many rows: the settings, then the download.
 pub fn rows() -> usize {
-    KEYS.len() + DOWNLOADS.len()
+    KEYS.len() + 1
 }
 
 /// What a key does; `false` when the window closes (Esc).
@@ -119,9 +114,8 @@ fn save(view: &mut View, value: Option<&str>) {
     });
 }
 
-/// Starts the download of the chosen row in the background.
+/// Starts the download of everything in the background.
 fn download(view: &mut View) {
-    let Some(&(group, _)) = DOWNLOADS.get(view.selected - KEYS.len()) else { return };
     if view.settings.offline() {
         view.message = Some("the offline setting is on: no download".into());
         return;
@@ -130,7 +124,7 @@ fn download(view: &mut View) {
     use std::process::{Command, Stdio};
     let started = std::env::current_exe().ok().and_then(|exe| {
         Command::new(exe)
-            .args(["--sync", group.name()])
+            .arg("--sync")
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -139,7 +133,7 @@ fn download(view: &mut View) {
             .ok()
     });
     view.message = Some(match started {
-        Some(_) => format!("downloading {} in the background", group.title()),
+        Some(_) => "downloading everything in the background".to_string(),
         None => "could not start the download".into(),
     });
 }

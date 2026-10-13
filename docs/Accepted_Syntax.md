@@ -68,7 +68,7 @@ Two places, then optionally the unit: `[distance] <place> [to] <place> [<unit>]`
 city, a country or coordinates (`41.9,12.5`). With two places the unit is the `distance.unit`
 setting (auto: miles where the device is imperial, km elsewhere).
 
-With the city archive (`tally --sync cities`, from GeoNames) every city of 5,000 inhabitants or
+With the city archive (`tally --sync`, from GeoNames) every city of 5,000 inhabitants or
 more is known, by any of its names in any language (`Roma`, `Рим`); `Springfield, Illinois` or
 `Springfield, US` picks one. Several cities with that name: Tally asks, those in the other
 place's country first, then in the device's country, then the others, by population. A word that

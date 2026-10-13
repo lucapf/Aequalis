@@ -3,7 +3,7 @@
 //!
 //! The repository publishes `cities.json.gz` (built monthly from GeoNames by
 //! `scripts/build-cities.py`, CC BY 4.0) with its `cities.version`. Tally downloads it when the
-//! settings say so (`cities.refresh`, `tally --sync cities`) and turns it once into two files,
+//! settings say so (`cities.refresh`, `tally --sync`) and turns it once into two files,
 //! searched without loading them:
 //!
 //! - `cities.tsv`: one city per line: id, name, lat, lon, population, country code, country,

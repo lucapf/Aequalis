@@ -23,9 +23,15 @@ pub fn config(name: &str, settings: &[(&str, &str)]) -> PathBuf {
     dir
 }
 
-/// The binary with that config directory, the C locale, no input.
+/// The binary with that config directory, the C locale, no input; and a proxy nothing answers,
+/// so that a sync online (`--sync` downloads everything) fails at once for the network sources
+/// (`file://` archives still work).
 pub fn tally(dir: &PathBuf, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_tally"))
+    let mut command = Command::new(env!("CARGO_BIN_EXE_tally"));
+    for var in ["http_proxy", "https_proxy", "HTTPS_PROXY", "ALL_PROXY", "all_proxy"] {
+        command.env(var, "http://127.0.0.1:9");
+    }
+    command
         .args(args)
         .env("XDG_CONFIG_HOME", dir)
         .env("LC_ALL", "C")

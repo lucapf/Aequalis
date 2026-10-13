@@ -978,12 +978,12 @@ fn choice(canvas: &mut Canvas, rows: usize, a: &crate::time::Ambiguity, selected
     }
 }
 
-/// `O`: the settings, their values (changed ones bold), what the chosen one does, the downloads.
+/// `O`: the settings, their values (changed ones bold), what the chosen one does, the download.
 fn settings_window(canvas: &mut Canvas, rows: usize, view: &super::settings::View) {
     use crate::settings::KEYS;
     let current = &view.settings;
     let key_width = KEYS.iter().map(|k| k.key.len()).max().unwrap_or(0);
-    let lines = KEYS.len() + super::settings::DOWNLOADS.len() + 5;
+    let lines = super::settings::rows() + 5;
     let (top, left, width, height) = centred(canvas, rows, 78, lines, crate::config::SETTINGS.0);
     let right = left + width - 2;
     let visible = height.saturating_sub(5);
@@ -998,16 +998,11 @@ fn settings_window(canvas: &mut Canvas, rows: usize, view: &super::settings::Vie
                 };
                 format!(" {:<key_width$}  {value}", k.key)
             }
-            None => {
-                let (group, label) = super::settings::DOWNLOADS[i - KEYS.len()];
-                // The city archive: whether it is there, and how big and recent.
-                let state = match (group, crate::cities::meta()) {
-                    (crate::online::Group::Cities, Some(m)) => format!("  ({} cities of {})", m.count, crate::time::human_day(m.built_at)),
-                    (crate::online::Group::Cities, None) => "  (not downloaded)".to_string(),
-                    _ => String::new(),
-                };
-                format!(" {label}{state}")
-            }
+            // Whether the city archive is there, how big and recent.
+            None => match crate::cities::meta() {
+                Some(m) => format!(" {}  (city archive: {} cities of {})", super::settings::DOWNLOAD, m.count, crate::time::human_day(m.built_at)),
+                None => format!(" {}  (city archive: not downloaded)", super::settings::DOWNLOAD),
+            },
         };
         let style = match (chosen, KEYS.get(i)) {
             (true, _) => Style::Lit,
@@ -1019,7 +1014,7 @@ fn settings_window(canvas: &mut Canvas, rows: usize, view: &super::settings::Vie
     }
     let sep = top + height - 4;
     canvas.cells[sep][left + 1..left + width - 1].fill(('─', Style::Dim));
-    let about = KEYS.get(view.selected).map_or("starts the download in the background (tally --sync)".to_string(), |k| format!("{} (default: {})", k.about, k.default));
+    let about = KEYS.get(view.selected).map_or("the city archive, the exchange rates, the live values (tally --sync)".to_string(), |k| format!("{} (default: {})", k.about, k.default));
     canvas.put_within(sep + 1, left + 2, right, &about, Style::Dim);
     if let Some(msg) = &view.message {
         canvas.put_within(sep + 2, left + 2, right, msg, Style::Green);

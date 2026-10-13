@@ -37,9 +37,9 @@ Usage:
   tally --trivia        useful values (Voyagers' distance live when online)
   tally --online        online, offline or offline (forced): the last download of the online data
   tally --about         the logo, the version, memory, the online data and their sources
-  tally --sync [cities|rates|live]
-                        download the online data now (all by default); otherwise as the
-                        refresh settings say
+  tally --sync          download all the online data now (the city archive, the exchange
+                        rates, the Trivia's live values); otherwise as the refresh
+                        settings say
   tally --settings      every setting, its value and what it does
   tally --set key=value change a setting (`tally --set key`: back to its default)
   tally --autocompletion <bash|zsh>
@@ -81,7 +81,7 @@ Examples:
   tally 20% of 150        30
   tally Rome Paris        1,107 km    (distance.unit: km, or mi where the device is imperial)
   tally Springfield, Illinois Chicago mi
-                              176 mi      (any city once downloaded: tally --sync cities)
+                              176 mi      (any city once downloaded: tally --sync)
   tally Italy             11 Oct 26 12:38 PM GMT+2 Rome
   tally 10:00 USA to Japan
                               (asks which US time zone: New York, Chicago, …)
@@ -527,21 +527,15 @@ fn main() -> ExitCode {
         eprintln!("tally: error: {e} (fix it with tally --set, or edit the file)");
         return ExitCode::from(2);
     }
-    // `--sync [cities|rates|live]`: download the online data now (all of it by default);
-    // `--sync --auto`: the background sync, what the refresh policies say.
+    // `--sync`: download all the online data now; `--sync --auto`: the background sync, what
+    // the refresh policies say.
     if let Some(i) = args.iter().position(|a| a == "--sync") {
         let auto = args.iter().any(|a| a == "--auto");
-        let mut groups = Vec::new();
-        for name in args[i + 1..].iter().filter(|a| !a.starts_with("--")) {
-            match online::Group::parse(name) {
-                Some(g) => groups.push(g),
-                None => {
-                    eprintln!("tally: error: unknown data `{name}`: cities, rates or live");
-                    return ExitCode::from(2);
-                }
-            }
+        if let Some(extra) = args[i + 1..].iter().find(|a| !a.starts_with("--")) {
+            eprintln!("tally: error: `--sync` downloads everything: no `{extra}` after it");
+            return ExitCode::from(2);
         }
-        return match (online::sync(&groups, auto), json) {
+        return match (online::sync(auto), json) {
             // `--json`: the usual reply, the lines as the result (with the peak memory).
             (Ok(lines), true) => {
                 println!("{}", json::result(&Ok(Output::from(lines.join("\n"))), &[]));
