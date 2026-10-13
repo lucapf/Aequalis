@@ -1,13 +1,20 @@
 # The city archive for distances (scripts/build-cities.py, from GeoNames), rebuilt on the 1st of
-# each month and on demand, and published as the assets of the release `cities`: cities.json.gz
-# (what Tally downloads) and cities.version (to check for a new one cheaply). That release is data,
-# not an app version: it is never marked latest, and nothing is pushed, so no app release starts.
+# each month, on demand, and when its build changes on master; published as the assets of the
+# release `cities`: cities.json.gz (what Tally downloads) and cities.version (to check for a new
+# one cheaply). That release is data, not an app version: it is never marked latest, and nothing
+# is pushed, so no app release starts.
 name: Cities
 
 on:
   schedule:
     - cron: "17 3 1 * *"
   workflow_dispatch:
+  # And when the build changes on master: the first merge publishes the first archive.
+  push:
+    branches: [master]
+    paths:
+      - scripts/build-cities.py
+      - .github/workflows/cities.yml
 
 permissions:
   contents: write

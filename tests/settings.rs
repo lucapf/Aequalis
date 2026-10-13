@@ -16,7 +16,9 @@ fn set_show_and_reset() {
     let shown = common::out(&common::tally(&dir, &["--settings"]));
     assert!(shown.contains("currency.local   CHF  (default: auto)") && shown.contains("cities.refresh   manual"), "{shown}");
     let json = common::out(&common::tally(&dir, &["--settings", "--json"]));
-    assert!(json.starts_with('{') && json.contains(r#""currency.local":"CHF""#), "{json}");
+    assert!(json.contains(r#"{"key":"currency.local","value":"CHF","default":"auto","kind":"text","options":[]"#), "{json}");
+    assert!(json.contains(r#"{"key":"cities.refresh","value":"manual","default":"manual","kind":"choice","options":["silent","notify","manual"]"#), "{json}");
+    assert!(json.contains(r#""key":"offline","value":"true","default":"false","kind":"bool""#), "{json}");
 }
 
 #[test]

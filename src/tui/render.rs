@@ -949,7 +949,16 @@ fn settings_window(canvas: &mut Canvas, rows: usize, view: &super::settings::Vie
                 };
                 format!(" {:<key_width$}  {value}", k.key)
             }
-            None => format!(" {}", super::settings::DOWNLOADS[i - KEYS.len()].1),
+            None => {
+                let (group, label) = super::settings::DOWNLOADS[i - KEYS.len()];
+                // The city archive: whether it is there, and how big and recent.
+                let state = match (group, crate::cities::meta()) {
+                    (crate::online::Group::Cities, Some(m)) => format!("  ({} cities of {})", m.count, crate::time::human_day(m.built_at)),
+                    (crate::online::Group::Cities, None) => "  (not downloaded)".to_string(),
+                    _ => String::new(),
+                };
+                format!(" {label}{state}")
+            }
         };
         let style = match (chosen, KEYS.get(i)) {
             (true, _) => Style::Lit,

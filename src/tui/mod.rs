@@ -805,7 +805,7 @@ mod tests {
         let list = shortcuts(&config);
         let names: Vec<_> = list.iter().map(|s| format!("{} {}", s.key, s.name)).collect();
         // Length, Area and Volume are in the Size group.
-        assert_eq!(names, ["/ Search", "T Time", "D Data", "S Size", "P Other physical", "R Trivia", "O Settings"]);
+        assert_eq!(names, ["/ Search", "T Time", "D Data", "S Size", "P Other physical", "R Trivia", "O ⚙ Settings"]);
         for (i, s) in list.iter().enumerate() {
             assert!(list[i + 1..].iter().all(|other| other.key != s.key), "shortcut {} used twice", s.key);
         }

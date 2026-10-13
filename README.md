@@ -123,8 +123,10 @@ You can run Tally in several ways:
 Everything you can configure is in one place, `~/.config/tally/settings.json`: offline mode,
 whether and how the online data is refreshed (city archive, exchange rates, the Trivia's live
 values: in the background, with a notice, or only when you ask), your local currency, the
-distance unit, the decimal places and the date formats. Change them in the TUI's Settings window
-(`O`), or with `tally --set key=value`; `tally --settings` shows them all.
+distance unit, the decimal places and the date formats. Change them with the **⚙ Settings**
+section: in the TUI (`O`, or the top bar), in the widget (the gear button), or with
+`tally --set key=value`; `tally --settings` shows them all. Both also offer the downloads, and
+say when the city archive is not downloaded yet.
 
 ## License
 

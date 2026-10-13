@@ -108,20 +108,23 @@ fn fresh_data_is_used_offline() {
 
 #[test]
 fn notices_under_the_notify_policy() {
-    // Out-of-date exchange rates, under `notify`: a notice, nothing downloaded.
+    // Out-of-date exchange rates, under `notify`: a notice, nothing downloaded. (The cities are
+    // off here: their archive's own notice is tested below.)
     let old = now() - 3 * 86_400;
     let dir = config("notify", &fresh(true), &rates(old, true));
-    let notify = [("rates.refresh", "notify")];
+    let notify = [("rates.refresh", "notify"), ("cities.enabled", "false")];
     let out = tally(&notify, &dir, &["1", "km", "m"]);
     assert_eq!(text(&out), "1000 m");
-    let err = String::from_utf8_lossy(&out.stderr).to_string();
-    assert!(err.contains("tally: note: the exchange rates are out of date: tally --sync rates"), "{err}");
-    // Once a day on the command line; always in --json.
-    assert!(String::from_utf8_lossy(&tally(&notify, &dir, &["1", "km", "m"]).stderr).is_empty());
+    // In a script (stderr not a terminal): nothing on stderr; in --json, always.
+    assert!(String::from_utf8_lossy(&out.stderr).is_empty());
     let json = text(&tally(&notify, &dir, &["--json", "1", "km", "m"]));
     assert!(json.contains(r#""notices":["the exchange rates are out of date: tally --sync rates"]"#), "{json}");
     std::thread::sleep(std::time::Duration::from_millis(300));
     assert!(!dir.join("tally/online.lock").exists(), "nothing downloaded");
     // Manual: nothing said.
-    assert!(!text(&tally(&[("rates.refresh", "manual")], &dir, &["--json", "1", "km", "m"])).contains("notices"));
+    assert!(!text(&tally(&[("rates.refresh", "manual"), ("cities.enabled", "false")], &dir, &["--json", "1", "km", "m"])).contains("notices"));
+    // The city archive never downloaded: said whatever the policy, with the online state too
+    // (the widget shows it).
+    let json = text(&tally(&[("rates.refresh", "manual")], &dir, &["--json", "--online"]));
+    assert!(json.contains(r#""notices":["the city archive is not downloaded yet: tally --sync cities"]"#), "{json}");
 }

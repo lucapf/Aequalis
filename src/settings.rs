@@ -316,6 +316,30 @@ pub fn change_in(path: &Path, key: &str, value: Option<&str>) -> Result<Settings
     Ok(settings)
 }
 
+/// `tally --settings --json`: every setting with its value, default, kind (`bool`, `choice` and its
+/// options, or `text`: typed) and what it does, for the widget's Settings section.
+pub fn json(settings: &Settings) -> String {
+    let items: Vec<String> = KEYS
+        .iter()
+        .map(|k| {
+            let (kind, options): (&str, &[&str]) = match k.kind {
+                Kind::Bool => ("bool", &["true", "false"]),
+                Kind::Choice(options) => ("choice", options),
+                _ => ("text", &[]),
+            };
+            crate::json::Object::new()
+                .str("key", k.key)
+                .str("value", settings.get(k.key))
+                .str("default", k.default)
+                .str("kind", kind)
+                .strs("options", &options.iter().map(|o| o.to_string()).collect::<Vec<_>>())
+                .str("about", k.about)
+                .finish()
+        })
+        .collect();
+    crate::json::Object::new().str("file", &path_text()).raw("settings", &format!("[{}]", items.join(","))).finish()
+}
+
 /// `tally --settings`: every setting, its value, and what it does.
 pub fn text(settings: &Settings) -> String {
     let mut out = format!("Settings ({}; change with `tally --set key=value`, `tally --set key` for the default)\n", path_text());

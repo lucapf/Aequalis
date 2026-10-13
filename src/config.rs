@@ -103,7 +103,7 @@ pub const SEARCH: (&str, char) = ("Search", '/');
 pub const TRIVIA: (&str, char) = ("Trivia", 'R');
 
 /// The interactive mode's Settings window (`tui/settings.rs`): a `Config::menu` name and its key.
-pub const SETTINGS: (&str, char) = ("Settings", 'O');
+pub const SETTINGS: (&str, char) = ("⚙ Settings", 'O');
 
 /// The Size group's tool: the distance between two places on the Earth (`geo.rs`).
 pub const EARTH_DISTANCE: &str = "Earth distance";

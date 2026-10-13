@@ -510,7 +510,7 @@ fn main() -> ExitCode {
         let path = settings::path();
         return match path.as_deref().map(settings::load_from).unwrap_or(Ok(settings::Settings::default())) {
             Ok(s) if json => {
-                println!("{}", settings::KEYS.iter().fold(json::Object::new(), |o, k| o.str(k.key, s.get(k.key))).finish());
+                println!("{}", settings::json(&s));
                 ExitCode::SUCCESS
             }
             Ok(s) => {
@@ -617,8 +617,9 @@ fn main() -> ExitCode {
             }
         }
     }
-    // Notices (the `notify` policies): on stderr, once a day at most.
-    if !json {
+    // Notices (the `notify` policies, the city archive missing): on stderr at a terminal, once a
+    // day at most; never in scripts.
+    if !json && std::io::stderr().is_terminal() {
         let notices = notify::current();
         let mut state = notify::load();
         let now = time::unix_now();

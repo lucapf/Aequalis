@@ -54,12 +54,20 @@ pub fn save_to(path: &std::path::Path, state: &State) {
     let _ = crate::files::write_atomic(path, format!("{text}\n").as_bytes());
 }
 
-/// The notices now: each group under `notify` that has something new or is out of date.
+/// The city archive was never downloaded.
+pub const NOT_DOWNLOADED: &str = "the city archive is not downloaded yet: tally --sync cities";
+
+/// The notices now: the city archive never downloaded, and each group under `notify` that has
+/// something new or is out of date.
 pub fn notices(settings: &Settings, state: &State, cities_version: Option<&str>, stale: &dyn Fn(Group) -> bool) -> Vec<String> {
     if settings.offline() {
         return Vec::new();
     }
     let mut out = Vec::new();
+    // Never downloaded: said whatever the policy, distances use the built-in places until then.
+    if settings.cities_enabled() && cities_version.is_none() {
+        out.push(NOT_DOWNLOADED.to_string());
+    }
     for group in Group::ALL {
         if settings.refresh(group.name()) != Refresh::Notify {
             continue;
@@ -130,8 +138,9 @@ mod tests {
         );
         // Up to date: nothing.
         assert_eq!(notices(&s, &state, Some("2 bbb"), &|_| false), Vec::<String>::new());
-        // Never checked: nothing to say about the archive.
-        assert!(notices(&s, &State::default(), None, &|_| false).is_empty());
+        // Never downloaded: said, whatever the policy (until the cities are off).
+        assert_eq!(notices(&s, &State::default(), None, &|_| false), [NOT_DOWNLOADED]);
+        assert_eq!(notices(&Settings::default(), &State::default(), None, &|_| false), [NOT_DOWNLOADED]);
         // Offline, or the cities off: no notice about them.
         s.set("cities.enabled", Some("false")).unwrap();
         assert_eq!(notices(&s, &state, Some("1 aaa"), &|_| false), Vec::<String>::new());
