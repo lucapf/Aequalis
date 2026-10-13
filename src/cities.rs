@@ -160,13 +160,22 @@ pub struct Store {
     idx_len: u64,
 }
 
-/// The order of cities offered for what was `typed` (Tab, "which one?"): the city named
-/// exactly so first (its name, not an alias: `Alessandria` is Alessandria, Piedmont, before
-/// Alexandria, Egypt, whose Italian name it is), then those in the device's country `local`, then
-/// the others; the most populous first in each (`cities` come in that order: the sort is stable).
+/// The order of cities offered for what was `typed` (Tab, "which one?"): those named exactly so
+/// (their name, not an alias) in the device's country `local`; the others in that country; those
+/// named exactly so elsewhere; the rest. The most populous first in each (`cities` come in that
+/// order: the sort is stable). `Alessandria`: Alessandria, Piedmont before Alexandria, Egypt (whose
+/// Italian name it is); `Roma` in Italy: Rome, Lazio before Roma, Lesotho.
 pub fn rank(cities: &mut [City], typed: &str, local: Option<&str>) {
     let target = tz::key(typed.split(',').next().unwrap_or(""));
-    cities.sort_by_key(|c| (tz::key(&c.name) != target, local != Some(c.country_code.as_str())));
+    cities.sort_by_key(|c| {
+        let exact = tz::key(&c.name) == target;
+        match (local == Some(c.country_code.as_str()), exact) {
+            (true, true) => 0,
+            (true, false) => 1,
+            (false, true) => 2,
+            (false, false) => 3,
+        }
+    });
 }
 
 impl Store {
@@ -547,8 +556,8 @@ pub mod tests {
         cities.iter().map(City::qualified).collect()
     }
 
-    /// The order of the cities offered: the exact name (not an alias), then the device's country,
-    /// then the others; by population within each.
+    /// The order of the cities offered: the exact name (not an alias) in the device's country, the
+    /// device's country, the exact name elsewhere, the others; by population within each.
     #[test]
     fn ranked_exact_name_then_the_device_s_country() {
         let city = |name: &str, region: &str, country: &str, code: &str, population: u64, aliases: &[&str]| City {
@@ -575,9 +584,20 @@ pub mod tests {
             rank(&mut cities, typed, local);
             cities.iter().map(|c| format!("{} {}", c.name, c.country_code)).collect::<Vec<_>>()
         };
-        // Its own name first, wherever the device is; then the device's country.
+        // The exact name in the device's country, its country, the exact name elsewhere, the rest.
         assert_eq!(order("Alessandria", Some("IT")), ["Alessandria IT", "Alessano IT", "Alexandria EG", "Alexandria US"]);
-        assert_eq!(order("alessandria", Some("US")), ["Alessandria IT", "Alexandria US", "Alexandria EG", "Alessano IT"]);
+        assert_eq!(order("alessandria", Some("US")), ["Alexandria US", "Alessandria IT", "Alexandria EG", "Alessano IT"]);
+        assert_eq!(order("Alessandria", Some("FR")), ["Alessandria IT", "Alexandria EG", "Alexandria US", "Alessano IT"], "elsewhere: the exact name first");
+        // `Roma` in Italy: Rome, Lazio (an alias, but in Italy) before the cities named Roma elsewhere.
+        let roma = vec![
+            city("Rome", "Lazio", "Italy", "IT", 2_318_895, &["Roma"]),
+            city("Roma", "Maseru", "Lesotho", "LS", 14_259, &[]),
+        ];
+        let mut cities = roma.clone();
+        rank(&mut cities, "Roma", Some("IT"));
+        assert_eq!(cities[0].country_code, "IT");
+        rank(&mut cities, "Roma", None);
+        assert_eq!(cities[0].country_code, "LS", "no device country: the exact name");
         assert_eq!(order("Alessandria, Piedmont", None)[0], "Alessandria IT", "a qualified name: its first part");
         // Typing (no exact name yet): the device's country first.
         assert_eq!(order("Alessan", Some("IT")), ["Alessandria IT", "Alessano IT", "Alexandria EG", "Alexandria US"]);
