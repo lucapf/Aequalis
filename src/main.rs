@@ -2,15 +2,19 @@
 
 mod about;
 mod calc;
+mod cities;
 mod completion;
 mod config;
 mod convert;
 mod currency;
 mod geo;
 mod json;
+mod locale;
 mod network;
+mod notify;
 mod numbers;
 mod online;
+mod settings;
 mod planets;
 mod time;
 mod trivia;
@@ -30,9 +34,13 @@ Usage:
   tally                 (no arguments, in a terminal) interactive mode
   tally --list          units and currencies
   tally --trivia        useful values (Voyagers' distance live when online)
-  tally --online        online, offline or offline (forced): can the live sources be reached
-  tally --about         the logo, the version, memory and the last online sync
-  tally --sync          refresh the online data now (otherwise in the background when expired)
+  tally --online        online, offline or offline (forced): the last download of the online data
+  tally --about         the logo, the version, memory, the online data and their sources
+  tally --sync [cities|rates|live]
+                        download the online data now (all by default); otherwise as the
+                        refresh settings say
+  tally --settings      every setting, its value and what it does
+  tally --set key=value change a setting (`tally --set key`: back to its default)
   tally --autocompletion <bash|zsh>
   tally --help | --version
 
@@ -61,7 +69,7 @@ Examples:
   tally 12 usd euro       10.73 EUR   (rates synced daily from ExchangeRate-API)
   tally 12 USA Europe     10.73 EUR   (countries: their currency; any case, plurals,
   tally 12usd dhs         44.07 AED    symbols, abbreviations, amount attached)
-  tally 12 usd            10.73 EUR   (one currency: to the local one, TALLY_CURRENCY)
+  tally 12 usd            10.73 EUR   (one currency: to the local one, currency.local)
   tally 9.81 m/s^2 ft/s2  32.185 ft/s2
   tally 100 Mb/s MB/s     12.5 MB/s
   tally sqrt 16           4
@@ -70,8 +78,9 @@ Examples:
   tally 1 ly km           9460730472580.8 km
   tally 150 + 20%         180
   tally 20% of 150        30
-  tally distance Rome to Paris
-                              1,107 km
+  tally Rome Paris        1,107 km    (distance.unit: km, or mi where the device is imperial)
+  tally Springfield, Illinois Chicago mi
+                              176 mi      (any city once downloaded: tally --sync cities)
   tally Italy             11 Oct 26 12:38 PM GMT+2 Rome
   tally 10:00 USA to Japan
                               (asks which US time zone: New York, Chicago, …)
@@ -103,7 +112,11 @@ Percentages: 20% is 0.2; 150 + 20% = 180, 150 - 20% = 120; 20% of 150 = 30.
 Results that would round to 0, or have more than 15 significant digits, are
 shown in scientific notation (1 eV J → 1.6022e-19 J).
 
-Distances on the Earth: distance <place> to <place> [length unit] (default km),
+Distances on the Earth: [distance] <place> [to] <place> [length unit]: two places,
+then the unit (default: the distance.unit setting). A place: a city (with the city
+archive, any city of 5,000 inhabitants or more, by any of its names: `Springfield,
+Illinois` tells one apart; several with that name are asked about), a country, or
+coordinates (41.9,12.5).
 or just <place> to <place> [unit] when no time is written (Rome to Doha; with a
 time, 10:00 Rome to Doha or now Rome to Doha, it is the time there),
 along the WGS84 ellipsoid; a place is a capital, a major city or coordinates
@@ -126,7 +139,7 @@ name or abbreviation in English, Spanish, French, Italian, German or Portuguese
 (12 Sept 2026, September 12, 2026, 12 de septiembre de 2026, 1er janvier 2026). A date result is the
 converted value only (with -v, the ISO side too: `<date> iso = <value> <format>`).
 Without a target, dates are shown for people (12 Sept 26, 12 Sept 26 8:00 PM GMT+2;
-see TALLY_FORMAT_DATE / TALLY_FORMAT_DATETIME), and after date math on a written
+see the format.date / format.datetime settings), and after date math on a written
 pattern in that pattern (2026/12/04 + 5wd →
 2026/12/11 YYYY/MM/DD). A written date with a time is a date on its own
 (2026/12/04 10:00 PM, 2026-12-04 22:00). ISO results leave out seconds the input
@@ -161,7 +174,7 @@ tab, Enter writes the unit, Esc cancels), N writes `now`, I (or i) returns to
 input mode, H shows all the shortcuts, q quits.
 
 Options:
-  --precision N             Decimal places, 0-15 (default: $TALLY_SCALE, else 4); trailing
+  --precision N             Decimal places, 0-15 (default: the precision setting, 4); trailing
                             zeros are trimmed
   -s, --silent              Don't warn about mixing bits/bytes or 1000/1024-based units
   -v, --verbose             Also show the notes (how a date was read, how an expression
@@ -176,22 +189,27 @@ Options:
   -h, --help                Show this help
   -V, --version             Show version
 
-Environment:
-  TALLY_SCALE               Decimal places of numbers, 0-15 (default 4; currencies
-                            always 2). --precision overrides it
-  TALLY_CURRENCY            The local currency, for `12 usd` (default: the currency
-                            of the time zone's country)
-  TALLY_FORMAT_DATE         How dates are shown (default `DD MMM YY`: 12 Sept 26)
-  TALLY_FORMAT_DATETIME     How dates with a time are shown (default
-                            `DD MMM YY h:mm AM tz`: 12 Sept 26 8:00 PM GMT+2). Tokens:
+Settings (~/.config/tally/settings.json; `tally --settings` shows them, `tally --set
+key=value` changes one, the interactive mode's Settings window too; nothing is read
+from the environment):
+  offline                   true: no network at all (online data stays as last
+                            downloaded); default false
+  cities.enabled            distances between any city (the city archive); default true
+  cities.refresh            silent (downloaded in the background), notify (a notice
+  rates.refresh             when there is something new) or manual (tally --sync):
+  live.refresh              cities manual, rates (exchange rates) silent, live (the
+                            Trivia's live values) manual
+  cities.interval           how often each is checked or refreshed: 30d, 24h, 24h
+  rates.interval / live.interval
+  cities.url                where the city archive comes from
+  currency.local            the local currency for `12 usd` (default auto: the time
+                            zone's country)
+  distance.unit             auto (miles where the device is imperial), km or mi
+  precision                 decimal places of numbers, 0-15 (default 4; currencies 2)
+  format.date               how dates are shown (default `DD MMM YY`: 12 Sept 26)
+  format.datetime           with a time (default `DD MMM YY h:mm AM tz`). Tokens:
                             YYYY YY MMMM MMM MM M DD D dddd ddd H24/HH H H12/hh h
-                            mm ss AM/A tz (GMT+2) ZZ (+02:00); [text] is literal
-  TALLY_MODE                online (default) or offline: no network at all (the
-                            Trivia's live values are then estimated)
-  TALLY_ONLINE_REFRESH_INTERVAL
-                            How old the online data (~/.config/tally/online.json,
-                            exchange rates in currencies.json) may be before a
-                            background refresh: 24h (default), 90m, 2d, or seconds";
+                            mm ss AM/A tz (GMT+2) ZZ (+02:00); [text] is literal";
 
 const EXPECTED: &str =
     "expected <value> <from> <to>, <value><from> <to> or an expression without units (see `tally --help`)";
@@ -257,6 +275,7 @@ fn run(config: &Config, args: &[String], read_stdin: impl FnOnce() -> Option<Str
                 || time::names_city(&args.join(" "))
                 || time::suggests_city(config, &args.join(" "))
                 || currency::claims(config, &args.join(" "))
+                || geo::request(config, &args.join(" "), 0).is_some()
             {
                 return vec![convert_request(config, &opts, args)];
             }
@@ -295,18 +314,8 @@ enum Parsed<'a> {
 
 fn parse_options<'a>(config: &Config, args: &'a [String]) -> Result<Parsed<'a>, CliError> {
     let mut positional: Vec<&str> = Vec::new();
-    // Decimal places: `--precision`, else `TALLY_SCALE`, else 4.
-    let mut precision = match std::env::var("TALLY_SCALE") {
-        Ok(v) if !v.trim().is_empty() => match v.trim().parse::<usize>() {
-            Ok(p) if p <= config.max_precision => p,
-            _ => return usage(format!("TALLY_SCALE must be an integer from 0 to {} (it is `{v}`)", config.max_precision)),
-        },
-        _ => config.default_precision,
-    };
-    // `TALLY_MODE`: online (default) or offline (no network). `TALLY_ONLINE_REFRESH_INTERVAL`.
-    network::mode().map_err(CliError::Usage)?;
-    online::parse_interval(std::env::var("TALLY_ONLINE_REFRESH_INTERVAL").ok().as_deref()).map_err(CliError::Usage)?;
-    currency::local().map_err(CliError::Usage)?;
+    // Decimal places: `--precision`, else the `precision` setting (4).
+    let mut precision = settings::current().precision().min(config.max_precision);
     let mut silent = false;
     let mut verbose = false;
     let mut it = args.iter();
@@ -390,7 +399,10 @@ fn convert_request(config: &Config, opts: &Options, tokens: &[&str]) -> Result<O
     // Distances on the Earth: `distance Rome to Paris km`.
     if let Some(result) = geo::request(config, &input, opts.precision) {
         let notes = |notes: Vec<String>| if opts.verbose && !opts.silent { notes } else { Vec::new() };
-        return result.map(|(stdout, n)| Output { stdout, warnings: Vec::new(), notes: notes(n) }).map_err(CliError::Usage);
+        return result.map(|(stdout, n)| Output { stdout, warnings: Vec::new(), notes: notes(n) }).map_err(|e| match e {
+            geo::Error::Usage(msg) => CliError::Usage(msg),
+            geo::Error::Ambiguous(a) => CliError::Ambiguous(a),
+        });
     }
     // Dates: `now + 3d`, `2026-10-10T15:00Z unix`, `1791644400 unix iso-week`.
     if let Some(result) = time::request(config, &input, opts.precision, opts.verbose) {
@@ -457,11 +469,73 @@ fn main() -> ExitCode {
     let all: Vec<String> = std::env::args().skip(1).collect();
     let json = all.iter().any(|a| a == "--json");
     let args: Vec<String> = all.into_iter().filter(|a| a != "--json").collect();
-    // `--sync`: refresh the online data now (also how the background sync runs).
-    if args.iter().any(|a| a == "--sync") {
-        return match online::sync() {
-            Ok(n) => {
-                println!("synced {n} value{}", if n == 1 { "" } else { "s" });
+    // `--settings`, `--set key[=value]`: the settings (`settings.rs`); they work even when the file
+    // has a problem, to fix it.
+    if let Some(i) = args.iter().position(|a| a == "--set" || a.starts_with("--set=")) {
+        let spec = match args[i].strip_prefix("--set=") {
+            Some(s) => Some(s.to_string()),
+            None => args.get(i + 1).cloned(),
+        };
+        let Some(spec) = spec else {
+            eprintln!("tally: error: --set requires key=value (or key, for its default; see tally --settings)");
+            return ExitCode::from(2);
+        };
+        let (key, value) = match spec.split_once('=') {
+            Some((k, v)) => (k.trim(), Some(v.trim())),
+            None => (spec.trim(), None),
+        };
+        return match settings::change(key, value) {
+            Ok(s) => {
+                println!("{key} = {}", s.get(key));
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("tally: error: {e}");
+                ExitCode::from(2)
+            }
+        };
+    }
+    if args.iter().any(|a| a == "--settings") {
+        let path = settings::path();
+        return match path.as_deref().map(settings::load_from).unwrap_or(Ok(settings::Settings::default())) {
+            Ok(s) if json => {
+                let members: Vec<String> = settings::KEYS.iter().map(|k| format!("{}:{}", json::string(k.key), json::string(s.get(k.key)))).collect();
+                println!("{{{}}}", members.join(","));
+                ExitCode::SUCCESS
+            }
+            Ok(s) => {
+                println!("{}", settings::text(&s));
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("tally: error: {e}");
+                ExitCode::from(2)
+            }
+        };
+    }
+    if let Some(e) = settings::error() {
+        eprintln!("tally: error: {e} (fix it with tally --set, or edit the file)");
+        return ExitCode::from(2);
+    }
+    // `--sync [cities|rates|live]`: download the online data now (all of it by default);
+    // `--sync --auto`: the background sync, what the refresh policies say.
+    if let Some(i) = args.iter().position(|a| a == "--sync") {
+        let auto = args.iter().any(|a| a == "--auto");
+        let mut groups = Vec::new();
+        for name in args[i + 1..].iter().filter(|a| !a.starts_with("--")) {
+            match online::Group::parse(name) {
+                Some(g) => groups.push(g),
+                None => {
+                    eprintln!("tally: error: unknown data `{name}`: cities, rates or live");
+                    return ExitCode::from(2);
+                }
+            }
+        }
+        return match online::sync(&groups, auto) {
+            Ok(lines) => {
+                for line in lines {
+                    println!("{line}");
+                }
                 ExitCode::SUCCESS
             }
             Err(e) => {
@@ -502,7 +576,7 @@ fn main() -> ExitCode {
             other => other,
         };
         if json {
-            println!("{}", json::result(&result));
+            println!("{}", json::result(&result, &notify::current()));
             if let Err(err) = &result {
                 code = code.max(err.exit_code());
             }
@@ -522,6 +596,19 @@ fn main() -> ExitCode {
                 eprintln!("tally: error: {err}");
                 code = code.max(err.exit_code());
             }
+        }
+    }
+    // Notices (the `notify` policies): on stderr, once a day at most.
+    if !json {
+        let notices = notify::current();
+        let mut state = notify::load();
+        let now = online::now();
+        if !notices.is_empty() && now - state.shown_at >= 86_400 {
+            for n in &notices {
+                eprintln!("tally: note: {n}");
+            }
+            state.shown_at = now;
+            notify::save(&state);
         }
     }
     ExitCode::from(code)
@@ -546,6 +633,10 @@ fn ask(a: &time::Ambiguity) -> Option<&time::Choice> {
         time::AmbiguityKind::Currency => {
             eprintln!("tally: {}. Did you mean:", a.note);
             "Which currency?"
+        }
+        time::AmbiguityKind::Place => {
+            eprintln!("tally: {}. Did you mean:", a.note);
+            "Which one?"
         }
     };
     let column = a.choices.iter().map(|c| c.pattern.chars().count()).max().unwrap_or(0).max(12);

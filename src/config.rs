@@ -99,6 +99,9 @@ pub const SEARCH: (&str, char) = ("Search", '/');
 /// The interactive mode's Trivia (`trivia.rs`): a `Config::menu` name and its shortcut.
 pub const TRIVIA: (&str, char) = ("Trivia", 'R');
 
+/// The interactive mode's Settings window (`tui/settings.rs`): a `Config::menu` name and its key.
+pub const SETTINGS: (&str, char) = ("Settings", 'O');
+
 /// The Size group's tool: the distance between two places on the Earth (`geo.rs`).
 pub const EARTH_DISTANCE: &str = "Earth distance";
 
@@ -109,6 +112,8 @@ pub struct Config {
     /// The interactive mode's shortcuts, in order: names of groups and of categories outside them.
     #[cfg_attr(not(feature = "tui"), allow(dead_code))]
     pub menu: Vec<&'static str>,
+    /// The decimal places when no precision is given (the `precision` setting's default).
+    #[cfg_attr(not(test), allow(dead_code))]
     pub default_precision: usize,
     pub max_precision: usize,
     /// Entries kept in the interactive mode's history (the oldest are dropped).
@@ -180,7 +185,7 @@ impl Default for Config {
             max_precision: 15,
             max_history: 500,
             // The interactive mode's shortcuts, in this order: categories and groups.
-            menu: vec![SEARCH.0, "Time", "Data", "Size", "Other physical", TRIVIA.0],
+            menu: vec![SEARCH.0, "Time", "Data", "Size", "Other physical", TRIVIA.0, SETTINGS.0],
             groups: vec![
                 Group { name: "Size", key: 'S', members: &["Length", "Area", "Volume", "Angle"], tools: &[EARTH_DISTANCE] },
                 Group {

@@ -1,4 +1,4 @@
-//! Online or offline: `TALLY_MODE` (`online`, the default, or `offline`: no network at all), and
+//! Online or offline: the `offline` setting (`settings.rs`; offline: no network at all), and
 //! the status shown (from the online data's last sync, `online.rs`). Only the sync of the online
 //! data uses the network.
 
@@ -16,7 +16,7 @@ pub enum Status {
     Checking,
     Online,
     Offline,
-    /// `TALLY_MODE=offline`.
+    /// The `offline` setting.
     Forced,
 }
 
@@ -32,28 +32,18 @@ impl Status {
     }
 }
 
-/// `TALLY_MODE`, any case; unset or empty: online.
-pub fn parse_mode(value: Option<&str>) -> Result<Mode, String> {
-    match value.map(str::trim).filter(|v| !v.is_empty()).map(str::to_ascii_lowercase).as_deref() {
-        None | Some("online") => Ok(Mode::Online),
-        Some("offline") => Ok(Mode::Offline),
-        Some(_) => Err(format!("TALLY_MODE must be online or offline (it is `{}`)", value.unwrap_or_default())),
-    }
+/// The mode, from the settings.
+pub fn mode() -> Mode {
+    if crate::settings::current().offline() { Mode::Offline } else { Mode::Online }
 }
 
-/// The mode from the environment.
-pub fn mode() -> Result<Mode, String> {
-    parse_mode(std::env::var("TALLY_MODE").ok().as_deref())
-}
-
-/// Whether the network may be used: the mode is online (an invalid mode counts as online; the
-/// command line reports it as an error).
+/// Whether the network may be used: not the `offline` setting.
 pub fn allowed() -> bool {
-    mode() != Ok(Mode::Offline)
+    mode() == Mode::Online
 }
 
 /// The status, from the online data's last sync (`online.rs`): no probing, so a fresh file means
-/// no network at all. `forced`: `TALLY_MODE=offline`.
+/// no network at all. `forced`: the `offline` setting.
 pub fn status_of(data: &crate::online::Data, forced: bool) -> Status {
     match (forced, data.attempted_at, data.ok) {
         (true, ..) => Status::Forced,
@@ -65,24 +55,17 @@ pub fn status_of(data: &crate::online::Data, forced: bool) -> Status {
     }
 }
 
-/// The status now, for `--online`.
+/// The status now, for `--online`: from the newest download tried (the live values or the
+/// exchange rates).
 pub fn status() -> Status {
-    status_of(&crate::online::load(), mode() == Ok(Mode::Offline))
+    let (live, rates) = (crate::online::load(), crate::currency::load());
+    let newest = if rates.attempted_at > live.attempted_at { rates } else { live };
+    status_of(&newest, mode() == Mode::Offline)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn modes() {
-        assert_eq!(parse_mode(None), Ok(Mode::Online));
-        assert_eq!(parse_mode(Some("")), Ok(Mode::Online));
-        assert_eq!(parse_mode(Some("online")), Ok(Mode::Online));
-        assert_eq!(parse_mode(Some("offline")), Ok(Mode::Offline));
-        assert_eq!(parse_mode(Some(" OFFLINE ")), Ok(Mode::Offline));
-        assert_eq!(parse_mode(Some("maybe")), Err("TALLY_MODE must be online or offline (it is `maybe`)".into()));
-    }
 
     #[test]
     fn labels() {

@@ -16,10 +16,11 @@
 mod clipboard;
 mod editor;
 mod keys;
-mod locale;
+
 mod picker;
 mod render;
 mod search;
+mod settings;
 mod suggest;
 mod term;
 mod trivia;
@@ -61,12 +62,14 @@ pub enum Overlay {
     Search(search::Search),
     /// `A`: the logo, the version, memory, the last online sync.
     About,
+    /// `O`: the settings.
+    Settings(settings::View),
 }
 
 /// Tab cycling through the suggestions for one word.
 struct Cycle {
     start: usize,
-    names: Vec<&'static str>,
+    names: Vec<String>,
     index: usize,
 }
 
@@ -102,7 +105,7 @@ pub struct App<'a> {
     /// The background sync started from here (to reap), and when expiry was last checked.
     sync: Option<std::process::Child>,
     sync_checked: Option<Instant>,
-    /// `TALLY_MODE=offline` (read once).
+    /// The `offline` setting (read once).
     forced_offline: bool,
     /// The top bar's highlighted shortcut (command mode): ← → / `h` `l` move it, Enter opens it.
     menu: usize,
@@ -127,6 +130,7 @@ impl Shortcut {
     pub fn open(&self, config: &Config, device: System) -> Overlay {
         match self.categories[..] {
             [] if self.name == crate::config::SEARCH.0 => Overlay::Search(search::Search::default()),
+            [] if self.name == crate::config::SETTINGS.0 => Overlay::Settings(settings::View::default()),
             [] => Overlay::Trivia(trivia::View::new()),
             [one] => Overlay::Picker(Picker::new(config, one, device)),
             _ => Overlay::Picker(Picker::group(config, self.name, self.categories.clone(), device)),
@@ -144,6 +148,7 @@ pub fn shortcuts(config: &Config) -> Vec<Shortcut> {
         .map(|&name| match config.groups.iter().find(|g| g.name == name) {
             None if name == crate::config::TRIVIA.0 => Shortcut { key: crate::config::TRIVIA.1, name, categories: Vec::new() },
             None if name == crate::config::SEARCH.0 => Shortcut { key: crate::config::SEARCH.1, name, categories: Vec::new() },
+            None if name == crate::config::SETTINGS.0 => Shortcut { key: crate::config::SETTINGS.1, name, categories: Vec::new() },
             Some(g) => Shortcut { key: g.key, name: g.name, categories: g.members.iter().map(|m| index(m)).collect() },
             None => {
                 let i = index(name);
@@ -175,7 +180,7 @@ impl<'a> App<'a> {
             online_stamp: None,
             sync: None,
             sync_checked: None,
-            forced_offline: crate::network::mode() == Ok(crate::network::Mode::Offline),
+            forced_offline: crate::network::mode() == crate::network::Mode::Offline,
             menu: 0,
             copied: None,
             system_clipboard: false,
@@ -324,6 +329,13 @@ impl<'a> App<'a> {
             Some(Overlay::Picker(_)) => self.picker_key(key),
             Some(Overlay::Trivia(_)) => self.trivia_key(key),
             Some(Overlay::Search(_)) => self.search_key(key),
+            Some(Overlay::Settings(ref mut view)) => {
+                if !settings::key(view, key) {
+                    self.overlay = None;
+                }
+                // The offline setting may have changed: the indicator follows.
+                self.forced_offline = crate::network::mode() == crate::network::Mode::Offline;
+            }
             Some(Overlay::About) => {
                 if matches!(key, Key::Esc | Key::Enter | Key::Char('a' | 'A' | 'q')) {
                     self.overlay = None;
@@ -561,7 +573,7 @@ impl<'a> App<'a> {
                 let len = c.names.len();
                 let old = c.names[c.index].chars().count();
                 c.index = if forward { (c.index + 1) % len } else { (c.index + len - 1) % len };
-                self.line.replace(c.start, c.start + old, c.names[c.index]);
+                self.line.replace(c.start, c.start + old, &c.names[c.index]);
                 c
             }
             None => {
@@ -569,7 +581,7 @@ impl<'a> App<'a> {
                     return;
                 };
                 let index = if forward { 0 } else { s.names.len() - 1 };
-                self.line.replace(s.start, self.line.cursor(), s.names[index]);
+                self.line.replace(s.start, self.line.cursor(), &s.names[index]);
                 Cycle { start: s.start, names: s.names, index }
             }
         };
@@ -646,7 +658,9 @@ impl<'a> App<'a> {
             match a.kind {
                 crate::time::AmbiguityKind::City => return Some(Err(format!("did you mean {}? · Enter to choose", patterns.join(" or ")))),
                 crate::time::AmbiguityKind::Country => return Some(Err(format!("several time zones: {} · Enter to choose", patterns.join(", ")))),
-                crate::time::AmbiguityKind::Currency => return Some(Err(format!("{}: {}? · Enter to choose", a.note, patterns.join(" or ")))),
+                crate::time::AmbiguityKind::Currency | crate::time::AmbiguityKind::Place => {
+                    return Some(Err(format!("{}: {}? · Enter to choose", a.note, patterns.join(" or "))))
+                }
                 crate::time::AmbiguityKind::Date => {}
             }
             return Some(Err(format!("ambiguous: {} · Enter to choose", patterns.join(" or "))));
@@ -676,7 +690,7 @@ impl<'a> App<'a> {
     }
 
     /// The suggestions to show (input mode only), and which one Tab selected.
-    fn suggestions(&self) -> Option<(Vec<&'static str>, Option<usize>)> {
+    fn suggestions(&self) -> Option<(Vec<String>, Option<usize>)> {
         if self.mode != Mode::Input || crate::time::is_date_request(&self.line.text()) {
             return None;
         }
@@ -708,7 +722,12 @@ pub fn run(config: &Config, opts: &Options) -> ExitCode {
     let mut app = App::new(config, opts);
     app.system_clipboard = true;
     app.refresh_online();
-    app.system = locale::device_system();
+    // Notices (the `notify` refresh policies): in the status bar at the start.
+    let notices = crate::notify::current();
+    if !notices.is_empty() {
+        app.status = Some((StatusKind::Note, notices.join(" · ")));
+    }
+    app.system = crate::locale::device_system();
     app.numbers = numbers::device_format();
     let (mut stdin, mut stdout) = (std::io::stdin(), std::io::stdout());
     let (mut pending, mut buf) = (Vec::new(), [0u8; 256]);
@@ -769,7 +788,7 @@ mod tests {
         let list = shortcuts(&config);
         let names: Vec<_> = list.iter().map(|s| format!("{} {}", s.key, s.name)).collect();
         // Length, Area and Volume are in the Size group.
-        assert_eq!(names, ["/ Search", "T Time", "D Data", "S Size", "P Other physical", "R Trivia"]);
+        assert_eq!(names, ["/ Search", "T Time", "D Data", "S Size", "P Other physical", "R Trivia", "O Settings"]);
         for (i, s) in list.iter().enumerate() {
             assert!(list[i + 1..].iter().all(|other| other.key != s.key), "shortcut {} used twice", s.key);
         }
@@ -787,6 +806,7 @@ mod tests {
             Some(Overlay::Picker(p)) => Some(p.title(config).to_string()),
             Some(Overlay::Trivia(_)) => Some(crate::config::TRIVIA.0.to_string()),
             Some(Overlay::Search(_)) => Some(crate::config::SEARCH.0.to_string()),
+            Some(Overlay::Settings(_)) => Some(crate::config::SETTINGS.0.to_string()),
             _ => None,
         }
     }
@@ -1031,9 +1051,9 @@ mod tests {
         app.handle(Key::Left);
         app.handle(Key::Left);
         assert_eq!(app.menu, shortcuts(&config).len() - 1, "left of the first: the last");
-        // Enter opens it: the Trivia.
+        // Enter opens it: the Settings.
         app.handle(Key::Enter);
-        assert!(matches!(app.overlay, Some(Overlay::Trivia(_))));
+        assert!(matches!(app.overlay, Some(Overlay::Settings(_))));
         // A shortcut's letter moves the highlight to it.
         app.handle(Key::Esc);
         app.handle(Key::Char('S'));

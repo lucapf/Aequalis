@@ -191,6 +191,10 @@ pub fn render(app: &App, rows: usize, cols: usize) -> Frame {
         about(&mut canvas, rows);
         cursor = None;
     }
+    if let Some(Overlay::Settings(view)) = &app.overlay {
+        settings_window(&mut canvas, rows, view);
+        cursor = None;
+    }
     if let Some(Overlay::Help(scroll)) = &app.overlay {
         help(&mut canvas, rows, *scroll);
         cursor = None;
@@ -281,6 +285,7 @@ fn top_bar(app: &App, canvas: &mut Canvas, height: usize) {
         Some(Overlay::Picker(p)) => list.iter().position(|s| s.categories.contains(&p.category)),
         Some(Overlay::Trivia(_)) => list.iter().position(|s| s.name == crate::config::TRIVIA.0),
         Some(Overlay::Search(_)) => list.iter().position(|s| s.name == crate::config::SEARCH.0),
+        Some(Overlay::Settings(_)) => list.iter().position(|s| s.name == crate::config::SETTINGS.0),
         _ => Some(app.menu.min(list.len().saturating_sub(1))),
     };
     let (shown, before, after) = visible_shortcuts(app.config, right - 2, active);
@@ -478,6 +483,8 @@ fn status(app: &App, canvas: &mut Canvas, row: usize) {
             &[("Tab ←→", "section"), ("↑↓ j k", "entry"), ("Enter", "details"), ("<Esc>", "back")],
         ),
         (_, Some(Overlay::About)) => (" ABOUT ", &[("<Esc>", "close")]),
+        (_, Some(Overlay::Settings(v))) if v.edit.is_some() => (" SETTINGS ", &[("type", "value"), ("Enter", "save"), ("<Esc>", "cancel")]),
+        (_, Some(Overlay::Settings(_))) => (" SETTINGS ", &[("↑↓", "choose"), ("Enter ←→", "change"), ("d", "default"), ("<Esc>", "close")]),
         (_, Some(Overlay::Search(_))) => (" SEARCH ", &[("type", "search"), ("↑↓", "choose"), ("Enter", "write"), ("<Esc>", "back")]),
         // A group's tabs are its categories (Size: Length, Area, Volume); a category's, its systems.
         (_, Some(Overlay::Picker(p))) if p.group.is_some() => (
@@ -907,7 +914,7 @@ fn choice(canvas: &mut Canvas, rows: usize, a: &crate::time::Ambiguity, selected
         crate::time::AmbiguityKind::City => format!("{}: which one?", a.note),
         crate::time::AmbiguityKind::Country => format!("`{}` has several time zones: which one?", a.text),
         crate::time::AmbiguityKind::Date => format!("`{}` is ambiguous: which date?", a.text),
-        crate::time::AmbiguityKind::Currency => format!("{}: which one?", a.note),
+        crate::time::AmbiguityKind::Currency | crate::time::AmbiguityKind::Place => format!("{}: which one?", a.note),
     };
     // The patterns in a column as wide as the longest (at least 12), the dates after them.
     let column = a.choices.iter().map(|c| c.pattern.chars().count()).max().unwrap_or(0).max(12);
@@ -919,6 +926,47 @@ fn choice(canvas: &mut Canvas, rows: usize, a: &crate::time::Ambiguity, selected
         let text = format!(" {}  {:<column$} {} ", i + 1, c.pattern, c.date);
         let style = if i == selected { Style::Lit } else { Style::Plain };
         canvas.put_within(row, left + 2, right - 1, &text, style);
+    }
+}
+
+/// `O`: the settings, their values (changed ones bold), what the chosen one does, the downloads.
+fn settings_window(canvas: &mut Canvas, rows: usize, view: &super::settings::View) {
+    use crate::settings::KEYS;
+    let current = crate::settings::current();
+    let key_width = KEYS.iter().map(|k| k.key.len()).max().unwrap_or(0);
+    let lines = KEYS.len() + super::settings::DOWNLOADS.len() + 5;
+    let (top, left, width, height) = centred(canvas, rows, 78, lines, crate::config::SETTINGS.0);
+    let right = left + width - 2;
+    let visible = height.saturating_sub(5);
+    let offset = view.selected.saturating_sub(visible.saturating_sub(1));
+    let mut row = top + 1;
+    for i in (0..super::settings::rows()).skip(offset).take(visible) {
+        let chosen = i == view.selected;
+        let text = match KEYS.get(i) {
+            Some(k) => {
+                let value = match (&view.edit, chosen) {
+                    (Some(typed), true) => format!("{typed}▏"),
+                    _ => current.get(k.key).to_string(),
+                };
+                format!(" {:<key_width$}  {value}", k.key)
+            }
+            None => format!(" {}", super::settings::DOWNLOADS[i - KEYS.len()].1),
+        };
+        let style = match (chosen, KEYS.get(i)) {
+            (true, _) => Style::Lit,
+            (false, Some(k)) if current.get(k.key) != k.default => Style::Bold,
+            (false, Some(_)) => Style::Plain,
+            (false, None) => Style::Yellow,
+        };
+        canvas.put_within(row, left + 1, right, &text, style);
+        row += 1;
+    }
+    let sep = top + height - 4;
+    canvas.cells[sep][left + 1..left + width - 1].fill(('─', Style::Dim));
+    let about = KEYS.get(view.selected).map_or("starts the download in the background (tally --sync)".to_string(), |k| format!("{} (default: {})", k.about, k.default));
+    canvas.put_within(sep + 1, left + 2, right, &about, Style::Dim);
+    if let Some(msg) = &view.message {
+        canvas.put_within(sep + 2, left + 2, right, msg, Style::Green);
     }
 }
 
@@ -1094,7 +1142,8 @@ mod tests {
         assert!(lines[0].ends_with("──┐") && !lines[0].contains("input mode"), "{}", lines[0]);
         // In the menu's order, on one line.
         // The search first; a space between the items.
-        assert!(lines[1].starts_with("│  /  Search   T  Time   D  Data   S  Size   P  Other physical   R  Trivia "), "{}", lines[1]);
+        // At 80 columns the last ones (Trivia, Settings) are after `›`: the bar scrolls to them.
+        assert!(lines[1].starts_with("│  /  Search   T  Time   D  Data   S  Size   P  Other physical  ›"), "{}", lines[1]);
         assert!(lines[2].starts_with("└─"), "{}", lines[2]);
         // Moving the highlight scrolls the bar: at 40 columns, → → → shows Other physical.
         let (config, opts) = (Config::default(), OPTS);
@@ -1435,7 +1484,7 @@ mod tests {
         use crate::online::Data;
         let config = Config::default();
         let opts = Options { positional: Vec::new(), precision: 4, silent: false, verbose: false };
-        // The status comes from the last sync (no probing); forced by TALLY_MODE=offline.
+        // The status comes from the last sync (no probing); forced by the offline setting.
         let top = |status: Status, cols: usize, command: bool| {
             let mut app = App::new(&config, &opts);
             app.forced_offline = status == Status::Forced;

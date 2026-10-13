@@ -91,6 +91,10 @@ pub enum AmbiguityKind {
     /// Currencies (`currency.rs`): a name several share (`dollar`) or a misspelt one (`dolar`);
     /// `pattern` is the currencies (`US dollar`), `date` their codes (`USD`).
     Currency,
+    /// Cities for a distance (`geo.rs`): a name several share (`Springfield`) or a misspelt one;
+    /// `pattern` is the cities (`Springfield, Illinois, United States`), `date` their population
+    /// and where they are on a map.
+    Place,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -109,7 +113,7 @@ impl Ambiguity {
     pub fn message(&self) -> String {
         let names: Vec<&str> = self.choices.iter().map(|c| c.pattern.as_str()).collect();
         match self.kind {
-            AmbiguityKind::City | AmbiguityKind::Currency => {
+            AmbiguityKind::City | AmbiguityKind::Currency | AmbiguityKind::Place => {
                 return format!("{}: did you mean {}? (`{}`)", self.note, names.join(" or "), self.choices[0].request);
             }
             AmbiguityKind::Country => {
@@ -1121,7 +1125,7 @@ fn format_as(instant: &Instant, word: &str, seconds: bool) -> Result<String, Tim
 
 // ---------------------------------------------------------------- human format
 
-/// The default human formats (`TALLY_FORMAT_DATE`, `TALLY_FORMAT_DATETIME`).
+/// The default human formats (the `format.date` and `format.datetime` settings).
 pub const HUMAN_DATE: &str = "DD MMM YY";
 pub const HUMAN_DATETIME: &str = "DD MMM YY h:mm AM tz";
 
@@ -1196,12 +1200,11 @@ pub fn format_human(instant: &Instant, format: &str) -> String {
     out
 }
 
-/// A date for people, in `TALLY_FORMAT_DATETIME` (default `DD MMM YY H24:mm tz`: `12 Sept 26 20:00
-/// GMT+2`), or `TALLY_FORMAT_DATE` (`DD MMM YY`: `12 Sept 26`) when `date_only`.
+/// A date for people, in the `format.datetime` setting (default `DD MMM YY h:mm AM tz`: `12 Sept 26
+/// 8:00 PM GMT+2`), or `format.date` (`DD MMM YY`: `12 Sept 26`) when `date_only`.
 pub fn human(instant: &Instant, date_only: bool) -> String {
-    let (var, default) = if date_only { ("TALLY_FORMAT_DATE", HUMAN_DATE) } else { ("TALLY_FORMAT_DATETIME", HUMAN_DATETIME) };
-    let format = std::env::var(var).ok().filter(|f| !f.trim().is_empty());
-    format_human(instant, format.as_deref().unwrap_or(default))
+    let settings = crate::settings::current();
+    format_human(instant, if date_only { settings.format_date() } else { settings.format_datetime() })
 }
 
 /// The date in ISO and in `target`, each named: `2026-04-12T00:00:00+02:00 iso = 1775944800 unix`.
@@ -2109,6 +2112,12 @@ fn known_word(config: &Config, text: &str) -> bool {
 
 /// Words that are neither places nor misspelt ones: units, formats, months, keywords, currencies.
 fn reserved_word(config: &Config, text: &str) -> bool {
+    convert::find_unit(config, text).is_some() || date_word(text) || crate::currency::exact(text).is_some_and(|_| tz::country(text).is_none())
+}
+
+/// Whether a word is something else than a place to tally: a unit, a currency (not a country), a
+/// format, a month, a keyword (`geo.rs`: such a word is not a city unless qualified).
+pub fn reserved(config: &Config, text: &str) -> bool {
     convert::find_unit(config, text).is_some() || date_word(text) || crate::currency::exact(text).is_some_and(|_| tz::country(text).is_none())
 }
 

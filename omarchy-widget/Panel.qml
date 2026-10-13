@@ -16,7 +16,8 @@ import qs.Ui
 // which gets the focus; it is disabled while that terminal is open. Clicking the title shows
 // About: the logo, the tagline, the memory footprint (the last request's peak, the open TUI, the
 // binary), the version and the last online sync (`tally --about`). The header shows online
-// or offline (`tally --online`), forced offline by TALLY_MODE=offline.
+// or offline (`tally --online`), forced by the offline setting (`tally --set offline=true`).
+// Notices (a new city archive, out-of-date data, from `--json`) come with a Download button.
 Panel {
   id: root
   moduleName: "lucapf.tally"
@@ -58,7 +59,7 @@ Panel {
   onShowMemoryChanged: if (root.showMemory) root.refreshAbout()
 
   // Online or offline (`tally --online`): "checking", "online", "offline" or "offline (forced)"
-  // (TALLY_MODE=offline in the shell's environment). Checked when the popup opens and every 30 s.
+  // (the offline setting). Checked when the popup opens and every 30 s.
   property string netStatus: "checking"
   property int tuiKb: -1      // -1: the TUI is not running
   property int binaryKb: -1   // -1: unknown
@@ -178,6 +179,8 @@ Panel {
   }
 
   Process { id: copyProc }
+  // A download asked for from a notice (`tally --sync <group>`).
+  Process { id: syncProc }
 
   // The binary's size, and the resident memory of the TUI: the `tally` process with no arguments.
   Process {
@@ -365,7 +368,7 @@ Panel {
 
             PanelToolTip {
               visible: netMouse.containsMouse
-              text: root.netStatus === "offline (forced)" ? "TALLY_MODE=offline" : "Can JPL Horizons and CelesTrak be reached (the Trivia's live values)"
+              text: root.netStatus === "offline (forced)" ? "The offline setting (tally --set offline=false)" : "The last download of the online data"
             }
           }
 
@@ -458,7 +461,7 @@ Panel {
             : root.reply.ok ? "= " + root.reply.result
             : root.reply.ambiguous && root.reply.ambiguous.kind === "city" ? (root.reply.ambiguous.note || "`" + root.reply.ambiguous.text + "` is not a city") + ": did you mean…"
             : root.reply.ambiguous && root.reply.ambiguous.kind === "country" ? "`" + root.reply.ambiguous.text + "` has several time zones: which one?"
-            : root.reply.ambiguous && root.reply.ambiguous.kind === "currency" ? root.reply.ambiguous.note + ": which one?"
+            : root.reply.ambiguous && (root.reply.ambiguous.kind === "currency" || root.reply.ambiguous.kind === "place") ? root.reply.ambiguous.note + ": which one?"
             : root.reply.ambiguous ? "Which date is " + root.reply.ambiguous.text + "?"
             : root.reply.error
         }
@@ -500,8 +503,33 @@ Panel {
           model: root.reply && root.reply.ambiguous ? root.reply.ambiguous.choices : []
           Button {
             bordered: true
-            text: modelData.pattern + "   " + modelData.date
+            // A city: its name (population and map link as tooltip).
+            text: root.reply.ambiguous.kind === "place" ? modelData.pattern : modelData.pattern + "   " + modelData.date
+            tooltipText: root.reply.ambiguous.kind === "place" ? modelData.date : ""
             onClicked: root.use(modelData.request)
+          }
+        }
+      }
+
+      // Notices: a new city archive, out-of-date data (the `notify` refresh policies).
+      Repeater {
+        model: root.reply && root.reply.notices ? root.reply.notices : []
+        Row {
+          spacing: Style.space(8)
+          Text {
+            anchors.verticalCenter: parent.verticalCenter
+            text: modelData
+            color: Color.accent
+            font.family: Style.font.family
+            font.pixelSize: Style.font.caption
+          }
+          Button {
+            text: "Download"
+            fontSize: Style.font.caption
+            onClicked: {
+              syncProc.command = [root.command, "--sync", modelData.split("tally --sync ")[1] || "cities"]
+              syncProc.running = true
+            }
           }
         }
       }

@@ -614,6 +614,8 @@ const CITIES: &[(&str, &str)] = &[
 /// relevant first.
 #[derive(Debug)]
 pub struct Country {
+    /// ISO 3166 code: `IT`.
+    pub code: String,
     pub name: String,
     pub aliases: Vec<String>,
     pub cities: Vec<String>,
@@ -636,6 +638,7 @@ pub fn countries() -> &'static [Country] {
             .iter()
             .filter_map(|c| {
                 Some(Country {
+                    code: c.get("code").and_then(|v| v.str()).unwrap_or_default().to_string(),
                     name: c.get("name")?.str()?.to_string(),
                     aliases: strings(c.get("aliases")),
                     cities: strings(c.get("cities")),

@@ -91,9 +91,13 @@ fn maxrss_kb() -> u64 {
 }
 
 /// One request's outcome as a JSON object, on one line, with the peak memory so far.
-pub fn result(result: &Result<Output, CliError>) -> String {
+pub fn result(result: &Result<Output, CliError>, notices: &[String]) -> String {
     let object = outcome(result);
-    format!("{},\"peak_kb\":{}}}", &object[..object.len() - 1], peak_kb())
+    let notices = match notices.is_empty() {
+        true => String::new(),
+        false => format!(",\"notices\":[{}]", notices.iter().map(|n| string(n)).collect::<Vec<_>>().join(",")),
+    };
+    format!("{}{notices},\"peak_kb\":{}}}", &object[..object.len() - 1], peak_kb())
 }
 
 fn outcome(result: &Result<Output, CliError>) -> String {
@@ -124,6 +128,7 @@ fn outcome(result: &Result<Output, CliError>) -> String {
                         crate::time::AmbiguityKind::City => "city",
                         crate::time::AmbiguityKind::Country => "country",
                         crate::time::AmbiguityKind::Currency => "currency",
+                        crate::time::AmbiguityKind::Place => "place",
                     };
                     // Misspelt places: what was misspelt (`jappan` is not a country), for the question.
                     let note = if a.note.is_empty() { String::new() } else { format!(r#","note":{}"#, string(&a.note)) };
@@ -166,7 +171,14 @@ impl Value {
         }
     }
 
-    pub fn number(&self) -> Option<f64> {
+    pub fn boolean(&self) -> Option<bool> {
+        match self {
+            Value::Bool(b) => Some(*b),
+            _ => None,
+        }
+    }
+
+        pub fn number(&self) -> Option<f64> {
         match self {
             Value::Number(n) => Some(*n),
             _ => None,
@@ -347,7 +359,7 @@ mod tests {
         let kb = peak_kb();
         assert!((100..1_000_000).contains(&kb), "{kb} KiB");
         let ok = Ok(Output { stdout: "1".into(), warnings: vec![], notes: vec![] });
-        let json = result(&ok);
+        let json = result(&ok, &[]);
         assert!(json.starts_with(r#"{"ok":true,"result":"1","notes":[],"warnings":[],"peak_kb":"#), "{json}");
         assert!(json.ends_with('}') && json[..json.len() - 1].rsplit(':').next().unwrap().parse::<u64>().is_ok(), "{json}");
     }

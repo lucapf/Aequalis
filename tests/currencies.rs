@@ -1,5 +1,5 @@
 //! Currency conversions through the binary: a config directory with prepared exchange rates
-//! (`currencies.json`), offline, the local currency from `TZ` or `TALLY_CURRENCY`.
+//! (`currencies.json`), offline, the local currency from `TZ` or the `currency.local` setting.
 
 use std::path::PathBuf;
 use std::process::{Command, Output, Stdio};
@@ -21,12 +21,20 @@ fn config(name: &str, rates: bool) -> PathBuf {
     dir
 }
 
+/// The binary: offline, in Rome's time zone; `env` sets settings (`currency.local`) and `TZ`.
 fn tally(dir: &PathBuf, args: &[&str], env: &[(&str, &str)]) -> Output {
+    let mut settings = vec!["\"offline\": true".to_string()];
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_tally"));
-    cmd.args(args).env("XDG_CONFIG_HOME", dir).env("TALLY_MODE", "offline").env("TZ", "Europe/Rome").env_remove("TALLY_CURRENCY").stdin(Stdio::null());
+    cmd.args(args).env("XDG_CONFIG_HOME", dir).env("TZ", "Europe/Rome").env("LC_ALL", "C").stdin(Stdio::null());
     for (k, v) in env {
-        cmd.env(k, v);
+        match *k {
+            "TZ" => {
+                cmd.env(k, v);
+            }
+            setting => settings.push(format!("\"{setting}\": \"{v}\"")),
+        }
     }
+    std::fs::write(dir.join("tally/settings.json"), format!("{{{}}}", settings.join(", "))).unwrap();
     cmd.output().expect("run tally")
 }
 
@@ -74,13 +82,13 @@ fn one_currency_goes_to_the_local_one() {
     let dir = config("local", true);
     assert_eq!(out(&tally(&dir, &["12", "usd"], &[])), "10.73 EUR");
     assert_eq!(out(&tally(&dir, &["12", "usd"], &[("TZ", "Asia/Tokyo")])), "1903.20 JPY");
-    assert_eq!(out(&tally(&dir, &["12", "usd"], &[("TALLY_CURRENCY", "chf")])), "9.97 CHF");
+    assert_eq!(out(&tally(&dir, &["12", "usd"], &[("currency.local", "chf")])), "9.97 CHF");
     let o = tally(&dir, &["12", "eur"], &[]);
     assert_eq!(o.status.code(), Some(2));
     assert!(err(&o).contains("now the currency to convert to: `12 EUR USD`"), "{}", err(&o));
-    let o = tally(&dir, &["1", "km", "m"], &[("TALLY_CURRENCY", "bogus")]);
+    let o = tally(&dir, &["1", "km", "m"], &[("currency.local", "bogus")]);
     assert_eq!(o.status.code(), Some(2));
-    assert!(err(&o).contains("TALLY_CURRENCY must be one currency"), "{}", err(&o));
+    assert!(err(&o).contains("`currency.local` must be auto or one currency"), "{}", err(&o));
 }
 
 #[test]
@@ -117,5 +125,5 @@ fn no_rates() {
     let dir = config("none", false);
     let o = tally(&dir, &["12", "usd", "eur"], &[]);
     assert_eq!(o.status.code(), Some(1));
-    assert!(err(&o).contains("no exchange rates: they were never downloaded, and TALLY_MODE=offline"), "{}", err(&o));
+    assert!(err(&o).contains("no exchange rates: they were never downloaded, and the offline setting is on"), "{}", err(&o));
 }

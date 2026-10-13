@@ -62,3 +62,25 @@ ExchangeRate-API, synced once a day in the background (`tally --list` lists the 
 | `Italy Japan`              | no value: the distance |
 | `12 pounds kg`             | `5.4431 kg`: with a unit, `pounds` is the unit |
 
+## Distances
+
+Two places, then optionally the unit: `[distance] <place> [to] <place> [<unit>]`. A place is a
+city, a country or coordinates (`41.9,12.5`). With two places the unit is the `distance.unit`
+setting (auto: miles where the device is imperial, km elsewhere).
+
+With the city archive (`tally --sync cities`, from GeoNames) every city of 5,000 inhabitants or
+more is known, by any of its names in any language (`Roma`, `Рим`); `Springfield, Illinois` or
+`Springfield, US` picks one. Several cities with that name: Tally asks, those in the other
+place's country first, then in the device's country, then the others, by population. A word that
+is a unit, a currency or a date keyword keeps that meaning (`Bar` is a unit: write
+`Bar, Montenegro`).
+
+| Type                                   | Result |
+|----------------------------------------|--------|
+| `Rome Paris`                           | `1,107 km`, or a choice of Romes and Parises with the archive |
+| `Springfield, Illinois Chicago mi`     | `176 mi` |
+| `Chicago Paris`                        | asks: Paris, Texas first (same country as Chicago) |
+| `distance Sprngfield to Chicago`       | "`Sprngfield` is not a known place: did you mean Springfield, …?" |
+| `Italy Japan`                          | countries: their capitals |
+| `10:00 Rome Paris`                     | a time: the time in Paris |
+

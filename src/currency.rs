@@ -4,7 +4,7 @@
 //! abbreviation (`src/data/currencies.json`), a country (its currency, `src/data/countries.json`)
 //! or Europe / EU / Eurozone; case and accents don't matter, and the amount may be attached
 //! (`$12`, `12€`, `12usd`). Always one amount: with a single currency the target is the local one
-//! (the currency of the device time zone's country, or `TALLY_CURRENCY`). A name several
+//! (the currency of the device time zone's country, or the `currency.local` setting). A name several
 //! currencies share (`dollar`, `$`, `kr`) or a misspelt one (`dolar`) is asked about.
 //!
 //! The rates come from ExchangeRate-API (open.er-api.com, daily), kept in
@@ -150,6 +150,7 @@ fn shown(code: &str, country: Option<&str>) -> String {
 /// When a country (or Europe) stands for a currency, the currencies used, to check the result:
 /// `United States: US dollar (USD, US$) → United Arab Emirates: UAE dirham (AED, د.إ)`. `None`
 /// for a request that is not a clear currency request, or names no country.
+#[cfg_attr(not(feature = "tui"), allow(dead_code))]
 pub fn describe(config: &Config, input: &str) -> Option<String> {
     let Some(Ok((_, money))) = shape(config, input) else { return None };
     let local = local().ok().flatten();
@@ -317,7 +318,7 @@ pub enum Error {
     NoRates(String),
 }
 
-/// The local currency: `TALLY_CURRENCY`, else the currency of the device time zone's country; with
+/// The local currency: the `currency.local` setting, else the currency of the device time zone's country; with
 /// what it comes from, for the note.
 pub struct Local {
     pub code: &'static str,
@@ -424,7 +425,7 @@ fn convert(amount: &str, money: &[Piece], ctx: &Context) -> Result<Converted, Er
     let Some(day) = ctx.rates.get(RATES_DATE) else {
         return Err(Error::NoRates(match crate::network::allowed() {
             true => "no exchange rates yet: they are being downloaded in the background, try again in a minute".to_string(),
-            false => "no exchange rates: they were never downloaded, and TALLY_MODE=offline".to_string(),
+            false => "no exchange rates: they were never downloaded, and the offline setting is on".to_string(),
         }));
     };
     let per_dollar = |code: &str| if code == "USD" { Some(1.0) } else { ctx.rates.get(&rate_name(code)).map(|s| s.value) };
@@ -494,17 +495,17 @@ fn question(amount: &str, money: &[Piece], unclear: &[(usize, &Piece)]) -> Ambig
 
 // ---------------------------------------------------------------- the local currency
 
-/// The local currency: `TALLY_CURRENCY` (`Err` when it is not a currency), else the one of the
+/// The local currency: the `currency.local` setting (`Err` when it is not one currency), else the one of the
 /// country of the device's time zone (`Europe/Rome` → Italy → EUR); `None` when unknown.
 pub fn local() -> Result<Option<Local>, String> {
-    local_from(std::env::var("TALLY_CURRENCY").ok().as_deref(), local_zone().as_deref())
+    local_from(crate::settings::current().currency(), local_zone().as_deref())
 }
 
 pub fn local_from(setting: Option<&str>, zone: Option<&str>) -> Result<Option<Local>, String> {
     if let Some(s) = setting.map(str::trim).filter(|s| !s.is_empty()) {
         return match exact(s).as_deref() {
-            Some(&[code]) => Ok(Some(Local { code, from: "TALLY_CURRENCY".to_string() })),
-            _ => Err(format!("TALLY_CURRENCY must be one currency, such as EUR or USD (it is `{s}`)")),
+            Some(&[code]) => Ok(Some(Local { code, from: "the currency.local setting".to_string() })),
+            _ => Err(format!("`currency.local` must be one currency, such as EUR or USD (it is `{s}`)")),
         };
     }
     let Some(zone) = zone else { return Ok(None) };
@@ -515,7 +516,7 @@ pub fn local_from(setting: Option<&str>, zone: Option<&str>) -> Result<Option<Lo
 }
 
 /// The device's time zone name: `TZ`, else where /etc/localtime points (`…/zoneinfo/Europe/Rome`).
-fn local_zone() -> Option<String> {
+pub fn local_zone() -> Option<String> {
     let after = |path: &str| path.split_once("zoneinfo/").map_or(path.to_string(), |(_, z)| z.to_string());
     if let Some(tz) = std::env::var("TZ").ok().map(|t| t.trim_start_matches(':').to_string()).filter(|t| t.contains('/')) {
         return Some(after(&tz));

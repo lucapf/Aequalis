@@ -1,6 +1,5 @@
-# The tests (and `cargo run`) never use the network nor the real online data: offline, and the
-# online data in target/test-config instead of ~/.config/tally. Tests that need otherwise set
-# these themselves.
+# The tests (and `cargo run`) never use the network nor the real settings and online data: their
+# configuration is tests/config (settings.json: offline, distances in km). Tests that need other
+# settings make a config directory of their own (tests/common).
 [env]
-TALLY_MODE = "offline"
-XDG_CONFIG_HOME = { value = "target/test-config", relative = true }
+XDG_CONFIG_HOME = { value = "tests/config", relative = true, force = true }
