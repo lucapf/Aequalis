@@ -13,7 +13,8 @@ pub const NAME: &str = "Tally";
 pub const TAGLINE: &str = "Ultralight calculator and converter made for humans";
 
 /// The facts below the logo, as (label, text): the version, the memory (`memory`, already
-/// formatted: the CLI's process, the interactive mode's), the last online sync, the mode.
+/// formatted: the CLI's process, the interactive mode's), the last online sync, the exchange rates,
+/// the mode.
 pub fn facts(memory: &str) -> Vec<(&'static str, String)> {
     let sync = match crate::online::load().last_sync() {
         Some(t) => crate::time::human(&crate::time::Instant { ns: t as i128 * 1_000_000_000, zone: crate::time::Zone::Local }, false),
@@ -23,10 +24,19 @@ pub fn facts(memory: &str) -> Vec<(&'static str, String)> {
         crate::network::Mode::Online => "online",
         crate::network::Mode::Offline => "offline (forced: TALLY_MODE=offline)",
     });
+    // The exchange rates: their date and where they come from (its terms ask to name it).
+    let rates = match crate::currency::load().get(crate::currency::RATES_DATE) {
+        Some(day) => {
+            let day = crate::time::human(&crate::time::Instant { ns: day.value as i128 * 1_000_000_000, zone: crate::time::Zone::Fixed(0) }, true);
+            format!("of {day}, {}", crate::currency::SOURCE)
+        }
+        None => format!("not synced yet, {}", crate::currency::SOURCE),
+    };
     vec![
         ("Version", env!("CARGO_PKG_VERSION").to_string()),
         ("Memory", memory.to_string()),
         ("Last online sync", sync),
+        ("Exchange rates", rates),
         ("Mode", mode.to_string()),
     ]
 }
@@ -67,5 +77,6 @@ mod tests {
         assert!(text.contains("Tally — Ultralight calculator and converter made for humans"), "{text}");
         assert!(text.contains("\nVersion: ") && text.contains("\nMemory: ") && text.contains(" peak "), "{text}");
         assert!(text.contains("\nLast online sync: "), "{text}");
+        assert!(text.contains("\nExchange rates: ") && text.contains("ExchangeRate-API (https://www.exchangerate-api.com)"), "{text}");
     }
 }

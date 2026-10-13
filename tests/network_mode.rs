@@ -6,13 +6,18 @@ use std::path::PathBuf;
 use std::process::{Command, Output, Stdio};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-/// A config directory for one test, with `online.json` holding `json` (none if empty).
+/// A config directory for one test, with `online.json` holding `json` and fresh exchange rates
+/// (none if empty).
 fn config(name: &str, json: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("tally-network-{}-{name}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("tally")).unwrap();
     if !json.is_empty() {
         std::fs::write(dir.join("tally/online.json"), json).unwrap();
+        // Fresh exchange rates too: without them a sync starts at once.
+        let t = now();
+        let rates = format!(r#"{{"format":1,"synced_at":{t},"attempted_at":{t},"ok":true,"values":{{"rates date":{{"value":{t},"at":{t}}},"USD/EUR":{{"value":0.9,"at":{t}}}}}}}"#);
+        std::fs::write(dir.join("tally/currencies.json"), rates).unwrap();
     }
     dir
 }

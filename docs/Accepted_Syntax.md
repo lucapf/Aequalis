@@ -39,3 +39,26 @@ Some examples of accepts syntax:
 | `12 Sept 2026 10:00 PM + 5wd` | `18/09/2026 DD/MM/YYYY` |
 | `now unix`                    | the current Unix time |
 | `12/04/2026 unix`             | ambiguous: one button per reading (DD/MM/YYYY, MM/DD/YYYY) |
+
+## Currencies
+
+One amount and one or two currencies. A currency can be written as its code (`usd`), its name in
+the singular or plural (`euro`, `US dollars`, `yen`), a symbol (`€`, `£`, `¥`), a common
+abbreviation (`Dhs`, `RMB`, `kr`), a country (`USA`, `UAE`, `China`) or `Europe` / `EU`. Case
+and accents don't matter, and the amount may be attached (`12usd`, `12€`, `US$12`). Rates:
+ExchangeRate-API, synced once a day in the background (`tally --list` lists the currencies).
+
+| Type                       | Result |
+|----------------------------|--------|
+| `12 usd euro`              | `10.74 EUR` |
+| `12 USA Europe`            | `10.74 EUR` (countries: their currency) |
+| `12 USD UAE`               | `44.07 AED` |
+| `12 China Euro`            | `1.60 EUR` |
+| `12€ gbp`                  | `10.14 GBP` |
+| `12 usd`                   | `10.74 EUR`: to the local currency (the time zone's country, or `TALLY_CURRENCY`) |
+| `12 dollar euro`           | asks which dollar (US, Canadian, Australian, …) |
+| `12 dolar eur`             | "`dolar` is not a currency: did you mean US dollar?" |
+| `10:00AM Italy Japan`      | a time: the time in Tokyo (a number is money, a time is time zones) |
+| `Italy Japan`              | no value: the distance |
+| `12 pounds kg`             | `5.4431 kg`: with a unit, `pounds` is the unit |
+

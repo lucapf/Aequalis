@@ -458,6 +458,7 @@ Panel {
             : root.reply.ok ? "= " + root.reply.result
             : root.reply.ambiguous && root.reply.ambiguous.kind === "city" ? (root.reply.ambiguous.note || "`" + root.reply.ambiguous.text + "` is not a city") + ": did you mean…"
             : root.reply.ambiguous && root.reply.ambiguous.kind === "country" ? "`" + root.reply.ambiguous.text + "` has several time zones: which one?"
+            : root.reply.ambiguous && root.reply.ambiguous.kind === "currency" ? root.reply.ambiguous.note + ": which one?"
             : root.reply.ambiguous ? "Which date is " + root.reply.ambiguous.text + "?"
             : root.reply.error
         }
@@ -489,7 +490,8 @@ Panel {
 
       // An ambiguous date: one button per reading; the chosen pattern is written in. A misspelt
       // city: one button per city it may be. A country with several time zones: one per zone, its
-      // most relevant city first, then its offset now.
+      // most relevant city first, then its offset now. A shared or misspelt currency (`dollar`,
+      // `dolar`): one per currency it may be, its name and code.
       Flow {
         width: parent.width
         spacing: Style.space(6)

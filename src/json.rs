@@ -123,6 +123,7 @@ fn outcome(result: &Result<Output, CliError>) -> String {
                         crate::time::AmbiguityKind::Date => "date",
                         crate::time::AmbiguityKind::City => "city",
                         crate::time::AmbiguityKind::Country => "country",
+                        crate::time::AmbiguityKind::Currency => "currency",
                     };
                     // Misspelt places: what was misspelt (`jappan` is not a country), for the question.
                     let note = if a.note.is_empty() { String::new() } else { format!(r#","note":{}"#, string(&a.note)) };

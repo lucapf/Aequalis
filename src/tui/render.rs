@@ -902,13 +902,16 @@ fn choice(canvas: &mut Canvas, rows: usize, a: &crate::time::Ambiguity, selected
         crate::time::AmbiguityKind::City => format!("{}: which one?", a.note),
         crate::time::AmbiguityKind::Country => format!("`{}` has several time zones: which one?", a.text),
         crate::time::AmbiguityKind::Date => format!("`{}` is ambiguous: which date?", a.text),
+        crate::time::AmbiguityKind::Currency => format!("{}: which one?", a.note),
     };
-    let width = a.choices.iter().map(|c| c.pattern.chars().count() + c.date.chars().count() + 12).max().unwrap_or(0).max(title.chars().count() + 6);
+    // The patterns in a column as wide as the longest (at least 12), the dates after them.
+    let column = a.choices.iter().map(|c| c.pattern.chars().count()).max().unwrap_or(0).max(12);
+    let width = a.choices.iter().map(|c| column + c.date.chars().count() + 9).max().unwrap_or(0).max(title.chars().count() + 6);
     let (top, left, width, _) = centred(canvas, rows, width, a.choices.len() + 2, &title);
     let right = left + width - 1;
     for (i, c) in a.choices.iter().enumerate() {
         let row = top + 1 + i;
-        let text = format!(" {}  {:<12} {} ", i + 1, c.pattern, c.date);
+        let text = format!(" {}  {:<column$} {} ", i + 1, c.pattern, c.date);
         let style = if i == selected { Style::Lit } else { Style::Plain };
         canvas.put_within(row, left + 2, right - 1, &text, style);
     }

@@ -5,6 +5,7 @@ mod calc;
 mod completion;
 mod config;
 mod convert;
+mod currency;
 mod geo;
 mod json;
 mod network;
@@ -27,7 +28,7 @@ Usage:
   tally <expression> [<from> <to>] [--precision N] [--silent]
   <input> | tally [<from>] [<to>] [options]
   tally                 (no arguments, in a terminal) interactive mode
-  tally --list
+  tally --list          units and currencies
   tally --trivia        useful values (Voyagers' distance live when online)
   tally --online        online, offline or offline (forced): can the live sources be reached
   tally --about         the logo, the version, memory and the last online sync
@@ -57,6 +58,10 @@ Examples:
   tally 5 l/100km mpg     47.0429 mpg
   tally 1 kWh MJ          3.6 MJ
   tally 100 hp kW         74.57 kW
+  tally 12 usd euro       10.73 EUR   (rates synced daily from ExchangeRate-API)
+  tally 12 USA Europe     10.73 EUR   (countries: their currency; any case, plurals,
+  tally 12usd dhs         44.07 AED    symbols, abbreviations, amount attached)
+  tally 12 usd            10.73 EUR   (one currency: to the local one, TALLY_CURRENCY)
   tally 9.81 m/s^2 ft/s2  32.185 ft/s2
   tally 100 Mb/s MB/s     12.5 MB/s
   tally sqrt 16           4
@@ -172,8 +177,10 @@ Options:
   -V, --version             Show version
 
 Environment:
-  TALLY_SCALE               Decimal places of numbers, 0-15 (default 4; currencies,
-                            when supported, 2). --precision overrides it
+  TALLY_SCALE               Decimal places of numbers, 0-15 (default 4; currencies
+                            always 2). --precision overrides it
+  TALLY_CURRENCY            The local currency, for `12 usd` (default: the currency
+                            of the time zone's country)
   TALLY_FORMAT_DATE         How dates are shown (default `DD MMM YY`: 12 Sept 26)
   TALLY_FORMAT_DATETIME     How dates with a time are shown (default
                             `DD MMM YY h:mm AM tz`: 12 Sept 26 8:00 PM GMT+2). Tokens:
@@ -182,9 +189,9 @@ Environment:
   TALLY_MODE                online (default) or offline: no network at all (the
                             Trivia's live values are then estimated)
   TALLY_ONLINE_REFRESH_INTERVAL
-                            How old the online data (~/.config/tally/online.json)
-                            may be before a background refresh: 24h (default),
-                            90m, 2d, or seconds";
+                            How old the online data (~/.config/tally/online.json,
+                            exchange rates in currencies.json) may be before a
+                            background refresh: 24h (default), 90m, 2d, or seconds";
 
 const EXPECTED: &str =
     "expected <value> <from> <to>, <value><from> <to> or an expression without units (see `tally --help`)";
@@ -249,6 +256,7 @@ fn run(config: &Config, args: &[String], read_stdin: impl FnOnce() -> Option<Str
                 || geo::is_request(&args.join(" "))
                 || time::names_city(&args.join(" "))
                 || time::suggests_city(config, &args.join(" "))
+                || currency::claims(config, &args.join(" "))
             {
                 return vec![convert_request(config, &opts, args)];
             }
@@ -298,6 +306,7 @@ fn parse_options<'a>(config: &Config, args: &'a [String]) -> Result<Parsed<'a>, 
     // `TALLY_MODE`: online (default) or offline (no network). `TALLY_ONLINE_REFRESH_INTERVAL`.
     network::mode().map_err(CliError::Usage)?;
     online::parse_interval(std::env::var("TALLY_ONLINE_REFRESH_INTERVAL").ok().as_deref()).map_err(CliError::Usage)?;
+    currency::local().map_err(CliError::Usage)?;
     let mut silent = false;
     let mut verbose = false;
     let mut it = args.iter();
@@ -356,6 +365,23 @@ fn convert_request(config: &Config, opts: &Options, tokens: &[&str]) -> Result<O
     let input = tokens.join(" ");
     if input.trim().is_empty() {
         return usage(EXPECTED);
+    }
+    // Currencies: `12 usd euro`, `12 USA Europe`; one amount (a plain number) and currencies or
+    // countries, nothing else (a time with countries is a time request, countries alone a distance).
+    let local = currency::local().map_err(CliError::Usage)?;
+    let rates = currency::load();
+    let context = currency::Context { rates: &rates, now: online::now(), local };
+    if let Some(result) = currency::request(config, &input, &context) {
+        return match result {
+            Ok(c) => Ok(Output {
+                stdout: c.result,
+                warnings: if opts.silent { Vec::new() } else { c.warnings },
+                notes: if opts.verbose && !opts.silent { c.notes } else { Vec::new() },
+            }),
+            Err(currency::Error::Usage(msg)) => Err(CliError::Usage(msg)),
+            Err(currency::Error::Ambiguous(a)) => Err(CliError::Ambiguous(a)),
+            Err(currency::Error::NoRates(msg)) => Err(CliError::Convert(convert::ConvertError::Domain(msg))),
+        };
     }
     // Distances on the Earth: `distance Rome to Paris km`.
     if let Some(result) = geo::request(config, &input, opts.precision) {
@@ -416,6 +442,8 @@ fn list(config: &Config) -> String {
         out.push('\n');
     }
     out.push_str("Compound units: units joined by / and *, with powers: km/h, m/s^2, Mb/s, mi/gal\n");
+    out.push('\n');
+    out.push_str(&currency::list());
     out.trim_end().to_string()
 }
 
@@ -511,9 +539,14 @@ fn ask(a: &time::Ambiguity) -> Option<&time::Choice> {
             eprintln!("tally: `{}` is ambiguous:", a.text);
             "Which one?"
         }
+        time::AmbiguityKind::Currency => {
+            eprintln!("tally: {}. Did you mean:", a.note);
+            "Which currency?"
+        }
     };
+    let column = a.choices.iter().map(|c| c.pattern.chars().count()).max().unwrap_or(0).max(12);
     for (i, c) in a.choices.iter().enumerate() {
-        eprintln!("  {}) {:<12} {}", i + 1, c.pattern, c.date);
+        eprintln!("  {}) {:<column$} {}", i + 1, c.pattern, c.date);
     }
     for _ in 0..3 {
         eprint!("{question} [1-{}, Enter = 1]: ", a.choices.len());

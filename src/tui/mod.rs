@@ -646,6 +646,7 @@ impl<'a> App<'a> {
             match a.kind {
                 crate::time::AmbiguityKind::City => return Some(Err(format!("did you mean {}? · Enter to choose", patterns.join(" or ")))),
                 crate::time::AmbiguityKind::Country => return Some(Err(format!("several time zones: {} · Enter to choose", patterns.join(", ")))),
+                crate::time::AmbiguityKind::Currency => return Some(Err(format!("{}: {}? · Enter to choose", a.note, patterns.join(" or ")))),
                 crate::time::AmbiguityKind::Date => {}
             }
             return Some(Err(format!("ambiguous: {} · Enter to choose", patterns.join(" or "))));

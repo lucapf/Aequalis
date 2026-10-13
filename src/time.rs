@@ -88,6 +88,9 @@ pub enum AmbiguityKind {
     /// A country with several time zones (`USA`): `pattern` is the zone's most relevant city,
     /// `date` its offset now and its zone (`GMT-4 · America/New_York`).
     Country,
+    /// Currencies (`currency.rs`): a name several share (`dollar`) or a misspelt one (`dolar`);
+    /// `pattern` is the currencies (`US dollar`), `date` their codes (`USD`).
+    Currency,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -106,7 +109,7 @@ impl Ambiguity {
     pub fn message(&self) -> String {
         let names: Vec<&str> = self.choices.iter().map(|c| c.pattern.as_str()).collect();
         match self.kind {
-            AmbiguityKind::City => {
+            AmbiguityKind::City | AmbiguityKind::Currency => {
                 return format!("{}: did you mean {}? (`{}`)", self.note, names.join(" or "), self.choices[0].request);
             }
             AmbiguityKind::Country => {
@@ -2104,10 +2107,22 @@ fn known_word(config: &Config, text: &str) -> bool {
     tz::city(text).is_some() || tz::country(text).is_some() || reserved_word(config, text)
 }
 
-/// Words that are neither places nor misspelt ones: units, formats, months, keywords.
+/// Words that are neither places nor misspelt ones: units, formats, months, keywords, currencies.
 fn reserved_word(config: &Config, text: &str) -> bool {
-    convert::find_unit(config, text).is_some()
-        || is_format(text)
+    convert::find_unit(config, text).is_some() || date_word(text) || crate::currency::exact(text).is_some_and(|_| tz::country(text).is_none())
+}
+
+/// Whether a word means a date or a place to tally: a format, a month, a keyword, a number word, a
+/// time zone, a city or a country (`currency.rs` checks its names against it).
+#[cfg(test)]
+pub fn date_or_place_word(config: &Config, text: &str) -> bool {
+    let _ = config;
+    date_word(text) || tz::city(text).is_some() || tz::country(text).is_some()
+}
+
+/// Formats, months, keywords, number words, time zones.
+fn date_word(text: &str) -> bool {
+    is_format(text)
         || DATE_WORDS.contains(&text)
         || month_named(text).is_some()
         || gmt_zone(text).is_some()

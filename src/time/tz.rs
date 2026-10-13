@@ -617,6 +617,8 @@ pub struct Country {
     pub name: String,
     pub aliases: Vec<String>,
     pub cities: Vec<String>,
+    /// Its currency's ISO 4217 code (`EUR`).
+    pub currency: String,
 }
 
 const COUNTRIES: &str = include_str!("../data/countries.json");
@@ -633,7 +635,12 @@ pub fn countries() -> &'static [Country] {
             .unwrap_or_default()
             .iter()
             .filter_map(|c| {
-                Some(Country { name: c.get("name")?.str()?.to_string(), aliases: strings(c.get("aliases")), cities: strings(c.get("cities")) })
+                Some(Country {
+                    name: c.get("name")?.str()?.to_string(),
+                    aliases: strings(c.get("aliases")),
+                    cities: strings(c.get("cities")),
+                    currency: c.get("currency").and_then(|v| v.str()).unwrap_or_default().to_string(),
+                })
             })
             .collect()
     })
@@ -686,8 +693,14 @@ pub fn longest_country() -> usize {
 }
 
 /// A city name as compared: lowercase, no accents, `- _ . '` as spaces, one space between words.
-fn key(name: &str) -> String {
+pub(crate) fn key(name: &str) -> String {
     fold(name).replace(['-', '_', '.', '\'', '’'], " ").split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// The zones a city name is in (`Rome` → `Europe/Rome`), without loading them; `None`: not a city.
+pub fn zones_of(name: &str) -> Option<&'static str> {
+    let wanted = key(name).replace(' ', "");
+    CITIES.iter().find(|(n, _)| key(n).replace(' ', "") == wanted).map(|&(_, zones)| zones)
 }
 
 /// The city a name gives (any case, accents optional: `new york`, `Sao Paulo`), or a zone's own
@@ -744,7 +757,7 @@ pub fn near_names(name: &str) -> Vec<&'static str> {
 }
 
 /// The distance between two words: the fewest letters added, removed or changed (Levenshtein).
-fn levenshtein(a: &str, b: &str) -> usize {
+pub(crate) fn levenshtein(a: &str, b: &str) -> usize {
     let b: Vec<char> = b.chars().collect();
     let mut row: Vec<usize> = (0..=b.len()).collect();
     for (i, ca) in a.chars().enumerate() {

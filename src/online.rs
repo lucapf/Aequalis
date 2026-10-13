@@ -1,5 +1,5 @@
 //! The online data (the Trivia's live values: the Voyagers' distances, the satellite counts), kept
-//! in `~/.config/tally/online.json` (`$XDG_CONFIG_HOME`) with the time each was synced. Tally reads
+//! in `~/.config/tally/online.json` (and the exchange rates, in `currencies.json`, `currency.rs`) (`$XDG_CONFIG_HOME`) with the time each was synced. Tally reads
 //! only this file: while it is fresh no network is used at all. When it is older than
 //! `TALLY_ONLINE_REFRESH_INTERVAL` (default `24h`), any run of tally starts a sync in the
 //! background (`tally --sync`, a separate process, so nothing waits for it) unless one is running
@@ -178,7 +178,7 @@ pub fn expired(data: &Data, now: i64, interval: i64) -> bool {
     data.synced_at.is_none_or(|t| now - t >= interval)
 }
 
-fn now() -> i64 {
+pub fn now() -> i64 {
     crate::time::now().ns.div_euclid(1_000_000_000) as i64
 }
 
@@ -187,7 +187,9 @@ fn now() -> i64 {
 /// Starts `tally --sync` in the background when the data has expired (and the network may be used,
 /// and no sync is running). Returns the process, for a long-running caller to reap.
 pub fn ensure_fresh() -> Option<std::process::Child> {
-    if !crate::network::allowed() || !expired(&load(), now(), interval()) || lock_held() {
+    let currencies = crate::currency::path().map(|p| load_from(&p)).unwrap_or_default();
+    let stale = expired(&load(), now(), interval()) || expired(&currencies, now(), interval());
+    if !crate::network::allowed() || !stale || lock_held() {
         return None;
     }
     use std::os::unix::process::CommandExt;
@@ -255,7 +257,10 @@ pub fn sync() -> Result<usize, String> {
     }
     let _lock = take_lock()?;
     let path = path().ok_or("no home directory")?;
-    Ok(sync_into(&path, crate::trivia::sources(), interval(), &now))
+    let trivia = sync_into(&path, crate::trivia::sources(), interval(), &now);
+    // The exchange rates, in their own file.
+    let rates = crate::currency::path().ok_or("no home directory")?;
+    Ok(trivia + sync_into(&rates, vec![crate::currency::source()], interval(), &now))
 }
 
 /// The sync itself, on `path`: every source whose values are older than `interval` is fetched in
