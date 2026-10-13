@@ -3,7 +3,7 @@
 //! not open the unit picker. Fixed: ESC followed by a key that does not start an escape sequence is
 //! the Esc key, then that key (as in Vim).
 
-#![cfg(target_os = "linux")]
+#![cfg(all(target_os = "linux", feature = "tui"))]
 
 use std::io::{Read, Write};
 use std::process::{Command, Stdio};
@@ -60,13 +60,13 @@ fn reported_esc_q_in_one_write_quits() {
 
 #[test]
 fn esc_then_shortcut_opens_the_picker() {
-    // Esc S (one write) opens the Size unit keys (Length tab, mm cm m km / in ft yd mi): l l l
-    // Enter writes km; they stay open, so j (the imperial row: mi), Enter writes the target.
-    // That completes the expression (back to input mode): Enter evaluates, Esc to command mode,
-    // q quits.
-    let writes: &[&[u8]] = &[b"10", b"\x1bS", b"lll\r", b"j", b"\r", b"\r", b"\x1b", b"q"];
+    // Esc M (one write) opens the Measures; L the Length unit keys (mm cm m km au ly pc): l l l
+    // Enter writes km; they stay open, so Tab (imperial: in ft yd mi), l l l Enter writes the
+    // target. That completes the expression (back to input mode): Enter evaluates, Esc to
+    // command mode, q quits.
+    let writes: &[&[u8]] = &[b"10", b"\x1bM", b"L", b"lll\r", b"\t", b"lll\r", b"\r", b"\x1b", b"q"];
     let Some(out) = session(writes) else { return };
-    assert!(out.contains("Size units"), "picker opened");
+    assert!(out.contains("Measures") && out.contains("Length units"), "picker opened");
     assert!(out.contains("10 km mi"));
     assert!(out.contains("6.2137 mi"), "evaluated after picking");
 }

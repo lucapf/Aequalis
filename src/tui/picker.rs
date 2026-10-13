@@ -1,7 +1,6 @@
-//! The unit picker: the units of one category, split into two tabs (metric / imperial, or decimal /
-//! binary for data), or of a group of categories (Size: Length, Area, Volume), one tab each with
-//! the metric units on one row and the imperial ones below; and placing the chosen unit into the
-//! expression as its source or target unit.
+//! The unit picker: the units of one category (opened from the Measures list), split into two
+//! tabs (metric / imperial, decimal / binary for bits and bytes, durations / formats for dates);
+//! and placing the chosen unit into the expression as its source or target unit.
 
 use crate::calc;
 use crate::config::{Category, Config, System, Unit};
@@ -17,13 +16,7 @@ pub enum Direction {
 pub struct Picker {
     /// Index into `Config::categories`: the category shown.
     pub category: usize,
-    /// A group's name and categories (its tabs), when the picker shows a group.
-    pub group: Option<(&'static str, Vec<usize>)>,
-    /// A group's tools (tabs after its categories: `Earth distance`), and the one shown, if any.
-    pub tools: &'static [&'static str],
-    pub tool: Option<&'static str>,
-    /// The tab shown: `Metric` (the first) or `Imperial` (the second). For a group, the row
-    /// selected when a tab opens (the device's system).
+    /// The tab shown: `Metric` (the first) or `Imperial` (the second).
     pub tab: System,
     /// Index into `items()`.
     pub selected: usize,
@@ -59,70 +52,25 @@ impl Picker {
     pub fn new(config: &Config, category: usize, device: System) -> Self {
         let metric_imperial = config.categories[category].systems == ["Metric", "Imperial"];
         let tab = if metric_imperial { device } else { System::Metric };
-        Picker { category, group: None, tools: &[], tool: None, tab, selected: 0, cell: (0, 0) }
+        Picker { category, tab, selected: 0, cell: (0, 0) }
     }
 
-    /// A group (`Config::groups`): opens on its first category, on the row of `device`'s system.
-    pub fn group(config: &Config, name: &'static str, categories: Vec<usize>, device: System) -> Self {
-        let tools = config.groups.iter().find(|g| g.name == name).map_or(&[][..], |g| g.tools);
-        let mut p = Picker { category: categories[0], group: Some((name, categories)), tools, tool: None, tab: device, selected: 0, cell: (0, 0) };
-        p.selected = p.row_start(config);
-        p
-    }
-
-    /// For a group: the first unit of the `tab` row (the imperial row starts after the metric one).
-    fn row_start(&self, config: &Config) -> usize {
-        match self.tab {
-            System::Imperial => self.units_of(config, System::Metric).count(),
-            _ => 0,
-        }
-    }
-
-    /// Tab / Shift-Tab: the next / previous tab, circular. A group's tabs are its categories; a
-    /// category's two tabs are its systems (next and previous are the same).
-    pub fn switch_tab(&mut self, config: &Config, forward: bool) {
+    /// Tab / Shift-Tab: the other tab (a category has two: next and previous are the same).
+    pub fn switch_tab(&mut self) {
         self.selected = 0;
         self.cell = (0, 0);
-        match &self.group {
-            Some((_, members)) => {
-                // The categories, then the tools.
-                let n = members.len() + self.tools.len();
-                let i = match self.tool {
-                    Some(t) => members.len() + self.tools.iter().position(|&x| x == t).unwrap_or(0),
-                    None => members.iter().position(|&m| m == self.category).unwrap_or(0),
-                };
-                let next = if forward { (i + 1) % n } else { (i + n - 1) % n };
-                match next.checked_sub(members.len()) {
-                    Some(t) => self.tool = Some(self.tools[t]),
-                    None => {
-                        self.tool = None;
-                        self.category = members[next];
-                        self.selected = self.row_start(config);
-                    }
-                }
-            }
-            None => self.tab = if self.tab == System::Imperial { System::Metric } else { System::Imperial },
-        }
+        self.tab = if self.tab == System::Imperial { System::Metric } else { System::Imperial };
     }
 
-    /// The window's title: the group's name, or the category's.
+    /// The window's title: the category's name.
     pub fn title<'a>(&self, config: &'a Config) -> &'a str {
-        self.group.as_ref().map_or(self.category(config).name, |(name, _)| name)
+        self.category(config).name
     }
 
     /// The tabs' names, and whether each is the one shown.
     pub fn tabs<'a>(&self, config: &'a Config) -> Vec<(&'a str, bool)> {
-        match &self.group {
-            Some((_, members)) => members
-                .iter()
-                .map(|&m| (config.categories[m].name, self.tool.is_none() && m == self.category))
-                .chain(self.tools.iter().map(|&t| (t, self.tool == Some(t))))
-                .collect(),
-            None => {
-                let systems = self.category(config).systems;
-                vec![(systems[0], self.tab != System::Imperial), (systems[1], self.tab == System::Imperial)]
-            }
-        }
+        let systems = self.category(config).systems;
+        vec![(systems[0], self.tab != System::Imperial), (systems[1], self.tab == System::Imperial)]
     }
 
     /// All the units of `tab` (before searching).
@@ -139,31 +87,15 @@ impl Picker {
         self.category(config).columns
     }
 
-    /// The units of the tab shown, in table order. A group's: the metric ones, then the imperial.
+    /// The units of the tab shown, in table order.
     pub fn items<'a>(&self, config: &'a Config) -> Vec<&'a Unit> {
-        if self.tool.is_some() {
-            return Vec::new();
-        }
-        match self.group {
-            Some(_) => self.units_of(config, System::Metric).chain(self.units_of(config, System::Imperial)).collect(),
-            None => self.units_of(config, self.tab).collect(),
-        }
+        self.units_of(config, self.tab).collect()
     }
 
-    /// How many of `items()` each row of the table holds: a group's metric and imperial rows, or
-    /// rows of the category's `columns`.
+    /// How many of `items()` each row of the table holds: rows of the category's `columns`.
     pub fn rows(&self, config: &Config) -> Vec<usize> {
-        if self.tool.is_some() {
-            return Vec::new();
-        }
-        let rows: Vec<usize> = match self.group {
-            Some(_) => [System::Metric, System::Imperial].iter().map(|&tab| self.units_of(config, tab).count()).collect(),
-            None => {
-                let (len, cols) = (self.items(config).len(), self.columns(config));
-                (0..len.div_ceil(cols)).map(|r| cols.min(len - r * cols)).collect()
-            }
-        };
-        rows.into_iter().filter(|&n| n > 0).collect()
+        let (len, cols) = (self.items(config).len(), self.columns(config));
+        (0..len.div_ceil(cols)).map(|r| cols.min(len - r * cols)).filter(|&n| n > 0).collect()
     }
 
     /// The (row, column) of item `i` in `rows`.
@@ -180,7 +112,7 @@ impl Picker {
 
     /// Whether the tab shown is Time's Formats tab (formats instead of units).
     pub fn shows_formats(&self, config: &Config) -> bool {
-        self.category(config).name == "Time" && self.tab == System::Imperial
+        self.category(config).name == crate::config::TIME && self.tab == System::Imperial
     }
 
     /// The format word selected on the Formats tab.
@@ -300,7 +232,7 @@ mod tests {
         let index = config.categories.iter().position(|c| c.name == category).unwrap();
         let mut p = Picker::new(&config, index, System::Metric);
         if p.tab != tab {
-            p.switch_tab(&config, true);
+            p.switch_tab();
         }
         (config, p)
     }
@@ -320,9 +252,9 @@ mod tests {
         assert_eq!(symbols_in("Speed", Imperial), ["mph", "ft/s", "kn"]);
         // Data: decimal and binary; b and B in both.
         // Bytes first, then bits.
-        assert_eq!(symbols_in("Data", Metric), ["B", "kB", "MB", "GB", "TB", "b", "kb", "Mb", "Gb", "Tb"]);
-        assert_eq!(symbols_in("Data", Imperial), ["B", "KiB", "MiB", "GiB", "TiB", "b", "Kib", "Mib", "Gib", "Tib"]);
-        let (config, p) = picker("Data", Imperial);
+        assert_eq!(symbols_in(crate::config::BITS, Metric), ["B", "kB", "MB", "GB", "TB", "b", "kb", "Mb", "Gb", "Tb"]);
+        assert_eq!(symbols_in(crate::config::BITS, Imperial), ["B", "KiB", "MiB", "GiB", "TiB", "b", "Kib", "Mib", "Gib", "Tib"]);
+        let (config, p) = picker(crate::config::BITS, Imperial);
         assert_eq!((p.tab, p.category(&config).systems), (Imperial, ["Decimal", "Binary"]));
     }
 
@@ -332,17 +264,17 @@ mod tests {
         let index = |name: &str| config.categories.iter().position(|c| c.name == name).unwrap();
         assert_eq!(Picker::new(&config, index("Length"), System::Imperial).tab, System::Imperial);
         assert_eq!(Picker::new(&config, index("Length"), System::Metric).tab, System::Metric);
-        assert_eq!(Picker::new(&config, index("Data"), System::Imperial).tab, System::Metric, "decimal");
+        assert_eq!(Picker::new(&config, index(crate::config::BITS), System::Imperial).tab, System::Metric, "decimal");
     }
 
     #[test]
     fn tabs_are_circular() {
-        let (config, mut p) = picker("Data", System::Metric);
-        p.switch_tab(&config, true);
+        let (_, mut p) = picker(crate::config::BITS, System::Metric);
+        p.switch_tab();
         assert_eq!(p.tab, System::Imperial);
-        p.switch_tab(&config, true);
+        p.switch_tab();
         assert_eq!(p.tab, System::Metric);
-        p.switch_tab(&config, false);
+        p.switch_tab();
         assert_eq!(p.tab, System::Imperial);
     }
 
@@ -351,7 +283,7 @@ mod tests {
         let config = Config::default();
         let mut p = Picker::new(&config, 0, System::Metric);
         p.selected = 2;
-        p.switch_tab(&config, true);
+        p.switch_tab();
         assert_eq!(p.selected, 0, "a new tab starts from its first unit");
     }
 
@@ -359,7 +291,7 @@ mod tests {
     fn steps_are_circular() {
         use Direction::*;
         // Data, Decimal: B kB MB GB TB / b kb Mb Gb Tb (5 per row).
-        let (config, mut p) = picker("Data", System::Metric);
+        let (config, mut p) = picker(crate::config::BITS, System::Metric);
         let at = |p: &mut Picker, d| {
             p.step(&config, d);
             p.items(&config)[p.selected].symbol
@@ -376,66 +308,6 @@ mod tests {
         assert_eq!(p.items(&config)[p.selected].symbol, "Torr", "the last button of the shorter row");
         p.step(&config, Down);
         assert_eq!(p.items(&config)[p.selected].symbol, "Pa", "column 0 kept from there");
-    }
-
-    fn size() -> (Config, Picker) {
-        let config = Config::default();
-        let index = |name: &str| config.categories.iter().position(|c| c.name == name).unwrap();
-        let p = Picker::group(&config, "Size", vec![index("Length"), index("Area"), index("Volume"), index("Angle")], System::Metric);
-        (config, p)
-    }
-
-    #[test]
-    fn group_tabs_are_its_categories() {
-        let (config, mut p) = size();
-        assert_eq!(p.title(&config), "Size");
-        assert_eq!(p.tabs(&config), [("Length", true), ("Area", false), ("Volume", false), ("Angle", false), ("Earth distance", false)]);
-        // One row of metric units, one of imperial.
-        assert_eq!(p.rows(&config), [7, 4]);
-        assert_eq!(p.items(&config).iter().map(|u| u.symbol).collect::<Vec<_>>(), ["mm", "cm", "m", "km", "au", "ly", "pc", "in", "ft", "yd", "mi"]);
-        p.selected = 3;
-        p.switch_tab(&config, true);
-        assert_eq!((p.category(&config).name, p.selected), ("Area", 0));
-        assert_eq!(p.rows(&config), [5, 5]);
-        p.switch_tab(&config, true);
-        assert_eq!(p.category(&config).name, "Volume");
-        assert_eq!(p.rows(&config), [4, 9]);
-        p.switch_tab(&config, true);
-        assert_eq!(p.category(&config).name, "Angle");
-        p.switch_tab(&config, true);
-        assert_eq!(p.tool, Some("Earth distance"), "the tool after the categories");
-        assert!(p.items(&config).is_empty() && p.rows(&config).is_empty());
-        assert_eq!(p.tabs(&config).last(), Some(&("Earth distance", true)));
-        p.switch_tab(&config, true);
-        assert_eq!((p.category(&config).name, p.tool), ("Length", None), "circular");
-        p.switch_tab(&config, false);
-        assert_eq!(p.tool, Some("Earth distance"), "Shift-Tab: the previous one");
-        p.switch_tab(&config, false);
-        assert_eq!(p.category(&config).name, "Angle");
-        // On an imperial device: the imperial row, in every tab.
-        let mut p = Picker::group(&config, "Size", p.group.clone().unwrap().1, System::Imperial);
-        assert_eq!(p.items(&config)[p.selected].symbol, "in");
-        p.switch_tab(&config, true);
-        p.switch_tab(&config, true);
-        assert_eq!(p.items(&config)[p.selected].symbol, "floz-us");
-    }
-
-    #[test]
-    fn group_steps_between_the_rows() {
-        use Direction::*;
-        let (config, mut p) = size();
-        p.switch_tab(&config, true);
-        p.switch_tab(&config, true);
-        // Volume: ml cl l m3 / floz-us pt-us qt-us gal-us cup floz-uk pt-uk qt-uk gal-uk.
-        let at = |p: &mut Picker, d| {
-            p.step(&config, d);
-            p.items(&config)[p.selected].symbol
-        };
-        assert_eq!(at(&mut p, Down), "floz-us");
-        assert_eq!(at(&mut p, Down), "ml", "circular");
-        assert_eq!(at(&mut p, Left), "gal-uk");
-        assert_eq!(at(&mut p, Up), "m3", "the metric row is shorter: its last button");
-        assert_eq!(at(&mut p, Right), "floz-us", "right goes on to the next row");
     }
 
     #[test]
@@ -474,9 +346,9 @@ mod tests {
         // Every cell is a format the CLI knows.
         assert!(rows.iter().flat_map(|r| &r.cells).all(|(_, w)| crate::time::is_format(w)));
         assert_eq!(rows.iter().map(|r| r.cells.len()).sum::<usize>(), 7 + 5 + 30);
-        let (config, mut p) = picker("Time", System::Metric);
+        let (config, mut p) = picker(crate::config::TIME, System::Metric);
         assert!(!p.shows_formats(&config));
-        p.switch_tab(&config, true);
+        p.switch_tab();
         assert!(p.shows_formats(&config));
         assert_eq!(p.selected_format().as_deref(), Some("iso"));
         use Direction::*;

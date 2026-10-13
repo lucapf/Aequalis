@@ -8,7 +8,7 @@
 //! The output of a real pty session is replayed through a small terminal emulator that has the
 //! pending-wrap behaviour of xterm-like terminals (Linux only: util-linux `script`).
 
-#![cfg(target_os = "linux")]
+#![cfg(all(target_os = "linux", feature = "tui"))]
 
 use std::io::{Read, Write};
 use std::process::{Command, Stdio};
@@ -151,9 +151,9 @@ fn reported_right_border_in_input_mode() {
 fn right_border_in_command_mode_and_unit_keys() {
     let Some(screen) = session(&["\x1b"]) else { return };
     assert_right_border(&screen);
-    let Some(screen) = session(&["\x1bS"]) else { return };
+    let Some(screen) = session(&["\x1bML"]) else { return };
     assert_right_border(&screen);
-    assert!((0..ROWS).any(|r| screen.line(r).contains("Size units")));
+    assert!((0..ROWS).any(|r| screen.line(r).contains("Length units")));
 }
 
 #[test]

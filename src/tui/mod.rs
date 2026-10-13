@@ -1,22 +1,23 @@
 //! Interactive mode: `tally` with no arguments in a terminal.
 //!
-//! Sections, top to bottom: the unit categories with their shortcuts, the history of expressions
-//! and results, the expression bar, and a status line. Two modes, Vim style:
+//! Sections, top to bottom: the top bar (Search, Measures, Currencies, Trivia, Settings), the
+//! history of expressions and results, the expression bar, and a status line. Two modes, Vim style:
 //! - **input** (the start): typing edits the expression; Tab completes units; Esc → command mode.
-//! - **command**: single keys. A category's initial turns the keypad into that category's unit
-//!   buttons (type to search, arrows move, Enter writes the unit and a space and stays there for
-//!   the next one, Esc back to the digits); `I`/`i` → input mode; `C` shows/hides the keypad;
-//!   `E` → help; `j`/`k` browse the history; ← → / `h` `l` move the top bar's highlight and Enter
-//!   opens it; `q` quits; `/` searches the units; `R` opens the Trivia (useful values with a
-//!   description).
+//! - **command**: single keys. `M` lists the unit classes; a class turns the keypad into its unit
+//!   buttons (arrows move, Enter writes the unit and a space and stays there for the next one, Esc
+//!   back to the classes); `U` searches the currencies, `/` the units; `R` opens the Trivia
+//!   (useful values with a description), `O` the Settings; `I`/`i` → input mode; `C` shows/hides
+//!   the keypad; `E` → help; `j`/`k` browse the history; ← → / `h` `l` move the top bar's
+//!   highlight and Enter opens it; `q` quits.
 //!
 //! The state machine (`App`), key decoding and rendering are free of I/O; only `term` and `run`
 //! touch the terminal.
 
 mod clipboard;
+mod currencies;
 mod editor;
 mod keys;
-
+mod measures;
 mod picker;
 mod render;
 mod search;
@@ -52,8 +53,12 @@ pub enum StatusKind {
 
 /// Drawn over the sections.
 pub enum Overlay {
-    /// The unit buttons, on the keypad.
+    /// `M`: the unit classes (Length, Temperature, …).
+    Measures(measures::View),
+    /// A class's units, on the keypad (Esc: back to the classes).
     Picker(Picker),
+    /// `U`: searching the currencies.
+    Currencies(currencies::View),
     /// The help, scrolled down by this many lines.
     Help(usize),
     /// An ambiguous date (`12/04/2026`): which reading is meant; `selected` into its choices.
@@ -125,44 +130,34 @@ type Evaluated = Rc<Result<crate::Output, crate::CliError>>;
 
 const SCROLL_STEP: usize = 5;
 
-/// What a shortcut opens: one category, or a group of them (`Config::groups`, Size: Length, Area,
-/// Volume), as indexes into `Config::categories`; none for the search and the Trivia.
+/// An entry of the top bar (`Config::menu`): its key and name.
 pub struct Shortcut {
     pub key: char,
     pub name: &'static str,
-    pub categories: Vec<usize>,
 }
 
 impl Shortcut {
-    /// What it opens: the unit keys, or the Trivia.
-    pub fn open(&self, config: &Config, device: System) -> Overlay {
-        match self.categories[..] {
-            [] if self.name == crate::config::SEARCH.0 => Overlay::Search(search::Search::default()),
-            [] if self.name == crate::config::SETTINGS.0 => Overlay::Settings(settings::View::default()),
-            [] => Overlay::Trivia(trivia::View::new()),
-            [one] => Overlay::Picker(Picker::new(config, one, device)),
-            _ => Overlay::Picker(Picker::group(config, self.name, self.categories.clone(), device)),
+    /// What it opens.
+    pub fn open(&self) -> Overlay {
+        use crate::config::{CURRENCIES, MEASURES, SEARCH, SETTINGS};
+        match self.name {
+            n if n == SEARCH.0 => Overlay::Search(search::Search::default()),
+            n if n == MEASURES.0 => Overlay::Measures(measures::View::default()),
+            n if n == CURRENCIES.0 => Overlay::Currencies(currencies::View::default()),
+            n if n == SETTINGS.0 => Overlay::Settings(settings::View::default()),
+            _ => Overlay::Trivia(trivia::View::new()),
         }
     }
 }
 
-/// The groups and the categories outside them, in the order of `Config::menu`, with their
-/// shortcut (`Group::key`, `Category::key`).
+/// The top bar's entries, in the order of `Config::menu`, with their shortcut.
 pub fn shortcuts(config: &Config) -> Vec<Shortcut> {
-    let index = |name: &str| config.categories.iter().position(|c| c.name == name).expect("a group member is a category");
+    use crate::config::{CURRENCIES, MEASURES, SEARCH, SETTINGS, TRIVIA};
     config
         .menu
         .iter()
-        .map(|&name| match config.groups.iter().find(|g| g.name == name) {
-            None if name == crate::config::TRIVIA.0 => Shortcut { key: crate::config::TRIVIA.1, name, categories: Vec::new() },
-            None if name == crate::config::SEARCH.0 => Shortcut { key: crate::config::SEARCH.1, name, categories: Vec::new() },
-            None if name == crate::config::SETTINGS.0 => Shortcut { key: crate::config::SETTINGS.1, name, categories: Vec::new() },
-            Some(g) => Shortcut { key: g.key, name: g.name, categories: g.members.iter().map(|m| index(m)).collect() },
-            None => {
-                let i = index(name);
-                Shortcut { key: config.categories[i].key, name, categories: vec![i] }
-            }
-        })
+        .filter_map(|&name| [SEARCH, MEASURES, CURRENCIES, TRIVIA, SETTINGS].into_iter().find(|e| e.0 == name))
+        .map(|(name, key)| Shortcut { key, name })
         .collect()
 }
 
@@ -235,7 +230,70 @@ impl<'a> App<'a> {
         if let Some(i) = shortcuts(self.config).iter().position(|s| s.key == shortcut.key) {
             self.menu = i;
         }
-        self.overlay = Some(shortcut.open(self.config, self.system));
+        self.overlay = Some(shortcut.open());
+    }
+
+    /// Opens a unit class from the Measures: its units, or for the Earth distance the request
+    /// written in the bar (the places are typed).
+    fn open_measure(&mut self, item: measures::Item) {
+        match item {
+            measures::Item::Category(i) => self.overlay = Some(Overlay::Picker(Picker::new(self.config, i, self.system))),
+            measures::Item::EarthDistance => {
+                self.line.set("distance ");
+                self.overlay = None;
+                self.mode = Mode::Input;
+            }
+        }
+    }
+
+    /// The Measures' keys: ↑ ↓ (j k) choose, a class's letter or Enter opens it, Esc closes.
+    fn measures_key(&mut self, key: Key) {
+        let Some(Overlay::Measures(v)) = &mut self.overlay else { return };
+        match key {
+            Key::Esc | Key::Char('q') => self.overlay = None,
+            Key::Down | Key::Char('j') | Key::Tab => v.step(self.config, true),
+            Key::Up | Key::Char('k') | Key::BackTab => v.step(self.config, false),
+            Key::Enter | Key::Right | Key::Char('l') => {
+                let item = v.item(self.config);
+                self.open_measure(item);
+            }
+            Key::Char(c) => {
+                if let Some(item) = measures::by_key(self.config, c) {
+                    self.open_measure(item);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// The currencies' keys: typing edits the query, ↑ ↓ choose, Enter writes the code.
+    fn currencies_key(&mut self, key: Key) {
+        let Some(Overlay::Currencies(v)) = &mut self.overlay else { return };
+        let found = currencies::matches(&v.query).len();
+        match key {
+            Key::Esc => self.overlay = None,
+            Key::Char(c) => {
+                v.query.push(c);
+                v.selected = 0;
+            }
+            Key::Backspace => {
+                v.query.pop();
+                v.selected = 0;
+            }
+            Key::Down | Key::Tab if found > 0 => v.selected = (v.selected + 1) % found,
+            Key::Up | Key::BackTab if found > 0 => v.selected = (v.selected + found - 1) % found,
+            Key::Enter => {
+                if let Some(c) = currencies::matches(&v.query).get(v.selected) {
+                    let line = picker::place_unit(&self.line.text(), self.line.cursor(), &c.code);
+                    self.line.set(&line);
+                    self.overlay = None;
+                    if picker::has_target(&line) {
+                        self.mode = Mode::Input;
+                    }
+                }
+            }
+            _ => {}
+        }
     }
 
     /// The Trivia's keys: Tab / ← → the section, ↑ ↓ the entry, Enter its popup; in the popup,
@@ -335,7 +393,9 @@ impl<'a> App<'a> {
             return;
         }
         match self.overlay {
+            Some(Overlay::Measures(_)) => self.measures_key(key),
             Some(Overlay::Picker(_)) => self.picker_key(key),
+            Some(Overlay::Currencies(_)) => self.currencies_key(key),
             Some(Overlay::Trivia(_)) => self.trivia_key(key),
             Some(Overlay::Search(_)) => self.search_key(key),
             Some(Overlay::Settings(ref mut view)) => {
@@ -473,21 +533,15 @@ impl<'a> App<'a> {
         }
     }
 
-    /// The unit keys: arrows and `h j k l` move (circular), Tab switches tab, a category letter
-    /// shows that category, Enter writes the unit, Esc goes back to the digits.
+    /// The unit keys: arrows and `h j k l` move (circular), Tab switches tab, a class's letter
+    /// shows that class, Enter writes the unit, Esc goes back to the Measures.
     fn picker_key(&mut self, key: Key) {
         let Some(Overlay::Picker(p)) = &mut self.overlay else { return };
         match key {
-            Key::Esc => self.overlay = None,
+            Key::Esc => self.overlay = Some(Overlay::Measures(measures::View::at(self.config, measures::Item::Category(p.category)))),
             // Write the unit (and a space). With the target unit set the expression is complete:
             // back to input mode; otherwise stay on the buttons for the next unit.
             // Formats tab: the format becomes the target, which completes the expression.
-            // Earth distance: the request is written, the places are typed.
-            Key::Enter if p.tool == Some(crate::config::EARTH_DISTANCE) => {
-                self.line.set("distance ");
-                self.overlay = None;
-                self.mode = Mode::Input;
-            }
             Key::Enter if p.shows_formats(self.config) => {
                 if let Some(word) = p.selected_format() {
                     self.line.set(&picker::place_format(&self.line.text(), &word));
@@ -506,16 +560,15 @@ impl<'a> App<'a> {
                     }
                 }
             }
-            Key::Tab => p.switch_tab(self.config, true),
-            Key::BackTab => p.switch_tab(self.config, false),
+            Key::Tab | Key::BackTab => p.switch_tab(),
             Key::Left | Key::Char('h') => p.step(self.config, Direction::Left),
             Key::Right | Key::Char('l') => p.step(self.config, Direction::Right),
             Key::Up | Key::Char('k') => p.step(self.config, Direction::Up),
             Key::Down | Key::Char('j') => p.step(self.config, Direction::Down),
-            // Another category's units (`l` and `k` move, so Length is `L` and Temperature `K`).
+            // Another class's units (`l` and `k` move, so Length is `L` and Temperature `K`).
             Key::Char(c) => {
-                if let Some(s) = shortcuts(self.config).into_iter().find(|s| s.key == c.to_ascii_uppercase()) {
-                    self.open(&s);
+                if let Some(item) = measures::by_key(self.config, c) {
+                    self.open_measure(item);
                 }
             }
             _ => {}
@@ -804,14 +857,13 @@ mod tests {
         let config = Config::default();
         let list = shortcuts(&config);
         let names: Vec<_> = list.iter().map(|s| format!("{} {}", s.key, s.name)).collect();
-        // Length, Area and Volume are in the Size group.
-        assert_eq!(names, ["/ Search", "T Time", "D Data", "S Size", "P Other physical", "R Trivia", "O ⚙ Settings"]);
+        assert_eq!(names, ["/ Search", "M Measures", "U Currencies", "R Trivia", "O ⚙ Settings"]);
         for (i, s) in list.iter().enumerate() {
             assert!(list[i + 1..].iter().all(|other| other.key != s.key), "shortcut {} used twice", s.key);
         }
     }
 
-    /// In command mode, what a printable key does: the category it opens (a shortcut), or
+    /// In command mode, what a printable key does: the window it opens (a shortcut), or
     /// `None` when it is a command key or does nothing.
     fn opens(config: &Config, c: char) -> Option<String> {
         let opts = options(config);
@@ -820,7 +872,8 @@ mod tests {
         app.handle(Key::Esc);
         app.handle(Key::Char(c));
         match &app.overlay {
-            Some(Overlay::Picker(p)) => Some(p.title(config).to_string()),
+            Some(Overlay::Measures(_)) => Some(crate::config::MEASURES.0.to_string()),
+            Some(Overlay::Currencies(_)) => Some(crate::config::CURRENCIES.0.to_string()),
             Some(Overlay::Trivia(_)) => Some(crate::config::TRIVIA.0.to_string()),
             Some(Overlay::Search(_)) => Some(crate::config::SEARCH.0.to_string()),
             Some(Overlay::Settings(_)) => Some(crate::config::SETTINGS.0.to_string()),
@@ -828,11 +881,10 @@ mod tests {
         }
     }
 
-    /// Every shortcut opens its own category: in upper case always, in lower case unless the
-    /// lower case is a command key (taken from what the keys do, not from a list): `k` is
-    /// history up… so Temperature is `K` only.
+    /// Every shortcut opens its own window: in upper case always, in lower case unless the
+    /// lower case is a command key (taken from what the keys do, not from a list).
     #[test]
-    fn shortcuts_open_their_category() {
+    fn shortcuts_open_their_window() {
         let config = Config::default();
         for s in shortcuts(&config) {
             let key = s.key;
@@ -843,7 +895,7 @@ mod tests {
                 None => assert!(['k'].contains(&lower), "{lower} is a command key: only {key} opens {}", s.name),
             }
         }
-        // No other letter opens a category.
+        // No other letter opens a window.
         let keys: Vec<char> = shortcuts(&config).iter().flat_map(|s| [s.key, s.key.to_ascii_lowercase()]).collect();
         for c in ('a'..='z').chain('A'..='Z').filter(|c| !keys.contains(c)) {
             assert_eq!(opens(&config, c), None, "{c}");
@@ -954,17 +1006,20 @@ mod tests {
         let mut app = App::new(&config, &opts);
         typed(&mut app, "10");
         app.handle(Key::Esc);
-        // Z turns the keypad into the Size units, on the Length tab (mm cm m km / in ft yd mi);
+        // M: the Measures; L: the Length units, metric (mm cm m km);
         // l l l → km, Enter writes it and a space.
-        app.handle(Key::Char('S'));
+        app.handle(Key::Char('M'));
+        assert!(matches!(app.overlay, Some(Overlay::Measures(_))));
+        app.handle(Key::Char('L'));
         assert!(matches!(&app.overlay, Some(Overlay::Picker(p)) if p.category(&config).name == "Length"));
         typed(&mut app, "lll");
         app.handle(Key::Enter);
         assert_eq!(app.line.text(), "10 km ");
         assert_eq!(app.mode, Mode::Command);
-        // The buttons stay for the next unit. j: the imperial row, same column → mi.
+        // The buttons stay for the next unit. Tab: the imperial tab (in ft yd mi), l l l → mi.
         assert!(matches!(app.overlay, Some(Overlay::Picker(_))));
-        typed(&mut app, "j");
+        app.handle(Key::Tab);
+        typed(&mut app, "lll");
         app.handle(Key::Enter);
         assert_eq!(app.line.text(), "10 km mi ");
         // The target is set: the expression is complete, so the buttons close and input mode is back.
@@ -979,13 +1034,13 @@ mod tests {
         let opts = options(&config);
         let mut app = App::new(&config, &opts);
         app.handle(Key::Esc);
-        app.handle(Key::Char('D'));
+        typed(&mut app, "MB");
         let state = |app: &App| match &app.overlay {
             Some(Overlay::Picker(p)) => (p.category(&config).name, p.tab, p.items(&config)[p.selected].symbol),
             _ => panic!("no unit keys"),
         };
         // Data, Decimal: B kB MB GB TB / b kb Mb Gb Tb.
-        assert_eq!(state(&app), ("Data", System::Metric, "B"));
+        assert_eq!(state(&app), (crate::config::BITS, System::Metric, "B"));
         // h / l: left / right, circular.
         typed(&mut app, "ll");
         assert_eq!(state(&app).2, "MB");
@@ -1007,50 +1062,37 @@ mod tests {
         assert_eq!(state(&app).1, System::Metric);
         app.handle(Key::BackTab);
         assert_eq!(state(&app).1, System::Imperial);
-        // A shortcut's letter shows its units: P, Other physical, on Mass; S, Size, on Length.
-        typed(&mut app, "p");
+        // A class's letter shows its units: M Mass, s Speed, T Date & Time.
+        typed(&mut app, "M");
         assert_eq!(state(&app).0, "Mass");
         typed(&mut app, "s");
-        assert_eq!(state(&app).0, "Length");
+        assert_eq!(state(&app).0, "Speed");
         typed(&mut app, "t");
-        assert_eq!((state(&app).0, state(&app).1), ("Time", System::Metric), "Time opens on Short");
+        assert_eq!((state(&app).0, state(&app).1), (crate::config::TIME, System::Metric), "Date & Time opens on the durations");
         typed(&mut app, "x");
-        assert_eq!(state(&app).0, "Time", "other letters do nothing");
+        assert_eq!(state(&app).0, crate::config::TIME, "other letters do nothing");
+        // Esc: back to the Measures, on the class shown.
+        app.handle(Key::Esc);
+        assert!(matches!(&app.overlay, Some(Overlay::Measures(v)) if v.item(&config) == measures::Item::Category(0)));
+        app.handle(Key::Esc);
+        assert!(app.overlay.is_none());
     }    #[test]
-    fn unit_buttons_move_by_row() {
+    fn measures_list() {
         let config = Config::default();
         let opts = options(&config);
         let mut app = App::new(&config, &opts);
-        app.system = System::Imperial;
         app.handle(Key::Esc);
-        app.handle(Key::Char('s'));
-        // Size; Tab Tab: the Volume tab, on the imperial row (the app's system): ml cl l m3 /
-        // floz-us pt-us qt-us gal-us cup floz-uk pt-uk qt-uk gal-uk. ↑ ↓ one row; ← → one button.
-        app.handle(Key::Tab);
-        app.handle(Key::Tab);
-        let selected = |app: &App| match &app.overlay {
-            Some(Overlay::Picker(p)) => p.items(&config)[p.selected].symbol,
-            _ => panic!("no picker"),
-        };
-        assert_eq!(selected(&app), "floz-us");
-        app.handle(Key::Right);
-        assert_eq!(selected(&app), "pt-us");
-        app.handle(Key::Up);
-        assert_eq!(selected(&app), "cl");
+        app.handle(Key::Char('m'));
+        // ↓ ↓: Length; Enter opens its units, Esc comes back to it.
         app.handle(Key::Down);
-        assert_eq!(selected(&app), "pt-us");
-        app.handle(Key::Left);
-        app.handle(Key::Left);
-        assert_eq!(selected(&app), "m3", "left of the row's first: the row above's last");
-        // Tab: the next tab (Angle), on the imperial row.
-        app.handle(Key::Tab);
-        assert_eq!(selected(&app), "deg");
-        app.handle(Key::BackTab);
+        app.handle(Key::Char('j'));
         app.handle(Key::Enter);
-        assert_eq!(app.line.text(), "1 floz-us ");
-        // Only the source: the buttons stay, still in command mode.
-        assert!(matches!(app.overlay, Some(Overlay::Picker(_))));
-        assert_eq!(app.mode, Mode::Command);
+        assert!(matches!(&app.overlay, Some(Overlay::Picker(p)) if p.title(&config) == "Length"));
+        app.handle(Key::Esc);
+        assert!(matches!(&app.overlay, Some(Overlay::Measures(v)) if v.selected == 2));
+        app.handle(Key::Up);
+        app.handle(Key::Enter);
+        assert!(matches!(&app.overlay, Some(Overlay::Picker(p)) if p.title(&config) == crate::config::BITS));
     }
 
     #[test]
@@ -1073,11 +1115,11 @@ mod tests {
         assert!(matches!(app.overlay, Some(Overlay::Settings(_))));
         // A shortcut's letter moves the highlight to it.
         app.handle(Key::Esc);
-        app.handle(Key::Char('S'));
+        app.handle(Key::Char('U'));
         app.handle(Key::Esc);
-        assert_eq!(shortcuts(&config)[app.menu].name, "Size");
+        assert_eq!(shortcuts(&config)[app.menu].name, crate::config::CURRENCIES.0);
         app.handle(Key::Enter);
-        assert!(matches!(&app.overlay, Some(Overlay::Picker(p)) if p.title(&config) == "Size"));
+        assert!(matches!(app.overlay, Some(Overlay::Currencies(_))));
     }
 
     #[test]
@@ -1117,8 +1159,8 @@ mod tests {
         // Another shortcut from the Trivia.
         app.handle(Key::Esc);
         app.handle(Key::Char('R'));
-        app.handle(Key::Char('D'));
-        assert!(matches!(&app.overlay, Some(Overlay::Picker(p)) if p.title(&config) == "Data"));
+        app.handle(Key::Char('M'));
+        assert!(matches!(app.overlay, Some(Overlay::Measures(_))));
     }
 
     #[test]
@@ -1155,14 +1197,37 @@ mod tests {
         let opts = options(&config);
         let mut app = App::new(&config, &opts);
         app.handle(Key::Esc);
-        app.handle(Key::Char('S'));
-        for _ in 0..4 {
-            app.handle(Key::Tab);
-        }
-        app.handle(Key::Enter);
+        typed(&mut app, "MD");
         assert_eq!((app.line.text(), app.mode), ("distance ".to_string(), Mode::Input));
         typed(&mut app, "Rome to Paris");
         assert_eq!(app.preview(), Some(Ok("1107 km".into())));
+    }
+
+    #[test]
+    fn currencies_write_the_code() {
+        let config = Config::default();
+        let opts = options(&config);
+        let mut app = App::new(&config, &opts);
+        typed(&mut app, "10");
+        app.handle(Key::Esc);
+        app.handle(Key::Char('u'));
+        // Letters are the query, not commands.
+        typed(&mut app, "euro");
+        app.handle(Key::Enter);
+        assert_eq!((app.line.text(), app.overlay.is_none()), ("10 EUR ".to_string(), true));
+        app.handle(Key::Char('U'));
+        typed(&mut app, "yen");
+        app.handle(Key::Down);
+        app.handle(Key::Up);
+        app.handle(Key::Enter);
+        assert_eq!((app.line.text(), app.mode), ("10 EUR JPY ".to_string(), Mode::Input));
+        // Esc closes it without writing.
+        app.handle(Key::Esc);
+        app.handle(Key::Char('U'));
+        typed(&mut app, "x");
+        app.handle(Key::Backspace);
+        app.handle(Key::Esc);
+        assert_eq!((app.line.text(), app.overlay.is_none()), ("10 EUR JPY ".to_string(), true));
     }
 
     #[test]
@@ -1186,7 +1251,7 @@ mod tests {
         let opts = options(&config);
         let mut app = App::new(&config, &opts);
         app.handle(Key::Esc);
-        app.handle(Key::Char('D'));
+        typed(&mut app, "MB");
         // Decimal: B kB MB GB TB / b kb Mb Gb Tb, so ↓ goes from bytes to the same size in bits.
         app.handle(Key::Right);
         app.handle(Key::Right);
@@ -1201,14 +1266,12 @@ mod tests {
         let mut app = App::new(&config, &opts);
         app.system = System::Imperial;
         app.handle(Key::Esc);
-        app.handle(Key::Char('P'));
-        assert!(matches!(&app.overlay, Some(Overlay::Picker(p)) if p.items(&config)[p.selected].symbol == "oz"), "Mass: the imperial row");
-        app.handle(Key::Esc);
-        app.handle(Key::Char('S'));
-        assert!(matches!(&app.overlay, Some(Overlay::Picker(p)) if p.items(&config)[p.selected].symbol == "in"), "Size: the imperial row");
-        app.handle(Key::Esc);
-        app.handle(Key::Char('D'));
-        assert!(matches!(&app.overlay, Some(Overlay::Picker(p)) if p.tab == System::Metric), "Data: decimal");
+        typed(&mut app, "MM");
+        assert!(matches!(&app.overlay, Some(Overlay::Picker(p)) if p.tab == System::Imperial), "Mass: imperial");
+        typed(&mut app, "L");
+        assert!(matches!(&app.overlay, Some(Overlay::Picker(p)) if p.items(&config)[p.selected].symbol == "in"), "Length: imperial");
+        typed(&mut app, "B");
+        assert!(matches!(&app.overlay, Some(Overlay::Picker(p)) if p.tab == System::Metric), "bits and bytes: decimal");
     }
 
     #[test]
@@ -1218,8 +1281,9 @@ mod tests {
         let mut app = App::new(&config, &opts);
         typed(&mut app, "10 km");
         app.handle(Key::Esc);
-        app.handle(Key::Char('M'));
+        typed(&mut app, "MM");
         typed(&mut app, "kk");
+        app.handle(Key::Esc);
         app.handle(Key::Esc);
         assert!(app.overlay.is_none());
         assert_eq!(app.line.text(), "10 km");
@@ -1234,9 +1298,10 @@ mod tests {
         app.handle(Key::Esc);
         app.handle(Key::Char('0'));
         app.handle(Key::Char('w'));
-        // Size, the imperial row (j), ft (l).
-        app.handle(Key::Char('S'));
-        typed(&mut app, "jl");
+        // Length, the imperial tab, ft (l).
+        typed(&mut app, "ML");
+        app.handle(Key::Tab);
+        typed(&mut app, "l");
         app.handle(Key::Enter);
         assert_eq!(app.line.text(), "10 ft mi", "replaced in place: no space added");
         assert_eq!(app.mode, Mode::Input, "source and target set: complete");
@@ -1359,7 +1424,7 @@ mod tests {
         // Picking the duration's unit on the unit keys completes the expression: input mode.
         typed(&mut app, "2026/12/24 - 12");
         app.handle(Key::Esc);
-        app.handle(Key::Char('T'));
+        typed(&mut app, "MT");
         for _ in 0..6 {
             app.handle(Key::Char('l'));
         }

@@ -1883,7 +1883,7 @@ fn time_unit(config: &Config, name: &str) -> Option<&'static str> {
         return Some(WORKDAY);
     }
     let (category, unit) = convert::find_unit(config, name)?;
-    (category.name == "Time").then_some(unit.symbol)
+    (category.name == crate::config::TIME).then_some(unit.symbol)
 }
 
 /// Evaluates a date request: the result and notes on how guessed dates were read. `None` if
