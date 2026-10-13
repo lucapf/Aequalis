@@ -50,6 +50,10 @@ fn names_countries_symbols() {
         ("12€ usd", "13.42 USD"),
         ("12dhs usd", "3.27 USD"),
         ("12 GBP in japan", "2518.79 JPY"),
+        // Countries with several time zones: money has one currency, no zone is asked.
+        ("12 USA UAE", "44.07 AED"),
+        ("12 USA", "10.73 EUR"),
+        ("12 Canada to USA", "8.41 USD"),
     ] {
         let words: Vec<&str> = request.split(' ').collect();
         assert_eq!(out(&tally(&dir, &words, &[])), answer, "{request}");
@@ -95,6 +99,9 @@ fn other_requests_are_unchanged() {
     assert!(tally(&dir, &["1", "cup", "ml"], &[]).status.success());
     assert!(out(&tally(&dir, &["10:00AM", "USA", "to", "Japan"], &[])).is_empty(), "USA has several zones: asked");
     assert!(out(&tally(&dir, &["10:00AM", "Italy", "Japan"], &[])).ends_with(" Tokyo"));
+    // A time with a country of several zones: which zone (the time request, unchanged).
+    let o = tally(&dir, &["10:00", "USA", "UAE"], &[]);
+    assert!(err(&o).contains("`USA` has several time zones"), "{}", err(&o));
     assert!(out(&tally(&dir, &["Italy", "Japan"], &[])).ends_with(" km"), "a distance");
     assert_eq!(out(&tally(&dir, &["10", "km", "mi"], &[])), "6.2137 mi");
 }
