@@ -37,6 +37,12 @@ fn strings(items: &[String]) -> String {
 /// `Object::new().str("name", "Rome").num("count", 3).finish()` → `{"name":"Rome","count":3}`.
 pub struct Object(String);
 
+impl Default for Object {
+    fn default() -> Object {
+        Object::new()
+    }
+}
+
 impl Object {
     pub fn new() -> Object {
         Object(String::from("{"))

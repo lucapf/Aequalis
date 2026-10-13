@@ -6,7 +6,6 @@
 use crate::config::Config;
 use crate::convert;
 use crate::json::{self, Value};
-use std::process::Command;
 use std::sync::OnceLock;
 
 const TRIVIA: &str = include_str!("data/trivia.json");
@@ -362,8 +361,7 @@ pub fn fetch_live(horizons: &str) -> Option<f64> {
     let url = format!(
         "https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND='{horizons}'&OBJ_DATA='NO'&MAKE_EPHEM='YES'&EPHEM_TYPE='OBSERVER'&CENTER='500@399'&START_TIME='{day}'&STOP_TIME='{tomorrow}'&STEP_SIZE='1d'&QUANTITIES='20'"
     );
-    let out = Command::new("curl").args(["-s", "--max-time", "8", &url]).output().ok()?;
-    horizons_distance(&String::from_utf8_lossy(&out.stdout))
+    horizons_distance(&String::from_utf8_lossy(&crate::http::get(&url, 8, false)?))
 }
 
 /// Where a value comes from, for people: `synced 11 Oct 26 6:52 PM from JPL Horizons`, `as of
@@ -419,15 +417,15 @@ pub enum Satellites {
     Unchanged,
 }
 
-/// Active satellites by kind, counted from CelesTrak's list of active satellites (CSV, `curl`,
-/// 20 s at most). `None`: no answer (offline, or not a list).
+/// Active satellites by kind, counted from CelesTrak's list of active satellites (CSV, 20 s at
+/// most). `None`: no answer (offline, or not a list).
 pub fn fetch_satellites() -> Option<Satellites> {
     if !crate::network::allowed() {
         return None;
     }
     let url = "https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=csv";
-    let out = Command::new("curl").args(["-s", "--max-time", "20", url]).output().ok()?;
-    let body = String::from_utf8_lossy(&out.stdout);
+    let body = crate::http::get(url, 20, false)?;
+    let body = String::from_utf8_lossy(&body);
     if body.contains("has not updated since your last successful") {
         return Some(Satellites::Unchanged);
     }

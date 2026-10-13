@@ -16,7 +16,6 @@ use crate::online::{Data, Source};
 use crate::time::tz;
 use crate::time::{Ambiguity, AmbiguityKind, Choice};
 use std::path::PathBuf;
-use std::process::Command;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -600,13 +599,12 @@ pub fn source() -> Source {
     Source { names: vec![RATES_DATE.to_string()], fetch: Box::new(fetch) }
 }
 
-/// The rates from ExchangeRate-API (`curl`, 15 s at most). `None`: no answer.
+/// The rates from ExchangeRate-API (15 s at most). `None`: no answer.
 fn fetch() -> Option<Vec<(String, f64)>> {
     if !crate::network::allowed() {
         return None;
     }
-    let out = Command::new("curl").args(["-s", "--max-time", "15", URL]).output().ok()?;
-    parse(&String::from_utf8_lossy(&out.stdout))
+    parse(&String::from_utf8_lossy(&crate::http::get(URL, 15, false)?))
 }
 
 /// The rates in ExchangeRate-API's answer (`{"result":"success","time_last_update_unix":…,

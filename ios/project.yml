@@ -1,0 +1,61 @@
+# The iPhone app's Xcode project, generated with XcodeGen (`brew install xcodegen`, then
+# `xcodegen generate` here): Tally.xcodeproj is not kept in git. The Rust core comes from
+# TallyCore.xcframework (scripts/build-ios.sh). Set your team in DEVELOPMENT_TEAM (or in Xcode,
+# Signing & Capabilities) to run it on a phone.
+name: Tally
+options:
+  bundleIdPrefix: com.lucapf
+  deploymentTarget:
+    iOS: "17.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    DEVELOPMENT_TEAM: ""
+    MARKETING_VERSION: "0.2.3"
+    CURRENT_PROJECT_VERSION: "1"
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+targets:
+  Tally:
+    type: application
+    platform: iOS
+    sources: [Tally]
+    dependencies:
+      - framework: TallyCore.xcframework
+        embed: false
+    info:
+      path: Tally/Info.plist
+      properties:
+        CFBundleDisplayName: Tally
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        # The background refresh of the online data (TallyApp.swift).
+        UIBackgroundModes: [fetch]
+        BGTaskSchedulerPermittedIdentifiers: [com.lucapf.tally.refresh]
+        ITSAppUsesNonExemptEncryption: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.lucapf.tally
+        TARGETED_DEVICE_FAMILY: "1"
+    postBuildScripts:
+      # The zone files, for when the system's can't be read (Engine.zoneinfo()).
+      - name: Zone files
+        basedOnDependencyAnalysis: false
+        script: |
+          rsync -aL --delete --exclude right --exclude posix --exclude '*.tab' --exclude '*.zi' \
+            /usr/share/zoneinfo/ "${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/zoneinfo/"
+  TallyTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [TallyTests]
+    dependencies:
+      - target: Tally
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  Tally:
+    build:
+      targets:
+        Tally: all
+    test:
+      targets: [TallyTests]

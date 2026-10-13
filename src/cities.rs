@@ -22,7 +22,6 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Seek, SeekFrom, Write};
 use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 
 /// Where the archive comes from (also a setting, `cities.url`, for mirrors and tests).
 pub const URL: &str = "https://github.com/lucapf/tally/releases/download/cities/cities.json.gz";
@@ -510,32 +509,30 @@ pub fn version_url(url: &str) -> String {
 
 /// The published archive's version (a few bytes); `None`: no answer.
 pub fn remote_version(url: &str) -> Option<String> {
-    let out = Command::new("curl").args(["-sfL", "--max-time", "20", &version_url(url)]).output().ok()?;
-    let v = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    (out.status.success() && v.split(' ').count() == 2).then_some(v)
+    let body = crate::http::get(&version_url(url), 20, true)?;
+    let v = String::from_utf8_lossy(&body).trim().to_string();
+    (v.split(' ').count() == 2).then_some(v)
 }
 
-/// Downloads the archive at `url` (`curl … | gzip -dc`) and makes it the one in use, in `base`.
+/// Downloads the archive at `url` (gzip: decompressed here, `inflate.rs`) and makes it the one in
+/// use, in `base`.
 /// Returns how many cities.
 pub fn download(base: &Path, url: &str, now: i64) -> Result<u64, String> {
     let version = remote_version(url).unwrap_or_default();
     let tmp = base.join(format!("cities.{}.download", std::process::id()));
     std::fs::create_dir_all(base).map_err(|e| e.to_string())?;
     let json = tmp.with_extension("json");
-    {
-        let mut curl = Command::new("curl").args(["-sfL", "--max-time", "600", url]).stdout(Stdio::piped()).spawn().map_err(|e| format!("curl: {e}"))?;
-        let out = File::create(&json).map_err(|e| e.to_string())?;
-        let gunzip = Command::new("gzip")
-            .arg("-dc")
-            .stdin(curl.stdout.take().ok_or("curl: no output")?)
-            .stdout(out)
-            .status()
-            .map_err(|e| format!("gzip: {e}"))?;
-        let fetched = curl.wait().map_err(|e| e.to_string())?;
-        if !fetched.success() || !gunzip.success() {
-            let _ = std::fs::remove_file(&json);
-            return Err(format!("could not download the city archive ({url})"));
-        }
+    let gz = tmp.with_extension("json.gz");
+    let unpacked = match crate::http::save(url, &gz, 600) {
+        true => File::open(&gz).and_then(|from| File::create(&json).map(|to| (from, to))).map_err(|e| e.to_string()).and_then(|(from, to)| {
+            crate::inflate::gunzip(from, std::io::BufWriter::new(to))
+        }),
+        false => Err(format!("could not download the city archive ({url})")),
+    };
+    let _ = std::fs::remove_file(&gz);
+    if let Err(e) = unpacked {
+        let _ = std::fs::remove_file(&json);
+        return Err(e);
     }
     let result = install(base, &json, &version, now);
     let _ = std::fs::remove_file(&json);

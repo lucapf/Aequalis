@@ -17,6 +17,8 @@ categories = ["command-line-utilities", "science", "date-and-time"]
 default = ["tui"]
 # Interactive mode (`tally` with no arguments in a terminal). Still no dependencies.
 tui = []
+# The C interface for apps that embed tally (the iPhone app: `src/ffi.rs`, `include/tally.h`).
+ffi = []
 
 [profile.release]
 opt-level = "z"

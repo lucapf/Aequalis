@@ -1,0 +1,4 @@
+module TallyFFI {
+    header "tally.h"
+    export *
+}

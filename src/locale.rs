@@ -11,6 +11,9 @@
 use crate::config::System;
 
 pub fn device_system() -> System {
+    if let Some(&system) = DEVICE_SYSTEM.get() {
+        return system;
+    }
     #[cfg(target_os = "macos")]
     if let Some(system) = macos_setting() {
         return system;
@@ -21,6 +24,14 @@ pub fn device_system() -> System {
         .or_else(|| var("LANG"))
         .and_then(|locale| from_locale(&locale))
         .unwrap_or(System::Metric)
+}
+
+static DEVICE_SYSTEM: std::sync::OnceLock<System> = std::sync::OnceLock::new();
+
+/// The device's system as the app embedding tally knows it (the iPhone app: from `Locale`); set
+/// once, before use.
+pub fn set_device_system(system: System) {
+    let _ = DEVICE_SYSTEM.set(system);
 }
 
 /// `en_US.UTF-8` → imperial, `it_IT.UTF-8` → metric; `C` / `POSIX` / no territory → unknown.
