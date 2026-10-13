@@ -47,9 +47,9 @@ fn download_then_any_city() {
     // device's country (its time zone), then by population.
     let o = common::tally_in("Europe/Rome", &dir, &["Chicago", "Paris"]);
     assert_eq!(o.status.code(), Some(2));
-    assert!(common::err(&o).contains("`Paris` is several places: did you mean Paris, Île-de-France, France or Paris, Texas, United States?"), "{}", common::err(&o));
+    assert!(common::err(&o).contains("`Paris` is several places: did you mean Paris - France or Paris - United States?"), "{}", common::err(&o));
     let o = common::tally_in("America/Chicago", &dir, &["Chicago", "Paris"]);
-    assert!(common::err(&o).contains("did you mean Paris, Texas, United States or Paris, Île-de-France, France?"), "in the US: {}", common::err(&o));
+    assert!(common::err(&o).contains("did you mean Paris - United States or Paris - France?"), "in the US: {}", common::err(&o));
     let json = common::out(&common::tally(&dir, &["--json", "Chicago", "Paris"]));
     assert!(json.contains(r#""kind":"place""#) && json.contains("google.com/maps?q="), "{json}");
     // -v: where they are.

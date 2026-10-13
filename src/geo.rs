@@ -400,27 +400,39 @@ fn between(
 /// the device's country, then the others; by population within each.
 fn question(a: &Side, b: &Side, unit: &str, local: Option<&str>) -> crate::time::Ambiguity {
     use crate::cities::City;
-    let ranked = |s: &Side| -> Vec<(String, Option<City>)> {
+    // Each city: the request's name (qualified: exact), the city, its short label (`Milano -
+    // Italy`, the region only when its country has another city of that name).
+    let ranked = |s: &Side| -> Vec<(String, Option<City>, String)> {
         match s {
-            Side::One(p, c) => vec![(c.as_ref().map_or(p.name.clone(), City::qualified), c.clone())],
+            Side::One(p, c) => vec![(c.as_ref().map_or(p.name.clone(), City::qualified), c.clone(), String::new())],
             Side::Several(typed, cities) | Side::Misspelt(typed, cities) => {
-                let mut cities = cities.clone();
-                crate::cities::rank(&mut cities, typed, local);
-                cities.into_iter().map(|c| (c.qualified(), Some(c))).collect()
+                let mut ranked = cities.clone();
+                crate::cities::rank(&mut ranked, typed, local);
+                // Misspelt: the cities' own names, not an alias that starts like the misspelling.
+                let typed = if matches!(s, Side::Misspelt(..)) { "" } else { typed.as_str() };
+                ranked
+                    .into_iter()
+                    .map(|c| {
+                        let twin = cities.iter().any(|o| o.id != c.id && o.country_code == c.country_code);
+                        let label = c.label(&c.called(typed), twin);
+                        (c.qualified(), Some(c), label)
+                    })
+                    .collect()
             }
         }
     };
     let options_a = ranked(a);
     let options_b = ranked(b);
     let mut choices = Vec::new();
-    'outer: for (name_a, city_a) in &options_a {
-        for (name_b, city_b) in &options_b {
+    'outer: for (name_a, city_a, label_a) in &options_a {
+        for (name_b, city_b, label_b) in &options_b {
             if choices.len() >= crate::cities::MAX_CHOICES {
                 break 'outer;
             }
-            let asked: Vec<&City> = [(a, city_a), (b, city_b)].into_iter().filter(|(s, _)| !matches!(s, Side::One(..))).filter_map(|(_, c)| c.as_ref()).collect();
+            let unclear = [(a, city_a, label_a), (b, city_b, label_b)].into_iter().filter(|(s, ..)| !matches!(s, Side::One(..)));
+            let (asked, labels): (Vec<&City>, Vec<&str>) = unclear.filter_map(|(_, c, l)| Some((c.as_ref()?, l.as_str()))).unzip();
             choices.push(crate::time::Choice {
-                pattern: asked.iter().map(|c| c.qualified()).collect::<Vec<_>>().join(" → "),
+                pattern: labels.join(" → "),
                 // One city: its population and map link; two: their populations.
                 date: match &asked[..] {
                     [one] => format!("{} inhabitants · {}", numbers::device().apply(&one.population.to_string()), one.maps()),
@@ -588,10 +600,10 @@ mod tests {
             let a = ask("Chicago Paris", None);
             assert_eq!(a.kind, crate::time::AmbiguityKind::Place);
             assert_eq!(a.note, "`Paris` is several places");
-            assert_eq!(a.choices.iter().map(|c| c.pattern.as_str()).collect::<Vec<_>>(), ["Paris, Île-de-France, France", "Paris, Texas, United States"]);
+            assert_eq!(a.choices.iter().map(|c| c.pattern.as_str()).collect::<Vec<_>>(), ["Paris - France", "Paris - United States"], "short: one Paris per country");
             assert_eq!(a.choices[0].request, "distance Chicago, Illinois, United States to Paris, Île-de-France, France km");
             let a = ask("Chicago Paris", Some("US"));
-            assert_eq!(a.choices[0].pattern, "Paris, Texas, United States", "the device's country");
+            assert_eq!(a.choices[0].pattern, "Paris - United States", "the device's country");
             assert!(a.choices[0].date.contains("inhabitants · https://www.google.com/maps?q="));
             // Each choice converts.
             for c in &a.choices {
@@ -600,11 +612,11 @@ mod tests {
             // Both several: the device's country first (Italy), then by population.
             let a = ask("Rome Springfield", Some("IT"));
             assert_eq!(a.note, "`Rome`, `Springfield` are several places each");
-            assert!(a.choices[0].pattern.starts_with("Rome, Lazio, Italy → Springfield, Missouri"), "{}", a.choices[0].pattern);
+            assert_eq!(a.choices[0].pattern, "Rome - Italy → Springfield - Missouri - United States", "the region when the country has several");
             let a = ask("Rome Chicago", Some("US"));
-            assert_eq!(a.choices[0].pattern, "Rome, Georgia, United States", "the device's country");
+            assert_eq!(a.choices[0].pattern, "Rome - United States", "the device's country");
             let a = ask("Rome Paris, France", Some("FR"));
-            assert_eq!(a.choices[0].pattern, "Rome, Lazio, Italy", "by population when no rule applies");
+            assert_eq!(a.choices[0].pattern, "Rome - Italy", "by population when no rule applies");
             assert!(a.choices.len() <= crate::cities::MAX_CHOICES);
         }
 

@@ -9,7 +9,10 @@ use crate::convert;
 pub struct Suggestions {
     /// Position (in chars) where the word being completed starts.
     pub start: usize,
+    /// What Tab writes.
     pub names: Vec<String>,
+    /// What is shown for each (cities: `Milano - Italy`); the names themselves when empty.
+    pub labels: Vec<String>,
 }
 
 /// Units that fit the word ending at `cursor`: the source unit after the expression, then the target
@@ -35,7 +38,7 @@ pub fn suggest(config: &Config, line: &str, cursor: usize) -> Option<Suggestions
         return None;
     }
     let names: Vec<String> = matching(config, category, prefix).into_iter().map(str::to_string).collect();
-    (!names.is_empty()).then(|| Suggestions { start: cursor - prefix.chars().count(), names })
+    (!names.is_empty()).then(|| Suggestions { start: cursor - prefix.chars().count(), names, labels: Vec::new() })
 }
 
 /// Cities whose name starts with the last words typed (up to 3: `New Yo`; never across `to`), in
@@ -61,15 +64,15 @@ pub fn cities(config: &Config, before: &str, store: Option<&crate::cities::Store
         if found.is_empty() {
             continue;
         }
-        let names: Vec<String> = found.iter().map(|c| if store.find(&c.name).len() > 1 { c.qualified() } else { c.name.clone() }).collect();
-        let mut unique: Vec<String> = Vec::new();
-        for name in names {
-            if !unique.contains(&name) {
-                unique.push(name);
+        let (mut names, mut labels) = (Vec::new(), Vec::new());
+        for (label, name) in found.iter().map(|c| store.offer(c, &typed)) {
+            if !names.contains(&name) {
+                names.push(name);
+                labels.push(label);
             }
         }
         // Replaced from where the typed words start (the last `n` words).
-        return Some(Suggestions { start: before_start(before, n), names: unique });
+        return Some(Suggestions { start: before_start(before, n), names, labels });
     }
     None
 }
@@ -169,8 +172,8 @@ mod tests {
         assert_eq!(suggest(&config, "10 k mi", 4).unwrap().start, 3);
     }
 
-    /// City names (the sample archive): the most populous first; shared names qualified; not
-    /// after a unit or in a calculation.
+    /// City names (the sample archive): written as short as still finds them, shown as `Name -
+    /// Country` (the region when the country has several); not after a unit or in a calculation.
     #[test]
     fn cities() {
         let config = Config::default();
@@ -180,6 +183,14 @@ mod tests {
         assert_eq!((start, found), (8, vec!["Chicago".to_string()]));
         let (_, found) = names("spr").unwrap();
         assert_eq!(found[0], "Springfield, Missouri, United States");
+        let labels = |before: &str| super::cities(&config, before, Some(&store), None).unwrap().labels;
+        assert_eq!(labels("spr")[0], "Springfield - Missouri - United States");
+        // One per country: no region; written with the country (another country has one too).
+        assert_eq!(labels("Pari"), ["Paris - France", "Paris - United States"]);
+        assert_eq!(names("Pari").unwrap().1, ["Paris, France", "Paris, United States"]);
+        // The person's wording: an alias typed is shown and written (`Parigi`, Paris's Italian name).
+        assert_eq!(labels("Parig"), ["Parigi - France"]);
+        assert_eq!(names("Parig").unwrap().1, ["Parigi"]);
         assert!(names("Chicago ").is_none(), "after a space: nothing yet");
         assert!(names("10 ba").is_none_or(|(_, n)| n.iter().all(|n| n != "bar")));
         assert!(names("x").is_none(), "one letter: too few");

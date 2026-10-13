@@ -61,6 +61,36 @@ impl City {
         [self.name.as_str(), self.region.as_str(), self.country.as_str()].iter().filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join(", ")
     }
 
+    /// What the person calls it: its name, or the alias they typed or started typing (`Milano`
+    /// for `Mila…` only when the name does not start so: `Milan`), in the archive's spelling.
+    pub fn called(&self, typed: &str) -> String {
+        let target = tz::key(typed.split(',').next().unwrap_or(""));
+        if target.is_empty() || tz::key(&self.name).starts_with(&target) {
+            return self.name.clone();
+        }
+        // An alias written with capitals first (`Roma`, not `roma`); one in lower case gets them.
+        let found = |exact: bool| -> Vec<&String> {
+            self.aliases.iter().filter(|a| if exact { tz::key(a) == target } else { tz::key(a).starts_with(&target) }).collect()
+        };
+        let aliases = Some(found(true)).filter(|f| !f.is_empty()).unwrap_or_else(|| found(false));
+        let capital = |a: &&&String| a.chars().next().is_some_and(char::is_uppercase);
+        match (aliases.iter().find(capital), aliases.first()) {
+            (Some(a), _) => a.to_string(),
+            (None, Some(a)) => a.split(' ').map(|w| {
+                let mut c = w.chars();
+                c.next().map_or(String::new(), |f| f.to_uppercase().chain(c).collect())
+            }).collect::<Vec<_>>().join(" "),
+            (None, None) => self.name.clone(),
+        }
+    }
+
+    /// A short label for people: `Milano - Italy`; with the region when another city of its
+    /// country has that name (`twin`): `Springfield - Illinois - United States`.
+    pub fn label(&self, called: &str, twin: bool) -> String {
+        let region = if twin && !self.region.is_empty() { format!(" - {}", self.region) } else { String::new() };
+        format!("{called}{region} - {}", self.country)
+    }
+
     fn from_line(line: &str) -> Option<City> {
         let f: Vec<&str> = line.split('\t').collect();
         if f.len() < 10 {
@@ -271,6 +301,22 @@ impl Store {
                 qualifiers.iter().all(|q| names.contains(q) || tz::country(q).is_some_and(|t| t.code == c.country_code))
             })
             .collect()
+    }
+
+    /// How to offer `city` for what was `typed` (Tab): its short label (`City::label`), and what
+    /// is written, as short as still finds it alone: `Milano`, `Alexandria, Egypt`,
+    /// `Springfield, Illinois, United States`.
+    #[cfg_attr(not(feature = "tui"), allow(dead_code))]
+    pub fn offer(&self, city: &City, typed: &str) -> (String, String) {
+        let called = city.called(typed);
+        let same = self.find(&called);
+        let twin = same.iter().any(|c| c.id != city.id && c.country_code == city.country_code);
+        let written = match (same.len(), twin) {
+            (0 | 1, _) => called.clone(),
+            (_, false) => format!("{called}, {}", city.country),
+            (_, true) => [called.as_str(), city.region.as_str(), city.country.as_str()].iter().filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join(", "),
+        };
+        (city.label(&called, twin), written)
     }
 
     /// Cities whose name or alias starts with `prefix` (Tab), in the order of `rank` (`local`: the
@@ -554,6 +600,33 @@ pub mod tests {
 
     fn names(cities: &[City]) -> Vec<String> {
         cities.iter().map(City::qualified).collect()
+    }
+
+    /// What a city is called: the person's wording (the name, or the alias typed), and its label.
+    #[test]
+    fn called_as_typed() {
+        let milan = City {
+            id: 1,
+            name: "Milan".into(),
+            lat: 0.0,
+            lon: 0.0,
+            population: 1,
+            country_code: "IT".into(),
+            country: "Italy".into(),
+            region: "Lombardy".into(),
+            updated: String::new(),
+            aliases: vec!["Mailand".into(), "milano".into(), "Milano".into()],
+        };
+        assert_eq!(milan.called("Milan"), "Milan");
+        assert_eq!(milan.called("Mila"), "Milan", "the name starts so: the name");
+        assert_eq!(milan.called("Milano"), "Milano", "Italian typed: Italian shown, capitals first");
+        assert_eq!(milan.called("milano, Italy"), "Milano");
+        assert_eq!(milan.called("Mailan"), "Mailand");
+        assert_eq!(milan.called(""), "Milan");
+        assert_eq!(milan.label("Milano", false), "Milano - Italy");
+        assert_eq!(milan.label("Milano", true), "Milano - Lombardy - Italy");
+        let rome = City { aliases: vec!["roma".into()], name: "Rome".into(), ..milan.clone() };
+        assert_eq!(rome.called("Roma"), "Roma", "an alias only in lower case gets its capitals");
     }
 
     /// The order of the cities offered: the exact name (not an alias) in the device's country, the

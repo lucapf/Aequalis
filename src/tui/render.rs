@@ -440,13 +440,17 @@ fn expression(app: &App, canvas: &mut Canvas, top: usize) -> Option<(usize, usiz
         Some(Err(msg)) => col = canvas.put_within(row, col, right, &format!("· {msg}"), Style::Dim),
         None => {}
     }
-    if let Some((names, selected)) = app.suggestions() {
+    if let Some((names, selected, cities)) = app.suggestions() {
         col = canvas.put_within(row, col, right, "   ", Style::Plain);
         if selected.is_none() {
             col = canvas.put_within(row, col, right, "Tab:", Style::Dim);
         }
         for (i, name) in names.iter().enumerate() {
-            col = canvas.put_within(row, col, right, " ", Style::Plain);
+            // Cities have spaces in their labels: `·` between them.
+            match (cities, i) {
+                (true, 1..) => col = canvas.put_within(row, col, right, " · ", Style::Dim),
+                _ => col = canvas.put_within(row, col, right, " ", Style::Plain),
+            }
             let style = if selected == Some(i) { Style::Inverse } else { Style::Plain };
             col = canvas.put_within(row, col, right, name, style);
         }

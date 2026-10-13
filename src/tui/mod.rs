@@ -77,6 +77,7 @@ pub enum Overlay {
 struct Cycle {
     start: usize,
     names: Vec<String>,
+    labels: Vec<String>,
     index: usize,
 }
 
@@ -644,7 +645,7 @@ impl<'a> App<'a> {
                 };
                 let index = if forward { 0 } else { s.names.len() - 1 };
                 self.line.replace(s.start, self.line.cursor(), &s.names[index]);
-                Cycle { start: s.start, names: s.names, index }
+                Cycle { start: s.start, names: s.names, labels: s.labels, index }
             }
         };
         self.cycle = Some(cycle);
@@ -765,15 +766,21 @@ impl<'a> App<'a> {
         (expr.operations() > 0).then(|| expr.bracketed())
     }
 
-    /// The suggestions to show (input mode only), and which one Tab selected.
-    fn suggestions(&self) -> Option<(Vec<String>, Option<usize>)> {
+    /// The suggestions to show (input mode only): their labels (cities: `Milano - Italy`, else
+    /// what Tab writes), which one Tab selected, and whether they are cities (shown apart, `·`).
+    fn suggestions(&self) -> Option<(Vec<String>, Option<usize>, bool)> {
         if self.mode != Mode::Input || crate::time::is_date_request(&self.line.text()) {
             return None;
         }
+        let shown = |names: &[String], labels: &[String]| (if labels.is_empty() { names } else { labels }.to_vec(), !labels.is_empty());
         if let Some(c) = &self.cycle {
-            return Some((c.names.clone(), Some(c.index)));
+            let (list, cities) = shown(&c.names, &c.labels);
+            return Some((list, Some(c.index), cities));
         }
-        suggest::suggest(self.config, &self.line.text(), self.line.cursor()).map(|s| (s.names, None))
+        suggest::suggest(self.config, &self.line.text(), self.line.cursor()).map(|s| {
+            let (list, cities) = shown(&s.names, &s.labels);
+            (list, None, cities)
+        })
     }
 }
 
