@@ -420,7 +420,12 @@ fn expression(app: &App, canvas: &mut Canvas, top: usize) -> Option<(usize, usiz
         col = canvas.put_within(row, col, right, " ", Style::Plain);
     }
     match app.preview() {
-        Some(Ok(result)) => col = canvas.put_within(row, col, right, &format!("= {result}"), Style::Green),
+        Some(Ok(result)) => {
+            col = canvas.put_within(row, col, right, &format!("= {result}"), Style::Green);
+            if let Some(currencies) = app.currencies() {
+                col = canvas.put_within(row, col, right, &format!("   {currencies}"), Style::Dim);
+            }
+        }
         Some(Err(msg)) => col = canvas.put_within(row, col, right, &format!("· {msg}"), Style::Dim),
         None => {}
     }

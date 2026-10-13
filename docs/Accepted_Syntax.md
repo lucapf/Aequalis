@@ -51,7 +51,7 @@ ExchangeRate-API, synced once a day in the background (`tally --list` lists the 
 | Type                       | Result |
 |----------------------------|--------|
 | `12 usd euro`              | `10.74 EUR` |
-| `12 USA Europe`            | `10.74 EUR` (countries: their currency) |
+| `12 USA Europe`            | `10.74 EUR`, noting the currencies used: `United States: US dollar (USD, US$) → Europe: euro (EUR, €)` |
 | `12 USD UAE`               | `44.07 AED` |
 | `12 China Euro`            | `1.60 EUR` |
 | `12€ gbp`                  | `10.14 GBP` |

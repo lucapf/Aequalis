@@ -58,6 +58,12 @@ fn names_countries_symbols() {
         let words: Vec<&str> = request.split(' ').collect();
         assert_eq!(out(&tally(&dir, &words, &[])), answer, "{request}");
     }
+    // Countries: the currencies used, always noted (stderr), to check.
+    let o = tally(&dir, &["12", "USA", "UAE"], &[]);
+    assert_eq!(out(&o), "44.07 AED");
+    assert_eq!(err(&o), "tally: note: United States: US dollar (USD, US$) → United Arab Emirates: UAE dirham (AED, د.إ)");
+    assert!(err(&tally(&dir, &["-s", "12", "USA", "UAE"], &[])).is_empty(), "silent");
+    assert!(err(&tally(&dir, &["12", "usd", "eur"], &[])).is_empty(), "no country, no note");
     // With -v, the rate and its source.
     let o = tally(&dir, &["-v", "12", "usd", "eur"], &[]);
     assert!(err(&o).contains("1 USD = 0.8945 EUR, rates of 12 Oct 26 from ExchangeRate-API (open.er-api.com)"), "{}", err(&o));
@@ -88,7 +94,7 @@ fn shared_and_misspelt_names_are_asked() {
     assert!(err(&o).contains("`dolar` is not a currency: did you mean US dollar"), "{}", err(&o));
     // --json: the choices, to show as buttons.
     let json = out(&tally(&dir, &["--json", "12", "dollar", "euro"], &[]));
-    assert!(json.contains(r#""kind":"currency""#) && json.contains(r#""request":"12 USD EUR""#), "{json}");
+    assert!(json.contains(r#""kind":"currency""#) && json.contains(r#""request":"12 USD euro""#), "{json}");
 }
 
 #[test]

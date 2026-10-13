@@ -373,10 +373,14 @@ fn convert_request(config: &Config, opts: &Options, tokens: &[&str]) -> Result<O
     let context = currency::Context { rates: &rates, now: online::now(), local };
     if let Some(result) = currency::request(config, &input, &context) {
         return match result {
+            // The currencies countries stand for are always noted, to check the result.
             Ok(c) => Ok(Output {
                 stdout: c.result,
                 warnings: if opts.silent { Vec::new() } else { c.warnings },
-                notes: if opts.verbose && !opts.silent { c.notes } else { Vec::new() },
+                notes: match (opts.silent, opts.verbose) {
+                    (true, _) => Vec::new(),
+                    (false, verbose) => c.check.into_iter().chain(if verbose { c.notes } else { Vec::new() }).collect(),
+                },
             }),
             Err(currency::Error::Usage(msg)) => Err(CliError::Usage(msg)),
             Err(currency::Error::Ambiguous(a)) => Err(CliError::Ambiguous(a)),

@@ -659,7 +659,13 @@ impl<'a> App<'a> {
 
     /// How the expression in the bar is grouped, with every operation in brackets
     /// (`12+12/3` → `(12 + (12 / 3))`); `None` without operations.
-    fn grouping(&self) -> Option<String> {
+    /// When countries stand for currencies, the currencies used (`United States: US dollar (USD,
+    /// US$) → …`), next to the result to check it.
+    fn currencies(&self) -> Option<String> {
+        crate::currency::describe(self.config, &self.line.text())
+    }
+
+        fn grouping(&self) -> Option<String> {
         let input = self.line.text();
         // A date is not arithmetic: `2026-12-25` is not 2026 − 12 − 25.
         if crate::time::is_date_request(&input) {

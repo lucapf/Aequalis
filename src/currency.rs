@@ -119,6 +119,61 @@ pub fn exact(text: &str) -> Option<Vec<&'static str>> {
     (!found.is_empty()).then_some(found)
 }
 
+/// The country (or Europe) `text` names, when it names a currency that way: `USA` → United States.
+fn place(text: &str) -> Option<String> {
+    let squeezed = tz::key(text).replace(' ', "");
+    if squeezed.len() == 3 && get(&squeezed).is_some() {
+        return None;
+    }
+    if EURO_AREA.iter().any(|r| tz::key(r) == tz::key(text)) {
+        return Some(text.trim().to_string());
+    }
+    tz::country(text).filter(|c| !c.currency.is_empty()).map(|c| c.name.clone())
+}
+
+/// A currency for people to check: `US dollar (USD, US$)`, `euro (EUR, €)`, with the country it
+/// was written as first: `United States: US dollar (USD, US$)`.
+fn shown(code: &str, country: Option<&str>) -> String {
+    let currency = match get(code) {
+        Some(c) => match c.symbols.first() {
+            Some(symbol) => format!("{} ({code}, {symbol})", c.name),
+            None => format!("{} ({code})", c.name),
+        },
+        None => code.to_string(),
+    };
+    match country {
+        Some(country) => format!("{country}: {currency}"),
+        None => currency,
+    }
+}
+
+/// When a country (or Europe) stands for a currency, the currencies used, to check the result:
+/// `United States: US dollar (USD, US$) → United Arab Emirates: UAE dirham (AED, د.إ)`. `None`
+/// for a request that is not a clear currency request, or names no country.
+pub fn describe(config: &Config, input: &str) -> Option<String> {
+    let Some(Ok((_, money))) = shape(config, input) else { return None };
+    let local = local().ok().flatten();
+    sides(&money, local.as_ref().map(|l| l.code))
+}
+
+fn sides(money: &[Piece], local: Option<&'static str>) -> Option<String> {
+    let mut out = Vec::new();
+    let mut by_country = false;
+    for piece in money {
+        match piece {
+            Piece::Currency { codes, country, .. } if codes.len() == 1 => {
+                by_country |= country.is_some();
+                out.push(shown(codes[0], country.as_deref()));
+            }
+            _ => return None,
+        }
+    }
+    if out.len() == 1 {
+        out.push(shown(local?, None));
+    }
+    by_country.then(|| out.join(" → "))
+}
+
 /// A misspelt currency or country: the nearest names within 1 letter (2 for longer words), each
 /// as (code, how to show it); empty for a word that is exact or too short.
 fn near(text: &str) -> (Vec<(&'static str, String)>, bool) {
@@ -194,8 +249,9 @@ enum Piece {
     Amount(String),
     /// `to`, `in`.
     Connector,
-    /// A currency or country, as written, and what it may be (one or more codes).
-    Currency { text: String, codes: Vec<&'static str>, unit_too: bool },
+    /// A currency or country, as written, and what it may be (one or more codes); `country`: the
+    /// country (or Europe) it was written as, if so.
+    Currency { text: String, codes: Vec<&'static str>, unit_too: bool, country: Option<String> },
     /// A misspelt one: what it may be (code, how to show it).
     Near { text: String, options: Vec<(&'static str, String)>, countries_only: bool },
     Other,
@@ -228,7 +284,8 @@ fn pieces(config: &Config, input: &str) -> Vec<Piece> {
         });
         if let Some((n, text, codes)) = span {
             let unit_too = crate::convert::find_unit(config, &text).is_some();
-            out.push(Piece::Currency { text, codes, unit_too });
+            let country = place(&text);
+            out.push(Piece::Currency { text, codes, unit_too, country });
             i += n;
             continue;
         }
@@ -243,6 +300,8 @@ fn pieces(config: &Config, input: &str) -> Vec<Piece> {
 #[derive(Debug, PartialEq)]
 pub struct Converted {
     pub result: String,
+    /// When countries stand for currencies, the currencies used (`describe`): shown always.
+    pub check: Option<String>,
     pub notes: Vec<String>,
     pub warnings: Vec<String>,
 }
@@ -382,7 +441,9 @@ fn convert(amount: &str, money: &[Piece], ctx: &Context) -> Result<Converted, Er
     if ctx.now - day >= STALE_DAYS * 86_400 {
         warnings.push(format!("exchange rates of {shown}: not updated since"));
     }
-    Ok(Converted { result: format!("{result:.2} {to}"), notes, warnings })
+    // Countries written for currencies: which ones were used, to check.
+    let check = sides(money, Some(to));
+    Ok(Converted { result: format!("{result:.2} {to}"), check, notes, warnings })
 }
 
 fn name(code: &str) -> String {
@@ -400,7 +461,12 @@ fn question(amount: &str, money: &[Piece], unclear: &[(usize, &Piece)]) -> Ambig
     let choices = combos
         .into_iter()
         .map(|combo| {
-            let request = std::iter::once(amount.to_string()).chain(combo.iter().map(|(c, _)| c.to_string())).collect::<Vec<_>>().join(" ");
+            // Only what was unclear is replaced: `12 dollar UAE` → `12 USD UAE`.
+            let written = combo.iter().zip(money).map(|((code, _), piece)| match piece {
+                Piece::Currency { text, codes, .. } if codes.len() == 1 => text.clone(),
+                _ => code.to_string(),
+            });
+            let request = std::iter::once(amount.to_string()).chain(written).collect::<Vec<_>>().join(" ");
             let asked: Vec<&(&str, String)> = unclear.iter().map(|(i, _)| &combo[*i]).collect();
             Choice {
                 pattern: asked.iter().map(|(_, label)| label.as_str()).collect::<Vec<_>>().join(", "),
@@ -610,7 +676,7 @@ mod tests {
         assert_eq!(ok("12 us dollars to euros"), "10.73 EUR");
         assert_eq!(ok("12 United Arab Emirates in Japan"), "518.23 JPY");
         // Attached, symbols first or after (`$` alone is any dollar: asked).
-        assert_eq!(ask("$12 €").choices[0].request, "12 USD EUR");
+        assert_eq!(ask("$12 €").choices[0].request, "12 USD €");
         assert_eq!(ok("US$12 €"), "10.73 EUR");
         assert_eq!(ok("12€ usd"), "13.42 USD");
         assert_eq!(ok("12usd eur"), "10.73 EUR");
@@ -630,13 +696,29 @@ mod tests {
         assert_eq!(with("12 usd", None).unwrap(), Err(Error::Usage("now the currency to convert to: `12 USD EUR`".into())));
     }
 
+    /// Countries written for currencies: the currencies used, with codes and symbols, to check.
+    #[test]
+    fn countries_show_their_currencies() {
+        let check = |input: &str| with(input, Some("EUR")).unwrap().unwrap().check;
+        assert_eq!(check("12 USA UAE").as_deref(), Some("United States: US dollar (USD, US$) → United Arab Emirates: UAE dirham (AED, د.إ)"));
+        assert_eq!(check("12 usd UAE").as_deref(), Some("US dollar (USD, US$) → United Arab Emirates: UAE dirham (AED, د.إ)"));
+        assert_eq!(check("12 Europe China").as_deref(), Some("Europe: euro (EUR, €) → China: Chinese yuan (CNY, ¥)"));
+        // One country: to the local currency.
+        assert_eq!(check("12 USA").as_deref(), Some("United States: US dollar (USD, US$) → euro (EUR, €)"));
+        // No country: nothing to check.
+        assert_eq!(check("12 usd eur"), None);
+        // An asked choice keeps the country: `12 USD uae`.
+        assert_eq!(ask("12 dollar uae").choices[0].request, "12 USD uae");
+        assert_eq!(sides(&pieces(&Config::default(), "12 USD uae")[1..], None).as_deref(), Some("US dollar (USD, US$) → United Arab Emirates: UAE dirham (AED, د.إ)"));
+    }
+
     #[test]
     fn shared_names_are_asked() {
         let a = ask("12 dollar euro");
         assert_eq!(a.kind, AmbiguityKind::Currency);
         assert_eq!(a.note, "`dollar` is several currencies");
-        assert_eq!((a.choices[0].pattern.as_str(), a.choices[0].date.as_str(), a.choices[0].request.as_str()), ("US dollar", "USD", "12 USD EUR"));
-        assert_eq!(a.choices[1].request, "12 CAD EUR");
+        assert_eq!((a.choices[0].pattern.as_str(), a.choices[0].date.as_str(), a.choices[0].request.as_str()), ("US dollar", "USD", "12 USD euro"));
+        assert_eq!(a.choices[1].request, "12 CAD euro");
         assert!(a.choices.len() <= MAX_CHOICES);
         assert!(a.message().contains("did you mean US dollar or Canadian dollar"), "{}", a.message());
         assert_eq!(ask("$12 ¥").choices[0].request, "12 USD JPY");
@@ -651,10 +733,10 @@ mod tests {
     fn misspelt_names_are_confirmed() {
         let a = ask("12 dolar eur");
         assert_eq!(a.note, "`dolar` is not a currency");
-        assert_eq!(a.choices[0].request, "12 USD EUR");
-        assert_eq!(ask("12 usd yuro").choices[0].request, "12 USD EUR");
+        assert_eq!(a.choices[0].request, "12 USD eur");
+        assert_eq!(ask("12 usd yuro").choices[0].request, "12 usd EUR");
         let a = ask("12 Jappan usd");
-        assert_eq!((a.choices[0].pattern.as_str(), a.choices[0].request.as_str()), ("Japan (country)", "12 JPY USD"));
+        assert_eq!((a.choices[0].pattern.as_str(), a.choices[0].request.as_str()), ("Japan (country)", "12 JPY usd"));
         // A misspelt country alone is left to the time requests (`12 Tokio`).
         assert!(with("12 Tokio", Some("EUR")).is_none());
     }
@@ -666,7 +748,7 @@ mod tests {
         }
         // A word that is a unit too is money when the other one is: `pound` is several currencies,
         // sterling first (12 / 0.7556 × 0.8945).
-        assert_eq!(ask("12 pounds euro").choices[0].request, "12 GBP EUR");
+        assert_eq!(ask("12 pounds euro").choices[0].request, "12 GBP euro");
         assert_eq!(ok("12 GBP euro"), "14.21 EUR");
         assert!(matches!(with("12 cup usd", Some("EUR")), Some(Err(Error::NoRates(_)))), "the Cuban peso, not in the test rates");
     }
