@@ -128,6 +128,19 @@ section: in the TUI (`O`, or the top bar), in the widget (the gear button), or w
 `tally --set key=value`; `tally --settings` shows them all. Both also offer the downloads, and
 say when the city archive is not downloaded yet.
 
+## Why Tally
+Because to look for a tool every time you need something is really annoying any tool looks complete enough and AI is very slow!
+
+### Why the name Tally
+
+Standard English tally means to count, keep a score, or make things match and correspond
+Tally is built around the idea if a tool that is always with you.
+
+Tally runs in all your devices your laptop even the oldest you have without problems and Phone version (iOS and Android are underway).
+
+Tally operate completely offline and only sync some data (for example exchange rates) if appear to be online. This means you'll never face slowness regardless the device condition!
+
+
 ## License
 
 [MIT](LICENSE)
