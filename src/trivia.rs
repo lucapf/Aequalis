@@ -339,7 +339,7 @@ pub fn fetch_live(horizons: &str) -> Option<f64> {
 /// Where a value comes from, for people: `synced 11 Oct 26 6:52 PM from JPL Horizons`, `as of
 /// 2026-10-11 (estimated, not synced yet)`; `None` for a fixed value.
 pub fn origin_text(entry: &Entry, origin: Origin) -> Option<String> {
-    let when = |t: i64| crate::time::human(&crate::time::Instant { ns: t as i128 * 1_000_000_000, zone: crate::time::Zone::Local }, false);
+    let when = crate::time::human_moment;
     match origin {
         Origin::Fixed => None,
         Origin::Synced(at) => Some(format!("synced {} from {}", when(at), source_name(entry).unwrap_or("online"))),
@@ -479,7 +479,7 @@ pub fn horizons_distance(text: &str) -> Option<f64> {
 /// `--trivia`: every entry with its value and description; the live values from the online data
 /// (`online.rs`; no network here).
 pub fn list(config: &Config, precision: usize) -> String {
-    let now = crate::time::now().ns.div_euclid(1_000_000_000) as i64;
+    let now = crate::time::unix_now();
     let online = crate::online::load();
     let mut out = String::new();
     let mut section = "";
@@ -621,6 +621,9 @@ mod tests {
                    ISS (ZARYA),1998-067A,2026-10-11,15.50000000,.0005000\n";
         let c = count_satellites(csv).unwrap();
         assert_eq!((c.all, c.starlink, c.leo, c.meo, c.geo, c.heo, c.beyond), (5, 1, 2, 1, 1, 1, 0));
+        // By the kinds the Trivia names them.
+        let kinds: Vec<Option<f64>> = ["all", "starlink", "leo", "meo", "geo", "heo", "beyond", "comets"].iter().map(|k| c.get(k)).collect();
+        assert_eq!(kinds, [Some(5.0), Some(1.0), Some(2.0), Some(1.0), Some(1.0), Some(1.0), Some(0.0), None]);
         assert_eq!(count_satellites("not a table"), None);
         // The refusal of a second download within 2 hours is not a table: the online data keeps the last counts.
         assert_eq!(count_satellites("GP data has not updated since your last successful\ndownload of GROUP=active"), None);

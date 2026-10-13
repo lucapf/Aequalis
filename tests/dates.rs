@@ -292,7 +292,7 @@ fn month_names() {
         ("12 out 2026", "2026-10-12"),
         ("2026 Sep 12", "2026-09-12"),
     ] {
-        assert_eq!(rome(&format!("{text} iso-date")), format!("{iso}T00:00{} iso = {iso} iso-date", if iso < "2026-03-29" || iso > "2026-10-25" { "+01:00" } else { "+02:00" }), "{text}");
+        assert_eq!(rome(&format!("{text} iso-date")), format!("{iso}T00:00{} iso = {iso} iso-date", if !("2026-03-29"..="2026-10-25").contains(&iso) { "+01:00" } else { "+02:00" }), "{text}");
     }
     // Times, zones, date math, differences.
     assert_eq!(rome("12 Sept 2026 15:30 unix"), "2026-09-12T15:30+02:00 iso = 1789219800 unix");

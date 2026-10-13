@@ -59,8 +59,8 @@ pub fn status_of(data: &crate::online::Data, forced: bool) -> Status {
 /// exchange rates).
 pub fn status() -> Status {
     let (live, rates) = (crate::online::load(), crate::currency::load());
-    let newest = if rates.attempted_at > live.attempted_at { rates } else { live };
-    status_of(&newest, mode() == Mode::Offline)
+    let newest = if rates.attempted_at > live.attempted_at { &*rates } else { &live };
+    status_of(newest, mode() == Mode::Offline)
 }
 
 #[cfg(test)]

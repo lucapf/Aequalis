@@ -103,29 +103,43 @@ pub fn from_sun(name: &str, now: f64) -> Option<Distances> {
 }
 
 /// From the Earth, after `now`: the mean (over a century), the next closest and farthest
-/// approaches (found day by day over one synodic period and a half, then to the hour). `None`:
-/// not a planet, or the Earth.
+/// approaches (sampled every `STEP` days over one synodic period and a half, then found to the
+/// minute around the samples). `None`: not a planet, or the Earth.
 pub fn from_earth(name: &str, now: f64) -> Option<Distances> {
+    /// Days between the samples that find the extremes: they last weeks, so none falls between.
+    const STEP: f64 = 4.0;
+    /// Days between the samples of the century mean: 1,588 instead of every 5 days (7,305); the
+    /// mean moves by 0.03% at most (Venus), well within the elements' own accuracy.
+    const MEAN_STEP: i64 = 23;
     let p = find(name).filter(|p| p.name != "Earth")?;
     let earth = find("Earth")?;
     let d = |t: f64| between(p, earth, t);
     // The synodic period, from the mean motions: 1 / |1/P1 − 1/P2|.
     let (n1, n2) = (p.rate[3] / 36_525.0, earth.rate[3] / 36_525.0);
     let synodic = 360.0 / (n1 - n2).abs();
-    let days = (synodic * 1.5).ceil() as usize + 2;
-    let samples: Vec<f64> = (0..=days).map(|k| d(now + k as f64 * DAY)).collect();
-    // The first local minimum and maximum after now, refined to the hour.
+    let at = |k: usize| now + k as f64 * STEP * DAY;
+    let samples: Vec<f64> = (0..=(synodic * 1.5 / STEP).ceil() as usize + 2).map(|k| d(at(k))).collect();
+    // The first local minimum and maximum after now: between the samples around it, by
+    // golden-section search, to the minute.
     let refine = |k: usize, lowest: bool| {
-        let around = now + k as f64 * DAY;
-        let (mut best_t, mut best) = (around, d(around));
-        for h in -24..=24 {
-            let t = around + h as f64 * 3600.0;
-            let v = d(t);
-            if (lowest && v < best) || (!lowest && v > best) {
-                (best_t, best) = (t, v);
+        let f = |t: f64| if lowest { d(t) } else { -d(t) };
+        let ratio = (5f64.sqrt() - 1.0) / 2.0;
+        let (mut lo, mut hi) = (at(k - 1), at(k + 1));
+        let (mut x1, mut x2) = (hi - ratio * (hi - lo), lo + ratio * (hi - lo));
+        let (mut f1, mut f2) = (f(x1), f(x2));
+        while hi - lo > 60.0 {
+            if f1 < f2 {
+                (hi, x2, f2) = (x2, x1, f1);
+                x1 = hi - ratio * (hi - lo);
+                f1 = f(x1);
+            } else {
+                (lo, x1, f1) = (x1, x2, f2);
+                x2 = lo + ratio * (hi - lo);
+                f2 = f(x2);
             }
         }
-        Reached { au: best, at: Some(best_t) }
+        let t = (lo + hi) / 2.0;
+        Reached { au: d(t), at: Some(t) }
     };
     let extreme = |lowest: bool| {
         (1..samples.len() - 1)
@@ -135,9 +149,8 @@ pub fn from_earth(name: &str, now: f64) -> Option<Distances> {
             })
             .map(|k| refine(k, lowest))
     };
-    // The mean over a century, every 5 days.
-    let n = 36_525 / 5;
-    let mean = (0..n).map(|k| d(now + (k * 5) as f64 * DAY)).sum::<f64>() / n as f64;
+    let n = 36_525 / MEAN_STEP;
+    let mean = (0..n).map(|k| d(now + (k * MEAN_STEP) as f64 * DAY)).sum::<f64>() / n as f64;
     Some(Distances { now: d(now), mean, min: extreme(true)?, max: extreme(false)? })
 }
 
@@ -177,3 +190,4 @@ mod tests {
         assert!(from_earth("Earth", 0.0).is_none());
     }
 }
+

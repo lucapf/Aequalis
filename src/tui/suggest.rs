@@ -93,7 +93,7 @@ fn matching(config: &Config, only: Option<&Category>, prefix: &str) -> Vec<&'sta
         true => name.starts_with(prefix),
         false => name.to_lowercase().starts_with(&lower),
     };
-    let categories = || config.categories.iter().filter(|c| only.map_or(true, |o| o.name == c.name));
+    let categories = || config.categories.iter().filter(|c| only.is_none_or(|o| o.name == c.name));
     let mut names: Vec<&'static str> = categories()
         .flat_map(|c| c.units.iter().filter(move |u| fits(c, u.symbol)).map(|u| u.symbol))
         .collect();

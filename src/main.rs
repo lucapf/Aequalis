@@ -7,6 +7,7 @@ mod completion;
 mod config;
 mod convert;
 mod currency;
+mod files;
 mod geo;
 mod json;
 mod locale;
@@ -249,16 +250,22 @@ fn usage<T>(msg: impl Into<String>) -> Result<T, CliError> {
 }
 
 /// What a successful run prints: `stdout` on stdout, each warning and note on stderr.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Default, PartialEq)]
 struct Output {
     stdout: String,
     warnings: Vec<String>,
     notes: Vec<String>,
+    /// Already formatted for people (dates, distances with their separators): the interactive
+    /// mode shows it as it is, other numbers get the device's separators there.
+    formatted: bool,
+    /// The currencies countries stood for (also the first note), next to the result in the
+    /// interactive mode.
+    check: Option<String>,
 }
 
 impl From<String> for Output {
     fn from(stdout: String) -> Self {
-        Output { stdout, warnings: Vec::new(), notes: Vec::new() }
+        Output { stdout, ..Output::default() }
     }
 }
 
@@ -270,13 +277,7 @@ fn run(config: &Config, args: &[String], read_stdin: impl FnOnce() -> Option<Str
         Ok(Parsed::Info(out)) => vec![Ok(out)],
         Ok(Parsed::Convert(opts)) => {
             let args = &opts.positional;
-            if args.first().is_some_and(|t| calc::starts_expression(t) || time::starts_date(t))
-                || geo::is_request(&args.join(" "))
-                || time::names_city(&args.join(" "))
-                || time::suggests_city(config, &args.join(" "))
-                || currency::claims(config, &args.join(" "))
-                || geo::request(config, &args.join(" "), 0).is_some()
-            {
+            if !needs_value(config, args) {
                 return vec![convert_request(config, &opts, args)];
             }
             let Some(input) = read_stdin() else {
@@ -377,10 +378,9 @@ fn convert_request(config: &Config, opts: &Options, tokens: &[&str]) -> Result<O
     }
     // Currencies: `12 usd euro`, `12 USA Europe`; one amount (a plain number) and currencies or
     // countries, nothing else (a time with countries is a time request, countries alone a distance).
-    let local = currency::local().map_err(CliError::Usage)?;
-    let rates = currency::load();
-    let context = currency::Context { rates: &rates, now: online::now(), local };
-    if let Some(result) = currency::request(config, &input, &context) {
+    // The rates and the local currency are read only for a currency request.
+    let context = || currency::Context { rates: currency::load(), now: time::unix_now(), local: currency::local().ok().flatten() };
+    if let Some(result) = currency::request(config, &input, context) {
         return match result {
             // The currencies countries stand for are always noted, to check the result.
             Ok(c) => Ok(Output {
@@ -388,8 +388,10 @@ fn convert_request(config: &Config, opts: &Options, tokens: &[&str]) -> Result<O
                 warnings: if opts.silent { Vec::new() } else { c.warnings },
                 notes: match (opts.silent, opts.verbose) {
                     (true, _) => Vec::new(),
-                    (false, verbose) => c.check.into_iter().chain(if verbose { c.notes } else { Vec::new() }).collect(),
+                    (false, verbose) => c.check.iter().cloned().chain(if verbose { c.notes } else { Vec::new() }).collect(),
                 },
+                check: c.check.filter(|_| !opts.silent),
+                formatted: false,
             }),
             Err(currency::Error::Usage(msg)) => Err(CliError::Usage(msg)),
             Err(currency::Error::Ambiguous(a)) => Err(CliError::Ambiguous(a)),
@@ -399,7 +401,7 @@ fn convert_request(config: &Config, opts: &Options, tokens: &[&str]) -> Result<O
     // Distances on the Earth: `distance Rome to Paris km`.
     if let Some(result) = geo::request(config, &input, opts.precision) {
         let notes = |notes: Vec<String>| if opts.verbose && !opts.silent { notes } else { Vec::new() };
-        return result.map(|(stdout, n)| Output { stdout, warnings: Vec::new(), notes: notes(n) }).map_err(|e| match e {
+        return result.map(|(stdout, n)| Output { stdout, notes: notes(n), formatted: true, ..Output::default() }).map_err(|e| match e {
             geo::Error::Usage(msg) => CliError::Usage(msg),
             geo::Error::Ambiguous(a) => CliError::Ambiguous(a),
         });
@@ -407,7 +409,7 @@ fn convert_request(config: &Config, opts: &Options, tokens: &[&str]) -> Result<O
     // Dates: `now + 3d`, `2026-10-10T15:00Z unix`, `1791644400 unix iso-week`.
     if let Some(result) = time::request(config, &input, opts.precision, opts.verbose) {
         let notes = |notes: Vec<String>| if opts.verbose && !opts.silent { notes } else { Vec::new() };
-        return result.map(|(stdout, n)| Output { stdout, warnings: Vec::new(), notes: notes(n) }).map_err(|e| match e {
+        return result.map(|(stdout, n)| Output { stdout, notes: notes(n), formatted: true, ..Output::default() }).map_err(|e| match e {
             time::TimeError::Usage(msg) => CliError::Usage(msg),
             time::TimeError::Range => CliError::Convert(convert::ConvertError::NotFinite),
             time::TimeError::Ambiguous(a) => CliError::Ambiguous(a),
@@ -424,10 +426,8 @@ fn convert_request(config: &Config, opts: &Options, tokens: &[&str]) -> Result<O
     };
     let (from, to) = match rest.split_whitespace().collect::<Vec<_>>()[..] {
         // No unit, or the `num` target (`2026-12-02 num`): the number.
-        [] => return Ok(Output { stdout: convert::format_value(value, opts.precision), warnings: Vec::new(), notes }),
-        [to] if config::is_number_word(to) => {
-            return Ok(Output { stdout: convert::format_value(value, opts.precision), warnings: Vec::new(), notes })
-        }
+        [] => return Ok(Output { stdout: convert::format_value(value, opts.precision), notes, ..Output::default() }),
+        [to] if config::is_number_word(to) => return Ok(Output { stdout: convert::format_value(value, opts.precision), notes, ..Output::default() }),
         [from, to] => (from, to),
         _ => return usage(EXPECTED),
     };
@@ -436,7 +436,18 @@ fn convert_request(config: &Config, opts: &Options, tokens: &[&str]) -> Result<O
         (false, Some((_, from_unit)), Some(to_unit)) => convert::warnings(from_unit, to_unit),
         _ => Vec::new(),
     };
-    Ok(Output { stdout: format!("{} {}", convert::format_value(result, opts.precision), target.symbol), warnings, notes })
+    Ok(Output { stdout: format!("{} {}", convert::format_value(result, opts.precision), target.symbol), warnings, notes, ..Output::default() })
+}
+
+/// Whether the arguments wait for values on stdin: none, or one or two units, currencies or
+/// formats and nothing else (`F C`, `usd eur`, `unix`): `echo 100 | tally F C`. Anything else is a
+/// request of its own, evaluated once.
+fn needs_value(config: &Config, args: &[&str]) -> bool {
+    let target = |a: &&str| {
+        convert::resolve(config, a).is_ok() || time::is_format(a) || (currency::exact(a).is_some() && time::tz::country(a).is_none())
+    };
+    let value_first = args.first().is_some_and(|t| calc::starts_expression(t) || time::starts_date(t));
+    !value_first && args.len() <= 2 && args.iter().all(target)
 }
 
 fn calc_error(err: calc::CalcError) -> CliError {
@@ -452,7 +463,7 @@ fn list(config: &Config) -> String {
     for cat in &config.categories {
         out.push_str(&format!("{} (base: {})\n", cat.name, cat.base));
         for u in &cat.units {
-            out.push_str(&format!("  {:<8} {}\n", u.symbol, u.aliases.join(", ")).trim_end());
+            out.push_str(format!("  {:<8} {}", u.symbol, u.aliases.join(", ")).trim_end());
             out.push('\n');
         }
         out.push('\n');
@@ -499,8 +510,7 @@ fn main() -> ExitCode {
         let path = settings::path();
         return match path.as_deref().map(settings::load_from).unwrap_or(Ok(settings::Settings::default())) {
             Ok(s) if json => {
-                let members: Vec<String> = settings::KEYS.iter().map(|k| format!("{}:{}", json::string(k.key), json::string(s.get(k.key)))).collect();
-                println!("{{{}}}", members.join(","));
+                println!("{}", settings::KEYS.iter().fold(json::Object::new(), |o, k| o.str(k.key, s.get(k.key))).finish());
                 ExitCode::SUCCESS
             }
             Ok(s) => {
@@ -531,14 +541,23 @@ fn main() -> ExitCode {
                 }
             }
         }
-        return match online::sync(&groups, auto) {
-            Ok(lines) => {
+        return match (online::sync(&groups, auto), json) {
+            // `--json`: the usual reply, the lines as the result (with the peak memory).
+            (Ok(lines), true) => {
+                println!("{}", json::result(&Ok(Output::from(lines.join("\n"))), &[]));
+                ExitCode::SUCCESS
+            }
+            (Ok(lines), false) => {
                 for line in lines {
                     println!("{line}");
                 }
                 ExitCode::SUCCESS
             }
-            Err(e) => {
+            (Err(e), true) => {
+                println!("{}", json::result(&Err(CliError::Convert(convert::ConvertError::Domain(e))), &[]));
+                ExitCode::from(1)
+            }
+            (Err(e), false) => {
                 eprintln!("tally: {e}");
                 ExitCode::from(1)
             }
@@ -602,7 +621,7 @@ fn main() -> ExitCode {
     if !json {
         let notices = notify::current();
         let mut state = notify::load();
-        let now = online::now();
+        let now = time::unix_now();
         if !notices.is_empty() && now - state.shown_at >= 86_400 {
             for n in &notices {
                 eprintln!("tally: note: {n}");
@@ -767,6 +786,18 @@ mod tests {
         assert!(piped(Some("1GB\n"), "GiB -s")[0].as_ref().unwrap().warnings.is_empty());
     }
 
+    /// The arguments wait for values on stdin only when they are units, currencies or formats.
+    #[test]
+    fn needs_value_from_stdin() {
+        let config = Config::default();
+        for args in [&[][..], &["F", "C"], &["km"], &["usd", "eur"], &["unix"], &["GiB"], &["km/h", "mph"]] {
+            assert!(needs_value(&config, args), "{args:?}");
+        }
+        for args in [&["100", "F", "C"][..], &["100F", "C"], &["Italy"], &["Rome", "Paris"], &["now"], &["km", "mi", "m"], &["abc"], &["2026-12-04", "unix"]] {
+            assert!(!needs_value(&config, args), "{args:?}");
+        }
+    }
+
     #[test]
     fn calculator() {
         assert_eq!(cli("10**2").unwrap(), "100");
@@ -840,3 +871,4 @@ mod tests {
         assert_eq!(code("--autocompletion fish"), 2);
     }
 }
+

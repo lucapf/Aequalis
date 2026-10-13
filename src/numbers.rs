@@ -103,15 +103,18 @@ mod sys {
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 pub fn device_format() -> NumberFormat {
     use std::ffi::{CStr, CString};
-    let mut candidates: Vec<CString> = Vec::new();
+    // The macOS region first (the C library there ignores it), then the environment's locale.
     #[cfg(target_os = "macos")]
-    if let Some(locale) = macos_locale() {
-        candidates.push(CString::new(format!("{locale}.UTF-8")).unwrap());
-    }
-    candidates.push(CString::new("").unwrap());
+    let preferred = macos_locale().and_then(|locale| CString::new(format!("{locale}.UTF-8")).ok());
+    #[cfg(not(target_os = "macos"))]
+    let preferred: Option<CString> = None;
+    let candidates: Vec<CString> = preferred.into_iter().chain(CString::new("").ok()).collect();
     let read = |ptr: *const std::os::raw::c_char| {
+        if ptr.is_null() {
+            return Vec::new();
+        }
         // SAFETY: localeconv's strings are valid, NUL-terminated, until the next setlocale.
-        (!ptr.is_null()).then(|| unsafe { CStr::from_ptr(ptr) }.to_bytes().to_vec()).unwrap_or_default()
+        unsafe { CStr::from_ptr(ptr) }.to_bytes().to_vec()
     };
     let mut format = NumberFormat::default();
     for locale in &candidates {

@@ -23,11 +23,15 @@ pub struct State {
 }
 
 pub fn path() -> Option<PathBuf> {
-    crate::online::dir().map(|d| d.join("state.json"))
+    crate::files::dir().map(|d| d.join("state.json"))
 }
 
 pub fn load() -> State {
-    let Some(text) = path().and_then(|p| std::fs::read_to_string(p).ok()) else { return State::default() };
+    path().map(|p| load_from(&p)).unwrap_or_default()
+}
+
+pub fn load_from(path: &std::path::Path) -> State {
+    let Ok(text) = std::fs::read_to_string(path) else { return State::default() };
     let Ok(doc) = crate::json::parse(&text) else { return State::default() };
     let n = |k: &str| doc.get(k).and_then(|v| v.number()).unwrap_or(0.0) as i64;
     let s = |k: &str| doc.get(k).and_then(|v| v.str()).unwrap_or_default().to_string();
@@ -35,21 +39,19 @@ pub fn load() -> State {
 }
 
 pub fn save(state: &State) {
-    let Some(path) = path() else { return };
-    let text = format!(
-        "{{\"cities_checked_at\":{},\"cities_available\":{},\"cities_notified\":{},\"shown_at\":{}}}\n",
-        state.cities_checked_at,
-        crate::json::string(&state.cities_available),
-        crate::json::string(&state.cities_notified),
-        state.shown_at
-    );
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+    if let Some(path) = path() {
+        save_to(&path, state);
     }
-    let tmp = path.with_extension(format!("json.{}.tmp", std::process::id()));
-    if std::fs::write(&tmp, text).is_ok() {
-        let _ = std::fs::rename(&tmp, &path);
-    }
+}
+
+pub fn save_to(path: &std::path::Path, state: &State) {
+    let text = crate::json::Object::new()
+        .num("cities_checked_at", state.cities_checked_at)
+        .str("cities_available", &state.cities_available)
+        .str("cities_notified", &state.cities_notified)
+        .num("shown_at", state.shown_at)
+        .finish();
+    let _ = crate::files::write_atomic(path, format!("{text}\n").as_bytes());
 }
 
 /// The notices now: each group under `notify` that has something new or is out of date.
@@ -66,7 +68,7 @@ pub fn notices(settings: &Settings, state: &State, cities_version: Option<&str>,
             Group::Cities => {
                 let newer = !state.cities_available.is_empty() && Some(state.cities_available.as_str()) != cities_version;
                 if settings.cities_enabled() && newer {
-                    out.push(format!("a new city archive is available: tally --sync cities"));
+                    out.push("a new city archive is available: tally --sync cities".to_string());
                 }
             }
             _ if stale(group) => out.push(format!("{} are out of date: tally --sync {}", group.title(), group.name())),
@@ -78,7 +80,7 @@ pub fn notices(settings: &Settings, state: &State, cities_version: Option<&str>,
 
 /// The notices for this machine now.
 pub fn current() -> Vec<String> {
-    let now = crate::online::now();
+    let now = crate::time::unix_now();
     let settings = crate::settings::current();
     let version = crate::cities::meta().map(|m| m.version);
     notices(&settings, &load(), version.as_deref(), &|g| crate::online::stale(g, &settings, now))
@@ -102,6 +104,16 @@ pub fn desktop(title: &str, body: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_state_is_kept() {
+        let path = std::env::temp_dir().join(format!("tally-notify-{}", std::process::id())).join("state.json");
+        assert_eq!(load_from(&path), State::default(), "none yet");
+        let state = State { cities_checked_at: 5, cities_available: "2 bbb".into(), cities_notified: "1 \"aaa\"".into(), shown_at: 7 };
+        save_to(&path, &state);
+        assert_eq!(load_from(&path), state);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
 
     #[test]
     fn notices_follow_the_policies() {

@@ -33,6 +33,62 @@ fn strings(items: &[String]) -> String {
     format!("[{}]", items.iter().map(|s| string(s)).collect::<Vec<_>>().join(","))
 }
 
+/// A JSON object, written member by member (escaping the keys and strings):
+/// `Object::new().str("name", "Rome").num("count", 3).finish()` → `{"name":"Rome","count":3}`.
+pub struct Object(String);
+
+impl Object {
+    pub fn new() -> Object {
+        Object(String::from("{"))
+    }
+
+    fn key(mut self, key: &str) -> Object {
+        if self.0.len() > 1 {
+            self.0.push(',');
+        }
+        self.0.push_str(&string(key));
+        self.0.push(':');
+        self
+    }
+
+    pub fn str(self, key: &str, value: &str) -> Object {
+        let mut o = self.key(key);
+        o.0.push_str(&string(value));
+        o
+    }
+
+    /// A number or a boolean, as Rust writes it (`1791877958`, `0.8945`, `true`).
+    pub fn num(self, key: &str, value: impl std::fmt::Display) -> Object {
+        let mut o = self.key(key);
+        o.0.push_str(&value.to_string());
+        o
+    }
+
+    /// A number, or `null`.
+    pub fn opt(self, key: &str, value: Option<i64>) -> Object {
+        match value {
+            Some(v) => self.num(key, v),
+            None => self.raw(key, "null"),
+        }
+    }
+
+    pub fn strs(self, key: &str, values: &[String]) -> Object {
+        self.raw(key, &strings(values))
+    }
+
+    /// A value already written as JSON (an object, an array).
+    pub fn raw(self, key: &str, json: &str) -> Object {
+        let mut o = self.key(key);
+        o.0.push_str(json);
+        o
+    }
+
+    pub fn finish(mut self) -> String {
+        self.0.push('}');
+        self.0
+    }
+}
+
 /// The peak resident memory of this process so far, in KiB (0 if unknown). On Linux `VmHWM` from
 /// `/proc/self/status`: `getrusage`'s `ru_maxrss` survives `exec`, so a process started by a large
 /// one (the Omarchy shell, ~360 MiB) would report its parent's peak.
@@ -102,26 +158,14 @@ pub fn result(result: &Result<Output, CliError>, notices: &[String]) -> String {
 
 fn outcome(result: &Result<Output, CliError>) -> String {
     match result {
-        Ok(out) => format!(
-            r#"{{"ok":true,"result":{},"notes":{},"warnings":{}}}"#,
-            string(&out.stdout),
-            strings(&out.notes),
-            strings(&out.warnings)
-        ),
+        Ok(out) => Object::new().num("ok", true).str("result", &out.stdout).strs("notes", &out.notes).strs("warnings", &out.warnings).finish(),
         Err(err) => {
             let ambiguous = match err {
                 CliError::Ambiguous(a) => {
                     let choices: Vec<String> = a
                         .choices
                         .iter()
-                        .map(|c| {
-                            format!(
-                                r#"{{"pattern":{},"date":{},"request":{}}}"#,
-                                string(&c.pattern),
-                                string(&c.date),
-                                string(&c.request)
-                            )
-                        })
+                        .map(|c| Object::new().str("pattern", &c.pattern).str("date", &c.date).str("request", &c.request).finish())
                         .collect();
                     let kind = match a.kind {
                         crate::time::AmbiguityKind::Date => "date",
@@ -332,9 +376,11 @@ impl Reader<'_> {
                         None => return Err(self.error("unterminated string")),
                     }
                 }
-                Some(&b) => {
-                    out.push(b);
-                    self.pos += 1;
+                // A run without quotes or escapes, copied at once.
+                Some(_) => {
+                    let run = self.s[self.pos..].iter().position(|&b| b == b'"' || b == b'\\').unwrap_or(self.s.len() - self.pos);
+                    out.extend_from_slice(&self.s[self.pos..self.pos + run]);
+                    self.pos += run;
                 }
             }
         }
@@ -358,7 +404,7 @@ mod tests {
     fn peak_memory_is_reported() {
         let kb = peak_kb();
         assert!((100..1_000_000).contains(&kb), "{kb} KiB");
-        let ok = Ok(Output { stdout: "1".into(), warnings: vec![], notes: vec![] });
+        let ok = Ok(Output { stdout: "1".into(), ..Output::default() });
         let json = result(&ok, &[]);
         assert!(json.starts_with(r#"{"ok":true,"result":"1","notes":[],"warnings":[],"peak_kb":"#), "{json}");
         assert!(json.ends_with('}') && json[..json.len() - 1].rsplit(':').next().unwrap().parse::<u64>().is_ok(), "{json}");
@@ -366,7 +412,7 @@ mod tests {
 
     #[test]
     fn results() {
-        let ok = Ok(Output { stdout: "6.2137 mi".into(), warnings: vec![], notes: vec!["a note".into()] });
+        let ok = Ok(Output { stdout: "6.2137 mi".into(), notes: vec!["a note".into()], ..Output::default() });
         assert_eq!(outcome(&ok), r#"{"ok":true,"result":"6.2137 mi","notes":["a note"],"warnings":[]}"#);
         let usage = Err(CliError::Usage("bad `x`".into()));
         assert_eq!(outcome(&usage), r#"{"ok":false,"exit":2,"error":"bad `x`"}"#);

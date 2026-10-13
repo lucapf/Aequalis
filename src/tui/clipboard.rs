@@ -5,13 +5,18 @@
 use std::io::Write;
 use std::process::{Command, Stdio};
 
-/// The tools tried, in order: (program, arguments).
+/// The tools tried here, in order: (program, arguments).
 fn tools() -> Vec<(&'static str, &'static [&'static str])> {
+    tools_for(cfg!(target_os = "macos"), std::env::var_os("WAYLAND_DISPLAY").is_some())
+}
+
+/// The tools tried on macOS or not, in a Wayland session or not.
+fn tools_for(macos: bool, wayland: bool) -> Vec<(&'static str, &'static [&'static str])> {
     let mut tools: Vec<(&str, &[&str])> = Vec::new();
-    if cfg!(target_os = "macos") {
+    if macos {
         tools.push(("pbcopy", &[]));
     }
-    if std::env::var_os("WAYLAND_DISPLAY").is_some() {
+    if wayland {
         tools.push(("wl-copy", &[]));
     }
     tools.push(("xclip", &["-selection", "clipboard"]));
@@ -32,4 +37,18 @@ pub fn copy(text: &str) -> Result<(), String> {
     }
     let names: Vec<&str> = tools().iter().map(|(p, _)| *p).collect();
     Err(format!("no clipboard tool worked ({})", names.join(", ")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_desktop_s_tool_first() {
+        let names = |macos, wayland| tools_for(macos, wayland).into_iter().map(|(p, _)| p).collect::<Vec<_>>();
+        assert_eq!(names(true, false), ["pbcopy", "xclip", "xsel"]);
+        assert_eq!(names(false, true), ["wl-copy", "xclip", "xsel"]);
+        assert_eq!(names(false, false), ["xclip", "xsel"], "X11");
+        assert_eq!(tools_for(false, false)[0].1, ["-selection", "clipboard"]);
+    }
 }

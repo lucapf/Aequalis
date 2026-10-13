@@ -19,8 +19,9 @@
 use crate::geo::Point;
 use crate::time::tz;
 use std::fs::File;
-use std::io::{BufRead, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
-use std::path::Path;
+use std::io::{BufRead, BufReader, BufWriter, Seek, SeekFrom, Write};
+use std::os::unix::fs::FileExt;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 /// Where the archive comes from (also a setting, `cities.url`, for mirrors and tests).
@@ -79,6 +80,25 @@ impl City {
         })
     }
 
+    /// A city of the archive's JSON: one line, as the build script writes them.
+    fn from_json(text: &str) -> Option<City> {
+        let c = crate::json::parse(text).ok()?;
+        let s = |k: &str| c.get(k).and_then(|v| v.str()).unwrap_or_default().to_string();
+        let n = |k: &str| c.get(k).and_then(|v| v.number());
+        Some(City {
+            id: n("id")? as u64,
+            name: s("name"),
+            lat: n("lat")?,
+            lon: n("lon")?,
+            population: n("population").unwrap_or(0.0) as u64,
+            country_code: s("country_code"),
+            country: s("country"),
+            region: s("region"),
+            updated: s("updated"),
+            aliases: c.get("aliases").map(|a| a.array().iter().filter_map(|x| x.str().map(str::to_string)).collect()).unwrap_or_default(),
+        })
+    }
+
     fn to_line(&self) -> String {
         let clean = |s: &str| s.replace(['\t', '\n', '\r', '|'], " ");
         let aliases: Vec<String> = self.aliases.iter().map(|a| clean(a)).collect();
@@ -96,11 +116,6 @@ impl City {
             aliases.join("|")
         )
     }
-}
-
-/// The key a name is searched by: `New-York` and `new york` are the same, `Zürich` and `zurich`.
-pub fn key(name: &str) -> String {
-    tz::key(name)
 }
 
 // ---------------------------------------------------------------- the files
@@ -126,7 +141,7 @@ pub fn meta_in(base: &Path) -> Option<Meta> {
 
 /// The archive in use, if one was downloaded.
 pub fn meta() -> Option<Meta> {
-    meta_in(&crate::online::dir()?)
+    meta_in(&crate::files::dir()?)
 }
 
 /// The archive to search: downloaded, and the feature on.
@@ -134,7 +149,7 @@ pub fn store() -> Option<Store> {
     if !crate::settings::current().cities_enabled() {
         return None;
     }
-    let base = crate::online::dir()?;
+    let base = crate::files::dir()?;
     Store::open(&base, &meta_in(&base)?)
 }
 
@@ -156,24 +171,9 @@ impl Store {
 
     /// The first index line starting at or after `pos`: (its start, the line).
     fn line_from(&self, pos: u64) -> Option<(u64, String)> {
-        let start = if pos == 0 {
-            0
-        } else {
-            // Right after a newline, a line starts at `pos`; else after the next newline.
-            let mut file = &self.idx;
-            file.seek(SeekFrom::Start(pos - 1)).ok()?;
-            let mut buf = [0u8; 4096];
-            let n = file.read(&mut buf).ok()?;
-            pos + buf[..n].iter().position(|&b| b == b'\n')? as u64
-        };
-        if start >= self.idx_len {
-            return None;
-        }
-        let mut reader = BufReader::new(&self.idx);
-        reader.seek(SeekFrom::Start(start)).ok()?;
-        let mut line = String::new();
-        reader.read_line(&mut line).ok()?;
-        Some((start, line.trim_end_matches('\n').to_string()))
+        // Right after a newline, a line starts at `pos`; else after the next newline.
+        let start = if pos == 0 { 0 } else { next_line(&self.idx, pos - 1)? };
+        (start < self.idx_len).then(|| Some((start, line_at(&self.idx, start)?)))?
     }
 
     /// The start of the first index line whose key is `target` or after it.
@@ -216,11 +216,7 @@ impl Store {
 
     /// The city at `offset` in `cities.tsv`.
     fn city_at(&self, offset: u64) -> Option<City> {
-        let mut reader = BufReader::new(&self.tsv);
-        reader.seek(SeekFrom::Start(offset)).ok()?;
-        let mut line = String::new();
-        reader.read_line(&mut line).ok()?;
-        City::from_line(line.trim_end_matches('\n'))
+        City::from_line(&line_at(&self.tsv, offset)?)
     }
 
     fn cities(&self, offsets: impl IntoIterator<Item = u64>) -> Vec<City> {
@@ -242,21 +238,19 @@ impl Store {
     pub fn find(&self, name: &str) -> Vec<City> {
         let mut parts = name.split(',').map(str::trim).filter(|p| !p.is_empty());
         let Some(first) = parts.next() else { return Vec::new() };
-        let qualifiers: Vec<String> = parts.map(key).collect();
-        let target = key(first);
+        let qualifiers: Vec<String> = parts.map(tz::key).collect();
+        let target = tz::key(first);
         if target.is_empty() {
             return Vec::new();
         }
         let hits = self.scan(self.lower_bound(&target), 5000, &|k| k == target);
         let found = self.cities(hits.into_iter().map(|(_, o)| o));
+        // Each qualifier: the city's region, its country, or a name of its country (`USA`).
         found
             .into_iter()
             .filter(|c| {
-                let names = [key(&c.region), key(&c.country), key(&c.country_code)];
-                let country = tz::countries().iter().find(|t| t.code == c.country_code);
-                qualifiers.iter().all(|q| {
-                    names.contains(q) || country.is_some_and(|t| std::iter::once(&t.name).chain(&t.aliases).any(|n| key(n) == *q))
-                })
+                let names = [tz::key(&c.region), tz::key(&c.country), tz::key(&c.country_code)];
+                qualifiers.iter().all(|q| names.contains(q) || tz::country(q).is_some_and(|t| t.code == c.country_code))
             })
             .collect()
     }
@@ -264,7 +258,7 @@ impl Store {
     /// Cities whose name or alias starts with `prefix`, the most populous first (Tab).
     #[cfg_attr(not(feature = "tui"), allow(dead_code))]
     pub fn starting_with(&self, prefix: &str, limit: usize) -> Vec<City> {
-        let target = key(prefix);
+        let target = tz::key(prefix);
         if target.chars().count() < 2 {
             return Vec::new();
         }
@@ -276,14 +270,14 @@ impl Store {
 
     /// Cities whose name or alias is within 1 letter of `name` (2 from 6 letters): `Sprinfield`.
     pub fn near(&self, name: &str) -> Vec<City> {
-        let target = key(name).replace(' ', "");
+        let target = tz::key(name).replace(' ', "");
         let len = target.chars().count();
         if len < 4 {
             return Vec::new();
         }
         let limit = if len <= 5 { 1 } else { 2 };
         // Names sharing the first two letters (a misspelling rarely changes them).
-        let first: String = key(name).chars().take(2).collect();
+        let first: String = tz::key(name).chars().take(2).collect();
         let hits = self.scan(self.lower_bound(&first), 200_000, &|k| k.starts_with(first.as_str()));
         let mut best: Vec<(usize, u64)> = Vec::new();
         for (k, offset) in hits {
@@ -302,19 +296,67 @@ impl Store {
     }
 }
 
+/// The line of `file` starting at `pos`, without its newline (read by position: no seek, no
+/// buffer kept).
+fn line_at(file: &File, pos: u64) -> Option<String> {
+    let mut line = Vec::new();
+    let mut chunk = [0u8; 512];
+    loop {
+        let n = file.read_at(&mut chunk, pos + line.len() as u64).ok()?;
+        if n == 0 {
+            break;
+        }
+        match chunk[..n].iter().position(|&b| b == b'\n') {
+            Some(end) => {
+                line.extend_from_slice(&chunk[..end]);
+                break;
+            }
+            None => line.extend_from_slice(&chunk[..n]),
+        }
+    }
+    String::from_utf8(line).ok()
+}
+
+/// Where the line after the one holding byte `pos` of `file` starts.
+fn next_line(file: &File, mut pos: u64) -> Option<u64> {
+    let mut chunk = [0u8; 512];
+    loop {
+        let n = file.read_at(&mut chunk, pos).ok()?;
+        if n == 0 {
+            return None;
+        }
+        if let Some(i) = chunk[..n].iter().position(|&b| b == b'\n') {
+            return Some(pos + i as u64 + 1);
+        }
+        pos += n as u64;
+    }
+}
+
 // ---------------------------------------------------------------- download and conversion
 
+/// How many names are sorted in memory at a time while building the index (about 2 MB): the
+/// 575,000 names go to disk in sorted runs, merged at the end, so the conversion stays well below
+/// 10 MB instead of holding every name (about 45 MB).
+const RUN: usize = 32_768;
+
 /// Turns the archive's JSON (one city per line, as the build script writes it) into the two
-/// search files in `dir`; returns how many cities. Read line by line: the 20 MB archive is never
-/// held in memory at once.
+/// search files in `dir`; returns how many cities, and the archive's date. Read line by line: the
+/// 20 MB archive is never held in memory, nor its index (an external merge sort, `RUN`).
 pub fn convert(json: &Path, dir: &Path) -> Result<(u64, i64), String> {
-    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    let input = BufReader::new(File::open(json).map_err(|e| e.to_string())?);
-    let mut tsv = BufWriter::new(File::create(dir.join("cities.tsv")).map_err(|e| e.to_string())?);
-    let mut keys: Vec<(String, u64)> = Vec::new();
+    convert_in_runs(json, dir, RUN)
+}
+
+/// `convert`, sorting `run` names at a time.
+fn convert_in_runs(json: &Path, dir: &Path, run: usize) -> Result<(u64, i64), String> {
+    let err = |e: std::io::Error| e.to_string();
+    std::fs::create_dir_all(dir).map_err(err)?;
+    let input = BufReader::new(File::open(json).map_err(err)?);
+    let mut tsv = BufWriter::new(File::create(dir.join("cities.tsv")).map_err(err)?);
+    let mut keys: Vec<(String, u64)> = Vec::with_capacity(run);
+    let mut runs: Vec<PathBuf> = Vec::new();
     let (mut offset, mut count, mut built_at) = (0u64, 0u64, 0i64);
     for line in input.lines() {
-        let line = line.map_err(|e| e.to_string())?;
+        let line = line.map_err(err)?;
         let text = line.trim().trim_end_matches(',');
         if let Some(head) = text.strip_suffix("\"cities\": [") {
             // The header: `{"format": 1, …, "count": N, "cities": [`.
@@ -327,41 +369,69 @@ pub fn convert(json: &Path, dir: &Path) -> Result<(u64, i64), String> {
         if !text.starts_with('{') {
             continue;
         }
-        let Ok(c) = crate::json::parse(text) else { continue };
-        let s = |k: &str| c.get(k).and_then(|v| v.str()).unwrap_or_default().to_string();
-        let n = |k: &str| c.get(k).and_then(|v| v.number());
-        let (Some(id), Some(lat), Some(lon)) = (n("id"), n("lat"), n("lon")) else { continue };
-        let city = City {
-            id: id as u64,
-            name: s("name"),
-            lat,
-            lon,
-            population: n("population").unwrap_or(0.0) as u64,
-            country_code: s("country_code"),
-            country: s("country"),
-            region: s("region"),
-            updated: s("updated"),
-            aliases: c.get("aliases").map(|a| a.array().iter().filter_map(|x| x.str().map(str::to_string)).collect()).unwrap_or_default(),
-        };
+        let Some(city) = City::from_json(text) else { continue };
         let line = city.to_line();
-        let mut names: Vec<String> = std::iter::once(&city.name).chain(&city.aliases).map(|n| key(n)).filter(|k| !k.is_empty()).collect();
-        names.sort();
+        let mut names: Vec<String> = std::iter::once(&city.name).chain(&city.aliases).map(|n| tz::key(n)).filter(|k| !k.is_empty()).collect();
+        names.sort_unstable();
         names.dedup();
-        for k in names {
-            keys.push((k, offset));
+        keys.extend(names.into_iter().map(|k| (k, offset)));
+        if keys.len() >= run {
+            runs.push(write_run(dir, runs.len(), &mut keys)?);
         }
-        tsv.write_all(line.as_bytes()).map_err(|e| e.to_string())?;
+        tsv.write_all(line.as_bytes()).map_err(err)?;
         offset += line.len() as u64;
         count += 1;
     }
-    tsv.flush().map_err(|e| e.to_string())?;
-    keys.sort();
-    let mut idx = BufWriter::new(File::create(dir.join("cities.idx")).map_err(|e| e.to_string())?);
-    for (k, o) in keys {
-        writeln!(idx, "{k}\t{o}").map_err(|e| e.to_string())?;
+    tsv.flush().map_err(err)?;
+    if !keys.is_empty() {
+        runs.push(write_run(dir, runs.len(), &mut keys)?);
     }
-    idx.flush().map_err(|e| e.to_string())?;
+    merge(&runs, &dir.join("cities.idx"))?;
+    for run in runs {
+        let _ = std::fs::remove_file(run);
+    }
     Ok((count, built_at))
+}
+
+/// Sorts `keys`, writes them to the run file `n` of `dir` (`key<TAB>offset` lines), and empties it.
+fn write_run(dir: &Path, n: usize, keys: &mut Vec<(String, u64)>) -> Result<PathBuf, String> {
+    keys.sort_unstable();
+    let path = dir.join(format!("run-{n}"));
+    let mut out = BufWriter::new(File::create(&path).map_err(|e| e.to_string())?);
+    for (k, o) in keys.drain(..) {
+        writeln!(out, "{k}\t{o}").map_err(|e| e.to_string())?;
+    }
+    out.flush().map_err(|e| e.to_string())?;
+    Ok(path)
+}
+
+/// Merges sorted run files into one sorted index: the smallest line of all the runs, each time
+/// (a heap with one line per run).
+fn merge(runs: &[PathBuf], to: &Path) -> Result<(), String> {
+    use std::cmp::Reverse;
+    use std::collections::BinaryHeap;
+    let parse = |line: String| -> Option<(String, u64)> {
+        let (k, o) = line.split_once('\t')?;
+        Some((k.to_string(), o.parse().ok()?))
+    };
+    let mut readers = Vec::new();
+    for run in runs {
+        readers.push(BufReader::new(File::open(run).map_err(|e| e.to_string())?).lines());
+    }
+    let mut heap = BinaryHeap::new();
+    for (i, r) in readers.iter_mut().enumerate() {
+        if let Some((k, o)) = r.next().and_then(Result::ok).and_then(parse) {
+            heap.push(Reverse((k, o, i)));
+        }
+    }
+    let mut out = BufWriter::new(File::create(to).map_err(|e| e.to_string())?);
+    while let Some(Reverse((k, o, i))) = heap.pop() {
+        writeln!(out, "{k}\t{o}").map_err(|e| e.to_string())?;
+        if let Some((k, o)) = readers[i].next().and_then(Result::ok).and_then(parse) {
+            heap.push(Reverse((k, o, i)));
+        }
+    }
+    out.flush().map_err(|e| e.to_string())
 }
 
 /// `cities.version` next to the archive at `url`: `<built_at> <sha256>`.
@@ -417,15 +487,15 @@ pub fn install(base: &Path, json: &Path, version: &str, now: i64) -> Result<u64,
         return Err("the city archive is empty".into());
     }
     let version = if version.is_empty() { format!("{built_at} -") } else { version.to_string() };
-    let meta = format!(
-        "{{\"version\":{},\"built_at\":{built_at},\"count\":{count},\"downloaded_at\":{now},\"dir\":{},\"source\":{}}}\n",
-        crate::json::string(&version),
-        crate::json::string(&name),
-        crate::json::string(SOURCE)
-    );
-    let tmp = base.join(format!("cities.json.{}.tmp", std::process::id()));
-    std::fs::write(&tmp, meta).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, base.join("cities.json")).map_err(|e| e.to_string())?;
+    let meta = crate::json::Object::new()
+        .str("version", &version)
+        .num("built_at", built_at)
+        .num("count", count)
+        .num("downloaded_at", now)
+        .str("dir", &name)
+        .str("source", SOURCE)
+        .finish();
+    crate::files::write_atomic(&base.join("cities.json"), format!("{meta}\n").as_bytes()).map_err(|e| e.to_string())?;
     if let Some(old) = previous.filter(|p| p.dir != name && !p.dir.is_empty()) {
         let _ = std::fs::remove_dir_all(base.join(old.dir));
     }
@@ -435,7 +505,6 @@ pub fn install(base: &Path, json: &Path, version: &str, now: i64) -> Result<u64,
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use std::path::PathBuf;
 
     /// A small archive in the build script's format.
     pub const SAMPLE: &str = r#"{"format": 1, "source": "GeoNames (https://www.geonames.org)", "license": "CC BY 4.0", "built_at": 1791877958, "count": 9, "cities": [
@@ -515,6 +584,28 @@ pub mod tests {
         assert_eq!(store.lower_bound("\u{10ffff}"), store.idx_len, "after every key (Cyrillic ones too)");
         assert!(store.lower_bound("zzzz") < store.idx_len, "Cyrillic keys sort after Latin ones");
         assert_eq!(store.lower_bound(""), 0);
+    }
+
+    /// The index is the same however many runs it was sorted in (the merge of runs).
+    #[test]
+    fn sorted_in_runs() {
+        let base = std::env::temp_dir().join(format!("tally-cities-runs-{}", std::process::id()));
+        let json = base.join("sample.json");
+        std::fs::create_dir_all(&base).unwrap();
+        std::fs::write(&json, SAMPLE).unwrap();
+        let index = |run: usize| {
+            let dir = base.join(format!("run-{run}"));
+            assert_eq!(convert_in_runs(&json, &dir, run).unwrap().0, 9);
+            let files: Vec<_> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name()).collect();
+            assert_eq!(files.len(), 2, "only cities.tsv and cities.idx are left: {files:?}");
+            std::fs::read_to_string(dir.join("cities.idx")).unwrap()
+        };
+        let one = index(10_000);
+        assert_eq!(index(3), one);
+        assert_eq!(index(1), one);
+        let names: Vec<&str> = one.lines().map(|l| l.split('\t').next().unwrap()).collect();
+        assert!(names.windows(2).all(|w| w[0] <= w[1]), "sorted by name");
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]

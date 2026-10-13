@@ -17,7 +17,8 @@ use crate::time::tz;
 use crate::time::{Ambiguity, AmbiguityKind, Choice};
 use std::path::PathBuf;
 use std::process::Command;
-use std::sync::OnceLock;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, OnceLock};
 
 /// A currency, as `src/data/currencies.json` describes it.
 #[derive(Debug)]
@@ -77,6 +78,62 @@ pub fn get(code: &str) -> Option<&'static Currency> {
 
 // ---------------------------------------------------------------- what a word means
 
+/// The ways currencies are written, normalised once: each lookup is then a hash lookup.
+struct Index {
+    /// An ISO code (upper case) → its currency (position in `all()`).
+    codes: HashMap<String, usize>,
+    /// A name or word (`tz::key`: `us dollar`, `dollar`) → the currencies with it, in order.
+    names: HashMap<String, Vec<usize>>,
+    abbreviations: HashMap<String, Vec<usize>>,
+    /// A symbol, lower case (`€`, `us$`).
+    symbols: HashMap<String, Vec<usize>>,
+    /// Europe, EU… (`tz::key`).
+    euro_area: Vec<String>,
+    /// For misspellings: every name and word of 4 letters or more, squeezed, and its plural.
+    forms: Vec<(String, usize)>,
+}
+
+fn index() -> &'static Index {
+    static INDEX: OnceLock<Index> = OnceLock::new();
+    INDEX.get_or_init(|| {
+        let mut index = Index {
+            codes: HashMap::new(),
+            names: HashMap::new(),
+            abbreviations: HashMap::new(),
+            symbols: HashMap::new(),
+            euro_area: EURO_AREA.iter().map(|r| tz::key(r)).collect(),
+            forms: Vec::new(),
+        };
+        let add = |map: &mut HashMap<String, Vec<usize>>, k: String, i: usize| {
+            if !k.is_empty() {
+                let list = map.entry(k).or_default();
+                if list.last() != Some(&i) {
+                    list.push(i);
+                }
+            }
+        };
+        for (i, c) in all().iter().enumerate() {
+            index.codes.entry(c.code.clone()).or_insert(i);
+            for form in std::iter::once(&c.name).chain(&c.words) {
+                let k = tz::key(form);
+                if form.chars().count() >= 4 {
+                    let squeezed = k.replace(' ', "");
+                    index.forms.push((format!("{squeezed}s"), i));
+                    index.forms.push((squeezed, i));
+                }
+                add(&mut index.names, k, i);
+            }
+            for a in &c.abbreviations {
+                add(&mut index.abbreviations, tz::key(a), i);
+            }
+            for symbol in &c.symbols {
+                add(&mut index.symbols, symbol.to_lowercase(), i);
+            }
+        }
+        index
+    })
+}
+
 /// The currencies `text` names exactly, the most used first: one (`usd`, `euros`, `Japan`, `€`), or
 /// several when they share it (`dollar`, `$`, `kr`); `None`: not a currency.
 pub fn exact(text: &str) -> Option<Vec<&'static str>> {
@@ -84,39 +141,69 @@ pub fn exact(text: &str) -> Option<Vec<&'static str>> {
     if raw.is_empty() {
         return None;
     }
+    let index = index();
     let key = tz::key(raw);
     let squeezed = key.replace(' ', "");
     // An ISO code: only that one.
     if squeezed.len() == 3 && squeezed.chars().all(|c| c.is_ascii_alphabetic()) {
-        if let Some(c) = get(&squeezed) {
-            return Some(vec![c.code.as_str()]);
+        if let Some(&i) = index.codes.get(&squeezed.to_ascii_uppercase()) {
+            return Some(vec![all()[i].code.as_str()]);
         }
     }
-    if EURO_AREA.iter().any(|r| tz::key(r) == key) {
+    if index.euro_area.contains(&key) {
         return Some(vec!["EUR"]);
     }
     if let Some(country) = tz::country(raw).filter(|c| !c.currency.is_empty()) {
         return Some(vec![country.currency.as_str()]);
     }
     // `$` alone: any dollar.
-    let lower = raw.to_lowercase();
-    let lower = if lower == "$" { "dollar".to_string() } else { lower };
-    let key = if raw == "$" { "dollar".to_string() } else { key };
-    let named = |form: &str| {
-        let k = tz::key(form);
-        !k.is_empty() && (k == key || (key.ends_with('s') && k == key[..key.len() - 1]))
+    let (key, lower) = match raw {
+        "$" => ("dollar".to_string(), "dollar".to_string()),
+        _ => (key, raw.to_lowercase()),
     };
-    let found: Vec<&'static str> = all()
-        .iter()
-        .filter(|c| {
-            named(&c.name)
-                || c.words.iter().any(|w| named(w))
-                || c.abbreviations.iter().any(|a| tz::key(a) == key)
-                || c.symbols.iter().any(|s| s.to_lowercase() == lower)
-        })
-        .map(|c| c.code.as_str())
+    // A name or word, or its plural (`dollars`); an abbreviation; a symbol.
+    let singular = key.strip_suffix('s').unwrap_or("");
+    let mut found: Vec<usize> = [index.names.get(&key), index.names.get(singular), index.abbreviations.get(&key), index.symbols.get(&lower)]
+        .into_iter()
+        .flatten()
+        .flatten()
+        .copied()
         .collect();
-    (!found.is_empty()).then_some(found)
+    found.sort_unstable();
+    found.dedup();
+    (!found.is_empty()).then(|| found.into_iter().map(|i| all()[i].code.as_str()).collect())
+}
+
+/// A misspelt currency or country: the nearest names within 1 letter (2 for longer words), each
+/// as (code, how to show it), and whether they are all countries; empty for a word that is exact
+/// or too short.
+fn near(text: &str) -> (Vec<(&'static str, String)>, bool) {
+    #[derive(Clone, Copy)]
+    enum Near {
+        Currency(usize),
+        Country(&'static tz::Country),
+    }
+    let wanted = tz::squeeze(text);
+    let len = wanted.chars().count();
+    if len < 4 || !wanted.chars().all(char::is_alphabetic) || exact(text).is_some() {
+        return (Vec::new(), false);
+    }
+    let limit = if len <= 5 { 1 } else { 2 };
+    let currencies = index().forms.iter().map(|(k, i)| (k.as_str(), Near::Currency(*i)));
+    let countries = tz::country_keys().filter(|(_, c)| !c.currency.is_empty()).map(|(k, c)| (k, Near::Country(c)));
+    let Some((_, found)) = tz::nearest(&wanted, currencies.chain(countries), limit) else { return (Vec::new(), false) };
+    let only_countries = found.iter().all(|n| matches!(n, Near::Country(_)));
+    let mut out: Vec<(&'static str, String)> = Vec::new();
+    for n in found {
+        let (code, label) = match n {
+            Near::Currency(i) => (all()[i].code.as_str(), all()[i].name.clone()),
+            Near::Country(c) => (c.currency.as_str(), format!("{} (country)", c.name)),
+        };
+        if !out.iter().any(|(c, _)| *c == code) {
+            out.push((code, label));
+        }
+    }
+    (out, only_countries)
 }
 
 /// The country (or Europe) `text` names, when it names a currency that way: `USA` → United States.
@@ -149,14 +236,7 @@ fn shown(code: &str, country: Option<&str>) -> String {
 
 /// When a country (or Europe) stands for a currency, the currencies used, to check the result:
 /// `United States: US dollar (USD, US$) → United Arab Emirates: UAE dirham (AED, د.إ)`. `None`
-/// for a request that is not a clear currency request, or names no country.
-#[cfg_attr(not(feature = "tui"), allow(dead_code))]
-pub fn describe(config: &Config, input: &str) -> Option<String> {
-    let Some(Ok((_, money))) = shape(config, input) else { return None };
-    let local = local().ok().flatten();
-    sides(&money, local.as_ref().map(|l| l.code))
-}
-
+/// when a side is unclear, or no country is named.
 fn sides(money: &[Piece], local: Option<&'static str>) -> Option<String> {
     let mut out = Vec::new();
     let mut by_country = false;
@@ -173,44 +253,6 @@ fn sides(money: &[Piece], local: Option<&'static str>) -> Option<String> {
         out.push(shown(local?, None));
     }
     by_country.then(|| out.join(" → "))
-}
-
-/// A misspelt currency or country: the nearest names within 1 letter (2 for longer words), each
-/// as (code, how to show it); empty for a word that is exact or too short.
-fn near(text: &str) -> (Vec<(&'static str, String)>, bool) {
-    let wanted = tz::key(text).replace(' ', "");
-    let len = wanted.chars().count();
-    if len < 4 || !wanted.chars().all(char::is_alphabetic) || exact(text).is_some() {
-        return (Vec::new(), false);
-    }
-    let limit = if len <= 5 { 1 } else { 2 };
-    let squeeze = |s: &str| tz::key(s).replace(' ', "");
-    let mut found: Vec<(usize, &'static str, String, bool)> = Vec::new();
-    for c in all() {
-        let forms = std::iter::once(&c.name).chain(&c.words).filter(|f| f.chars().count() >= 4);
-        let d = forms.map(|f| tz::levenshtein(&wanted, &squeeze(f)).min(tz::levenshtein(&wanted, &(squeeze(f) + "s")))).min();
-        if let Some(d) = d.filter(|&d| d <= limit) {
-            found.push((d, c.code.as_str(), c.name.clone(), false));
-        }
-    }
-    for country in tz::near_countries(text) {
-        if !country.currency.is_empty() {
-            let names: Vec<&str> = std::iter::once(country.name.as_str()).chain(country.aliases.iter().map(String::as_str)).collect();
-            let d = tz::distance(text, &names);
-            if d <= limit {
-                found.push((d, country.currency.as_str(), format!("{} (country)", country.name), true));
-            }
-        }
-    }
-    let best = found.iter().map(|f| f.0).min().unwrap_or(0);
-    let only_countries = found.iter().filter(|f| f.0 == best).all(|f| f.3);
-    let mut out: Vec<(&'static str, String)> = Vec::new();
-    for (_, code, label, _) in found.into_iter().filter(|f| f.0 == best) {
-        if !out.iter().any(|(c, _)| *c == code) {
-            out.push((code, label));
-        }
-    }
-    (out, only_countries)
 }
 
 /// One number, nothing else: `12`, `23.50`, `1e3`.
@@ -326,15 +368,10 @@ pub struct Local {
 }
 
 /// `request` reads these, so tests can set them.
-pub struct Context<'a> {
-    pub rates: &'a Data,
+pub struct Context {
+    pub rates: Arc<Data>,
     pub now: i64,
     pub local: Option<Local>,
-}
-
-/// Whether `input` is a currency request (for the stdin rule: such a request is complete).
-pub fn claims(config: &Config, input: &str) -> bool {
-    shape(config, input).is_some()
 }
 
 /// The request's parts, when it is a currency request: the amount, and the currency pieces in order.
@@ -377,12 +414,13 @@ fn shape(config: &Config, input: &str) -> Option<Result<(String, Vec<Piece>), Er
 /// A currency request, if `input` is one: one amount (a plain number) and one or two currencies or
 /// countries, nothing else. `None` leaves the request to the others (a time with countries is a
 /// time request, two countries alone a distance).
-pub fn request(config: &Config, input: &str, ctx: &Context) -> Option<Result<Converted, Error>> {
+/// `context` is asked for only for a currency request (it reads the rates).
+pub fn request(config: &Config, input: &str, context: impl FnOnce() -> Context) -> Option<Result<Converted, Error>> {
     let (amount, money) = match shape(config, input)? {
         Ok(s) => s,
         Err(e) => return Some(Err(e)),
     };
-    Some(convert(&amount, &money, ctx))
+    Some(convert(&amount, &money, &context()))
 }
 
 /// The options of a currency piece: (code, how to show it).
@@ -436,7 +474,7 @@ fn convert(amount: &str, money: &[Piece], ctx: &Context) -> Result<Converted, Er
     };
     let result = value / a * b;
     let day = day.value as i64;
-    let shown = crate::time::human(&crate::time::Instant { ns: i128::from(day) * 1_000_000_000, zone: crate::time::Zone::Fixed(0) }, true);
+    let shown = crate::time::human_day(day);
     notes.push(format!("1 {from} = {} {to}, rates of {shown} from {PROVIDER}", crate::convert::format_value(b / a, 6)));
     let mut warnings = Vec::new();
     if ctx.now - day >= STALE_DAYS * 86_400 {
@@ -509,32 +547,47 @@ pub fn local_from(setting: Option<&str>, zone: Option<&str>) -> Result<Option<Lo
         };
     }
     let Some(zone) = zone else { return Ok(None) };
-    let country = tz::countries()
-        .iter()
-        .find(|c| !c.currency.is_empty() && c.cities.iter().any(|city| tz::zones_of(city).is_some_and(|z| z.split('|').any(|z| z == zone))));
+    let country = tz::zone_country(zone).filter(|c| !c.currency.is_empty());
     Ok(country.map(|c| Local { code: c.currency.as_str(), from: format!("{}'s time zone, {zone}", c.name) }))
 }
 
 /// The device's time zone name: `TZ`, else where /etc/localtime points (`…/zoneinfo/Europe/Rome`).
+/// Read once.
 pub fn local_zone() -> Option<String> {
-    let after = |path: &str| path.split_once("zoneinfo/").map_or(path.to_string(), |(_, z)| z.to_string());
-    if let Some(tz) = std::env::var("TZ").ok().map(|t| t.trim_start_matches(':').to_string()).filter(|t| t.contains('/')) {
-        return Some(after(&tz));
-    }
-    let link = std::fs::read_link("/etc/localtime").ok()?;
-    Some(after(&link.to_string_lossy()))
+    static ZONE: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    ZONE.get_or_init(|| {
+        let after = |path: &str| path.split_once("zoneinfo/").map_or(path.to_string(), |(_, z)| z.to_string());
+        if let Some(tz) = std::env::var("TZ").ok().map(|t| t.trim_start_matches(':').to_string()).filter(|t| t.contains('/')) {
+            return Some(after(&tz));
+        }
+        let link = std::fs::read_link("/etc/localtime").ok()?;
+        Some(after(&link.to_string_lossy()))
+    })
+    .clone()
 }
 
 // ---------------------------------------------------------------- the rates
 
 /// `~/.config/tally/currencies.json`.
 pub fn path() -> Option<PathBuf> {
-    crate::online::dir().map(|d| d.join("currencies.json"))
+    crate::files::dir().map(|d| d.join("currencies.json"))
 }
 
-/// The stored rates; empty when there is no file.
-pub fn load() -> Data {
-    path().map(|p| crate::online::load_from(&p)).unwrap_or_default()
+/// The stored rates; empty when there is no file. Read again only when the file changes (a
+/// background sync): a long-running interactive mode sees new rates, a request reads them once.
+pub fn load() -> Arc<Data> {
+    static CACHE: Mutex<Option<(std::time::SystemTime, Arc<Data>)>> = Mutex::new(None);
+    let Some(path) = path() else { return Arc::default() };
+    let Ok(modified) = std::fs::metadata(&path).and_then(|m| m.modified()) else { return Arc::default() };
+    let mut cache = CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    match &*cache {
+        Some((at, data)) if *at == modified => Arc::clone(data),
+        _ => {
+            let data = Arc::new(crate::online::load_from(&path));
+            *cache = Some((modified, Arc::clone(&data)));
+            data
+        }
+    }
 }
 
 /// Its name in the file: `USD/EUR`, how many of it one US dollar buys.
@@ -601,15 +654,13 @@ mod tests {
     const NOW: i64 = 1_791_800_000;
 
     fn rates() -> Data {
-        let mut d = Data::default();
-        d.values = parse(REPLY).unwrap().into_iter().map(|(n, v)| (n, Stored { value: v, at: NOW })).collect();
-        d
+        Data { values: parse(REPLY).unwrap().into_iter().map(|(n, v)| (n, Stored { value: v, at: NOW })).collect(), ..Data::default() }
     }
 
     fn with(input: &str, local: Option<&str>) -> Option<Result<Converted, Error>> {
         let rates = rates();
         let local = local.map(|code| Local { code: get(code).map(|c| c.code.as_str()).unwrap(), from: "Italy's time zone, Europe/Rome".into() });
-        request(&Config::default(), input, &Context { rates: &rates, now: NOW, local })
+        request(&Config::default(), input, || Context { rates: Arc::new(rates), now: NOW, local })
     }
 
     fn ok(input: &str) -> String {
@@ -764,17 +815,13 @@ mod tests {
 
     #[test]
     fn rates_missing_or_stale() {
-        let empty = Data::default();
-        let ctx = Context { rates: &empty, now: NOW, local: None };
-        assert!(matches!(request(&Config::default(), "1 usd eur", &ctx), Some(Err(Error::NoRates(_)))));
-        let rates = rates();
-        let ctx = Context { rates: &rates, now: NOW + 4 * 86_400, local: None };
-        let c = request(&Config::default(), "1 usd eur", &ctx).unwrap().unwrap();
+        let ctx = |rates: Data, now: i64| move || Context { rates: Arc::new(rates), now, local: None };
+        assert!(matches!(request(&Config::default(), "1 usd eur", ctx(Data::default(), NOW)), Some(Err(Error::NoRates(_)))));
+        let c = request(&Config::default(), "1 usd eur", ctx(rates(), NOW + 4 * 86_400)).unwrap().unwrap();
         assert_eq!(c.warnings, ["exchange rates of 12 Oct 26: not updated since"]);
         assert_eq!(c.notes, [format!("1 USD = 0.8945 EUR, rates of 12 Oct 26 from {PROVIDER}")]);
         // A currency without a rate.
-        let ctx = Context { rates: &rates, now: NOW, local: None };
-        assert_eq!(request(&Config::default(), "1 usd kpw", &ctx).unwrap(), Err(Error::NoRates("no exchange rate for the North Korean won (KPW)".into())));
+        assert_eq!(request(&Config::default(), "1 usd kpw", ctx(rates(), NOW)).unwrap(), Err(Error::NoRates("no exchange rate for the North Korean won (KPW)".into())));
     }
 
     #[test]

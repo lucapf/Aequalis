@@ -696,7 +696,7 @@ fn trivia(app: &App, v: &super::trivia::View, canvas: &mut Canvas, rows: usize, 
     let footer = if height >= 13 { 4 } else { 0 };
     let visible = height - 4 - if footer > 0 { footer + 1 } else { 0 };
     let entries = v.entries();
-    let now = crate::time::now().ns.div_euclid(1_000_000_000) as i64;
+    let now = crate::time::unix_now();
     // A live value: from the online data (synced when, from where), or its estimate.
     let live = |e: &crate::trivia::Entry| {
         let synced = app.online.get(&e.name);
@@ -768,7 +768,7 @@ fn trivia(app: &App, v: &super::trivia::View, canvas: &mut Canvas, rows: usize, 
 /// Scrolled down by `scroll` lines.
 fn trivia_popup(app: &App, v: &super::trivia::View, canvas: &mut Canvas, rows: usize, scroll: usize) {
     let Some(entry) = v.entry() else { return };
-    let now = crate::time::now().ns.div_euclid(1_000_000_000) as i64;
+    let now = crate::time::unix_now();
     let live = app.online.get(&entry.name);
     let width = 76.min(canvas.cols - 4);
     let text_width = width - 4;
@@ -932,15 +932,14 @@ fn choice(canvas: &mut Canvas, rows: usize, a: &crate::time::Ambiguity, selected
 /// `O`: the settings, their values (changed ones bold), what the chosen one does, the downloads.
 fn settings_window(canvas: &mut Canvas, rows: usize, view: &super::settings::View) {
     use crate::settings::KEYS;
-    let current = crate::settings::current();
+    let current = &view.settings;
     let key_width = KEYS.iter().map(|k| k.key.len()).max().unwrap_or(0);
     let lines = KEYS.len() + super::settings::DOWNLOADS.len() + 5;
     let (top, left, width, height) = centred(canvas, rows, 78, lines, crate::config::SETTINGS.0);
     let right = left + width - 2;
     let visible = height.saturating_sub(5);
     let offset = view.selected.saturating_sub(visible.saturating_sub(1));
-    let mut row = top + 1;
-    for i in (0..super::settings::rows()).skip(offset).take(visible) {
+    for (row, i) in (top + 1..).zip((0..super::settings::rows()).skip(offset).take(visible)) {
         let chosen = i == view.selected;
         let text = match KEYS.get(i) {
             Some(k) => {
@@ -959,7 +958,6 @@ fn settings_window(canvas: &mut Canvas, rows: usize, view: &super::settings::Vie
             (false, None) => Style::Yellow,
         };
         canvas.put_within(row, left + 1, right, &text, style);
-        row += 1;
     }
     let sep = top + height - 4;
     canvas.cells[sep][left + 1..left + width - 1].fill(('─', Style::Dim));
@@ -1550,7 +1548,7 @@ mod tests {
     fn help_fits_80_columns() {
         let (lines, _) = screen("\x1bE", 48, 80);
         for (keys, what) in HELP {
-            let text = format!("{keys}").trim().to_string();
+            let text = keys.trim().to_string();
             assert!(text.is_empty() || lines.iter().any(|l| l.contains(&text)), "{text}");
             assert!(what.is_empty() || lines.iter().any(|l| l.contains(what)), "cut: {what}");
         }
@@ -1604,6 +1602,25 @@ mod tests {
         // Too short for even the compact one: not drawn.
         let (lines, _) = screen("", 16, 80);
         assert!(!lines.join("").contains("┌───"));
+    }
+
+    /// How long a keystroke takes in the interactive mode (the key, then the whole screen drawn
+    /// again, the preview evaluated): `cargo test --release -- --ignored keystroke_cost --nocapture`.
+    #[test]
+    #[ignore]
+    fn keystroke_cost() {
+        let config = Config::default();
+        let opts = Options { positional: Vec::new(), precision: 4, silent: false, verbose: false };
+        for input in ["10 km mi", "12+4/2*sqrt 16", "Rome Paris", "10:00am jappan romme", "12 USA UAE"] {
+            let mut app = App::new(&config, &opts);
+            let started = std::time::Instant::now();
+            for c in input.chars() {
+                app.handle(Key::Char(c));
+                std::hint::black_box(render(&app, 40, 120));
+            }
+            let each = started.elapsed() / input.chars().count() as u32;
+            println!("KEYSTROKE {input:<24} {each:?} per key (handle + render)");
+        }
     }
 
     #[test]

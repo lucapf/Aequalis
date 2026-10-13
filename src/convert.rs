@@ -33,18 +33,12 @@ impl fmt::Display for ConvertError {
     }
 }
 
-fn names(unit: &Unit) -> impl Iterator<Item = &&'static str> {
-    std::iter::once(&unit.symbol).chain(unit.aliases.iter())
-}
-
 /// Exact match first; then case-insensitive, skipping case-sensitive (data) categories.
 pub fn find_unit<'a>(config: &'a Config, name: &str) -> Option<(&'a Category, &'a Unit)> {
-    let all = || config.categories.iter().flat_map(|c| c.units.iter().map(move |u| (c, u)));
-    all().find(|(_, u)| names(u).any(|n| *n == name)).or_else(|| {
-        all()
-            .filter(|(c, _)| !c.case_sensitive)
-            .find(|(_, u)| names(u).any(|n| n.to_lowercase() == name.to_lowercase()))
-    })
+    let names = config.unit_names();
+    let &(c, u) = names.exact.get(name).or_else(|| names.lower.get(&name.to_lowercase()))?;
+    let category = &config.categories[c];
+    Some((category, &category.units[u]))
 }
 
 /// A unit reduced to SI: `value` of it is `value * factor + offset` in the SI units of `dims`.

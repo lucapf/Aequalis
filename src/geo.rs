@@ -187,11 +187,7 @@ pub fn request(config: &Config, input: &str, precision: usize) -> Option<Result<
 
 /// The ISO code of the device time zone's country (`IT` for Europe/Rome), to offer its cities first.
 fn local_country() -> Option<String> {
-    let zone = crate::currency::local_zone()?;
-    crate::time::tz::countries()
-        .iter()
-        .find(|c| c.cities.iter().any(|city| crate::time::tz::zones_of(city).is_some_and(|z| z.split('|').any(|z| z == zone))))
-        .map(|c| c.code.clone())
+    crate::time::tz::zone_country(&crate::currency::local_zone()?).map(|c| c.code.clone())
 }
 
 /// `request`, with its numbers written in `format` (whole units: `1,107 km`, since places are not

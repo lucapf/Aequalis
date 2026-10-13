@@ -1,5 +1,8 @@
 //! The single configuration object: unit tables, aliases and output defaults.
 
+use std::collections::HashMap;
+use std::sync::OnceLock;
+
 /// A unit is converted through its category's base unit:
 /// `base = value * factor + offset`, or `base = factor / value` for an `inverse` unit (`l/100km`,
 /// whose base is `km/l`).
@@ -119,6 +122,34 @@ pub struct Config {
     /// Entries kept in the interactive mode's history (the oldest are dropped).
     #[cfg_attr(not(feature = "tui"), allow(dead_code))]
     pub max_history: usize,
+    /// Every unit by name (`Config::unit_names`), built on first use.
+    unit_names: OnceLock<UnitNames>,
+}
+
+/// The units by symbol and alias, as (category, unit) indexes: written exactly, and in lower case
+/// for the categories where case does not matter. The first unit with a name wins.
+pub struct UnitNames {
+    pub exact: HashMap<&'static str, (usize, usize)>,
+    pub lower: HashMap<String, (usize, usize)>,
+}
+
+impl Config {
+    pub fn unit_names(&self) -> &UnitNames {
+        self.unit_names.get_or_init(|| {
+            let mut names = UnitNames { exact: HashMap::new(), lower: HashMap::new() };
+            for (c, category) in self.categories.iter().enumerate() {
+                for (u, unit) in category.units.iter().enumerate() {
+                    for name in std::iter::once(unit.symbol).chain(unit.aliases.iter().copied()) {
+                        names.exact.entry(name).or_insert((c, u));
+                        if !category.case_sensitive {
+                            names.lower.entry(name.to_lowercase()).or_insert((c, u));
+                        }
+                    }
+                }
+            }
+            names
+        })
+    }
 }
 
 const fn metric(symbol: &'static str, name: &'static str, aliases: &'static [&'static str], factor: f64) -> Unit {
@@ -184,6 +215,7 @@ impl Default for Config {
             default_precision: 4,
             max_precision: 15,
             max_history: 500,
+            unit_names: OnceLock::new(),
             // The interactive mode's shortcuts, in this order: categories and groups.
             menu: vec![SEARCH.0, "Time", "Data", "Size", "Other physical", TRIVIA.0, SETTINGS.0],
             groups: vec![

@@ -17,7 +17,7 @@ pub const TAGLINE: &str = "Ultralight calculator and converter made for humans";
 /// the mode.
 pub fn facts(memory: &str) -> Vec<(&'static str, String)> {
     let sync = match crate::online::load().last_sync() {
-        Some(t) => crate::time::human(&crate::time::Instant { ns: t as i128 * 1_000_000_000, zone: crate::time::Zone::Local }, false),
+        Some(t) => crate::time::human_moment(t),
         None => "never".to_string(),
     };
     let mode = match crate::network::mode() {
@@ -27,7 +27,7 @@ pub fn facts(memory: &str) -> Vec<(&'static str, String)> {
     // The exchange rates: their date and where they come from (its terms ask to name it).
     let rates = match crate::currency::load().get(crate::currency::RATES_DATE) {
         Some(day) => {
-            let day = crate::time::human(&crate::time::Instant { ns: day.value as i128 * 1_000_000_000, zone: crate::time::Zone::Fixed(0) }, true);
+            let day = crate::time::human_day(day.value as i64);
             format!("of {day}, {}", crate::currency::SOURCE)
         }
         None => format!("not synced yet, {}", crate::currency::SOURCE),
@@ -37,7 +37,7 @@ pub fn facts(memory: &str) -> Vec<(&'static str, String)> {
     let cities = match (settings.cities_enabled(), crate::cities::meta()) {
         (false, _) => "off (the cities.enabled setting)".to_string(),
         (true, Some(m)) => {
-            let day = crate::time::human(&crate::time::Instant { ns: m.built_at as i128 * 1_000_000_000, zone: crate::time::Zone::Fixed(0) }, true);
+            let day = crate::time::human_day(m.built_at);
             format!("{} of {day}, {} (refresh: {})", crate::numbers::device().apply(&m.count.to_string()), crate::cities::SOURCE, settings.get("cities.refresh"))
         }
         (true, None) => format!("not downloaded (tally --sync cities), {}", crate::cities::SOURCE),

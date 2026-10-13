@@ -8,7 +8,7 @@
 //! Keys not in the file have their default; an unknown key or a bad value is an error naming it.
 
 use std::path::{Path, PathBuf};
-use std::sync::{OnceLock, RwLock};
+use std::sync::{Arc, OnceLock, RwLock};
 
 /// How a group of online data is kept up to date.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -262,7 +262,7 @@ pub fn duration(text: &str) -> Result<i64, ()> {
 
 /// `~/.config/tally/settings.json`.
 pub fn path() -> Option<PathBuf> {
-    crate::online::dir().map(|d| d.join("settings.json"))
+    crate::files::dir().map(|d| d.join("settings.json"))
 }
 
 fn path_text() -> String {
@@ -279,20 +279,12 @@ pub fn load_from(path: &Path) -> Result<Settings, String> {
 
 /// Writes the settings (a new file renamed over the old one).
 pub fn save_to(path: &Path, settings: &Settings) -> std::io::Result<()> {
-    use std::io::Write;
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let tmp = path.with_extension(format!("json.{}.tmp", std::process::id()));
-    let mut file = std::fs::File::create(&tmp)?;
-    file.write_all(settings.to_json().as_bytes())?;
-    file.sync_all()?;
-    std::fs::rename(&tmp, path)
+    crate::files::write_atomic(path, settings.to_json().as_bytes())
 }
 
-fn cell() -> &'static RwLock<Result<Settings, String>> {
-    static CURRENT: OnceLock<RwLock<Result<Settings, String>>> = OnceLock::new();
-    CURRENT.get_or_init(|| RwLock::new(path().map_or(Ok(Settings::default()), |p| load_from(&p))))
+fn cell() -> &'static RwLock<Result<Arc<Settings>, String>> {
+    static CURRENT: OnceLock<RwLock<Result<Arc<Settings>, String>>> = OnceLock::new();
+    CURRENT.get_or_init(|| RwLock::new(path().map_or(Ok(Settings::default()), |p| load_from(&p)).map(Arc::new)))
 }
 
 /// The file's problem, if it has one (the command line reports it; the settings are then the
@@ -301,19 +293,25 @@ pub fn error() -> Option<String> {
     cell().read().ok().and_then(|s| s.as_ref().err().cloned())
 }
 
-/// The settings in effect (the defaults when the file has a problem).
-pub fn current() -> Settings {
+/// The settings in effect (the defaults when the file has a problem); shared, not copied.
+pub fn current() -> Arc<Settings> {
     cell().read().ok().and_then(|s| s.as_ref().ok().cloned()).unwrap_or_default()
 }
 
 /// Changes one setting and saves the file; `None` puts back its default.
 pub fn change(key: &str, value: Option<&str>) -> Result<Settings, String> {
-    let path = path().ok_or("no home directory")?;
-    let mut settings = load_from(&path)?;
+    change_in(&path().ok_or("no home directory")?, key, value)
+}
+
+/// `change`, in the settings file at `path`; the settings in effect follow when it is the one in use.
+pub fn change_in(path: &Path, key: &str, value: Option<&str>) -> Result<Settings, String> {
+    let mut settings = load_from(path)?;
     settings.set(key, value)?;
-    save_to(&path, &settings).map_err(|e| format!("cannot write {}: {e}", path.display()))?;
-    if let Ok(mut cell) = cell().write() {
-        *cell = Ok(settings.clone());
+    save_to(path, &settings).map_err(|e| format!("cannot write {}: {e}", path.display()))?;
+    if self::path().as_deref() == Some(path) {
+        if let Ok(mut cell) = cell().write() {
+            *cell = Ok(Arc::new(settings.clone()));
+        }
     }
     Ok(settings)
 }

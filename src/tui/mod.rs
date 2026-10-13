@@ -31,6 +31,8 @@ use crate::{convert_request, Options};
 use editor::{Entry, History, Line};
 use keys::Key;
 use picker::{Direction, Picker};
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::io::{Read, Write};
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
@@ -113,7 +115,13 @@ pub struct App<'a> {
     /// `system_clipboard` (only in a real session: never in the tests).
     copied: Option<String>,
     system_clipboard: bool,
+    /// The last request evaluated and its result: the preview, the currencies line and Enter
+    /// share it (one evaluation per change of the bar, not one per use).
+    evaluation: RefCell<Option<(String, Evaluated)>>,
 }
+
+/// A request's result, shared by its uses.
+type Evaluated = Rc<Result<crate::Output, crate::CliError>>;
 
 const SCROLL_STEP: usize = 5;
 
@@ -184,6 +192,7 @@ impl<'a> App<'a> {
             menu: 0,
             copied: None,
             system_clipboard: false,
+            evaluation: RefCell::new(None),
 
         }
     }
@@ -270,7 +279,7 @@ impl<'a> App<'a> {
             self.mode = Mode::Input;
             return;
         }
-        let now = crate::time::now().ns.div_euclid(1_000_000_000) as i64;
+        let now = crate::time::unix_now();
         if let Ok((value, _)) = crate::trivia::value(self.config, entry, self.online.get(&entry.name), now) {
             self.line.set(&format!("{} ", crate::trivia::written(self.config, entry, value)));
             self.overlay = None;
@@ -588,9 +597,18 @@ impl<'a> App<'a> {
         self.cycle = Some(cycle);
     }
 
-    fn evaluate(&self, input: &str) -> Result<crate::Output, String> {
+    /// The result of `input` (trimmed), evaluated once while it stays the same.
+    fn evaluated(&self, input: &str) -> Evaluated {
+        let input = input.trim();
+        if let Some((last, result)) = &*self.evaluation.borrow() {
+            if last == input {
+                return Rc::clone(result);
+            }
+        }
         let tokens: Vec<&str> = input.split_whitespace().collect();
-        convert_request(self.config, self.opts, &tokens).map_err(|e| e.to_string())
+        let result = Rc::new(convert_request(self.config, self.opts, &tokens));
+        *self.evaluation.borrow_mut() = Some((input.to_string(), Rc::clone(&result)));
+        result
     }
 
     /// Enter: evaluate the bar, add it to the history and clear the bar.
@@ -608,22 +626,21 @@ impl<'a> App<'a> {
             self.overlay = Some(Overlay::About);
             return;
         }
-        // An ambiguous date: ask which reading is meant (the popup), nothing is added yet.
-        let tokens: Vec<&str> = input.split_whitespace().collect();
-        if let Err(crate::CliError::Ambiguous(a)) = convert_request(self.config, self.opts, &tokens) {
-            self.overlay = Some(Overlay::Choice(a, 0));
-            return;
-        }
-        let (result, status) = match self.evaluate(&input) {
+        let (result, status) = match &*self.evaluated(&input) {
+            // An ambiguous request: ask which reading is meant (the popup), nothing is added yet.
+            Err(crate::CliError::Ambiguous(a)) => {
+                self.overlay = Some(Overlay::Choice(a.clone(), 0));
+                return;
+            }
             Ok(out) => {
                 let status = match (out.warnings.is_empty(), out.notes.is_empty()) {
                     (false, _) => Some((StatusKind::Warning, out.warnings.join(" · "))),
                     (true, false) => Some((StatusKind::Note, out.notes.join(" · "))),
                     (true, true) => None,
                 };
-                (Ok(out.stdout), status)
+                (Ok(out.stdout.clone()), status)
             }
-            Err(msg) => (Err(msg.clone()), Some((StatusKind::Error, msg))),
+            Err(e) => (Err(e.to_string()), Some((StatusKind::Error, e.to_string()))),
         };
         self.history.push(Entry { input, result });
         self.status = status;
@@ -651,35 +668,35 @@ impl<'a> App<'a> {
                 }
             }
         }
-        // An ambiguous date: Enter asks which reading is meant.
-        let tokens: Vec<&str> = input.split_whitespace().collect();
-        if let Err(crate::CliError::Ambiguous(a)) = convert_request(self.config, self.opts, &tokens) {
-            let patterns: Vec<&str> = a.choices.iter().map(|c| c.pattern.as_str()).collect();
-            match a.kind {
-                crate::time::AmbiguityKind::City => return Some(Err(format!("did you mean {}? · Enter to choose", patterns.join(" or ")))),
-                crate::time::AmbiguityKind::Country => return Some(Err(format!("several time zones: {} · Enter to choose", patterns.join(", ")))),
-                crate::time::AmbiguityKind::Currency | crate::time::AmbiguityKind::Place => {
-                    return Some(Err(format!("{}: {}? · Enter to choose", a.note, patterns.join(" or "))))
-                }
-                crate::time::AmbiguityKind::Date => {}
+        Some(match &*self.evaluated(&input) {
+            // An ambiguous request: Enter asks which reading is meant.
+            Err(crate::CliError::Ambiguous(a)) => {
+                let patterns: Vec<&str> = a.choices.iter().map(|c| c.pattern.as_str()).collect();
+                Err(match a.kind {
+                    crate::time::AmbiguityKind::City => format!("did you mean {}? · Enter to choose", patterns.join(" or ")),
+                    crate::time::AmbiguityKind::Country => format!("several time zones: {} · Enter to choose", patterns.join(", ")),
+                    crate::time::AmbiguityKind::Currency | crate::time::AmbiguityKind::Place => {
+                        format!("{}: {}? · Enter to choose", a.note, patterns.join(" or "))
+                    }
+                    crate::time::AmbiguityKind::Date => format!("ambiguous: {} · Enter to choose", patterns.join(" or ")),
+                })
             }
-            return Some(Err(format!("ambiguous: {} · Enter to choose", patterns.join(" or "))));
-        }
-        // Dates and timestamps keep their own format, distances come with the device's separators
-        // already; other numbers get them here.
-        let date = crate::time::is_date_request(&input) || crate::geo::request(self.config, &input, 0).is_some_and(|r| r.is_ok());
-        Some(self.evaluate(&input).map(|out| if date { out.stdout } else { self.numbers.apply_to_result(&out.stdout) }))
+            // Dates and distances come formatted; other numbers get the device's separators here.
+            Ok(out) if out.formatted => Ok(out.stdout.clone()),
+            Ok(out) => Ok(self.numbers.apply_to_result(&out.stdout)),
+            Err(e) => Err(e.to_string()),
+        })
+    }
+
+    /// When countries stand for currencies, the currencies used (`United States: US dollar (USD,
+    /// US$) → …`), next to the result to check it.
+    fn currencies(&self) -> Option<String> {
+        self.evaluated(&self.line.text()).as_ref().as_ref().ok().and_then(|out| out.check.clone())
     }
 
     /// How the expression in the bar is grouped, with every operation in brackets
     /// (`12+12/3` → `(12 + (12 / 3))`); `None` without operations.
-    /// When countries stand for currencies, the currencies used (`United States: US dollar (USD,
-    /// US$) → …`), next to the result to check it.
-    fn currencies(&self) -> Option<String> {
-        crate::currency::describe(self.config, &self.line.text())
-    }
-
-        fn grouping(&self) -> Option<String> {
+    fn grouping(&self) -> Option<String> {
         let input = self.line.text();
         // A date is not arithmetic: `2026-12-25` is not 2026 − 12 − 25.
         if crate::time::is_date_request(&input) {
