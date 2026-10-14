@@ -5,14 +5,14 @@
 
 Each request runs in a fresh process, `--runs` times; the median wall time is reported, and the
 process's peak memory (VmHWM: from `--json` for requests, else watched in /proc). With `--archive` (the JSON written by
-scripts/build-cities.py), the city archive is installed from it (`tally --sync cities` from a
-file:// address, timed and measured) and requests between any cities are measured too.
+scripts/build-cities.py), the city archive is installed from it (`tally --sync` from a file://
+address, the other sources behind a proxy nothing answers; timed and measured) and requests
+between any cities are measured too.
 Every run uses its own config directory: offline, distances in km, nothing refreshed by itself.
 Standard library only.
 """
 
 import argparse
-import gzip
 import json
 import os
 import shutil
@@ -105,16 +105,17 @@ def main():
 
     if a.archive:
         serve = tempfile.mkdtemp(prefix="tally-bench-archive-")
-        with open(a.archive, "rb") as src, gzip.open(os.path.join(serve, "cities.json.gz"), "wb") as dst:
-            shutil.copyfileobj(src, dst)
+        shutil.copyfile(a.archive, os.path.join(serve, "cities.json"))
         with open(os.path.join(serve, "cities.version"), "w") as f:
             f.write("0 bench\n")
         settings = {"offline": False, "distance.unit": "km", "cities.refresh": "manual", "rates.refresh": "manual",
-                    "live.refresh": "manual", "cities.url": "file://" + os.path.join(serve, "cities.json.gz")}
+                    "live.refresh": "manual", "cities.url": "file://" + os.path.join(serve, "cities.json")}
         env["XDG_CONFIG_HOME"] = config(settings)
-        ms, kb = measure(binary, ["--sync", "cities"], env, 3)
+        # `--sync` downloads everything: the rates and live values fail at once (as in the tests).
+        sync_env = dict(env, http_proxy="http://127.0.0.1:9", https_proxy="http://127.0.0.1:9")
+        ms, kb = measure(binary, ["--sync"], sync_env, 3)
         results["archive"] = {"ms": round(ms), "kb": kb}
-        print(f"| `--sync cities` (install the archive) | {ms:.0f} ms | {kb / 1024:.1f} MB |")
+        print(f"| `--sync` (install the archive) | {ms:.0f} ms | {kb / 1024:.1f} MB |")
         for args in ARCHIVE_REQUESTS:
             ms, kb = measure(binary, args, env, a.runs)
             results["requests"].append({"request": " ".join(args) + " (archive)", "ms": round(ms, 2), "kb": kb})

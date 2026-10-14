@@ -183,6 +183,9 @@ impl Settings {
                 (_, _, Some(b)) => b.to_string(),
                 _ => return Err(format!("settings: `{key}` must be a string, a number or true/false")),
             };
+            // The file holds every key, so the archive's address of when it was published
+            // compressed stays in it: today's address instead.
+            let text = if key == "cities.url" && text == crate::cities::LEGACY_URL { crate::cities::URL.to_string() } else { text };
             settings.set(key, Some(&text)).map_err(|e| format!("settings ({}): {e}", path_text()))?;
         }
         Ok(settings)
@@ -400,6 +403,17 @@ mod tests {
         assert_eq!((hand.precision(), hand.cities_enabled(), hand.offline()), (6, false, false));
         assert!(Settings::from_json(r#"{"precision": "x"}"#).unwrap_err().contains("`precision` must be"));
         assert!(Settings::from_json("{not json").is_err());
+    }
+
+    /// A file written when the city archive was published compressed holds its old address (every
+    /// key is saved): read as today's; a mirror stays as it is.
+    #[test]
+    fn the_old_archive_address_becomes_today_s() {
+        let old = Settings::from_json(&format!(r#"{{"cities.url": "{}"}}"#, crate::cities::LEGACY_URL)).unwrap();
+        assert_eq!(old.get("cities.url"), crate::cities::URL);
+        assert!(!old.to_json().contains("cities.json.gz"), "saved with today's address");
+        let mirror = Settings::from_json(r#"{"cities.url": "https://example.org/cities.json"}"#).unwrap();
+        assert_eq!(mirror.get("cities.url"), "https://example.org/cities.json");
     }
 
     #[test]

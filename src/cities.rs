@@ -1,10 +1,10 @@
 //! The city archive, for distances between any two cities (`Springfield Paris`), not only the
 //! capitals built in (`geo.rs`).
 //!
-//! The repository publishes `cities.json.gz` (built monthly from GeoNames by
-//! `scripts/build-cities.py`, CC BY 4.0) with its `cities.version`. Tally downloads it when the
-//! settings say so (`cities.refresh`, `tally --sync`) and turns it once into two files,
-//! searched without loading them:
+//! The repository publishes `cities.json` (built monthly from GeoNames by
+//! `scripts/build-cities.py`, CC BY 4.0; plain JSON, so any downloader can fetch it as it is) with
+//! its `cities.version`. Tally downloads it when the settings say so (`cities.refresh`,
+//! `tally --sync`) and turns it once into two files, searched without loading them:
 //!
 //! - `cities.tsv`: one city per line: id, name, lat, lon, population, country code, country,
 //!   region, updated, aliases (`|`-separated);
@@ -22,10 +22,13 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Seek, SeekFrom, Write};
 use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
 
 /// Where the archive comes from (also a setting, `cities.url`, for mirrors and tests).
-pub const URL: &str = "https://github.com/lucapf/tally/releases/download/cities/cities.json.gz";
+pub const URL: &str = "https://github.com/lucapf/tally/releases/download/cities/cities.json";
+/// Where it came from when it was published compressed: a settings file that still holds this
+/// address gets `URL` instead (`settings.rs`).
+pub const LEGACY_URL: &str = "https://github.com/lucapf/tally/releases/download/cities/cities.json.gz";
 /// The data's origin, for About and the notes.
 pub const SOURCE: &str = "GeoNames (https://www.geonames.org), CC BY 4.0";
 /// At most this many cities offered to choose from.
@@ -407,7 +410,8 @@ const RUN: usize = 32_768;
 
 /// Turns the archive's JSON (one city per line, as the build script writes it) into the two
 /// search files in `dir`; returns how many cities, and the archive's date. Read line by line: the
-/// 20 MB archive is never held in memory, nor its index (an external merge sort, `RUN`).
+/// 20 MB archive is never held in memory, nor its index (an external merge sort, `RUN`). Refused
+/// when it is compressed, or when it has fewer cities than its header says (a download cut short).
 pub fn convert(json: &Path, dir: &Path) -> Result<(u64, i64), String> {
     convert_in_runs(json, dir, RUN)
 }
@@ -416,11 +420,15 @@ pub fn convert(json: &Path, dir: &Path) -> Result<(u64, i64), String> {
 fn convert_in_runs(json: &Path, dir: &Path, run: usize) -> Result<(u64, i64), String> {
     let err = |e: std::io::Error| e.to_string();
     std::fs::create_dir_all(dir).map_err(err)?;
-    let input = BufReader::new(File::open(json).map_err(err)?);
+    let mut input = BufReader::new(File::open(json).map_err(err)?);
+    // Gzip (`1f 8b`): the archive as it was once published, or a mirror that still has it.
+    if input.fill_buf().map_err(err)?.starts_with(&[0x1f, 0x8b]) {
+        return Err("the city archive is compressed (gzip): Tally reads the plain `cities.json` (the cities.url setting)".into());
+    }
     let mut tsv = BufWriter::new(File::create(dir.join("cities.tsv")).map_err(err)?);
     let mut keys: Vec<(String, u64)> = Vec::with_capacity(run);
     let mut runs: Vec<PathBuf> = Vec::new();
-    let (mut offset, mut count, mut built_at) = (0u64, 0u64, 0i64);
+    let (mut offset, mut count, mut built_at, mut expected) = (0u64, 0u64, 0i64, None);
     for line in input.lines() {
         let line = line.map_err(err)?;
         let text = line.trim().trim_end_matches(',');
@@ -429,6 +437,7 @@ fn convert_in_runs(json: &Path, dir: &Path, run: usize) -> Result<(u64, i64), St
             let head = format!("{}\"x\": 0}}", head);
             if let Ok(doc) = crate::json::parse(&head) {
                 built_at = doc.get("built_at").and_then(|v| v.number()).unwrap_or(0.0) as i64;
+                expected = doc.get("count").and_then(|v| v.number()).map(|n| n as u64);
             }
             continue;
         }
@@ -449,6 +458,10 @@ fn convert_in_runs(json: &Path, dir: &Path, run: usize) -> Result<(u64, i64), St
         count += 1;
     }
     tsv.flush().map_err(err)?;
+    // Without gzip's checksum, the header's count tells a whole archive from one cut short.
+    if let Some(expected) = expected.filter(|&n| n != count) {
+        return Err(format!("the city archive is incomplete: {count} of {expected} cities (download it again)"));
+    }
     if !keys.is_empty() {
         runs.push(write_run(dir, runs.len(), &mut keys)?);
     }
@@ -515,29 +528,18 @@ pub fn remote_version(url: &str) -> Option<String> {
     (out.status.success() && v.split(' ').count() == 2).then_some(v)
 }
 
-/// Downloads the archive at `url` (`curl … | gzip -dc`) and makes it the one in use, in `base`.
-/// Returns how many cities.
+/// Downloads the archive at `url` (plain JSON, saved as it comes: `curl -o`) and makes it the one
+/// in use, in `base`. Returns how many cities.
 pub fn download(base: &Path, url: &str, now: i64) -> Result<u64, String> {
     let version = remote_version(url).unwrap_or_default();
     let tmp = base.join(format!("cities.{}.download", std::process::id()));
     std::fs::create_dir_all(base).map_err(|e| e.to_string())?;
     let json = tmp.with_extension("json");
-    {
-        let mut curl = Command::new("curl").args(["-sfL", "--max-time", "600", url]).stdout(Stdio::piped()).spawn().map_err(|e| format!("curl: {e}"))?;
-        let out = File::create(&json).map_err(|e| e.to_string())?;
-        let gunzip = Command::new("gzip")
-            .arg("-dc")
-            .stdin(curl.stdout.take().ok_or("curl: no output")?)
-            .stdout(out)
-            .status()
-            .map_err(|e| format!("gzip: {e}"))?;
-        let fetched = curl.wait().map_err(|e| e.to_string())?;
-        if !fetched.success() || !gunzip.success() {
-            let _ = std::fs::remove_file(&json);
-            return Err(format!("could not download the city archive ({url})"));
-        }
-    }
-    let result = install(base, &json, &version, now);
+    let fetched = Command::new("curl").args(["-sfL", "--max-time", "600", "-o"]).arg(&json).arg(url).status().map_err(|e| format!("curl: {e}"))?;
+    let result = match fetched.success() {
+        true => install(base, &json, &version, now),
+        false => Err(format!("could not download the city archive ({url})")),
+    };
     let _ = std::fs::remove_file(&json);
     result
 }
@@ -547,11 +549,15 @@ pub fn download(base: &Path, url: &str, now: i64) -> Result<u64, String> {
 pub fn install(base: &Path, json: &Path, version: &str, now: i64) -> Result<u64, String> {
     let previous = meta_in(base);
     let name = format!("cities-{now}-{}", std::process::id());
-    let (count, built_at) = convert(json, &base.join(&name))?;
-    if count == 0 {
-        let _ = std::fs::remove_dir_all(base.join(&name));
-        return Err("the city archive is empty".into());
+    let dir = base.join(&name);
+    // A conversion that fails leaves nothing behind: the archive in use stays as it is.
+    let (count, built_at) = match convert(json, &dir) {
+        Ok((0, _)) => Err("the city archive is empty".to_string()),
+        other => other,
     }
+    .inspect_err(|_| {
+        let _ = std::fs::remove_dir_all(&dir);
+    })?;
     let version = if version.is_empty() { format!("{built_at} -") } else { version.to_string() };
     let meta = crate::json::Object::new()
         .str("version", &version)
@@ -759,6 +765,37 @@ pub mod tests {
         assert_eq!((new.version.as_str(), new.count, new.built_at), ("1791999999 def", 9, 1_791_877_958));
         assert!(!base.join(&old.dir).exists() && base.join(&new.dir).join("cities.idx").exists());
         assert_eq!(version_url(URL), "https://github.com/lucapf/tally/releases/download/cities/cities.version");
+    }
+
+    /// A download cut short (fewer cities than its header says) or a compressed archive is
+    /// refused, and leaves the archive in use as it was, with nothing of its own behind.
+    #[test]
+    fn a_cut_or_compressed_archive_is_refused() {
+        let (base, _) = sample("refused");
+        let before = meta_in(&base).unwrap();
+        let dirs = || {
+            let mut found: Vec<String> = std::fs::read_dir(&base)
+                .unwrap()
+                .filter_map(Result::ok)
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .filter(|n| n.starts_with("cities-"))
+                .collect();
+            found.sort();
+            found
+        };
+        let kept = dirs();
+        // The last two cities lost: 7 of the 9 the header announces.
+        let lines: Vec<&str> = SAMPLE.lines().collect();
+        let cut = base.join("cut.json");
+        std::fs::write(&cut, lines[..lines.len() - 3].join("\n")).unwrap();
+        assert_eq!(install(&base, &cut, "cut", 1_792_000_000).unwrap_err(), "the city archive is incomplete: 7 of 9 cities (download it again)");
+        // Gzip's magic bytes: the archive as it was once published.
+        let gz = base.join("gz.json");
+        std::fs::write(&gz, [0x1f, 0x8b, 0x08, 0x00]).unwrap();
+        assert!(install(&base, &gz, "gz", 1_792_000_001).unwrap_err().contains("compressed (gzip)"));
+        assert_eq!(dirs(), kept, "nothing left behind");
+        assert_eq!(meta_in(&base).unwrap(), before, "the archive in use is kept");
+        assert_eq!(Store::open(&base, &before).unwrap().find("Rome").len(), 2);
     }
 
     /// The real archive (`target/cities-real.json`, from `scripts/build-cities.py target`): the

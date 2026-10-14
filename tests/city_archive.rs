@@ -7,17 +7,16 @@ mod common;
 use std::path::PathBuf;
 use std::process::Command;
 
-/// A config dir whose `cities.url` points at the sample archive (gzipped next to its version),
-/// online but with every refresh manual: nothing starts by itself.
+/// A config dir whose `cities.url` points at the sample archive (next to its version), online but
+/// with every refresh manual: nothing starts by itself.
 fn config(name: &str) -> PathBuf {
     let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/cities-sample.json");
     let serve = std::env::temp_dir().join(format!("tally-archive-{}-{name}", std::process::id()));
     let _ = std::fs::remove_dir_all(&serve);
     std::fs::create_dir_all(&serve).unwrap();
-    let gz = std::fs::File::create(serve.join("cities.json.gz")).unwrap();
-    assert!(Command::new("gzip").arg("-c").arg(&fixture).stdout(gz).status().unwrap().success());
+    std::fs::copy(&fixture, serve.join("cities.json")).unwrap();
     std::fs::write(serve.join("cities.version"), "1791877958 sample\n").unwrap();
-    let url = format!("file://{}", serve.join("cities.json.gz").display());
+    let url = format!("file://{}", serve.join("cities.json").display());
     common::config(
         name,
         &[("offline", "false"), ("cities.refresh", "manual"), ("rates.refresh", "manual"), ("live.refresh", "manual"), ("cities.url", &url), ("distance.unit", "km")],

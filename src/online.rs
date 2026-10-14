@@ -427,11 +427,9 @@ mod tests {
         std::fs::create_dir_all(&served).unwrap();
         let json = served.join("cities.json");
         std::fs::write(&json, crate::cities::tests::SAMPLE).unwrap();
-        let gz = std::fs::File::create(served.join("cities.json.gz")).unwrap();
-        assert!(std::process::Command::new("gzip").arg("-c").arg(&json).stdout(gz).status().unwrap().success());
         std::fs::write(served.join("cities.version"), "1791877958 sample\n").unwrap();
         let mut settings = Settings::default();
-        settings.set("cities.url", Some(&format!("file://{}", served.join("cities.json.gz").display()))).unwrap();
+        settings.set("cities.url", Some(&format!("file://{}", json.display()))).unwrap();
         settings.set("cities.refresh", Some("notify")).unwrap();
         let shown = RefCell::new(Vec::new());
         let notify = |text: &str| shown.borrow_mut().push(text.to_string());

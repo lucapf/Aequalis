@@ -5,7 +5,6 @@
 mod common;
 
 use std::path::PathBuf;
-use std::process::Command;
 
 const LIMIT_KB: u64 = 10 * 1024;
 
@@ -44,10 +43,9 @@ fn installing_the_city_archive_stays_below_10_mb() {
     let serve = std::env::temp_dir().join(format!("tally-memory-archive-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&serve);
     std::fs::create_dir_all(&serve).unwrap();
-    let gz = std::fs::File::create(serve.join("cities.json.gz")).unwrap();
-    assert!(Command::new("gzip").arg("-c").arg(&fixture).stdout(gz).status().unwrap().success());
+    std::fs::copy(&fixture, serve.join("cities.json")).unwrap();
     std::fs::write(serve.join("cities.version"), "1 sample\n").unwrap();
-    let url = format!("file://{}", serve.join("cities.json.gz").display());
+    let url = format!("file://{}", serve.join("cities.json").display());
     let dir = common::config("memory-archive", &[("offline", "false"), ("cities.refresh", "manual"), ("rates.refresh", "manual"), ("live.refresh", "manual"), ("cities.url", &url)]);
     let reply = common::out(&common::tally(&dir, &["--json", "--sync"]));
     assert!(reply.starts_with(r#"{"ok":true,"result":"9 cities\n"#), "{reply}");

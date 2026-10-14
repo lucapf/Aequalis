@@ -7,9 +7,9 @@ Downloads cities5000 (every city of 5,000 inhabitants or more, and seats of firs
 divisions), the capitals below that from cities1000, the region names (admin1CodesASCII) and the
 country names (countryInfo), and writes:
 
-    cities.json     {"format":1, "source", "license", "built_at", "count", "cities":[…]}
-    cities.json.gz  the same, compressed (what Tally downloads)
-    cities.version  "<built_at> <sha256 of cities.json.gz>", to check for a new archive cheaply
+    cities.json     {"format":1, "source", "license", "built_at", "count", "cities":[…]}: what
+                    Tally downloads, as it is (no compression: any downloader saves it as a file)
+    cities.version  "<built_at> <sha256 of cities.json>", to check for a new archive cheaply
 
 Each city: id (GeoNames id), name, aliases (every alternate name, any language, but not the name of
 a more populous city), lat, lon,
@@ -17,7 +17,6 @@ population, country, country_code, region, updated (GeoNames' modification date)
 link is not stored: Tally builds it from the coordinates. Standard library only.
 """
 
-import gzip
 import hashlib
 import io
 import json
@@ -108,12 +107,9 @@ def main():
 
     with open(os.path.join(out, "cities.json"), "wb") as f:
         f.write(text)
-    packed = gzip.compress(text, compresslevel=9, mtime=0)
-    with open(os.path.join(out, "cities.json.gz"), "wb") as f:
-        f.write(packed)
     with open(os.path.join(out, "cities.version"), "w") as f:
-        f.write(f"{doc['built_at']} {hashlib.sha256(packed).hexdigest()}\n")
-    print(f"{len(listed)} cities, {len(text) / 1e6:.1f} MB, {len(packed) / 1e6:.1f} MB compressed → {out}")
+        f.write(f"{doc['built_at']} {hashlib.sha256(text).hexdigest()}\n")
+    print(f"{len(listed)} cities, {len(text) / 1e6:.1f} MB → {out}")
 
 
 if __name__ == "__main__":
