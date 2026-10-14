@@ -127,7 +127,7 @@ impl Settings {
     /// The interval of a group, in seconds.
     pub fn interval(&self, group: &str) -> i64 {
         let key = format!("{group}.interval");
-        duration(self.get(&key)).unwrap_or_else(|_| duration(spec(&key).map(|s| s.default).unwrap_or("24h")).unwrap_or(86_400))
+        duration(self.get(&key)).unwrap_or_else(|| duration(spec(&key).map(|s| s.default).unwrap_or("24h")).unwrap_or(86_400))
     }
 
     /// The local currency's code, when set (not `auto`).
@@ -212,8 +212,8 @@ pub fn check(spec: &Key, value: &str) -> Result<String, String> {
             None => wrong(&format!("one of {}", options.join(", "))),
         },
         Kind::Duration => match duration(v) {
-            Ok(_) => Ok(v.to_ascii_lowercase()),
-            Err(_) => wrong("a duration of a minute or more, such as 24h, 90m or 30d"),
+            Some(_) => Ok(v.to_ascii_lowercase()),
+            None => wrong("a duration of a minute or more, such as 24h, 90m or 30d"),
         },
         Kind::Precision => match v.parse::<usize>() {
             Ok(p) if p <= 15 => Ok(p.to_string()),
@@ -240,22 +240,19 @@ pub fn check(spec: &Key, value: &str) -> Result<String, String> {
 }
 
 /// `24h`, `90m`, `30d`, `45min`, or seconds (`3600`); a minute at least.
-pub fn duration(text: &str) -> Result<i64, ()> {
+pub fn duration(text: &str) -> Option<i64> {
     let text = text.trim().to_ascii_lowercase();
     let digits = text.find(|c: char| !c.is_ascii_digit()).unwrap_or(text.len());
     let (number, unit) = text.split_at(digits);
-    let n: i64 = number.parse().map_err(|_| ())?;
+    let n: i64 = number.parse().ok()?;
     let seconds = match unit.trim() {
         "" | "s" => n,
         "m" | "min" => n * 60,
         "h" => n * 3600,
         "d" => n * 86_400,
-        _ => return Err(()),
+        _ => return None,
     };
-    if seconds < 60 {
-        return Err(());
-    }
-    Ok(seconds)
+    (seconds >= 60).then_some(seconds)
 }
 
 // ---------------------------------------------------------------- the file
@@ -377,9 +374,9 @@ mod tests {
         s.set("rates.interval", Some("90M")).unwrap();
         assert_eq!(s.interval("rates"), 5_400);
         for (text, seconds) in [("24h", 86_400), ("2d", 172_800), ("3600", 3_600), ("45 MIN", 2_700)] {
-            assert_eq!(duration(text), Ok(seconds), "{text}");
+            assert_eq!(duration(text), Some(seconds), "{text}");
         }
-        assert!(duration("30s").is_err() && duration("soon").is_err());
+        assert!(duration("30s").is_none() && duration("soon").is_none());
         s.set("precision", None).unwrap();
         assert_eq!(s.precision(), 4);
         for (key, bad) in [("offline", "maybe"), ("cities.refresh", "often"), ("rates.interval", "30s"), ("precision", "16"), ("currency.local", "dollar"), ("distance.unit", "ly"), ("cities.url", "nowhere")] {
