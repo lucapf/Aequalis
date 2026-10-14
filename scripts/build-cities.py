@@ -13,8 +13,9 @@ country names (countryInfo), and writes:
 
 Each city: id (GeoNames id), name, aliases (every alternate name, any language, but not the name of
 a more populous city), lat, lon,
-population, country, country_code, region, updated (GeoNames' modification date). The Google Maps
-link is not stored: Tally builds it from the coordinates. Standard library only.
+population, country, country_code, region, updated (GeoNames' modification date), and
+`"capital": true` for a country's capital (GeoNames' PPLC). The Google Maps link is not stored:
+Tally builds it from the coordinates. Standard library only.
 """
 
 import hashlib
@@ -62,7 +63,7 @@ def main():
             if a and a.casefold() not in seen:
                 seen.add(a.casefold())
                 aliases.append(a)
-        return {
+        c = {
             "id": int(r[0]),
             "name": name,
             "aliases": aliases,
@@ -74,6 +75,10 @@ def main():
             "region": regions.get(f"{r[8]}.{r[10]}", ""),
             "updated": r[18],
         }
+        # The capital: offered first among the cities of its name (`Rome`: Rome, Italy).
+        if r[7] == "PPLC":
+            c["capital"] = True
+        return c
 
     cities = {}
     for r in rows(zipped("cities5000.zip")):

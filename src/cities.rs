@@ -7,7 +7,7 @@
 //! `tally --sync`) and turns it once into two files, searched without loading them:
 //!
 //! - `cities.tsv`: one city per line: id, name, lat, lon, population, country code, country,
-//!   region, updated, aliases (`|`-separated);
+//!   region, updated, aliases (`|`-separated), capital (`1` or `0`);
 //! - `cities.idx`: one line per name and alias, `key<TAB>offset of its city in cities.tsv`, sorted
 //!   by key (lowercase, no accents, punctuation as spaces: `tz::key`).
 //!
@@ -47,6 +47,8 @@ pub struct City {
     pub region: String,
     pub updated: String,
     pub aliases: Vec<String>,
+    /// Its country's capital (GeoNames' PPLC): offered first (`rank`).
+    pub capital: bool,
 }
 
 impl City {
@@ -110,6 +112,8 @@ impl City {
             region: f[7].to_string(),
             updated: f[8].to_string(),
             aliases: f[9].split('|').filter(|a| !a.is_empty()).map(str::to_string).collect(),
+            // An archive installed before the column existed: no capitals until the next one.
+            capital: f.get(10) == Some(&"1"),
         })
     }
 
@@ -129,6 +133,7 @@ impl City {
             region: s("region"),
             updated: s("updated"),
             aliases: c.get("aliases").map(|a| a.array().iter().filter_map(|x| x.str().map(str::to_string)).collect()).unwrap_or_default(),
+            capital: c.get("capital").and_then(|v| v.boolean()).unwrap_or(false),
         })
     }
 
@@ -136,7 +141,7 @@ impl City {
         let clean = |s: &str| s.replace(['\t', '\n', '\r', '|'], " ");
         let aliases: Vec<String> = self.aliases.iter().map(|a| clean(a)).collect();
         format!(
-            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
             self.id,
             clean(&self.name),
             self.lat,
@@ -146,7 +151,8 @@ impl City {
             clean(&self.country),
             clean(&self.region),
             clean(&self.updated),
-            aliases.join("|")
+            aliases.join("|"),
+            u8::from(self.capital)
         )
     }
 }
@@ -193,21 +199,25 @@ pub struct Store {
     idx_len: u64,
 }
 
-/// The order of cities offered for what was `typed` (Tab, "which one?"): those named exactly so
-/// (their name, not an alias) in the device's country `local`; the others in that country; those
-/// named exactly so elsewhere; the rest. The most populous first in each (`cities` come in that
-/// order: the sort is stable). `Alessandria`: Alessandria, Piedmont before Alexandria, Egypt (whose
-/// Italian name it is); `Roma` in Italy: Rome, Lazio before Roma, Lesotho.
+/// The order of cities offered for what was `typed` (Tab, "which one?"), the first being the one
+/// chosen by default: a country's capital first, wherever the device is (`Rome Paris`: Rome, Italy
+/// and Paris, France; the capital of a territory, such as Hamilton, Bermuda, is not one); then
+/// those named exactly so (their name, not an alias) in the device's country `local`; the others
+/// in that country; those named exactly so elsewhere; the rest. The most populous first in each
+/// (`cities` come in that order: the sort is stable). `Alessandria`: Alessandria, Piedmont before
+/// Alexandria, Egypt (whose Italian name it is); `Roma` in Italy: Rome, Lazio before Roma, Lesotho.
 pub fn rank(cities: &mut [City], typed: &str, local: Option<&str>) {
     let target = tz::key(typed.split(',').next().unwrap_or(""));
-    cities.sort_by_key(|c| {
+    cities.sort_by_cached_key(|c| {
+        let capital = c.capital && tz::country_by_code(&c.country_code).is_some();
         let exact = tz::key(&c.name) == target;
-        match (local == Some(c.country_code.as_str()), exact) {
+        let tier = match (local == Some(c.country_code.as_str()), exact) {
             (true, true) => 0,
             (true, false) => 1,
             (false, true) => 2,
             (false, false) => 3,
-        }
+        };
+        (!capital, tier)
     });
 }
 
@@ -580,8 +590,8 @@ pub mod tests {
 
     /// A small archive in the build script's format.
     pub const SAMPLE: &str = r#"{"format": 1, "source": "GeoNames (https://www.geonames.org)", "license": "CC BY 4.0", "built_at": 1791877958, "count": 9, "cities": [
-{"id":2988507,"name":"Paris","aliases":["Lutetia","Paname","Parigi","Париж"],"lat":48.85341,"lon":2.3488,"population":2138551,"country":"France","country_code":"FR","region":"Île-de-France","updated":"2026-01-01"},
-{"id":3169070,"name":"Rome","aliases":["Roma","Rom","Рим"],"lat":41.89193,"lon":12.51133,"population":2318895,"country":"Italy","country_code":"IT","region":"Lazio","updated":"2026-01-01"},
+{"id":2988507,"name":"Paris","aliases":["Lutetia","Paname","Parigi","Париж"],"lat":48.85341,"lon":2.3488,"population":2138551,"country":"France","country_code":"FR","region":"Île-de-France","updated":"2026-01-01","capital":true},
+{"id":3169070,"name":"Rome","aliases":["Roma","Rom","Рим"],"lat":41.89193,"lon":12.51133,"population":2318895,"country":"Italy","country_code":"IT","region":"Lazio","updated":"2026-01-01","capital":true},
 {"id":4250542,"name":"Springfield","aliases":[],"lat":39.80172,"lon":-89.64371,"population":114394,"country":"United States","country_code":"US","region":"Illinois","updated":"2026-01-01"},
 {"id":4409896,"name":"Springfield","aliases":[],"lat":37.21533,"lon":-93.29824,"population":169176,"country":"United States","country_code":"US","region":"Missouri","updated":"2026-01-01"},
 {"id":4951788,"name":"Springfield","aliases":[],"lat":42.10148,"lon":-72.58981,"population":155929,"country":"United States","country_code":"US","region":"Massachusetts","updated":"2026-01-01"},
@@ -622,6 +632,7 @@ pub mod tests {
             region: "Lombardy".into(),
             updated: String::new(),
             aliases: vec!["Mailand".into(), "milano".into(), "Milano".into()],
+            capital: false,
         };
         assert_eq!(milan.called("Milan"), "Milan");
         assert_eq!(milan.called("Mila"), "Milan", "the name starts so: the name");
@@ -650,6 +661,7 @@ pub mod tests {
             region: region.into(),
             updated: String::new(),
             aliases: aliases.iter().map(|a| a.to_string()).collect(),
+            capital: false,
         };
         // By population, as the archive gives them.
         let all = vec![
@@ -681,6 +693,45 @@ pub mod tests {
         // Typing (no exact name yet): the device's country first.
         assert_eq!(order("Alessan", Some("IT")), ["Alessandria IT", "Alessano IT", "Alexandria EG", "Alexandria US"]);
         assert_eq!(order("Alessan", None), ["Alexandria EG", "Alexandria US", "Alessandria IT", "Alessano IT"], "by population");
+    }
+
+    /// A country's capital is offered first (the city chosen by default), wherever the device is
+    /// and whatever the other cities' populations; a territory's capital is not a country's.
+    #[test]
+    fn the_capital_first() {
+        let city = |name: &str, country: &str, code: &str, population: u64, capital: bool| City {
+            id: population,
+            name: name.into(),
+            lat: 0.0,
+            lon: 0.0,
+            population,
+            country_code: code.into(),
+            country: country.into(),
+            region: String::new(),
+            updated: String::new(),
+            aliases: Vec::new(),
+            capital,
+        };
+        // By population, as the archive gives them.
+        let order = |mut cities: Vec<City>, typed: &str, local: Option<&str>| {
+            rank(&mut cities, typed, local);
+            cities.iter().map(|c| c.country_code.clone()).collect::<Vec<_>>()
+        };
+        let rome = vec![city("Rome", "Italy", "IT", 2_318_895, true), city("Rome", "United States", "US", 37_713, false)];
+        assert_eq!(order(rome.clone(), "Rome", Some("US")), ["IT", "US"], "not the device's country first");
+        assert_eq!(order(rome, "Rom", Some("US")), ["IT", "US"], "typing too");
+        let san_jose = vec![city("San Jose", "United States", "US", 1_013_240, false), city("San Jose", "Costa Rica", "CR", 335_007, true)];
+        assert_eq!(order(san_jose, "San Jose", None), ["CR", "US"], "a capital smaller than its namesake");
+        // Then the usual order: the device's country before the others.
+        let paris = vec![
+            city("Paris", "France", "FR", 2_138_551, true),
+            city("Paris", "United States", "US", 24_782, false),
+            city("Paris", "Canada", "CA", 14_000, false),
+        ];
+        assert_eq!(order(paris, "Paris", Some("CA")), ["FR", "CA", "US"]);
+        // Bermuda is not one of the countries: its capital does not go first.
+        let hamilton = vec![city("Hamilton", "Canada", "CA", 569_353, false), city("Hamilton", "Bermuda", "BM", 902, true)];
+        assert_eq!(order(hamilton, "Hamilton", None), ["CA", "BM"]);
     }
 
     #[test]

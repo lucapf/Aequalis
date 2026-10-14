@@ -39,6 +39,9 @@ jobs:
           names = {c["name"] for c in d["cities"]}
           for city in ["Rome", "New York City", "Tokyo", "Paris", "Sydney"]:
               assert city in names, city
+          capitals = {(c["name"], c["country_code"]) for c in d["cities"] if c.get("capital")}
+          for capital in [("Rome", "IT"), ("Paris", "FR"), ("Tokyo", "JP")]:
+              assert capital in capitals, capital
           print(d["count"], "cities")
           EOF
       - name: Publish

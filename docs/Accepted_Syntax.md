@@ -36,7 +36,7 @@ Some examples of accepts syntax:
 | `Rome `                       | `current time in Rome`  |
 | `10:00AM paris to new york`   | `time in New York when in Paris is 10:00AM`|
 | `12 Sept 2026 + 5wd`          | `18/09/2026 DD/MM/YYYY` |
-| `12 Sept 2026 10:00 PM + 5wd` | `18/09/2026 DD/MM/YYYY` |
+| `12 Sept 2026 10:00 PM + 5wd` | `18/09/2026 10:00:00 PM DD/MM/YYYY-12h` |
 | `now unix`                    | the current Unix time |
 | `12/04/2026 unix`             | ambiguous: one button per reading (DD/MM/YYYY, MM/DD/YYYY) |
 
@@ -55,7 +55,7 @@ ExchangeRate-API, synced once a day in the background (`tally --list` lists the 
 | `12 USD UAE`               | `44.07 AED` |
 | `12 China Euro`            | `1.60 EUR` |
 | `12€ gbp`                  | `10.14 GBP` |
-| `12 usd`                   | `10.74 EUR`: to the local currency (the time zone's country, or `TALLY_CURRENCY`) |
+| `12 usd`                   | `10.74 EUR`: to the local currency (the time zone's country, or the `currency.local` setting) |
 | `12 dollar euro`           | asks which dollar (US, Canadian, Australian, …) |
 | `12 dolar eur`             | "`dolar` is not a currency: did you mean US dollar?" |
 | `10:00AM Italy Japan`      | a time: the time in Tokyo (a number is money, a time is time zones) |
@@ -70,16 +70,17 @@ setting (auto: miles where the device is imperial, km elsewhere).
 
 With the city archive (`tally --sync`, from GeoNames) every city of 5,000 inhabitants or
 more is known, by any of its names in any language (`Roma`, `Рим`); `Springfield, Illinois` or
-`Springfield, US` picks one. Several cities with that name: Tally asks, those in the other
-place's country first, then in the device's country, then the others, by population. A word that
+`Springfield, US` picks one. Several cities with that name: Tally asks, the country's capital
+first and selected by default, wherever the device is (`Rome`: Rome, Italy), then those named
+exactly so in the device's country, the others there, then the rest, by population. A word that
 is a unit, a currency or a date keyword keeps that meaning (`Bar` is a unit: write
 `Bar, Montenegro`).
 
 | Type                                   | Result |
 |----------------------------------------|--------|
-| `Rome Paris`                           | `1,107 km`, or a choice of Romes and Parises with the archive |
+| `Rome Paris`                           | `1,107 km`, or with the archive a choice of Romes and Parises, Rome, Italy and Paris, France selected |
 | `Springfield, Illinois Chicago mi`     | `176 mi` |
-| `Chicago Paris`                        | asks: Paris, Texas first (same country as Chicago) |
+| `Chicago Paris`                        | asks: Paris, France first (the capital), then Paris, Texas… |
 | `distance Sprngfield to Chicago`       | "`Sprngfield` is not a known place: did you mean Springfield, …?" |
 | `Italy Japan`                          | countries: their capitals |
 | `10:00 Rome Paris`                     | a time: the time in Paris |

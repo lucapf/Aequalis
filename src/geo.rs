@@ -396,8 +396,9 @@ fn between(
 
 /// Which cities, when a side is several cities or misspelt: each combination (at most
 /// `cities::MAX_CHOICES`), as an unambiguous request (`Springfield, Illinois, United States to
-/// Paris km`), in the order of `cities::rank`: the city named exactly as written, then those in
-/// the device's country, then the others; by population within each.
+/// Paris km`), in the order of `cities::rank`: a country's capital first (so the first choice,
+/// the default, is the capitals: `Rome Paris`), then the city named exactly as written, those in
+/// the device's country, the others; by population within each.
 fn question(a: &Side, b: &Side, unit: &str, local: Option<&str>) -> crate::time::Ambiguity {
     use crate::cities::City;
     // Each city: the request's name (qualified: exact), the city, its short label (`Milano -
@@ -595,15 +596,16 @@ mod tests {
 
         #[test]
         fn several_cities_are_asked_in_order() {
-            // The exact name, then the device's country, then by population (not the other
-            // place's country: Chicago does not put the US Paris first).
+            // The capital first, wherever the device is; then the exact name, the device's country,
+            // by population (not the other place's country: Chicago does not put the US Paris first).
             let a = ask("Chicago Paris", None);
             assert_eq!(a.kind, crate::time::AmbiguityKind::Place);
             assert_eq!(a.note, "`Paris` is several places");
             assert_eq!(a.choices.iter().map(|c| c.pattern.as_str()).collect::<Vec<_>>(), ["Paris - France", "Paris - United States"], "short: one Paris per country");
             assert_eq!(a.choices[0].request, "distance Chicago, Illinois, United States to Paris, Île-de-France, France km");
             let a = ask("Chicago Paris", Some("US"));
-            assert_eq!(a.choices[0].pattern, "Paris - United States", "the device's country");
+            assert_eq!(a.choices[0].pattern, "Paris - France", "the capital, even in the US");
+            assert_eq!(a.choices[1].pattern, "Paris - United States", "then the device's country");
             assert!(a.choices[0].date.contains("inhabitants · https://www.google.com/maps?q="));
             // Each choice converts.
             for c in &a.choices {
@@ -614,9 +616,14 @@ mod tests {
             assert_eq!(a.note, "`Rome`, `Springfield` are several places each");
             assert_eq!(a.choices[0].pattern, "Rome - Italy → Springfield - Missouri - United States", "the region when the country has several");
             let a = ask("Rome Chicago", Some("US"));
-            assert_eq!(a.choices[0].pattern, "Rome - United States", "the device's country");
+            assert_eq!(a.choices[0].pattern, "Rome - Italy", "the capital, even in the US");
+            assert_eq!(a.choices[1].pattern, "Rome - United States");
             let a = ask("Rome Paris, France", Some("FR"));
-            assert_eq!(a.choices[0].pattern, "Rome - Italy", "by population when no rule applies");
+            assert_eq!(a.choices[0].pattern, "Rome - Italy", "the capital");
+            // Both several: the two capitals are the default choice, still asked.
+            let a = ask("Rome Paris", Some("US"));
+            assert_eq!(a.note, "`Rome`, `Paris` are several places each");
+            assert_eq!(a.choices[0].pattern, "Rome - Italy → Paris - France");
             assert!(a.choices.len() <= crate::cities::MAX_CHOICES);
         }
 

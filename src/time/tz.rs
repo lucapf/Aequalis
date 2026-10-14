@@ -660,6 +660,8 @@ struct Names {
     countries: HashMap<String, usize>,
     /// Every country name and alias, normalised, with the country's index.
     country_keys: Vec<(String, usize)>,
+    /// A country's ISO code (`IT`) → its index in `countries()`.
+    codes: HashMap<&'static str, usize>,
     /// A time zone → the country it belongs to (the first whose cities are in it).
     zones: HashMap<&'static str, usize>,
     /// The most words in a city name (`Sri Jayawardenepura Kotte`) and in a country name (`Saint
@@ -687,9 +689,11 @@ fn names() -> &'static Names {
         }
         let mut country_keys = Vec::new();
         let mut by_name = HashMap::new();
+        let mut codes = HashMap::new();
         let mut zones = HashMap::new();
         let mut longest_country = 1;
         for (i, c) in countries().iter().enumerate() {
+            codes.entry(c.code.as_str()).or_insert(i);
             for name in std::iter::once(&c.name).chain(&c.aliases) {
                 let k = key(name);
                 longest_country = longest_country.max(k.split(' ').count());
@@ -712,9 +716,16 @@ fn names() -> &'static Names {
             city_keys,
             countries: by_name,
             country_keys,
+            codes,
             zones,
         }
     })
+}
+
+/// The country whose ISO code is `code` (`IT`), when it is one of `countries.json` (no
+/// territories: Bermuda, the Cayman Islands…).
+pub fn country_by_code(code: &str) -> Option<&'static Country> {
+    names().codes.get(code).map(|&i| &countries()[i])
 }
 
 /// A name as compared, spaces aside too: `New York`, `new-york` and `NewYork` are `newyork`.

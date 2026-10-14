@@ -88,12 +88,13 @@ Every capital and major city, and countries too.
 Between two cities, countries or coordinates, along the Earth's surface; a third word is the
 unit. With the city archive (`tally --sync`, about 70,000 cities from
 [GeoNames](https://www.geonames.org)), any city of 5,000 inhabitants or more, by any of its names
-in any language. When several cities share a name, Tally asks which one: those in the other
-city's country first, then in yours.
+in any language. When several cities share a name, Tally asks which one: the country's capital
+first, selected by default (Rome, Italy; Paris, France), then the others, those in your country
+first.
 
 | You type | Tally answers |
 |---|---|
-| `Rome Paris` | `1,107 km` (or miles, where your device is imperial) |
+| `Rome Paris` | `1,107 km` (or miles, where your device is imperial); with the city archive, asks which Rome and which Paris, the capitals selected |
 | `Rome Doha mi` | `2,497 mi` |
 | `Springfield, Illinois Chicago` | `283 km` |
 | `Springfield Chicago` | asks which Springfield (Missouri, Massachusetts, Illinois…) |
