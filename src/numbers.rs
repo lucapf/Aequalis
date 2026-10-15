@@ -146,11 +146,19 @@ pub fn device() -> &'static NumberFormat {
     PLAIN.get_or_init(NumberFormat::default)
 }
 
-/// The device's format, read once.
+/// The device's format, read once (or given by the app embedding tally: `set_device`).
 #[cfg(not(test))]
 pub fn device() -> &'static NumberFormat {
-    static FORMAT: std::sync::OnceLock<NumberFormat> = std::sync::OnceLock::new();
-    FORMAT.get_or_init(device_format)
+    DEVICE.get_or_init(device_format)
+}
+
+#[cfg_attr(test, allow(dead_code))]
+static DEVICE: std::sync::OnceLock<NumberFormat> = std::sync::OnceLock::new();
+
+/// The device's format as the app embedding tally knows it (the iPhone app: from `Locale`),
+/// before any number is formatted; later calls are ignored.
+pub fn set_device(format: NumberFormat) {
+    let _ = DEVICE.set(format);
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]

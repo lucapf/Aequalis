@@ -9,8 +9,11 @@ pub mod completion;
 pub mod config;
 pub mod convert;
 pub mod currency;
+#[cfg(feature = "ffi")]
+pub mod ffi;
 pub mod files;
 pub mod geo;
+pub mod http;
 pub mod json;
 pub mod locale;
 pub mod network;

@@ -95,8 +95,11 @@ pub fn current() -> Vec<String> {
 }
 
 /// A desktop notification (`notify-send` on Linux, Notification Center on macOS); nothing if
-/// neither is there.
+/// neither is there, nor on iOS (no programs to start: the app shows the notices itself).
 pub fn desktop(title: &str, body: &str) {
+    if cfg!(target_os = "ios") {
+        return;
+    }
     use std::process::{Command, Stdio};
     let quiet = |c: &mut Command| {
         let _ = c.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();

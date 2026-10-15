@@ -4,9 +4,10 @@
 use std::path::PathBuf;
 use std::process::{Command, Output, Stdio};
 
-/// Rates per US dollar, as synced from ExchangeRate-API, dated 12 Oct 2026.
+/// Rates per US dollar, as synced from ExchangeRate-API; their date (`RATES_DAY`) is set to now by
+/// `config`, so they are never out of date (3 days old: a warning).
 const RATES: &str = r#"{"format":1,"synced_at":1791800000,"attempted_at":1791800000,"ok":true,"values":{
-    "rates date":{"value":1791763351,"at":1791800000},"USD/EUR":{"value":0.8945,"at":1791800000},
+    "rates date":{"value":RATES_DAY,"at":1791800000},"USD/EUR":{"value":0.8945,"at":1791800000},
     "USD/AED":{"value":3.6725,"at":1791800000},"USD/CNY":{"value":7.1243,"at":1791800000},
     "USD/JPY":{"value":158.6,"at":1791800000},"USD/GBP":{"value":0.7556,"at":1791800000},
     "USD/CAD":{"value":1.4262,"at":1791800000},"USD/CHF":{"value":0.8312,"at":1791800000}}}"#;
@@ -16,7 +17,8 @@ fn config(name: &str, rates: bool) -> PathBuf {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("tally")).unwrap();
     if rates {
-        std::fs::write(dir.join("tally/currencies.json"), RATES).unwrap();
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+        std::fs::write(dir.join("tally/currencies.json"), RATES.replace("RATES_DAY", &now.to_string())).unwrap();
     }
     dir
 }
@@ -74,7 +76,8 @@ fn names_countries_symbols() {
     assert!(err(&tally(&dir, &["12", "usd", "eur"], &[])).is_empty(), "no country, no note");
     // With -v, the rate and its source.
     let o = tally(&dir, &["-v", "12", "usd", "eur"], &[]);
-    assert!(err(&o).contains("1 USD = 0.8945 EUR, rates of 12 Oct 26 from ExchangeRate-API (open.er-api.com)"), "{}", err(&o));
+    let e = err(&o);
+    assert!(e.contains("1 USD = 0.8945 EUR, rates of ") && e.contains(" from ExchangeRate-API (open.er-api.com)"), "{e}");
 }
 
 #[test]

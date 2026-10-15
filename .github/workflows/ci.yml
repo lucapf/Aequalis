@@ -17,3 +17,29 @@ jobs:
         run: cargo build --release --no-default-features
       - name: Test
         run: cargo test
+      - name: Test the C interface (the iPhone app's)
+        run: cargo test --features ffi --lib ffi
+      - name: Check the core for iOS
+        run: |
+          rustup target add aarch64-apple-ios
+          cargo check --release --lib --no-default-features --features ffi --target aarch64-apple-ios
+
+  # The iPhone app: the core as an XCFramework, the Xcode project (XcodeGen), the Swift tests in
+  # the simulator. No signing here.
+  ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Toolchain
+        run: |
+          rustup toolchain install stable --profile minimal && rustup default stable
+          rustup target add aarch64-apple-ios aarch64-apple-ios-sim
+      - name: Core
+        run: scripts/build-ios.sh
+      - name: Project
+        run: brew install xcodegen && cd ios && xcodegen generate
+      - name: Test in the simulator
+        run: |
+          device=$(xcrun simctl list devices available -j | python3 -c "import json,sys; d=json.load(sys.stdin)['devices']; print(next(x['udid'] for k in sorted(d, reverse=True) if 'iOS' in k for x in d[k] if x['name'].startswith('iPhone')))")
+          # bash with pipefail (GitHub's default): a failed build or test fails the step.
+          xcodebuild test -project ios/Tally.xcodeproj -scheme Tally -destination "id=$device" CODE_SIGNING_ALLOWED=NO | tail -60
