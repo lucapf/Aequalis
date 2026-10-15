@@ -19,6 +19,23 @@ data class Suggestion(val write: String, val label: String)
 /** The words offered for the word being typed, which starts at `start` (an index in the text). */
 data class Suggestions(val start: Int, val items: List<Suggestion>)
 
+/** A unit of a class of the Measures panel: its symbol (what is written), name and system. */
+data class MeasureUnit(val symbol: String, val name: String, val system: String)
+
+/** A class of units (`Length`): its two systems' names (`Metric`, `Imperial`) and its units. */
+data class Measure(val name: String, val systems: List<String>, val units: List<MeasureUnit>)
+
+/** A currency: its code (what is written), name and symbols. */
+data class Currency(val code: String, val name: String, val symbols: List<String>)
+
+/** A Trivia value: its name, a few words, its value now, and what tapping it writes. */
+data class TriviaEntry(val name: String, val short: String, val value: String, val written: String)
+
+data class TriviaSection(val name: String, val entries: List<TriviaEntry>)
+
+/** A setting: its key, value and default; `kind` is `bool`, `choice` (one of `options`) or `text`. */
+data class Setting(val key: String, val value: String, val default: String, val kind: String, val options: List<String>, val about: String)
+
 /** The core's answer to a request: a result, an error, a hint (not finished yet: what comes next),
  *  or a question with its choices. */
 data class Reply(
@@ -39,10 +56,13 @@ object Core {
         System.loadLibrary("tally")
     }
 
-    // Implemented in Rust (src/jni.rs): `Java_io_lucapf_tally_Core_init`, `…_eval`, `…_suggest`.
+    // Implemented in Rust (src/jni.rs): `Java_io_lucapf_tally_Core_init`, `…_eval`, `…_suggest`,
+    // `…_lists`, `…_set`.
     private external fun init(config: ByteArray): ByteArray
     private external fun eval(request: ByteArray): ByteArray
     private external fun suggest(before: ByteArray): ByteArray
+    private external fun lists(which: ByteArray): ByteArray
+    private external fun set(key: ByteArray, value: ByteArray): ByteArray
 
     /** Tells the core what it can't find on a phone: where to keep its files, the time zone, the
      *  zone database, the number format and the measurement system. Once, at start. */
@@ -89,6 +109,42 @@ object Core {
             val item = items.getJSONObject(i)
             Suggestion(item.getString("write"), item.getString("label"))
         })
+    }
+
+    private fun list(which: String): JSONObject = JSONObject(lists(which.encodeToByteArray()).decodeToString())
+
+    private fun org.json.JSONArray.strings(): List<String> = (0 until length()).map { getString(it) }
+
+    private fun <T> org.json.JSONArray.objects(read: (JSONObject) -> T): List<T> = (0 until length()).map { read(getJSONObject(it)) }
+
+    /** The unit classes, in the TUI's order. */
+    fun measures(): List<Measure> = list("measures").getJSONArray("classes").objects { c ->
+        Measure(c.getString("name"), c.getJSONArray("systems").strings(), c.getJSONArray("units").objects { u ->
+            MeasureUnit(u.getString("symbol"), u.getString("name"), u.getString("system"))
+        })
+    }
+
+    /** Every currency, the most used first. */
+    fun currencies(): List<Currency> = list("currencies").getJSONArray("currencies").objects { c ->
+        Currency(c.getString("code"), c.getString("name"), c.getJSONArray("symbols").strings())
+    }
+
+    /** The Trivia, by section. */
+    fun trivia(): List<TriviaSection> = list("trivia").getJSONArray("sections").objects { s ->
+        TriviaSection(s.getString("name"), s.getJSONArray("entries").objects { e ->
+            TriviaEntry(e.getString("name"), e.getString("short"), e.getString("value"), e.getString("written"))
+        })
+    }
+
+    /** Every setting, in order. */
+    fun settings(): List<Setting> = list("settings").getJSONArray("settings").objects { s ->
+        Setting(s.getString("key"), s.getString("value"), s.getString("default"), s.getString("kind"), s.getJSONArray("options").strings(), s.getString("about"))
+    }
+
+    /** Changes a setting and saves it (`""`: its default); the error, or null. */
+    fun change(key: String, value: String): String? {
+        val reply = JSONObject(set(key.encodeToByteArray(), value.encodeToByteArray()).decodeToString())
+        return if (reply.optBoolean("ok")) null else reply.optString("error")
     }
 
     /** Android's time zones, all in one file (since Android 10 in its own module, before in the

@@ -176,10 +176,14 @@ pub fn eval(request: &str) -> String {
 /// Every setting: key, value, default, kind, options, what it does (`tally --settings --json`).
 #[no_mangle]
 pub extern "C" fn tally_settings() -> *mut c_char {
+    give(settings())
+}
+
+pub fn settings() -> String {
     let settings = crate::settings::path().map(|p| crate::settings::load_from(&p)).unwrap_or(Ok(Default::default()));
     match settings {
-        Ok(s) => give(crate::settings::json(&s)),
-        Err(e) => error(&e),
+        Ok(s) => crate::settings::json(&s),
+        Err(e) => Object::new().num("ok", false).str("error", &e).finish(),
     }
 }
 
@@ -191,10 +195,15 @@ pub extern "C" fn tally_settings() -> *mut c_char {
 #[no_mangle]
 pub unsafe extern "C" fn tally_set(key: *const c_char, value: *const c_char) -> *mut c_char {
     let Some(key) = (unsafe { text(key) }) else { return error("no key") };
-    let value = unsafe { text(value) };
+    give(set(key, unsafe { text(value) }))
+}
+
+/// Changes a setting and saves it (`None`: its default): `{"ok":true,"key":…,"value":…}` or the
+/// error.
+pub fn set(key: &str, value: Option<&str>) -> String {
     match crate::settings::change(key, value) {
-        Ok(s) => give(Object::new().num("ok", true).str("key", key).str("value", s.get(key)).finish()),
-        Err(e) => error(&e),
+        Ok(s) => Object::new().num("ok", true).str("key", key).str("value", s.get(key)).finish(),
+        Err(e) => Object::new().num("ok", false).str("error", &e).finish(),
     }
 }
 

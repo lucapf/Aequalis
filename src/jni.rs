@@ -115,3 +115,28 @@ pub extern "system" fn Java_io_lucapf_tally_Core_suggest(env: Env, _class: Class
     };
     unsafe { to_java(env, &reply) }
 }
+
+/// `Core.lists(which)`: the lists for the keyboard's panels and Settings, as the C interface gives
+/// them: `measures` (the unit classes and their units), `currencies`, `trivia`, `settings`.
+#[no_mangle]
+pub extern "system" fn Java_io_lucapf_tally_Core_lists(env: Env, _class: Class, which: ByteArray) -> ByteArray {
+    let reply = match unsafe { text(env, which) }.as_deref() {
+        Some("measures") => crate::ffi::measures(),
+        Some("currencies") => crate::ffi::currencies(),
+        Some("trivia") => crate::ffi::trivia(),
+        Some("settings") => crate::ffi::settings(),
+        _ => error("lists: measures, currencies, trivia or settings"),
+    };
+    unsafe { to_java(env, &reply) }
+}
+
+/// `Core.set(key, value)`: changes a setting and saves it (an empty value: its default), as
+/// `tally --set key=value`: `{"ok":true,"key":…,"value":…}` or the error.
+#[no_mangle]
+pub extern "system" fn Java_io_lucapf_tally_Core_set(env: Env, _class: Class, key: ByteArray, value: ByteArray) -> ByteArray {
+    let reply = match (unsafe { text(env, key) }, unsafe { text(env, value) }) {
+        (Some(key), Some(value)) => crate::ffi::set(&key, Some(value.as_str()).filter(|v| !v.is_empty())),
+        _ => error("set: a key and a value"),
+    };
+    unsafe { to_java(env, &reply) }
+}
