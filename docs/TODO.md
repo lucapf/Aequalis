@@ -23,10 +23,13 @@ Tick an item when it is done, and note the commit.
 - [ ] Tap or long-press the result: copy; a Share action (#7).
 - [ ] Long-press the request line: paste (#7).
 
-### 3. Responsiveness
+### 3. Responsiveness (done, 15 Oct 2026)
 
-- [ ] The core's calls (`evaluate`, `suggestions`) off the main thread, in a `ViewModel`, the
-      previous answer shown until the new one arrives (#6).
+- [x] The core's calls (`evaluate`, `suggestions`) off the main thread, the previous answer shown
+      until the new one arrives (#6). With Compose's `produceState` on `Dispatchers.Default`, not a
+      `ViewModel`: the request already survives rotation (`rememberSaveable`), and an answer takes
+      milliseconds to compute again. The panels' lists (Measures, Currencies, Trivia) still load
+      on the main thread, once per opening.
 
 ### 4. Asked on 15 Oct 2026 (next session)
 

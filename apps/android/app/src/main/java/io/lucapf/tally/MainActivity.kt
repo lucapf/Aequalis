@@ -33,6 +33,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -50,6 +52,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.dp
 import io.lucapf.tally.ui.theme.TallyTheme
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -67,6 +72,9 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
+
+/** The core's reply, and the request it answers. */
+data class Answer(val request: String, val reply: Reply)
 
 /** The request being written, and the cursor's place in it (an index in the text). Each key makes
  *  a new one; Compose redraws the screen from it. */
@@ -116,13 +124,22 @@ fun TallyApp() {
     }
 
     val input = edit.text
-    val reply = remember(input) { if (input.isBlank()) null else Core.evaluate(input) }
+    // The core works off the main thread (`Dispatchers.Default`), so a slow answer (a city search in
+    // the archive) never stops the keys. Until the new answer arrives the previous one stays on
+    // screen; a key pressed meanwhile cancels the wait, and only the latest request's answer shows.
+    val answer by produceState<Answer?>(null, input) {
+        value = if (input.isBlank()) null else Answer(input, withContext(Dispatchers.Default) { Core.evaluate(input) })
+    }
+    val reply = answer?.reply
     // While a word is being typed (no space after it, no Enter), only a result shows: `Rie` on the way
     // to `Rieti to Rome` is no mistake. The same rule as the TUI and the Omarchy widget.
     val finished = submitted || input.endsWith(" ")
     val before = input.take(edit.cursor)
-    val offered = remember(before) { Core.suggestions(before) }
+    val offered by produceState(Suggestions(0, emptyList()), before) {
+        value = withContext(Dispatchers.Default) { Core.suggestions(before) }
+    }
     val change = { e: Edit -> edit = e; submitted = false }
+    val scope = rememberCoroutineScope()
 
     Column(Modifier.fillMaxSize()) {
         Column(Modifier.weight(1f).statusBarsPadding().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -163,7 +180,8 @@ fun TallyApp() {
             // The words offered for the word at the cursor: one tap writes it, then a space.
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 4.dp)) {
                 items(offered.items) { s ->
-                    SuggestionChip(onClick = { change(edit.word(s.write, offered.start)) }, label = { Text(s.label) })
+                    // The chips can still be the previous word's for a moment: their start, at most the cursor.
+                    SuggestionChip(onClick = { change(edit.word(s.write, offered.start.coerceAtMost(edit.cursor))) }, label = { Text(s.label) })
                 }
             }
         }
@@ -175,8 +193,12 @@ fun TallyApp() {
                     Key.Backspace -> change(edit.backspace())
                     Key.Clear -> change(Edit())
                     // On a question, the default choice (the first: the capitals for `Rome Paris`).
-                    Key.Enter -> {
-                        reply?.choices?.firstOrNull()?.let { edit = Edit(it.request, it.request.length) }
+                    // The answer on screen may still be the previous request's: this one's, then.
+                    Key.Enter -> scope.launch {
+                        val current = answer?.takeIf { it.request == input }?.reply
+                            ?: if (input.isBlank()) null else withContext(Dispatchers.Default) { Core.evaluate(input) }
+                        if (edit.text != input) return@launch
+                        current?.choices?.firstOrNull()?.let { edit = Edit(it.request, it.request.length) }
                         submitted = true
                     }
                     is Key.Open -> panel = key.panel
