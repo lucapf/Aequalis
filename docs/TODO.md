@@ -53,6 +53,11 @@ Tick an item when it is done, and note the commit.
 
 ### Later (medium issues)
 
+- [ ] while writing math expression, in the preview keep the grouping via brackets as the TUI
+- 
+- [ ] the about function is missing
+- [ ] add in the about the link to install Tally on mac and Linux
+- [ ] add share feature to share the mac, Linux and Android version (when available) installation link (github repo / official play store app)
 - [ ] Icons instead of text characters, with names (#8).
 - [ ] Settings for people: titles, groups, choices for intervals, a top app bar (#9).
 - [ ] Search in the Currencies panel (#10).
