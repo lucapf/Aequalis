@@ -29,7 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /** The keyboard's height: the Measures, Currencies and Trivia panels take its place exactly. */
-val KeyboardHeight: Dp = 336.dp
+val KeyboardHeight: Dp = 380.dp
 
 /** What a key does. */
 sealed interface Key {
@@ -63,6 +63,19 @@ fun TallyKeyboard(mode: Mode, onKey: (Key) -> Unit, modifier: Modifier = Modifie
             Modifier.fillMaxWidth().navigationBarsPadding().height(KeyboardHeight).padding(4.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
+            // The toolbar, in every mode: the keyboards and the panels, apart from the keys typed.
+            KeyRow {
+                when (mode) {
+                    Mode.Text -> KeyButton("123", weight = 1.2f, tone = Tone.Action, small = true) { onKey(Key.Switch(Mode.Basic)) }
+                    else -> KeyButton("ABC", weight = 1.2f, tone = Tone.Action, small = true) { onKey(Key.Switch(Mode.Text)) }
+                }
+                when (mode) {
+                    Mode.Text -> {}
+                    Mode.Basic -> KeyButton("Sci", weight = 1.2f, tone = Tone.Action, small = true) { onKey(Key.Switch(Mode.Scientific)) }
+                    Mode.Scientific -> KeyButton("Basic", weight = 1.2f, tone = Tone.Action, small = true) { onKey(Key.Switch(Mode.Basic)) }
+                }
+                PanelKeys(onKey)
+            }
             when (mode) {
                 Mode.Text -> Letters(onKey)
                 Mode.Basic, Mode.Scientific -> Calculator(scientific = mode == Mode.Scientific, onKey)
@@ -93,12 +106,11 @@ private fun ColumnScope.Letters(onKey: (Key) -> Unit) {
         BackspaceKey(onKey, weight = 2f)
         Spacer(Modifier.weight(0.5f))
     }
+    // Space and ⏎ alone, under the thumbs. No comma: coordinates take a space (`41.9 12.5`), and the
+    // suggestions write the names that need one (`Springfield, Illinois`).
     KeyRow {
-        KeyButton("123", weight = 1.2f, tone = Tone.Action, small = true) { onKey(Key.Switch(Mode.Basic)) }
-        PanelKeys(onKey)
-        KeyButton(",") { write(",") }
-        KeyButton("space", weight = 2f, small = true) { write(" ") }
-        KeyButton("⏎", weight = 1.3f, tone = Tone.Enter) { onKey(Key.Enter) }
+        KeyButton("space", weight = 4f, small = true) { write(" ") }
+        KeyButton("⏎", weight = 1.4f, tone = Tone.Enter) { onKey(Key.Enter) }
     }
 }
 
@@ -146,18 +158,9 @@ private fun ColumnScope.Calculator(scientific: Boolean, onKey: (Key) -> Unit) {
             }
         }
     }
-    KeyRow {
-        KeyButton("ABC", weight = 1.2f, tone = Tone.Action, small = true) { onKey(Key.Switch(Mode.Text)) }
-        if (scientific) {
-            KeyButton("Basic", weight = 1.2f, tone = Tone.Action, small = true) { onKey(Key.Switch(Mode.Basic)) }
-        } else {
-            KeyButton("Sci", weight = 1.2f, tone = Tone.Action, small = true) { onKey(Key.Switch(Mode.Scientific)) }
-        }
-        PanelKeys(onKey)
-    }
 }
 
-/** The three panels, in every mode. */
+/** The three panels, on the toolbar of every mode. */
 @Composable
 private fun RowScope.PanelKeys(onKey: (Key) -> Unit) {
     KeyButton("Measures", weight = 2f, tone = Tone.Action, small = true) { onKey(Key.Open(Panel.Measures)) }
