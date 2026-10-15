@@ -80,6 +80,14 @@ fn after_a_value(config: &Config, before: &str, rest: &str, typing: bool) -> Opt
     let mut labels = Vec::new();
     let mut kind = Kind::Units;
     // An amount (no unit yet): currencies too, after the units, from two letters (`x` is times).
+    // Nothing at all, from four letters: a misspelt currency (`dolar`: the dollars).
+    if category.is_none() && names.is_empty() && prefix.chars().count() >= 4 {
+        let (near, _) = crate::currency::near(prefix);
+        if !near.is_empty() {
+            let (names, labels) = near.into_iter().map(|(code, name)| (code.to_string(), format!("{code} - {name}"))).unzip();
+            return Some(Suggestions { kind: Kind::Currencies, start, names, labels });
+        }
+    }
     if category.is_none() && prefix.chars().count() >= 2 {
         let (codes, shown) = currencies(prefix, None);
         if !codes.is_empty() {
@@ -166,7 +174,43 @@ fn words(config: &Config, before: &str, typing: bool) -> Option<Suggestions> {
             break;
         }
     }
+    // Nothing starts so: a misspelling, from four letters (`Room`: Rome, `Tokio`: Tokyo).
+    if names.is_empty() && prefix.chars().count() >= 4 {
+        return misspelt_places(prefix, start);
+    }
     Some(Suggestions { kind: Kind::Words, start, names, labels: Vec::new() })
+}
+
+/// The places and countries a misspelt word may be, within two letters, as Enter finds them: the
+/// archive's cities (if any), the built-in places, the countries; only the nearest (`Tokio`: Tokyo,
+/// one letter off, not Togo, two).
+fn misspelt_places(typed: &str, start: usize) -> Option<Suggestions> {
+    let tz = crate::time::tz::distance;
+    // (letters off, what is written, how it is shown)
+    let mut found: Vec<(usize, String, String)> = Vec::new();
+    if let Some(store) = crate::cities::store() {
+        for city in store.near(typed) {
+            let (label, name) = store.offer(&city, &city.name);
+            let names: Vec<&str> = std::iter::once(city.name.as_str()).chain(city.aliases.iter().map(String::as_str)).collect();
+            found.push((tz(typed, &names), name, label));
+        }
+    }
+    for name in crate::time::tz::near_names(typed) {
+        found.push((tz(typed, &[name]), name.to_string(), name.to_string()));
+    }
+    for country in crate::time::tz::near_countries(typed) {
+        let names: Vec<&str> = std::iter::once(country.name.as_str()).chain(country.aliases.iter().map(String::as_str)).collect();
+        found.push((tz(typed, &names), country.name.clone(), country.name.clone()));
+    }
+    let best = found.iter().map(|f| f.0).min()?;
+    let (mut names, mut labels): (Vec<String>, Vec<String>) = (Vec::new(), Vec::new());
+    for (_, name, label) in found.into_iter().filter(|f| f.0 == best) {
+        if !names.contains(&name) && names.len() < MAX {
+            names.push(name);
+            labels.push(label);
+        }
+    }
+    Some(Suggestions { kind: Kind::Words, start, names, labels })
 }
 
 /// Cities whose name starts with the last words typed (up to 3: `New Yo`; never across `to`), in
@@ -300,6 +344,12 @@ mod tests {
         assert_eq!(at("now uni"), ["unix", "unix-ms", "unix-us", "unix-ns"]);
         assert_eq!(at("dis"), ["distance"]);
         assert_eq!(at("Bar"), ["Barcelona", "Barbados"], "not Bar: a unit");
+        // Misspelt, from four letters: what Enter would ask about.
+        assert_eq!(at("Room"), ["Rome"]);
+        assert_eq!(at("Tokio"), ["Tokyo"]);
+        assert_eq!(at("Jappan"), ["Japan"]);
+        assert_eq!(&at("12 dolar")[..2], ["USD", "CAD"]);
+        assert!(at("Xyzzy").is_empty(), "too far from any place");
     }
 
     #[test]

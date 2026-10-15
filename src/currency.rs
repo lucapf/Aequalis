@@ -176,7 +176,7 @@ pub fn exact(text: &str) -> Option<Vec<&'static str>> {
 /// A misspelt currency or country: the nearest names within 1 letter (2 for longer words), each
 /// as (code, how to show it), and whether they are all countries; empty for a word that is exact
 /// or too short.
-fn near(text: &str) -> (Vec<(&'static str, String)>, bool) {
+pub(crate) fn near(text: &str) -> (Vec<(&'static str, String)>, bool) {
     #[derive(Clone, Copy)]
     enum Near {
         Currency(usize),
