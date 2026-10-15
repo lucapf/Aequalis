@@ -131,7 +131,7 @@ impl City {
             country: s("country"),
             region: s("region"),
             updated: s("updated"),
-            aliases: c.get("aliases").map(|a| a.array().iter().filter_map(|x| x.str().map(str::to_string)).collect()).unwrap_or_default(),
+            aliases: c.get("aliases").map(crate::json::Value::strings).unwrap_or_default(),
             capital: c.get("capital").and_then(|v| v.boolean()).unwrap_or(false),
         })
     }

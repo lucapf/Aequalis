@@ -337,7 +337,7 @@ pub fn json(settings: &Settings) -> String {
                 .finish()
         })
         .collect();
-    crate::json::Object::new().str("file", &path_text()).raw("settings", &format!("[{}]", items.join(","))).finish()
+    crate::json::Object::new().str("file", &path_text()).list("settings", &items).finish()
 }
 
 /// `tally --settings`: every setting, its value, and what it does.

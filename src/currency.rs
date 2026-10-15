@@ -50,9 +50,7 @@ pub fn all() -> &'static [Currency] {
     static TABLE: OnceLock<Vec<Currency>> = OnceLock::new();
     TABLE.get_or_init(|| {
         let doc = crate::json::parse(DATA).expect("src/data/currencies.json is valid JSON");
-        let strings = |v: Option<&crate::json::Value>| -> Vec<String> {
-            v.map(|a| a.array().iter().filter_map(|s| s.str().map(str::to_string)).collect()).unwrap_or_default()
-        };
+        let strings = |v: Option<&crate::json::Value>| v.map(crate::json::Value::strings).unwrap_or_default();
         doc.get("currencies")
             .map(|c| c.array())
             .unwrap_or_default()

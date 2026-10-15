@@ -82,6 +82,11 @@ impl Object {
         self.raw(key, &strings(values))
     }
 
+    /// An array of values already written as JSON (objects: `Object::finish`).
+    pub fn list(self, key: &str, items: &[String]) -> Object {
+        self.raw(key, &format!("[{}]", items.join(",")))
+    }
+
     /// A value already written as JSON (an object, an array).
     pub fn raw(self, key: &str, json: &str) -> Object {
         let mut o = self.key(key);
@@ -237,7 +242,7 @@ impl Value {
         }
     }
 
-        pub fn number(&self) -> Option<f64> {
+    pub fn number(&self) -> Option<f64> {
         match self {
             Value::Number(n) => Some(*n),
             _ => None,
@@ -249,6 +254,11 @@ impl Value {
             Value::Array(items) => items,
             _ => &[],
         }
+    }
+
+    /// The strings of an array (other items skipped); none when it is no array.
+    pub fn strings(&self) -> Vec<String> {
+        self.array().iter().filter_map(|v| v.str().map(str::to_string)).collect()
     }
 
     pub fn members(&self) -> &[(String, Value)] {

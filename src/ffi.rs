@@ -72,7 +72,7 @@ pub fn parse_init(text: &str) -> Result<Init, String> {
         (Some(decimal), Some(thousands)) => Some(crate::numbers::NumberFormat {
             decimal,
             thousands: thousands.to_string(),
-            grouping: doc.get("grouping").map(|g| g.array().iter().filter_map(|n| n.number()).map(|n| n as u8).collect()).unwrap_or_else(|| vec![3]),
+            grouping: doc.get("grouping").map(|g| g.array().iter().filter_map(json::Value::number).map(|n| n as u8).collect()).unwrap_or_else(|| vec![3]),
         }),
         _ => None,
     };
@@ -288,14 +288,14 @@ pub fn trivia() -> String {
                         .str("value", &value)
                         .str("written", &written)
                         .str("symbol", e.symbol.as_deref().unwrap_or(""))
-                        .raw("popup", &format!("[{}]", popup.join(",")))
+                        .list("popup", &popup)
                         .finish()
                 })
                 .collect();
-            Object::new().str("name", section).raw("entries", &format!("[{}]", entries.join(","))).finish()
+            Object::new().str("name", section).list("entries", &entries).finish()
         })
         .collect();
-    Object::new().raw("sections", &format!("[{}]", sections.join(","))).finish()
+    Object::new().list("sections", &sections).finish()
 }
 
 /// The measures of a Trivia popup line, to write one into the request: the line's parts (split at
@@ -343,11 +343,11 @@ pub fn measures() -> String {
                 .str("name", c.name)
                 .str("key", &c.key.to_string())
                 .strs("systems", &systems)
-                .raw("units", &format!("[{}]", units.join(",")))
+                .list("units", &units)
                 .finish()
         })
         .collect();
-    Object::new().raw("classes", &format!("[{}]", classes.join(","))).finish()
+    Object::new().list("classes", &classes).finish()
 }
 
 /// Suggestions for the word being typed at the end of `before` (the text up to the cursor), from
@@ -372,7 +372,7 @@ pub fn suggest(before: &str, min: usize) -> String {
         }
     }
     let list: Vec<String> = items.iter().map(|(write, label)| Object::new().str("write", write).str("label", label).finish()).collect();
-    Object::new().num("start", found.as_ref().map_or(0, |s| s.start)).raw("items", &format!("[{}]", list.join(","))).finish()
+    Object::new().num("start", found.as_ref().map_or(0, |s| s.start)).list("items", &list).finish()
 }
 
 /// `suggest`, for the C interface: `before` is the text up to the cursor.
@@ -393,7 +393,7 @@ pub extern "C" fn tally_currencies() -> *mut c_char {
 
 pub fn currencies() -> String {
     let list: Vec<String> = crate::currency::all().iter().map(|c| Object::new().str("code", &c.code).str("name", &c.name).strs("symbols", &c.symbols).finish()).collect();
-    Object::new().raw("currencies", &format!("[{}]", list.join(","))).finish()
+    Object::new().list("currencies", &list).finish()
 }
 
 #[cfg(test)]

@@ -676,9 +676,7 @@ pub fn countries() -> &'static [Country] {
     static TABLE: OnceLock<Vec<Country>> = OnceLock::new();
     TABLE.get_or_init(|| {
         let doc = crate::json::parse(COUNTRIES).expect("src/data/countries.json is valid JSON");
-        let strings = |v: Option<&crate::json::Value>| -> Vec<String> {
-            v.map(|a| a.array().iter().filter_map(|s| s.str().map(str::to_string)).collect()).unwrap_or_default()
-        };
+        let strings = |v: Option<&crate::json::Value>| v.map(crate::json::Value::strings).unwrap_or_default();
         doc.get("countries")
             .map(|c| c.array())
             .unwrap_or_default()

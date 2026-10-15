@@ -117,7 +117,7 @@ pub fn parse(text: &str) -> Result<Vec<Entry>, String> {
                 name: name.to_string(),
                 short: text("short").unwrap_or_default(),
                 description: text("description").unwrap_or_default(),
-                show: e.get("show").map(Value::array).unwrap_or_default().iter().filter_map(|u| u.str().map(str::to_string)).collect(),
+                show: e.get("show").map(Value::strings).unwrap_or_default(),
                 source,
                 unit: text("unit"),
                 decimals: e.get("decimals").and_then(Value::number).map(|d| d as usize),
