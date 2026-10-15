@@ -22,9 +22,9 @@ pub mod network;
 pub mod notify;
 pub mod numbers;
 pub mod online;
+pub mod planets;
 pub mod settings;
 pub mod suggest;
-pub mod planets;
 pub mod time;
 pub mod trivia;
 #[cfg(feature = "tui")]
@@ -367,9 +367,9 @@ pub fn parse_options<'a>(config: &Config, args: &'a [String]) -> Result<Parsed<'
             "-v" | "--verbose" => verbose = true,
             "--autocompletion" => {
                 let shell = value("--autocompletion")?;
-                return completion::script(config, &shell).map(|s| Parsed::Info(s.into())).ok_or_else(|| {
-                    CliError::Usage(format!("unsupported shell `{shell}` (supported: {})", completion::SHELLS.join(", ")))
-                });
+                return completion::script(config, &shell)
+                    .map(|s| Parsed::Info(s.into()))
+                    .ok_or_else(|| CliError::Usage(format!("unsupported shell `{shell}` (supported: {})", completion::SHELLS.join(", "))));
             }
             // Used by the Enter hook in the completion scripts; prints the line, quoted if needed.
             "--quote-line" => {
@@ -471,11 +471,13 @@ fn request(config: &Config, opts: &Options, tokens: &[&str]) -> Result<Output, C
         [from, to] => (from, to),
         // A unit so far (`10 km`): the target comes next; for a compound one (`m/s^2`) no kind's units
         // to list.
-        [from] => return Err(match convert::find_unit(config, from) {
-            Some((category, unit)) => CliError::Incomplete(next_unit(category, unit)),
-            None if convert::resolve(config, from).is_ok() => CliError::Incomplete("now the unit to convert to".into()),
-            None => CliError::Usage(EXPECTED.into()),
-        }),
+        [from] => {
+            return Err(match convert::find_unit(config, from) {
+                Some((category, unit)) => CliError::Incomplete(next_unit(category, unit)),
+                None if convert::resolve(config, from).is_ok() => CliError::Incomplete("now the unit to convert to".into()),
+                None => CliError::Usage(EXPECTED.into()),
+            })
+        }
         _ => return usage(EXPECTED),
     };
     let (result, target) = convert::convert(config, value, from, to).map_err(CliError::Convert)?;
@@ -490,9 +492,7 @@ fn request(config: &Config, opts: &Options, tokens: &[&str]) -> Result<Output, C
 /// formats and nothing else (`F C`, `usd eur`, `unix`): `echo 100 | tally F C`. Anything else is a
 /// request of its own, evaluated once.
 fn needs_value(config: &Config, args: &[&str]) -> bool {
-    let target = |a: &&str| {
-        convert::resolve(config, a).is_ok() || time::is_format(a) || (currency::exact(a).is_some() && time::tz::country(a).is_none())
-    };
+    let target = |a: &&str| convert::resolve(config, a).is_ok() || time::is_format(a) || (currency::exact(a).is_some() && time::tz::country(a).is_none());
     let value_first = args.first().is_some_and(|t| calc::starts_expression(t) || time::starts_date(t));
     !value_first && args.len() <= 2 && args.iter().all(target)
 }
@@ -530,7 +530,6 @@ fn list(config: &Config) -> String {
     out.trim_end().to_string()
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -547,10 +546,7 @@ mod tests {
     }
 
     fn stdin(input: &str, args: &str) -> Vec<String> {
-        piped(Some(input), args)
-            .into_iter()
-            .map(|r| r.map(|o| o.stdout).unwrap_or_else(|e| format!("exit {}", e.exit_code())))
-            .collect()
+        piped(Some(input), args).into_iter().map(|r| r.map(|o| o.stdout).unwrap_or_else(|e| format!("exit {}", e.exit_code()))).collect()
     }
 
     fn cli(args: &str) -> Result<String, CliError> {
@@ -732,4 +728,3 @@ mod tests {
         assert_eq!(code("--autocompletion fish"), 2);
     }
 }
-

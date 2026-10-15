@@ -24,12 +24,19 @@ pub enum Source {
     /// The distance between two places (names or coordinates).
     Between(String, String),
     /// A spacecraft: its JPL Horizons id (`-31`) and the estimate used offline.
-    Spacecraft { horizons: String, estimate: Estimate },
+    Spacecraft {
+        horizons: String,
+        estimate: Estimate,
+    },
     /// A tip: an example request, written into the expression (`London to Paris km`).
     Tip(String),
     /// A count of active satellites (`all`, `starlink`, `leo`, `meo`, `geo`, `heo`, `beyond`),
     /// from CelesTrak when online, else `count` as of `as_of`.
-    Satellites { kind: String, as_of: String, count: f64 },
+    Satellites {
+        kind: String,
+        as_of: String,
+        count: f64,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -321,7 +328,14 @@ pub fn written(config: &Config, entry: &Entry, value: f64) -> String {
 /// there); a spacecraft's launch; for a planet, its distances from the Sun and from the Earth:
 /// now, mean, the next minimum and maximum with their dates, and its orbital speed. Kilometres
 /// are whole, through `number` (the device's separators).
-pub fn popup(config: &Config, entry: &Entry, synced: Option<crate::online::Stored>, now: i64, precision: usize, number: &dyn Fn(String) -> String) -> Vec<(String, String)> {
+pub fn popup(
+    config: &Config,
+    entry: &Entry,
+    synced: Option<crate::online::Stored>,
+    now: i64,
+    precision: usize,
+    number: &dyn Fn(String) -> String,
+) -> Vec<(String, String)> {
     let mut lines = Vec::new();
     if let Some(link) = &entry.wikipedia {
         lines.push(("Wikipedia".to_string(), link.clone()));

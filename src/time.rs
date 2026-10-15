@@ -512,13 +512,8 @@ pub enum Clock {
 }
 
 /// Pattern suffixes: the time (24 or 12 hours) and the zone (`-tz`: `+02:00`).
-pub const VARIANTS: [(&str, Clock, bool); 5] = [
-    ("", Clock::None, false),
-    ("-24h", Clock::H24, false),
-    ("-24h-tz", Clock::H24, true),
-    ("-12h", Clock::H12, false),
-    ("-12h-tz", Clock::H12, true),
-];
+pub const VARIANTS: [(&str, Clock, bool); 5] =
+    [("", Clock::None, false), ("-24h", Clock::H24, false), ("-24h-tz", Clock::H24, true), ("-12h", Clock::H12, false), ("-12h-tz", Clock::H12, true)];
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Pattern {
@@ -665,8 +660,7 @@ const MONTH_NAMES: [&[&str]; 12] = [
 /// Abbreviations that are not a prefix of a name: German `Mrz` (März).
 const MONTH_ABBREVIATIONS: [(&str, u32); 1] = [("mrz", 3)];
 
-const ENGLISH_MONTHS: [&str; 12] =
-    ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const ENGLISH_MONTHS: [&str; 12] = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
 /// Lowercase, without accents: `Févr` → `fevr`, `März` → `marz`, `Março` → `marco`.
 fn fold(word: &str) -> String {
@@ -794,7 +788,6 @@ fn numeric_from_named(text: &str) -> Option<(String, Fields, MonthName)> {
     let numeric = if rest.is_empty() { date } else { format!("{date} {rest}") };
     Some((numeric, fields, month))
 }
-
 
 /// Reads a written date: three numbers separated by `/ . -` or a space, then optionally a time
 /// after a space or `T` (`15:30`, `3:30:45.5 PM`, `3:20PM`) and a zone (`Z`, `+02:00`).
@@ -931,11 +924,9 @@ fn read_numeric_date(text: &str, fields: Option<Fields>, order: Order) -> Option
     Some(Reading { civil, offset, pattern, by_locale, readings, month_name: None })
 }
 
-
 /// A written date read with an explicit pattern: its order, and its time and zone parts exactly.
 fn read_with_pattern(text: &str, pattern: Pattern) -> Option<Reading> {
-    read_date(text, Some(pattern.fields), Order::MonthFirst)
-        .filter(|r| r.pattern.clock == pattern.clock && r.pattern.tz == pattern.tz)
+    read_date(text, Some(pattern.fields), Order::MonthFirst).filter(|r| r.pattern.clock == pattern.clock && r.pattern.tz == pattern.tz)
 }
 
 /// The output format that writes a date like this ISO literal: `2026-12-04` → `iso-date`,
@@ -993,9 +984,9 @@ pub fn take_zone(input: &str) -> Result<(String, Option<(String, i32)>), String>
     let mut words = Vec::new();
     for word in input.split_whitespace() {
         // A word ending with a zone after a digit or AM/PM: `15:30GMT+2`.
-        let attached = (1..word.len()).filter(|&i| word.is_char_boundary(i)).find(|&i| {
-            word[..i].ends_with(|c: char| c.is_ascii_digit() || c == 'M' || c == 'm') && gmt_zone(&word[i..]).is_some()
-        });
+        let attached = (1..word.len())
+            .filter(|&i| word.is_char_boundary(i))
+            .find(|&i| word[..i].ends_with(|c: char| c.is_ascii_digit() || c == 'M' || c == 'm') && gmt_zone(&word[i..]).is_some());
         let (keep, found) = match (gmt_zone(word), attached) {
             (Some(z), _) => ("", Some((word, z))),
             (None, Some(i)) => (&word[..i], Some((&word[i..], gmt_zone(&word[i..]).unwrap()))),
@@ -1135,21 +1126,10 @@ fn format_as(instant: &Instant, word: &str, seconds: bool) -> Result<String, Tim
     let c = instant.civil();
     let date = format!("{}-{:02}-{:02}", year(c.year), c.month, c.day);
     let short = !seconds && c.second == 0 && c.nano == 0;
-    let time = if short {
-        format!("{:02}:{:02}", c.hour, c.minute)
-    } else {
-        format!("{:02}:{:02}:{:02}{}", c.hour, c.minute, c.second, fraction(c.nano))
-    };
+    let time = if short { format!("{:02}:{:02}", c.hour, c.minute) } else { format!("{:02}:{:02}:{:02}{}", c.hour, c.minute, c.second, fraction(c.nano)) };
     Ok(match word {
         "iso" => format!("{date}T{time}{}", zone_suffix(instant, true)),
-        "iso-basic" => format!(
-            "{}{:02}{:02}T{}{}",
-            year(c.year),
-            c.month,
-            c.day,
-            time.replace(':', ""),
-            zone_suffix(instant, false)
-        ),
+        "iso-basic" => format!("{}{:02}{:02}T{}{}", year(c.year), c.month, c.day, time.replace(':', ""), zone_suffix(instant, false)),
         "iso-date" => date,
         "iso-time" => format!("{time}{}", zone_suffix(instant, true)),
         "iso-ordinal" => {
@@ -1177,10 +1157,8 @@ const MONTH_ABBREVIATIONS_EN: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "
 const WEEKDAYS: [&str; 7] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
 /// The tokens of a human format, longest first (so `MMMM` is not read as `MM` twice).
-const HUMAN_TOKENS: [&str; 22] = [
-    "YYYY", "MMMM", "dddd", "H24", "H12", "MMM", "ddd", "YY", "MM", "DD", "HH", "hh", "mm", "ss", "tz", "ZZ", "AM", "D", "M", "H",
-    "h", "A",
-];
+const HUMAN_TOKENS: [&str; 22] =
+    ["YYYY", "MMMM", "dddd", "H24", "H12", "MMM", "ddd", "YY", "MM", "DD", "HH", "hh", "mm", "ss", "tz", "ZZ", "AM", "D", "M", "H", "h", "A"];
 
 /// A date for people: `format` with its tokens replaced, the rest kept (`[text]`: literal).
 ///
@@ -1327,9 +1305,8 @@ fn step(symbol: &str) -> Option<Step> {
 /// `instant` plus `amount` (a decimal; whole for calendar units) of `symbol`, `sign` = ±1.
 fn add(instant: Instant, amount: &str, symbol: &str, sign: i128) -> Result<Instant, TimeError> {
     let step = step(symbol).ok_or_else(|| TimeError::Usage(format!("`{symbol}` is not a time unit")))?;
-    let whole = || -> Result<i64, TimeError> {
-        amount.parse::<i64>().map_err(|_| TimeError::Usage(format!("`{amount}{symbol}`: calendar steps need a whole number")))
-    };
+    let whole =
+        || -> Result<i64, TimeError> { amount.parse::<i64>().map_err(|_| TimeError::Usage(format!("`{amount}{symbol}`: calendar steps need a whole number"))) };
     match step {
         Step::Exact(size) => {
             let delta = scaled(amount, size).ok_or(TimeError::Range)?;
@@ -1500,8 +1477,7 @@ fn writes_seconds(text: &str) -> bool {
     let b = text.as_bytes();
     let digit = |i: usize| b.get(i).is_some_and(u8::is_ascii_digit);
     (0..b.len()).any(|i| {
-        (b[i] == b':' && digit(i + 1) && digit(i + 2) && b.get(i + 3) == Some(&b':'))
-            || ((b[i] == b'T' || b[i] == b't') && (1..=6).all(|k| digit(i + k)))
+        (b[i] == b':' && digit(i + 1) && digit(i + 2) && b.get(i + 3) == Some(&b':')) || ((b[i] == b'T' || b[i] == b't') && (1..=6).all(|k| digit(i + k)))
     })
 }
 
@@ -1528,16 +1504,12 @@ pub fn starts_date(token: &str) -> bool {
 }
 
 fn starts_with_keyword(word: &str) -> bool {
-    ["now", "today"].iter().any(|k| {
-        word.strip_prefix(k).is_some_and(|rest| rest.is_empty() || rest.starts_with([' ', '+', '-']))
-    })
+    ["now", "today"].iter().any(|k| word.strip_prefix(k).is_some_and(|rest| rest.is_empty() || rest.starts_with([' ', '+', '-'])))
 }
 
 /// The longest prefix of `word` that is an unambiguous ISO date, and its length.
 fn leading_iso(word: &str) -> Option<(Iso, usize)> {
-    (8..=word.len().min(40)).rev().filter(|&n| word.is_char_boundary(n)).find_map(|n| {
-        parse_iso(&word[..n]).filter(Iso::unambiguous).map(|iso| (iso, n))
-    })
+    (8..=word.len().min(40)).rev().filter(|&n| word.is_char_boundary(n)).find_map(|n| parse_iso(&word[..n]).filter(Iso::unambiguous).map(|iso| (iso, n)))
 }
 
 struct Parser<'a> {
@@ -1672,8 +1644,7 @@ impl<'a> Parser<'a> {
                     self.take_word();
                 }
                 let order = Order::of_locale();
-                let reading = read_date(&text, None, order)
-                    .ok_or_else(|| TimeError::Usage(format!("`{text}` is not a date ({})", order.describe())))?;
+                let reading = read_date(&text, None, order).ok_or_else(|| TimeError::Usage(format!("`{text}` is not a date ({})", order.describe())))?;
                 self.unambiguous(&text, &reading)?;
                 self.note(&text, &reading);
                 self.input_format = Some(reading.pattern.name());
@@ -1686,8 +1657,8 @@ impl<'a> Parser<'a> {
                 for _ in 0..=i {
                     self.take_word();
                 }
-                let reading = read_with_pattern(&text, pattern)
-                    .ok_or_else(|| TimeError::Usage(format!("`{text}` is not a date in the {} format", pattern.name())))?;
+                let reading =
+                    read_with_pattern(&text, pattern).ok_or_else(|| TimeError::Usage(format!("`{text}` is not a date in the {} format", pattern.name())))?;
                 self.input_format = Some(pattern.name());
                 return from_civil(&reading.civil, self.zone_for(reading.offset, &text)?);
             }
@@ -1782,8 +1753,7 @@ impl<'a> Parser<'a> {
                 if self.zone_given() {
                     return usage("the local format is read in the device's time zone: remove the GMT zone");
                 }
-                let secs = sys::parse_local(&text)
-                    .ok_or_else(|| TimeError::Usage(format!("`{text}` is not a date in the local format")))?;
+                let secs = sys::parse_local(&text).ok_or_else(|| TimeError::Usage(format!("`{text}` is not a date in the local format")))?;
                 self.input_format = Some("local".into());
                 return Instant { ns: i128::from(secs) * NS, zone: Zone::Local }.in_range();
             }
@@ -1813,8 +1783,7 @@ impl<'a> Parser<'a> {
         // (`12 Sept 2026`).
         if first {
             let text = rest.trim().to_string();
-            let reading = read_date(&text, None, Order::of_locale())
-                .filter(|r| self.zone_given() || r.month_name.is_some());
+            let reading = read_date(&text, None, Order::of_locale()).filter(|r| self.zone_given() || r.month_name.is_some());
             if let Some(reading) = reading {
                 self.pos = self.s.len();
                 self.unambiguous(&text, &reading)?;
@@ -2026,9 +1995,8 @@ fn evaluate(config: &Config, p: &mut Parser, precision: usize) -> Result<String,
     match (difference, target) {
         (Some((a, b)), "") => Ok(breakdown(a.ns - b.ns)),
         (Some((a, b)), unit) => {
-            let symbol = time_unit(config, unit).ok_or_else(|| {
-                TimeError::Usage(format!("`{unit}`: a difference of dates is a duration; give a time unit (d, h, s…)"))
-            })?;
+            let symbol = time_unit(config, unit)
+                .ok_or_else(|| TimeError::Usage(format!("`{unit}`: a difference of dates is a duration; give a time unit (d, h, s…)")))?;
             if symbol == WORKDAY {
                 // Working days between the two days (each in its own zone), times of day aside.
                 let day = |i: &Instant| {
@@ -2049,9 +2017,7 @@ fn evaluate(config: &Config, p: &mut Parser, precision: usize) -> Result<String,
         // Not verbose, the date for people (`12 Sept 26`, `12 Sept 26 20:00 GMT+2`) wherever it would
         // be ISO: a date alone, `now`, an ISO date after date math.
         (None, "") => match p.input_format.take() {
-            Some(word) if word != "iso" && stepped && (p.verbose || !word.starts_with("iso")) => {
-                Ok(format!("{} {word}", format_as(&date, &word, seconds)?))
-            }
+            Some(word) if word != "iso" && stepped && (p.verbose || !word.starts_with("iso")) => Ok(format!("{} {word}", format_as(&date, &word, seconds)?)),
             Some(word) if word != "iso" && p.verbose => both_sides(&date, &word, seconds),
             _ if p.verbose => Ok(format!("{} iso", format_as(&date, "iso", seconds)?)),
             _ => Ok(human(&date, date_only(&date, p.s))),
@@ -2385,7 +2351,9 @@ mod tests {
 
     #[test]
     fn invalid_iso() {
-        for s in ["2026-13-01", "2026-02-29", "2026-W54-1", "2026-W41-8", "2026-367", "2026-10-10T25:00", "2026-10-10T12:60", "2026-10-10x", "2026-10", "202610"] {
+        for s in
+            ["2026-13-01", "2026-02-29", "2026-W54-1", "2026-W41-8", "2026-367", "2026-10-10T25:00", "2026-10-10T12:60", "2026-10-10x", "2026-10", "202610"]
+        {
             assert!(parse_iso(s).is_none(), "{s}");
         }
         assert!(parse_iso("2024-02-29").is_some());
@@ -2492,7 +2460,9 @@ mod tests {
 
     #[test]
     fn loose_dates() {
-        let d = |s: &str, o| read_date(s, None, o).map(|r| (r.civil.year, r.civil.month, r.civil.day, r.civil.hour, r.civil.minute, r.civil.second, r.civil.nano, r.offset));
+        let d = |s: &str, o| {
+            read_date(s, None, o).map(|r| (r.civil.year, r.civil.month, r.civil.day, r.civil.hour, r.civil.minute, r.civil.second, r.civil.nano, r.offset))
+        };
         use Order::*;
         for s in ["2026/04/12", "2026.04.12", "2026-4-12", "2026 4 12", "2026/4/12"] {
             assert_eq!(d(s, MonthFirst), Some((2026, 4, 12, 0, 0, 0, 0, None)), "{s}");
@@ -2624,7 +2594,10 @@ mod tests {
         // Several: which zone, each with its city, offset and zone, and the request for it.
         let Some(Err(a)) = countries_in(&config, "10:00AM USA to Paris") else { panic!("ambiguous") };
         assert_eq!((a.text.as_str(), a.kind), ("USA", AmbiguityKind::Country));
-        assert_eq!(a.choices.iter().map(|c| c.pattern.as_str()).collect::<Vec<_>>(), ["New York", "Chicago", "Denver", "Phoenix", "Los Angeles", "Anchorage", "Honolulu"]);
+        assert_eq!(
+            a.choices.iter().map(|c| c.pattern.as_str()).collect::<Vec<_>>(),
+            ["New York", "Chicago", "Denver", "Phoenix", "Los Angeles", "Anchorage", "Honolulu"]
+        );
         assert!(a.choices[0].date.ends_with(" · America/New_York") && a.choices[0].date.starts_with("GMT-"), "{}", a.choices[0].date);
         assert_eq!(a.choices[1].request, "10:00AM Chicago to Paris");
         assert!(a.message().starts_with("`USA` has several time zones: New York (GMT-"), "{}", a.message());
@@ -2769,7 +2742,8 @@ mod tests {
 
     #[test]
     fn dates_with_month_names() {
-        let r = |s: &str| read_date(s, None, Order::MonthFirst).map(|r| (r.civil.year, r.civil.month, r.civil.day, r.civil.hour, r.civil.minute, r.pattern.name()));
+        let r =
+            |s: &str| read_date(s, None, Order::MonthFirst).map(|r| (r.civil.year, r.civil.month, r.civil.day, r.civil.hour, r.civil.minute, r.pattern.name()));
         assert_eq!(r("12 Sept 2026"), Some((2026, 9, 12, 0, 0, "DD/MM/YYYY".into())));
         assert_eq!(r("12-Sep-2026"), Some((2026, 9, 12, 0, 0, "DD/MM/YYYY".into())));
         assert_eq!(r("12. Oktober 2026"), Some((2026, 10, 12, 0, 0, "DD/MM/YYYY".into())));
@@ -2807,9 +2781,9 @@ mod tests {
             ("2026-10-05", 5, "2026-10-12"),
             ("2026-10-05", 1, "2026-10-06"),
             ("2026-10-05", 4, "2026-10-09"),
-            ("2026-10-09", 1, "2026-10-12"), // Friday → Monday
-            ("2026-10-10", 1, "2026-10-12"), // Saturday → Monday
-            ("2026-10-11", 5, "2026-10-16"), // Sunday → Friday
+            ("2026-10-09", 1, "2026-10-12"),  // Friday → Monday
+            ("2026-10-10", 1, "2026-10-12"),  // Saturday → Monday
+            ("2026-10-11", 5, "2026-10-16"),  // Sunday → Friday
             ("2026-10-10", -1, "2026-10-09"), // Saturday → Friday
             ("2026-10-12", -1, "2026-10-09"), // Monday → Friday
             ("2026-10-10", 0, "2026-10-10"),
@@ -2860,11 +2834,45 @@ mod tests {
 
     #[test]
     fn detection() {
-        for yes in ["now", "now+3d", "today iso", "2026-10-10", "2026-W41-6 unix", "1791644400 unix", "20261010 iso", "10/10/2026 local", "2026/04/12 date unix", "12/04/2026 15:00 date", "12/04/26 3:20PM unix", "12/04/26 DD/MM/YY iso", "2026/04/12 iso-week", "2026/12/04 GMT+2", "GMT+2", "2026/12/04 15:30UTC-5 unix", "2026/12/04 GMT+99"] {
+        for yes in [
+            "now",
+            "now+3d",
+            "today iso",
+            "2026-10-10",
+            "2026-W41-6 unix",
+            "1791644400 unix",
+            "20261010 iso",
+            "10/10/2026 local",
+            "2026/04/12 date unix",
+            "12/04/2026 15:00 date",
+            "12/04/26 3:20PM unix",
+            "12/04/26 DD/MM/YY iso",
+            "2026/04/12 iso-week",
+            "2026/12/04 GMT+2",
+            "GMT+2",
+            "2026/12/04 15:30UTC-5 unix",
+            "2026/12/04 GMT+99",
+        ] {
             assert!(is_date_request(yes), "{yes}");
         }
         // Numbers, subtractions and conversions stay numeric.
-        for no in ["10 km mi", "20261010", "2026-283", "2026-10", "100 + 20", "nowhere", "-5 local", "", "12/04/26", "2026-12-02/12", "2026-12-02 / 12", "2026-12-02*2", "2026-12-02 num", "now N", "2026/12/04 NUMBER"] {
+        for no in [
+            "10 km mi",
+            "20261010",
+            "2026-283",
+            "2026-10",
+            "100 + 20",
+            "nowhere",
+            "-5 local",
+            "",
+            "12/04/26",
+            "2026-12-02/12",
+            "2026-12-02 / 12",
+            "2026-12-02*2",
+            "2026-12-02 num",
+            "now N",
+            "2026/12/04 NUMBER",
+        ] {
             assert!(!is_date_request(no), "{no}");
         }
     }

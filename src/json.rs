@@ -154,7 +154,11 @@ fn maxrss_kb() -> u64 {
     }
     let maxrss = u64::try_from(usage.maxrss).unwrap_or(0);
     // Linux reports KiB, macOS bytes.
-    if cfg!(target_os = "macos") { maxrss / 1024 } else { maxrss }
+    if cfg!(target_os = "macos") {
+        maxrss / 1024
+    } else {
+        maxrss
+    }
 }
 
 /// One request's outcome as a JSON object, on one line, with the peak memory so far.
@@ -180,11 +184,8 @@ fn outcome(result: &Result<Output, CliError>) -> String {
         Err(err) => {
             let ambiguous = match err {
                 CliError::Ambiguous(a) => {
-                    let choices: Vec<String> = a
-                        .choices
-                        .iter()
-                        .map(|c| Object::new().str("pattern", &c.pattern).str("date", &c.date).str("request", &c.request).finish())
-                        .collect();
+                    let choices: Vec<String> =
+                        a.choices.iter().map(|c| Object::new().str("pattern", &c.pattern).str("date", &c.date).str("request", &c.request).finish()).collect();
                     let kind = match a.kind {
                         crate::time::AmbiguityKind::Date => "date",
                         crate::time::AmbiguityKind::City => "city",

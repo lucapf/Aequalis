@@ -135,10 +135,7 @@ mod tests {
         assert!(notices(&s, &state, Some("1 aaa"), &all_stale).is_empty());
         s.set("cities.refresh", Some("notify")).unwrap();
         s.set("rates.refresh", Some("notify")).unwrap();
-        assert_eq!(
-            notices(&s, &state, Some("1 aaa"), &all_stale),
-            ["a new city archive is available", "the exchange rates are out of date"]
-        );
+        assert_eq!(notices(&s, &state, Some("1 aaa"), &all_stale), ["a new city archive is available", "the exchange rates are out of date"]);
         // Up to date: nothing.
         assert_eq!(notices(&s, &state, Some("2 bbb"), &|_| false), Vec::<String>::new());
         // Never downloaded: said, whatever the policy (until the cities are off).

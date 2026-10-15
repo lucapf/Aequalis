@@ -168,13 +168,7 @@ pub fn script(config: &Config, shell: &str) -> Option<String> {
         .chain(patterns.iter().map(String::as_str))
         .chain(["num"])
         .collect();
-    Some(
-        template
-            .replace("@UNITS@", &units.join(" "))
-            .replace("@FLAGS@", FLAGS)
-            .replace("@SHELLS@", &SHELLS.join(" "))
-            .replace("@BIN@", &self_path()),
-    )
+    Some(template.replace("@UNITS@", &units.join(" ")).replace("@FLAGS@", FLAGS).replace("@SHELLS@", &SHELLS.join(" ")).replace("@BIN@", &self_path()))
 }
 
 #[cfg(test)]
@@ -233,17 +227,17 @@ mod tests {
     #[test]
     fn leaves_other_lines_alone() {
         for line in [
-            "tally 10 km mi",          // nothing to quote
-            "tally {1+2}/3 km mi",     // braces are safe unquoted
-            "tally '(1+2)' km m",      // already quoted
-            "tally \\(1+2\\) km m",    // already escaped
-            "tally (1+2) km m | cat",  // pipeline
-            "tally $(echo 1) km m",    // command substitution
-            "tally (1) km m; ls *",    // several commands
-            "echo (1+2)",                  // another command
-            "tallyx (1+2)",            // another command
-            "ls tally*",               // `tally` is not the command
-            "tally --precision 2",     // no expression
+            "tally 10 km mi",         // nothing to quote
+            "tally {1+2}/3 km mi",    // braces are safe unquoted
+            "tally '(1+2)' km m",     // already quoted
+            "tally \\(1+2\\) km m",   // already escaped
+            "tally (1+2) km m | cat", // pipeline
+            "tally $(echo 1) km m",   // command substitution
+            "tally (1) km m; ls *",   // several commands
+            "echo (1+2)",             // another command
+            "tallyx (1+2)",           // another command
+            "ls tally*",              // `tally` is not the command
+            "tally --precision 2",    // no expression
             "",
         ] {
             assert_eq!(quote(line), None, "{line}");

@@ -32,9 +32,9 @@ use editor::{Entry, History, Line};
 use keys::Key;
 use picker::{Direction, Picker};
 use std::cell::RefCell;
-use std::rc::Rc;
 use std::io::{Read, Write};
 use std::process::ExitCode;
+use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -79,7 +79,6 @@ struct Cycle {
     labels: Vec<String>,
     index: usize,
 }
-
 
 pub struct App<'a> {
     config: &'a Config,
@@ -188,7 +187,6 @@ impl<'a> App<'a> {
             copied: None,
             system_clipboard: false,
             evaluation: RefCell::new(None),
-
         }
     }
 
@@ -1079,7 +1077,8 @@ mod tests {
         assert!(matches!(&app.overlay, Some(Overlay::Measures(v)) if v.item(&config) == measures::Item::Category(0)));
         app.handle(Key::Esc);
         assert!(app.overlay.is_none());
-    }    #[test]
+    }
+    #[test]
     fn measures_list() {
         let config = Config::default();
         let opts = options(&config);
@@ -1308,7 +1307,8 @@ mod tests {
         app.handle(Key::Enter);
         assert_eq!(app.line.text(), "10 ft mi", "replaced in place: no space added");
         assert_eq!(app.mode, Mode::Input, "source and target set: complete");
-    }    #[test]
+    }
+    #[test]
     fn help() {
         let config = Config::default();
         let opts = options(&config);
@@ -1576,5 +1576,4 @@ mod tests {
         app.handle(Key::Char('A'));
         assert!(matches!(app.overlay, Some(Overlay::About)));
     }
-
 }

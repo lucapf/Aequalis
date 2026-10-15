@@ -34,10 +34,5 @@ pub fn save(url: &str, to: &Path, seconds: u32) -> bool {
     if let Some(f) = FETCHER.get() {
         return f.save(url, to, seconds);
     }
-    Command::new("curl")
-        .args(["-sfL", "--max-time", &seconds.to_string(), "-o"])
-        .arg(to)
-        .arg(url)
-        .status()
-        .is_ok_and(|s| s.success())
+    Command::new("curl").args(["-sfL", "--max-time", &seconds.to_string(), "-o"]).arg(to).arg(url).status().is_ok_and(|s| s.success())
 }

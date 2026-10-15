@@ -2,7 +2,6 @@
 //! the status shown (from the online data's last sync, `online.rs`). Only the sync of the online
 //! data uses the network.
 
-
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Mode {
     Online,
@@ -34,7 +33,11 @@ impl Status {
 
 /// The mode, from the settings.
 pub fn mode() -> Mode {
-    if crate::settings::current().offline() { Mode::Offline } else { Mode::Online }
+    if crate::settings::current().offline() {
+        Mode::Offline
+    } else {
+        Mode::Online
+    }
 }
 
 /// Whether the network may be used: not the `offline` setting.

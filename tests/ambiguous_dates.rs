@@ -8,13 +8,7 @@ use std::process::{Command, Stdio};
 const BIN: &str = env!("CARGO_BIN_EXE_tally");
 
 fn run(args: &str) -> (String, String, i32) {
-    let out = Command::new(BIN).arg("-v")
-        .args(args.split_whitespace())
-        .env("TZ", "Europe/Rome")
-        .env("LC_ALL", "C")
-        .stdin(Stdio::null())
-        .output()
-        .unwrap();
+    let out = Command::new(BIN).arg("-v").args(args.split_whitespace()).env("TZ", "Europe/Rome").env("LC_ALL", "C").stdin(Stdio::null()).output().unwrap();
     let text = |b: Vec<u8>| String::from_utf8(b).unwrap().trim_end().to_string();
     (text(out.stdout), text(out.stderr), out.status.code().unwrap_or(-1))
 }
@@ -62,7 +56,8 @@ fn not_ambiguous() {
 
 #[test]
 fn piped_requests_are_not_asked() {
-    let mut child = Command::new(BIN).arg("-v")
+    let mut child = Command::new(BIN)
+        .arg("-v")
         .arg("unix")
         .env("TZ", "Europe/Rome")
         .env("LC_ALL", "C")

@@ -3,9 +3,9 @@
 use std::io::{IsTerminal, Read};
 use std::process::ExitCode;
 use tally::config::Config;
-use tally::{convert, convert_request, json, notify, online, parse_options, run, settings, time, CliError, Output, Parsed};
 #[cfg(feature = "tui")]
 use tally::tui;
+use tally::{convert, convert_request, json, notify, online, parse_options, run, settings, time, CliError, Output, Parsed};
 
 fn main() -> ExitCode {
     let config = Config::shared();
@@ -191,7 +191,11 @@ fn ask(a: &time::Ambiguity) -> Option<&time::Choice> {
     let question = match a.kind {
         time::AmbiguityKind::City => {
             eprintln!("tally: {}. Did you mean:", a.note);
-            if a.note.ends_with("is not a city") { "Which city?" } else { "Which one?" }
+            if a.note.ends_with("is not a city") {
+                "Which city?"
+            } else {
+                "Which one?"
+            }
         }
         time::AmbiguityKind::Country => {
             eprintln!("tally: `{}` has several time zones:", a.text);
@@ -231,4 +235,3 @@ fn ask(a: &time::Ambiguity) -> Option<&time::Choice> {
     }
     None
 }
-

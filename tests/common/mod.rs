@@ -31,13 +31,7 @@ pub fn tally(dir: &PathBuf, args: &[&str]) -> Output {
     for var in ["http_proxy", "https_proxy", "HTTPS_PROXY", "ALL_PROXY", "all_proxy"] {
         command.env(var, "http://127.0.0.1:9");
     }
-    command
-        .args(args)
-        .env("XDG_CONFIG_HOME", dir)
-        .env("LC_ALL", "C")
-        .stdin(Stdio::null())
-        .output()
-        .expect("run tally")
+    command.args(args).env("XDG_CONFIG_HOME", dir).env("LC_ALL", "C").stdin(Stdio::null()).output().expect("run tally")
 }
 
 /// `tally`, on a device in the time zone `zone` (its country orders the cities offered).

@@ -13,7 +13,9 @@ fn now() -> u64 {
 
 /// Exchange rates synced at `t`.
 fn rates(t: u64, ok: bool) -> String {
-    format!(r#"{{"format":1,"synced_at":{t},"attempted_at":{t},"ok":{ok},"values":{{"rates date":{{"value":{t},"at":{t}}},"USD/EUR":{{"value":0.9,"at":{t}}}}}}}"#)
+    format!(
+        r#"{{"format":1,"synced_at":{t},"attempted_at":{t},"ok":{ok},"values":{{"rates date":{{"value":{t},"at":{t}}},"USD/EUR":{{"value":0.9,"at":{t}}}}}}}"#
+    )
 }
 
 /// A config directory for one test: `online.json` holding `live` (none if empty) and fresh
@@ -34,7 +36,9 @@ fn config(name: &str, live: &str, rates: &str) -> PathBuf {
 /// Fresh data (synced now): no sync is needed.
 fn fresh(ok: bool) -> String {
     let t = now();
-    format!(r#"{{"format":1,"synced_at":{t},"attempted_at":{t},"ok":{ok},"values":{{"Voyager 1":{{"value":180.5,"at":{t}}},"Starlink":{{"value":12345,"at":{t}}}}}}}"#)
+    format!(
+        r#"{{"format":1,"synced_at":{t},"attempted_at":{t},"ok":{ok},"values":{{"Voyager 1":{{"value":180.5,"at":{t}}},"Starlink":{{"value":12345,"at":{t}}}}}}}"#
+    )
 }
 
 /// The binary, with `settings` written first (`offline` false unless given).
@@ -101,7 +105,8 @@ fn fresh_data_is_used_offline() {
     // The last try (the newest of the files) reached no source, and was just made: offline, no
     // retry yet.
     let t = now();
-    let failed = format!(r#"{{"format":1,"synced_at":{old},"attempted_at":{t},"ok":false,"values":{{"Starlink":{{"value":12345,"at":{old}}}}}}}"#, old = t - 100);
+    let failed =
+        format!(r#"{{"format":1,"synced_at":{old},"attempted_at":{t},"ok":false,"values":{{"Starlink":{{"value":12345,"at":{old}}}}}}}"#, old = t - 100);
     let dir = config("failed", &failed, &rates(t - 1000, true));
     assert_eq!(text(&tally(&[], &dir, &["--online"])), "offline");
 }

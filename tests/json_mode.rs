@@ -7,7 +7,8 @@ use std::process::{Command, Stdio};
 const BIN: &str = env!("CARGO_BIN_EXE_tally");
 
 fn json(args: &str) -> (String, String, i32) {
-    let out = Command::new(BIN).arg("-v")
+    let out = Command::new(BIN)
+        .arg("-v")
         .arg("--json")
         .args(args.split_whitespace())
         .env("TZ", "Europe/Rome")
@@ -35,10 +36,7 @@ fn without_peak(out: &str) -> String {
 fn results_with_notes_and_warnings() {
     assert_eq!(json("10 km mi"), ("{\"ok\":true,\"result\":\"6.2137 mi\",\"notes\":[],\"warnings\":[]}\n".into(), String::new(), 0));
     let (out, err, _) = json("2026/12/04 - 12d");
-    assert_eq!(
-        out,
-        "{\"ok\":true,\"result\":\"2026/11/22 YYYY/MM/DD\",\"notes\":[\"read `2026/12/04` as YYYY/MM/DD (year first)\"],\"warnings\":[]}\n"
-    );
+    assert_eq!(out, "{\"ok\":true,\"result\":\"2026/11/22 YYYY/MM/DD\",\"notes\":[\"read `2026/12/04` as YYYY/MM/DD (year first)\"],\"warnings\":[]}\n");
     assert_eq!(err, "", "notes go into the JSON, not to stderr");
     assert!(json("1 GB GiB").0.contains("\"warnings\":[\"mixing decimal (GB"));
     assert!(json("-s 1 GB GiB").0.contains("\"warnings\":[]"), "-s still applies");

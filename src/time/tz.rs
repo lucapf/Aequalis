@@ -99,11 +99,7 @@ impl Tz {
         if type_count == 0 {
             return None;
         }
-        let transitions = times
-            .iter()
-            .zip(indices)
-            .map(|(&t, &i)| Some((t, offset_of(usize::from(i))?)))
-            .collect::<Option<Vec<_>>>()?;
+        let transitions = times.iter().zip(indices).map(|(&t, &i)| Some((t, offset_of(usize::from(i))?))).collect::<Option<Vec<_>>>()?;
         let rule = (version >= b'2')
             .then(|| {
                 let footer = &data[start + block(time_size, counts)..];
@@ -754,16 +750,7 @@ fn names() -> &'static Names {
                 }
             }
         }
-        Names {
-            longest_city,
-            longest_country,
-            cities,
-            city_keys,
-            countries: by_name,
-            country_keys,
-            codes,
-            zones,
-        }
+        Names { longest_city, longest_country, cities, city_keys, countries: by_name, country_keys, codes, zones }
     })
 }
 

@@ -185,19 +185,11 @@ fn errors() {
 #[test]
 fn stdin_requests() {
     use std::io::Write;
-    let mut child = Command::new(BIN).arg("-v")
-        .arg("iso-date")
-        .env("TZ", "UTC")
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .spawn()
-        .unwrap();
+    let mut child =
+        Command::new(BIN).arg("-v").arg("iso-date").env("TZ", "UTC").stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).spawn().unwrap();
     child.stdin.take().unwrap().write_all(b"2026-10-10T15:00Z\n1791644400 unix\n").unwrap();
     let out = child.wait_with_output().unwrap();
-    assert_eq!(
-        String::from_utf8(out.stdout).unwrap(),
-        "2026-10-10T15:00Z iso = 2026-10-10 iso-date\n2026-10-10T15:00+00:00 iso = 2026-10-10 iso-date\n"
-    );
+    assert_eq!(String::from_utf8(out.stdout).unwrap(), "2026-10-10T15:00Z iso = 2026-10-10 iso-date\n2026-10-10T15:00+00:00 iso = 2026-10-10 iso-date\n");
 }
 
 #[test]
@@ -292,7 +284,11 @@ fn month_names() {
         ("12 out 2026", "2026-10-12"),
         ("2026 Sep 12", "2026-09-12"),
     ] {
-        assert_eq!(rome(&format!("{text} iso-date")), format!("{iso}T00:00{} iso = {iso} iso-date", if !("2026-03-29"..="2026-10-25").contains(&iso) { "+01:00" } else { "+02:00" }), "{text}");
+        assert_eq!(
+            rome(&format!("{text} iso-date")),
+            format!("{iso}T00:00{} iso = {iso} iso-date", if !("2026-03-29"..="2026-10-25").contains(&iso) { "+01:00" } else { "+02:00" }),
+            "{text}"
+        );
     }
     // Times, zones, date math, differences.
     assert_eq!(rome("12 Sept 2026 15:30 unix"), "2026-09-12T15:30+02:00 iso = 1789219800 unix");
@@ -319,7 +315,8 @@ fn month_name_notes_and_errors() {
         assert!(out.unwrap_err().contains(message), "{args}");
     }
     // Quoted as one argument, with the month first: still a request, not a wait on stdin.
-    let out = Command::new(BIN).arg("-v").args(["September 12, 2026", "iso-date"]).env("TZ", "Europe/Rome").stdin(std::process::Stdio::null()).output().unwrap();
+    let out =
+        Command::new(BIN).arg("-v").args(["September 12, 2026", "iso-date"]).env("TZ", "Europe/Rome").stdin(std::process::Stdio::null()).output().unwrap();
     assert!(String::from_utf8(out.stdout).unwrap().ends_with("2026-09-12 iso-date\n"));
 }
 

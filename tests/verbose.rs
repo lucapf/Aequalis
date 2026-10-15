@@ -9,13 +9,7 @@ const BIN: &str = env!("CARGO_BIN_EXE_tally");
 
 /// (stdout, stderr) of a run.
 fn run(args: &str) -> (String, String) {
-    let out = Command::new(BIN)
-        .args(args.split_whitespace())
-        .env("TZ", "Europe/Rome")
-        .env("LC_ALL", "C")
-        .stdin(Stdio::null())
-        .output()
-        .unwrap();
+    let out = Command::new(BIN).args(args.split_whitespace()).env("TZ", "Europe/Rome").env("LC_ALL", "C").stdin(Stdio::null()).output().unwrap();
     let text = |b: Vec<u8>| String::from_utf8(b).unwrap().trim_end().to_string();
     (text(out.stdout), text(out.stderr))
 }

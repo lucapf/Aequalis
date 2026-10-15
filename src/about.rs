@@ -38,7 +38,12 @@ pub fn facts(memory: &str) -> Vec<(&'static str, String)> {
         (false, _) => "off (the cities.enabled setting)".to_string(),
         (true, Some(m)) => {
             let day = crate::time::human_day(m.built_at);
-            format!("{} of {day}, {} (refresh: {})", crate::numbers::device().apply(&m.count.to_string()), crate::cities::SOURCE, settings.get("cities.refresh"))
+            format!(
+                "{} of {day}, {} (refresh: {})",
+                crate::numbers::device().apply(&m.count.to_string()),
+                crate::cities::SOURCE,
+                settings.get("cities.refresh")
+            )
         }
         (true, None) => format!("not downloaded yet, {}", crate::cities::SOURCE),
     };

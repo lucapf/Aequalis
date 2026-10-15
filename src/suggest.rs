@@ -276,9 +276,7 @@ fn matching(config: &Config, only: Option<&Category>, prefix: &str) -> Vec<&'sta
         false => name.to_lowercase().starts_with(&lower),
     };
     let categories = || config.categories.iter().filter(|c| only.is_none_or(|o| o.name == c.name));
-    let mut names: Vec<&'static str> = categories()
-        .flat_map(|c| c.units.iter().filter(move |u| fits(c, u.symbol)).map(|u| u.symbol))
-        .collect();
+    let mut names: Vec<&'static str> = categories().flat_map(|c| c.units.iter().filter(move |u| fits(c, u.symbol)).map(|u| u.symbol)).collect();
     // With no prefix (the target slot), the symbols are enough.
     if !prefix.is_empty() {
         for c in categories() {
@@ -317,7 +315,10 @@ mod tests {
     fn target_unit_is_the_same_kind() {
         let to = names("10 km ");
         assert_eq!(to, ["mm", "cm", "m", "km", "au", "ly", "pc", "in", "ft", "yd", "mi"]);
-        assert_eq!(names("10 km m"), ["mm", "m", "mi", "millimeter", "millimeters", "millimetre", "millimetres", "meter", "meters", "metre", "metres", "mile", "miles"]);
+        assert_eq!(
+            names("10 km m"),
+            ["mm", "m", "mi", "millimeter", "millimeters", "millimetre", "millimetres", "meter", "meters", "metre", "metres", "mile", "miles"]
+        );
         assert_eq!(names("100 sqft m"), ["mm2", "m2", "mi2", "mm²", "mmq", "m²", "mq", "mi²"]);
         assert_eq!(names("1 kg p"), ["pound", "pounds"]);
     }

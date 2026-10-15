@@ -19,7 +19,14 @@ fn config(name: &str) -> PathBuf {
     let url = format!("file://{}", serve.join("cities.json").display());
     common::config(
         name,
-        &[("offline", "false"), ("cities.refresh", "manual"), ("rates.refresh", "manual"), ("live.refresh", "manual"), ("cities.url", &url), ("distance.unit", "km")],
+        &[
+            ("offline", "false"),
+            ("cities.refresh", "manual"),
+            ("rates.refresh", "manual"),
+            ("live.refresh", "manual"),
+            ("cities.url", &url),
+            ("distance.unit", "km"),
+        ],
     )
 }
 
@@ -53,12 +60,20 @@ fn download_then_any_city() {
     assert!(json.contains(r#""kind":"place""#) && json.contains("google.com/maps?q="), "{json}");
     // -v: where they are.
     let o = common::tally(&dir, &["-v", "Springfield,", "Illinois", "Chicago"]);
-    assert!(common::err(&o).contains("Chicago, Illinois, United States: 2746388 inhabitants, https://www.google.com/maps?q=41.85003,-87.65005"), "{}", common::err(&o));
+    assert!(
+        common::err(&o).contains("Chicago, Illinois, United States: 2746388 inhabitants, https://www.google.com/maps?q=41.85003,-87.65005"),
+        "{}",
+        common::err(&o)
+    );
     // About: how many, from GeoNames.
     let about = common::out(&common::tally(&dir, &["--about"]));
     assert!(about.contains("Cities: 9 of 13 Oct 26, GeoNames (https://www.geonames.org), CC BY 4.0 (refresh: manual)"), "{about}");
     // Off: back to the built-in places.
-    std::fs::write(dir.join("tally/settings.json"), std::fs::read_to_string(dir.join("tally/settings.json")).unwrap().replace("\"offline\"", "\"cities.enabled\": \"false\",\n  \"offline\"")).unwrap();
+    std::fs::write(
+        dir.join("tally/settings.json"),
+        std::fs::read_to_string(dir.join("tally/settings.json")).unwrap().replace("\"offline\"", "\"cities.enabled\": \"false\",\n  \"offline\""),
+    )
+    .unwrap();
     assert_ne!(common::tally(&dir, &["Springfield,", "Illinois", "Chicago"]).status.code(), Some(0));
     assert_eq!(common::out(&common::tally(&dir, &["Rome", "Paris"])), "1107 km");
 }
@@ -80,7 +95,10 @@ fn the_default_unit_follows_the_device() {
 #[test]
 fn a_failed_download_stops_nothing_else() {
     let url = format!("file://{}/nowhere/cities.json", std::env::temp_dir().display());
-    let dir = common::config("failed", &[("offline", "false"), ("cities.refresh", "manual"), ("rates.refresh", "manual"), ("live.refresh", "manual"), ("cities.url", &url)]);
+    let dir = common::config(
+        "failed",
+        &[("offline", "false"), ("cities.refresh", "manual"), ("rates.refresh", "manual"), ("live.refresh", "manual"), ("cities.url", &url)],
+    );
     let o = common::tally(&dir, &["--sync"]);
     assert_eq!(o.status.code(), Some(1));
     assert_eq!(common::out(&o), "0 exchange rates\n0 live values");

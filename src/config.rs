@@ -167,14 +167,7 @@ const fn inverse(symbol: &'static str, name: &'static str, aliases: &'static [&'
 }
 
 /// Data units: decimal prefixes go with the first tab, binary ones with the second.
-const fn data(
-    symbol: &'static str,
-    name: &'static str,
-    aliases: &'static [&'static str],
-    factor: f64,
-    size: DataSize,
-    prefix: Prefix,
-) -> Unit {
+const fn data(symbol: &'static str, name: &'static str, aliases: &'static [&'static str], factor: f64, size: DataSize, prefix: Prefix) -> Unit {
     let system = match prefix {
         Prefix::None => System::Both,
         Si => System::Metric,
@@ -202,8 +195,21 @@ pub fn is_number_word(word: &str) -> bool {
 /// Words of the date requests (`time.rs`): the values `now` and `today`, the `date` input word,
 /// then the formats (`time::is_format`: from the fourth word on).
 pub const DATE_WORDS: &[&str] = &[
-    "now", "today", "date", "iso", "iso-utc", "iso-basic", "iso-date", "iso-ordinal", "iso-week", "iso-time", "unix", "unix-ms",
-    "unix-us", "unix-ns", "local",
+    "now",
+    "today",
+    "date",
+    "iso",
+    "iso-utc",
+    "iso-basic",
+    "iso-date",
+    "iso-ordinal",
+    "iso-week",
+    "iso-time",
+    "unix",
+    "unix-ms",
+    "unix-us",
+    "unix-ns",
+    "local",
 ];
 
 const KI: f64 = 1024.0;
@@ -290,7 +296,12 @@ impl Default for Config {
                         metric("m", "metre", &["meter", "meters", "metre", "metres"], 1.0),
                         metric("km", "kilometre", &["kilometer", "kilometers", "kilometre", "kilometres"], 1000.0),
                         metric("au", "astronomical unit (149597870.7 km)", &["astronomical-unit", "astronomical-units"], 149_597_870_700.0),
-                        metric("ly", "light-year (Julian year of light travel)", &["light-year", "light-years", "lightyear", "lightyears"], 9_460_730_472_580_800.0),
+                        metric(
+                            "ly",
+                            "light-year (Julian year of light travel)",
+                            &["light-year", "light-years", "lightyear", "lightyears"],
+                            9_460_730_472_580_800.0,
+                        ),
                         metric("pc", "parsec (648000/π au)", &["parsec", "parsecs"], 30_856_775_814_913_673.0),
                         imperial("in", "inch", &["inch", "inches"], 0.0254),
                         imperial("ft", "foot", &["foot", "feet"], 0.3048),
@@ -309,11 +320,26 @@ impl Default for Config {
                     case_sensitive: false,
                     systems: METRIC_IMPERIAL,
                     units: vec![
-                        metric("mm2", "square millimetre", &["mm²", "sq-mm", "sqmm", "mmq", "square-millimeter", "square-millimeters", "square-millimetre", "square-millimetres"], 0.000_001),
-                        metric("cm2", "square centimetre", &["cm²", "sq-cm", "sqcm", "cmq", "square-centimeter", "square-centimeters", "square-centimetre", "square-centimetres"], 0.0001),
+                        metric(
+                            "mm2",
+                            "square millimetre",
+                            &["mm²", "sq-mm", "sqmm", "mmq", "square-millimeter", "square-millimeters", "square-millimetre", "square-millimetres"],
+                            0.000_001,
+                        ),
+                        metric(
+                            "cm2",
+                            "square centimetre",
+                            &["cm²", "sq-cm", "sqcm", "cmq", "square-centimeter", "square-centimeters", "square-centimetre", "square-centimetres"],
+                            0.0001,
+                        ),
                         metric("m2", "square metre", &["m²", "sq-m", "sqm", "mq", "square-meter", "square-meters", "square-metre", "square-metres"], 1.0),
                         metric("ha", "hectare", &["hectare", "hectares"], 10_000.0),
-                        metric("km2", "square kilometre", &["km²", "sq-km", "sqkm", "kmq", "square-kilometer", "square-kilometers", "square-kilometre", "square-kilometres"], 1_000_000.0),
+                        metric(
+                            "km2",
+                            "square kilometre",
+                            &["km²", "sq-km", "sqkm", "kmq", "square-kilometer", "square-kilometers", "square-kilometre", "square-kilometres"],
+                            1_000_000.0,
+                        ),
                         imperial("in2", "square inch", &["in²", "sq-in", "sqin", "square-inch", "square-inches"], 0.000_645_16),
                         imperial("ft2", "square foot", &["ft²", "sq-ft", "sqft", "square-foot", "square-feet"], 0.092_903_04),
                         imperial("yd2", "square yard", &["yd²", "sq-yd", "sqyd", "square-yard", "square-yards"], 0.836_127_36),
@@ -400,7 +426,16 @@ impl Default for Config {
                     systems: METRIC_IMPERIAL,
                     units: vec![
                         metric("K", "kelvin", &["kelvin"], 1.0),
-                        Unit { symbol: "C", name: "degree Celsius", aliases: &["°C", "celsius"], factor: 1.0, offset: 273.15, inverse: false, data: None, system: System::Metric },
+                        Unit {
+                            symbol: "C",
+                            name: "degree Celsius",
+                            aliases: &["°C", "celsius"],
+                            factor: 1.0,
+                            offset: 273.15,
+                            inverse: false,
+                            data: None,
+                            system: System::Metric,
+                        },
                         Unit {
                             symbol: "F",
                             name: "degree Fahrenheit",
@@ -536,10 +571,31 @@ mod tests {
             cat.units.iter().map(|u| (u.symbol, u.system)).collect()
         };
         use System::*;
-        assert_eq!(systems("Length"), [("mm", Metric), ("cm", Metric), ("m", Metric), ("km", Metric), ("au", Metric), ("ly", Metric), ("pc", Metric), ("in", Imperial), ("ft", Imperial), ("yd", Imperial), ("mi", Imperial)]);
+        assert_eq!(
+            systems("Length"),
+            [
+                ("mm", Metric),
+                ("cm", Metric),
+                ("m", Metric),
+                ("km", Metric),
+                ("au", Metric),
+                ("ly", Metric),
+                ("pc", Metric),
+                ("in", Imperial),
+                ("ft", Imperial),
+                ("yd", Imperial),
+                ("mi", Imperial)
+            ]
+        );
         assert_eq!(systems("Temperature"), [("K", Metric), ("C", Metric), ("F", Imperial)]);
         for (symbol, system) in systems(BITS) {
-            let want = if symbol.contains('i') { Imperial } else if symbol.len() == 1 { Both } else { Metric };
+            let want = if symbol.contains('i') {
+                Imperial
+            } else if symbol.len() == 1 {
+                Both
+            } else {
+                Metric
+            };
             assert_eq!(system, want, "{symbol}");
         }
         for cat in &config.categories {

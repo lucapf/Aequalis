@@ -19,11 +19,7 @@ pub fn device_system() -> System {
         return system;
     }
     let var = |name| std::env::var(name).ok().filter(|v| !v.is_empty());
-    var("LC_ALL")
-        .or_else(|| var("LC_MEASUREMENT"))
-        .or_else(|| var("LANG"))
-        .and_then(|locale| from_locale(&locale))
-        .unwrap_or(System::Metric)
+    var("LC_ALL").or_else(|| var("LC_MEASUREMENT")).or_else(|| var("LANG")).and_then(|locale| from_locale(&locale)).unwrap_or(System::Metric)
 }
 
 static DEVICE_SYSTEM: std::sync::OnceLock<System> = std::sync::OnceLock::new();

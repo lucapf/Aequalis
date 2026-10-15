@@ -14,10 +14,7 @@ impl Drop for Guard {
 }
 
 #[cfg(any(
-    all(
-        target_os = "linux",
-        any(target_arch = "x86", target_arch = "x86_64", target_arch = "arm", target_arch = "aarch64", target_arch = "riscv64")
-    ),
+    all(target_os = "linux", any(target_arch = "x86", target_arch = "x86_64", target_arch = "arm", target_arch = "aarch64", target_arch = "riscv64")),
     target_os = "macos"
 ))]
 mod sys {
@@ -106,10 +103,7 @@ mod sys {
 }
 
 #[cfg(any(
-    all(
-        target_os = "linux",
-        any(target_arch = "x86", target_arch = "x86_64", target_arch = "arm", target_arch = "aarch64", target_arch = "riscv64")
-    ),
+    all(target_os = "linux", any(target_arch = "x86", target_arch = "x86_64", target_arch = "arm", target_arch = "aarch64", target_arch = "riscv64")),
     target_os = "macos"
 ))]
 mod imp {
@@ -158,10 +152,7 @@ mod imp {
 }
 
 #[cfg(not(any(
-    all(
-        target_os = "linux",
-        any(target_arch = "x86", target_arch = "x86_64", target_arch = "arm", target_arch = "aarch64", target_arch = "riscv64")
-    ),
+    all(target_os = "linux", any(target_arch = "x86", target_arch = "x86_64", target_arch = "arm", target_arch = "aarch64", target_arch = "riscv64")),
     target_os = "macos"
 )))]
 mod imp {

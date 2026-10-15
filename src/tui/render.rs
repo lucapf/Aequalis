@@ -355,13 +355,7 @@ fn history(app: &App, canvas: &mut Canvas, top: usize, height: usize) {
 }
 
 /// The keypad, row by row. `=` stands for Enter, `e` for the exponent (`1e3`).
-const KEYPAD: [[char; 4]; 5] = [
-    ['(', ')', '^', '/'],
-    ['7', '8', '9', '*'],
-    ['4', '5', '6', '-'],
-    ['1', '2', '3', '+'],
-    ['0', '.', 'e', '='],
-];
+const KEYPAD: [[char; 4]; 5] = [['(', ')', '^', '/'], ['7', '8', '9', '*'], ['4', '5', '6', '-'], ['1', '2', '3', '+'], ['0', '.', 'e', '=']];
 
 /// A numeric keypad in the top-right corner of the history, in front of its lines. Full size with a
 /// grid when there is room (11 rows), compact (7 rows) otherwise, not drawn when even that doesn't fit.
@@ -463,9 +457,7 @@ fn expression(app: &App, canvas: &mut Canvas, top: usize) -> Option<(usize, usiz
 /// On a box border (`framed`), it is padded with spaces so the line does not run into it.
 fn hints(canvas: &mut Canvas, row: usize, end: usize, items: &[(&str, &str)], framed: bool) -> usize {
     let pad = if framed { " " } else { "" };
-    let text_len: usize = items.iter().map(|(k, w)| k.chars().count() + 1 + w.chars().count()).sum::<usize>()
-        + 3 * (items.len() - 1)
-        + 2 * pad.len();
+    let text_len: usize = items.iter().map(|(k, w)| k.chars().count() + 1 + w.chars().count()).sum::<usize>() + 3 * (items.len() - 1) + 2 * pad.len();
     let start = end.saturating_sub(text_len);
     let mut col = canvas.put_within(row, start, end, pad, Style::Plain);
     for (i, (key, what)) in items.iter().enumerate() {
@@ -488,25 +480,16 @@ fn status(app: &App, canvas: &mut Canvas, row: usize) {
         (_, None) if app.history.selected().is_some() => (" HISTORY ", &[("↑↓", "browse"), ("Enter", "edit"), ("C", "copy"), ("<Esc>", "back")]),
         (_, Some(Overlay::Choice(..))) => (" CHOOSE ", &[("↑↓ j k 1-9", "reading"), ("Enter", "confirm"), ("<Esc>", "back")]),
         (_, Some(Overlay::Trivia(v))) if v.popup.is_some() => (" TRIVIA ", &[("↑↓", "scroll"), ("Enter", "write the value"), ("<Esc>", "back")]),
-        (_, Some(Overlay::Trivia(_))) => (
-            " TRIVIA ",
-            &[("Tab ←→", "section"), ("↑↓ j k", "entry"), ("Enter", "details"), ("<Esc>", "back")],
-        ),
+        (_, Some(Overlay::Trivia(_))) => (" TRIVIA ", &[("Tab ←→", "section"), ("↑↓ j k", "entry"), ("Enter", "details"), ("<Esc>", "back")]),
         (_, Some(Overlay::About)) => (" ABOUT ", &[("<Esc>", "close")]),
         (_, Some(Overlay::Settings(v))) if v.edit.is_some() => (" SETTINGS ", &[("type", "value"), ("Enter", "save"), ("<Esc>", "cancel")]),
         (_, Some(Overlay::Settings(_))) => (" SETTINGS ", &[("↑↓", "choose"), ("Enter ←→", "change"), ("d", "default"), ("<Esc>", "close")]),
         (_, Some(Overlay::Search(_))) => (" SEARCH ", &[("type", "search"), ("↑↓", "choose"), ("Enter", "write"), ("<Esc>", "back")]),
         (_, Some(Overlay::Currencies(_))) => (" CURRENCIES ", &[("type", "search"), ("↑↓", "choose"), ("Enter", "write"), ("<Esc>", "back")]),
         (_, Some(Overlay::Measures(_))) => (" MEASURES ", &[("↑↓ j k", "choose"), ("letter Enter", "open"), ("<Esc>", "back")]),
-        (_, Some(Overlay::Picker(_))) => (
-            " COMMAND ",
-            &[("←↓↑→ h j k l", "move"), ("Tab", "system"), ("Enter", "write"), ("<Esc>", "measures")],
-        ),
+        (_, Some(Overlay::Picker(_))) => (" COMMAND ", &[("←↓↑→ h j k l", "move"), ("Tab", "system"), ("Enter", "write"), ("<Esc>", "measures")]),
         (Mode::Input, _) => (" INPUT ", &[("<Esc>", "command mode"), ("exit", "quit")]),
-        (Mode::Command, _) => (
-            " COMMAND ",
-            &[("←→ Enter", "menu"), ("<I>", "input"), ("<C>", "keypad"), ("<E>", "help"), ("<A>", "about"), ("<q>", "quit")],
-        ),
+        (Mode::Command, _) => (" COMMAND ", &[("←→ Enter", "menu"), ("<I>", "input"), ("<C>", "keypad"), ("<E>", "help"), ("<A>", "about"), ("<q>", "quit")]),
     };
     // Too narrow for every key: the first ones go (the top bar shows the menu anyway).
     let width = |keys: &[(&str, &str)]| keys.iter().map(|(k, w)| k.chars().count() + 1 + w.chars().count() + 3).sum::<usize>() - 3;
@@ -550,11 +533,8 @@ fn unit_keys(app: &App, p: &Picker, canvas: &mut Canvas, rows: usize, head: usiz
     // Time's second tab is the table of date formats.
     let formats = (category.name == crate::config::TIME).then(format_rows);
     let table_width = 2 + FORMAT_LABEL + 1 + 5 * (FORMAT_CELL + 1) + 1;
-    let width = (columns * (button + 1) + 1)
-        .max(title.chars().count() + 6)
-        .max(tabs_len + 4)
-        .max(if formats.is_some() { table_width } else { 0 })
-        .min(canvas.cols - 3);
+    let width =
+        (columns * (button + 1) + 1).max(title.chars().count() + 6).max(tabs_len + 4).max(if formats.is_some() { table_width } else { 0 }).min(canvas.cols - 3);
     // Sized for the larger tab, so the window does not jump while switching.
     let most = [System::Metric, System::Imperial].map(|tab| p.units_of(app.config, tab).count()).into_iter().max().unwrap_or(1);
     // The Formats tab: the table and a footer line for the selected format.
@@ -1018,7 +998,9 @@ fn settings_window(canvas: &mut Canvas, rows: usize, view: &super::settings::Vie
     }
     let sep = top + height - 4;
     canvas.cells[sep][left + 1..left + width - 1].fill(('─', Style::Dim));
-    let about = KEYS.get(view.selected).map_or("the city archive, the exchange rates, the live values (tally --sync)".to_string(), |k| format!("{} (default: {})", k.about, k.default));
+    let about = KEYS
+        .get(view.selected)
+        .map_or("the city archive, the exchange rates, the live values (tally --sync)".to_string(), |k| format!("{} (default: {})", k.about, k.default));
     canvas.put_within(sep + 1, left + 2, right, &about, Style::Dim);
     if let Some(msg) = &view.message {
         canvas.put_within(sep + 2, left + 2, right, msg, Style::Green);
@@ -1452,8 +1434,12 @@ mod tests {
         let (lines, _) = screen("\x1bMT\t", 25, 80);
         let text = lines.join("\n");
         assert!(lines[4].contains("─ Date & Time units ─"), "the title is not covered: {}", lines[4]);
-        for row in ["ISO           iso   │   utc   │  basic  │  date   │  time", "Unix/local     s    │   ms    │   µs    │   ns    │  local",
-            "YYYY/MM/DD   date   │   24h   │ 24h tz  │   12h   │ 12h tz", "MM/DD/YY     date   │   24h   │ 24h tz  │   12h   │ 12h tz"] {
+        for row in [
+            "ISO           iso   │   utc   │  basic  │  date   │  time",
+            "Unix/local     s    │   ms    │   µs    │   ns    │  local",
+            "YYYY/MM/DD   date   │   24h   │ 24h tz  │   12h   │ 12h tz",
+            "MM/DD/YY     date   │   24h   │ 24h tz  │   12h   │ 12h tz",
+        ] {
             assert!(text.contains(row), "{row}\n{text}");
         }
         // The footer: the selected format and now in it; the window stays inside the history.
@@ -1557,7 +1543,6 @@ mod tests {
 
     #[test]
     fn help_shows_memory() {
-
         // Short or tall, scrolled or not: the memory is on the bottom border.
         for rows in [14, 48] {
             let (lines, _) = screen("\x1bE", rows, 90);
@@ -1625,10 +1610,8 @@ mod tests {
         assert!(lines[14].ends_with("└───┴───┴───┴───┘ │"));
         // Compact on a short terminal.
         let (lines, _) = screen("", 17, 80);
-        let compact = [
-            "┌─────────────┐ │", "│ (  )  ^  /  │ │", "│ 7  8  9  *  │ │", "│ 4  5  6  -  │ │",
-            "│ 1  2  3  +  │ │", "│ 0  .  e  =  │ │", "└─────────────┘ │",
-        ];
+        let compact =
+            ["┌─────────────┐ │", "│ (  )  ^  /  │ │", "│ 7  8  9  *  │ │", "│ 4  5  6  -  │ │", "│ 1  2  3  +  │ │", "│ 0  .  e  =  │ │", "└─────────────┘ │"];
         for (line, want) in lines[4..11].iter().zip(compact) {
             assert!(line.ends_with(want), "{line}");
         }

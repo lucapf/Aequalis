@@ -57,5 +57,4 @@ mod tests {
         v.switch(true);
         assert_eq!(v.entry().unwrap().name, "Voyager 1", "the Voyagers first");
     }
-
 }

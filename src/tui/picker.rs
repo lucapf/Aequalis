@@ -342,7 +342,10 @@ mod tests {
         assert_eq!(rows[0].cells[1].1, "iso-utc");
         assert_eq!(rows[2].cells[4].1, "local");
         assert_eq!(rows[3].label, "YYYY/MM/DD");
-        assert_eq!(rows[5].cells.iter().map(|c| c.1.as_str()).collect::<Vec<_>>(), ["DD/MM/YY", "DD/MM/YY-24h", "DD/MM/YY-24h-tz", "DD/MM/YY-12h", "DD/MM/YY-12h-tz"]);
+        assert_eq!(
+            rows[5].cells.iter().map(|c| c.1.as_str()).collect::<Vec<_>>(),
+            ["DD/MM/YY", "DD/MM/YY-24h", "DD/MM/YY-24h-tz", "DD/MM/YY-12h", "DD/MM/YY-12h-tz"]
+        );
         // Every cell is a format the CLI knows.
         assert!(rows.iter().flat_map(|r| &r.cells).all(|(_, w)| crate::time::is_format(w)));
         assert_eq!(rows.iter().map(|r| r.cells.len()).sum::<usize>(), 7 + 5 + 30);

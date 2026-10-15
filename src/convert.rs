@@ -8,7 +8,10 @@ use std::fmt;
 #[derive(Debug, PartialEq)]
 pub enum ConvertError {
     UnknownUnit(String),
-    Incompatible { from: String, to: String },
+    Incompatible {
+        from: String,
+        to: String,
+    },
     /// A unit that can't be multiplied or divided: `C` and `F` (an offset scale), `l/100km`
     /// (a reciprocal one).
     NotInCompound(String),
@@ -189,17 +192,11 @@ pub fn warnings(from: &Unit, to: &Unit) -> Vec<String> {
     let mut out = Vec::new();
     if a.size != b.size {
         let (bits, bytes) = if a.size == DataSize::Bit { (from, to) } else { (to, from) };
-        out.push(format!(
-            "converting between bits ({}) and bytes ({}); 1 byte = 8 bits. Use `b` for bits and `B` for bytes",
-            bits.symbol, bytes.symbol
-        ));
+        out.push(format!("converting between bits ({}) and bytes ({}); 1 byte = 8 bits. Use `b` for bits and `B` for bytes", bits.symbol, bytes.symbol));
     }
     if (a.prefix, b.prefix) == (Prefix::Si, Prefix::Iec) || (a.prefix, b.prefix) == (Prefix::Iec, Prefix::Si) {
         let (si, iec) = if a.prefix == Prefix::Si { (from, to) } else { (to, from) };
-        out.push(format!(
-            "mixing decimal ({}, powers of 1000) and binary ({}, powers of 1024) units",
-            si.symbol, iec.symbol
-        ));
+        out.push(format!("mixing decimal ({}, powers of 1000) and binary ({}, powers of 1024) units", si.symbol, iec.symbol));
     }
     out
 }
@@ -425,10 +422,7 @@ mod tests {
     #[test]
     fn errors() {
         let config = Config::default();
-        assert_eq!(
-            convert(&config, 1.0, "km", "kg").unwrap_err(),
-            ConvertError::Incompatible { from: "km".into(), to: "kg".into() }
-        );
+        assert_eq!(convert(&config, 1.0, "km", "kg").unwrap_err(), ConvertError::Incompatible { from: "km".into(), to: "kg".into() });
         assert_eq!(convert(&config, 1.0, "foo", "m").unwrap_err(), ConvertError::UnknownUnit("foo".into()));
         assert_eq!(convert(&config, 1e308, "km", "mm").unwrap_err(), ConvertError::NotFinite);
     }
@@ -457,9 +451,22 @@ mod tests {
     #[test]
     fn rounding() {
         for (value, decimals, want) in [
-            (2.5, 0, "3"), (0.5, 0, "1"), (-2.5, 0, "-3"), (1.25, 1, "1.3"), (0.125, 2, "0.13"), (2.675, 2, "2.68"),
-            (1.005, 2, "1.01"), (9.995, 2, "10.00"), (99.5, 0, "100"), (0.4, 0, "0"), (-0.4, 0, "0"), (-0.0, 2, "0.00"),
-            (12.3, 3, "12.300"), (1e21, 0, "1000000000000000000000"), (6.213711922373339, 4, "6.2137"), (0.1 + 0.2, 4, "0.3000"),
+            (2.5, 0, "3"),
+            (0.5, 0, "1"),
+            (-2.5, 0, "-3"),
+            (1.25, 1, "1.3"),
+            (0.125, 2, "0.13"),
+            (2.675, 2, "2.68"),
+            (1.005, 2, "1.01"),
+            (9.995, 2, "10.00"),
+            (99.5, 0, "100"),
+            (0.4, 0, "0"),
+            (-0.4, 0, "0"),
+            (-0.0, 2, "0.00"),
+            (12.3, 3, "12.300"),
+            (1e21, 0, "1000000000000000000000"),
+            (6.213711922373339, 4, "6.2137"),
+            (0.1 + 0.2, 4, "0.3000"),
         ] {
             assert_eq!(fixed(value, decimals), want, "{value} to {decimals}");
         }

@@ -80,10 +80,14 @@ impl City {
         let capital = |a: &&&String| a.chars().next().is_some_and(char::is_uppercase);
         match (aliases.iter().find(capital), aliases.first()) {
             (Some(a), _) => a.to_string(),
-            (None, Some(a)) => a.split(' ').map(|w| {
-                let mut c = w.chars();
-                c.next().map_or(String::new(), |f| f.to_uppercase().chain(c).collect())
-            }).collect::<Vec<_>>().join(" "),
+            (None, Some(a)) => a
+                .split(' ')
+                .map(|w| {
+                    let mut c = w.chars();
+                    c.next().map_or(String::new(), |f| f.to_uppercase().chain(c).collect())
+                })
+                .collect::<Vec<_>>()
+                .join(" "),
             (None, None) => self.name.clone(),
         }
     }
@@ -358,7 +362,9 @@ impl Store {
         let written = match (same.len(), twin) {
             (0 | 1, _) => called.clone(),
             (_, false) => format!("{called}, {}", city.country),
-            (_, true) => [called.as_str(), city.region.as_str(), city.country.as_str()].iter().filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join(", "),
+            (_, true) => {
+                [called.as_str(), city.region.as_str(), city.country.as_str()].iter().filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join(", ")
+            }
         };
         (city.label(&called, twin), written)
     }
@@ -737,10 +743,7 @@ pub mod tests {
         assert_eq!(order("alessandria", Some("US")), ["Alexandria US", "Alessandria IT", "Alexandria EG", "Alessano IT"]);
         assert_eq!(order("Alessandria", Some("FR")), ["Alessandria IT", "Alexandria EG", "Alexandria US", "Alessano IT"], "elsewhere: the exact name first");
         // `Roma` in Italy: Rome, Lazio (an alias, but in Italy) before the cities named Roma elsewhere.
-        let roma = vec![
-            city("Rome", "Lazio", "Italy", "IT", 2_318_895, &["Roma"]),
-            city("Roma", "Maseru", "Lesotho", "LS", 14_259, &[]),
-        ];
+        let roma = vec![city("Rome", "Lazio", "Italy", "IT", 2_318_895, &["Roma"]), city("Roma", "Maseru", "Lesotho", "LS", 14_259, &[])];
         let mut cities = roma.clone();
         rank(&mut cities, "Roma", Some("IT"));
         assert_eq!(cities[0].country_code, "IT");

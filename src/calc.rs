@@ -105,7 +105,11 @@ impl Func {
 /// `0.1 + 0.2 - 0.3`), so it prints as 0 and not in scientific notation. Small real values (`1e-19`
 /// on its own) are kept.
 fn snap(result: f64, scale: f64) -> f64 {
-    if result.abs() < scale * 1e-14 { 0.0 } else { result }
+    if result.abs() < scale * 1e-14 {
+        0.0
+    } else {
+        result
+    }
 }
 
 /// The constants: `e`, `pi` and `π`.
@@ -145,7 +149,11 @@ impl Expr {
             Expr::Bin(op @ (Op::Add | Op::Sub), l, r) if matches!(**r, Expr::Percent(_)) => {
                 let (l, share) = (l.eval()?, r.eval()?);
                 let change = l * share;
-                if *op == Op::Add { snap(l + change, l.abs()) } else { snap(l - change, l.abs()) }
+                if *op == Op::Add {
+                    snap(l + change, l.abs())
+                } else {
+                    snap(l - change, l.abs())
+                }
             }
             Expr::Bin(op, l, r) => {
                 let (l, r) = (l.eval()?, r.eval()?);
@@ -210,8 +218,7 @@ pub fn starts_expression(token: &str) -> bool {
     }
     let (word, after) = rest.split_at(word_len(rest));
     let next = after.chars().next();
-    (Func::named(word).is_some() && next.is_none_or(|c| "([{ ".contains(c)))
-        || (constant(word).is_some() && next.is_none_or(|c| !c.is_alphanumeric()))
+    (Func::named(word).is_some() && next.is_none_or(|c| "([{ ".contains(c))) || (constant(word).is_some() && next.is_none_or(|c| !c.is_alphanumeric()))
 }
 
 /// The length of the name at the start of `s`: a letter, then letters and digits (`log10`), or `π`.
@@ -354,7 +361,9 @@ impl Parser<'_> {
     /// one level deeper, at most `MAX_NESTING`.
     fn unary(&mut self) -> Result<Expr, CalcError> {
         if self.nesting == MAX_NESTING {
-            return Err(CalcError::Syntax(format!("the calculation is nested too deeply: at most {MAX_NESTING} brackets, functions, signs or powers inside one another")));
+            return Err(CalcError::Syntax(format!(
+                "the calculation is nested too deeply: at most {MAX_NESTING} brackets, functions, signs or powers inside one another"
+            )));
         }
         self.nesting += 1;
         let result = self.signed();
@@ -582,7 +591,13 @@ mod tests {
     fn limits() {
         let nested = |n: usize| format!("{}1{}", "(".repeat(n), ")".repeat(n));
         assert_eq!(eval(&nested(MAX_NESTING - 1)), 1.0);
-        for deep in [nested(MAX_NESTING), nested(50_000), format!("{}16{}", "sqrt(".repeat(50_000), ")".repeat(50_000)), "-".repeat(50_000) + "1", vec!["2"; 50_000].join("^")] {
+        for deep in [
+            nested(MAX_NESTING),
+            nested(50_000),
+            format!("{}16{}", "sqrt(".repeat(50_000), ")".repeat(50_000)),
+            "-".repeat(50_000) + "1",
+            vec!["2"; 50_000].join("^"),
+        ] {
             assert!(matches!(parse_prefix(&deep), Err(CalcError::Syntax(m)) if m.contains("nested too deeply")), "{}…", &deep[..20]);
         }
         assert_eq!(eval(&vec!["1"; MAX_OPERATIONS + 1].join("+")), (MAX_OPERATIONS + 1) as f64);

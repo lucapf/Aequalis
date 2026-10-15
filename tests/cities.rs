@@ -7,7 +7,8 @@ use std::process::Command;
 const BIN: &str = env!("CARGO_BIN_EXE_tally");
 
 fn run(args: &str) -> (Result<String, String>, i32) {
-    let out = Command::new(BIN).arg("-v")
+    let out = Command::new(BIN)
+        .arg("-v")
         .args(args.split_whitespace())
         .env("TZ", "America/New_York")
         .env("LC_ALL", "C")
@@ -47,7 +48,10 @@ fn the_reported_forms() {
     let day = today("America/New_York");
     let out = ok("10:00AM Paris");
     assert!(out.starts_with(&format!("{day}T10:00-0")), "{out}");
-    assert!(out.contains(" iso = ") && out.ends_with("T16:00+02:00 Paris") || out.ends_with("T16:00+01:00 Paris") || out.ends_with("T15:00+01:00 Paris"), "{out}");
+    assert!(
+        out.contains(" iso = ") && out.ends_with("T16:00+02:00 Paris") || out.ends_with("T16:00+01:00 Paris") || out.ends_with("T15:00+01:00 Paris"),
+        "{out}"
+    );
     // `10:00AM New York to Paris`: the same, named.
     let out = ok("10:00AM New York to Paris");
     assert!(out.starts_with(&format!("{day}T10:00-0")) && out.contains(" New York = "), "{out}");

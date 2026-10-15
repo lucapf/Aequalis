@@ -98,7 +98,6 @@ impl Data {
 
 // ---------------------------------------------------------------- the file
 
-
 pub fn path() -> Option<PathBuf> {
     crate::files::dir().map(|d| d.join("online.json"))
 }
@@ -130,7 +129,6 @@ pub fn expired(data: &Data, now: i64, interval: i64) -> bool {
     }
     data.synced_at.is_none_or(|t| now - t >= interval)
 }
-
 
 // ---------------------------------------------------------------- the background sync
 
@@ -301,9 +299,9 @@ pub fn sync(auto: bool) -> Result<Report, String> {
                 let n = sync_into(&path, vec![crate::currency::source()], interval, &crate::time::unix_now);
                 format!("{n} exchange rate{}", if n == 1 { "" } else { "s" })
             }),
-            Group::Cities => crate::files::dir()
-                .ok_or_else(no_home)
-                .and_then(|base| sync_cities(&base, &settings, auto, now, &|text| crate::notify::desktop("Tally", text))),
+            Group::Cities => {
+                crate::files::dir().ok_or_else(no_home).and_then(|base| sync_cities(&base, &settings, auto, now, &|text| crate::notify::desktop("Tally", text)))
+            }
         };
         match line {
             Ok(line) => report.done.push(line),

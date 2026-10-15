@@ -15,8 +15,8 @@ use crate::config::Config;
 use crate::online::{Data, Source};
 use crate::time::tz;
 use crate::time::{Ambiguity, AmbiguityKind, Choice};
-use std::path::PathBuf;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 
 /// A currency, as `src/data/currencies.json` describes it.
@@ -291,9 +291,18 @@ enum Piece {
     Connector,
     /// A currency or country, as written, and what it may be (one or more codes); `country`: the
     /// country (or Europe) it was written as, if so.
-    Currency { text: String, codes: Vec<&'static str>, unit_too: bool, country: Option<String> },
+    Currency {
+        text: String,
+        codes: Vec<&'static str>,
+        unit_too: bool,
+        country: Option<String>,
+    },
     /// A misspelt one: what it may be (code, how to show it).
-    Near { text: String, options: Vec<(&'static str, String)>, countries_only: bool },
+    Near {
+        text: String,
+        options: Vec<(&'static str, String)>,
+        countries_only: bool,
+    },
     Other,
 }
 
@@ -769,7 +778,20 @@ mod tests {
     /// An age for people, in its largest whole unit.
     #[test]
     fn ages() {
-        for (seconds, shown) in [(0, "less than 1h"), (3_599, "less than 1h"), (3_600, "1h"), (86_399, "23h"), (86_400, "1d"), (6 * 86_400, "6d"), (7 * 86_400, "1w"), (29 * 86_400, "4w"), (30 * 86_400, "1m"), (364 * 86_400, "12m"), (366 * 86_400, "1y"), (-5, "less than 1h")] {
+        for (seconds, shown) in [
+            (0, "less than 1h"),
+            (3_599, "less than 1h"),
+            (3_600, "1h"),
+            (86_399, "23h"),
+            (86_400, "1d"),
+            (6 * 86_400, "6d"),
+            (7 * 86_400, "1w"),
+            (29 * 86_400, "4w"),
+            (30 * 86_400, "1m"),
+            (364 * 86_400, "12m"),
+            (366 * 86_400, "1y"),
+            (-5, "less than 1h"),
+        ] {
             assert_eq!(age(seconds), shown, "{seconds}");
         }
     }
@@ -858,7 +880,10 @@ mod tests {
         assert_eq!(check("12 usd eur"), None);
         // An asked choice keeps the country: `12 USD uae`.
         assert_eq!(ask("12 dollar uae").choices[0].request, "12 USD uae");
-        assert_eq!(sides(&pieces(&Config::default(), "12 USD uae")[1..], None).as_deref(), Some("US dollar (USD, US$) → United Arab Emirates: UAE dirham (AED, د.إ)"));
+        assert_eq!(
+            sides(&pieces(&Config::default(), "12 USD uae")[1..], None).as_deref(),
+            Some("US dollar (USD, US$) → United Arab Emirates: UAE dirham (AED, د.إ)")
+        );
     }
 
     #[test]
@@ -892,7 +917,18 @@ mod tests {
 
     #[test]
     fn not_currency_requests() {
-        for input in ["10 km mi", "now usa", "10:00AM USA Japan", "12 Sept 26 10:00 Italy Japan", "USA China", "12 pounds kg", "1 cup ml", "12 cup pound", "12 Rome", "12 + 3 usd eur"] {
+        for input in [
+            "10 km mi",
+            "now usa",
+            "10:00AM USA Japan",
+            "12 Sept 26 10:00 Italy Japan",
+            "USA China",
+            "12 pounds kg",
+            "1 cup ml",
+            "12 cup pound",
+            "12 Rome",
+            "12 + 3 usd eur",
+        ] {
             assert!(with(input, Some("EUR")).is_none(), "{input}");
         }
         // A word that is a unit too is money when the other one is: `pound` is several currencies,
@@ -918,7 +954,10 @@ mod tests {
         assert_eq!(c.warnings, ["exchange rates of 12 Oct 26: not updated since"]);
         assert_eq!(c.notes, [format!("1 USD = 0.8945 EUR, rates of 12 Oct 26 from {PROVIDER}")]);
         // A currency without a rate.
-        assert_eq!(request(&Config::default(), "1 usd kpw", ctx(rates(), NOW)).unwrap(), Err(Error::NoRates("no exchange rate for the North Korean won (KPW)".into())));
+        assert_eq!(
+            request(&Config::default(), "1 usd kpw", ctx(rates(), NOW)).unwrap(),
+            Err(Error::NoRates("no exchange rate for the North Korean won (KPW)".into()))
+        );
     }
 
     #[test]

@@ -10,7 +10,8 @@ use std::process::Command;
 const BIN: &str = env!("CARGO_BIN_EXE_tally");
 
 fn run(args: &str) -> (String, String, i32) {
-    let out = Command::new(BIN).arg("-v")
+    let out = Command::new(BIN)
+        .arg("-v")
         .args(args.split_whitespace())
         .env("TZ", "Europe/Rome")
         .env("LC_ALL", "C")

@@ -43,11 +43,7 @@ fn compound_units() {
     assert_eq!(out(&["100", "Mb/s", "MB/s"]), "12.5 MB/s");
     assert_eq!(out(&["20", "km/l", "mi/gal"]), "47.0429 mpg");
     // Piped, like any request.
-    let mut child = Command::new(env!("CARGO_BIN_EXE_tally"))
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .spawn()
-        .unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_tally")).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
     use std::io::Write;
     child.stdin.take().unwrap().write_all(b"100 km/h mph\n").unwrap();
     assert_eq!(String::from_utf8(child.wait_with_output().unwrap().stdout).unwrap(), "62.1371 mph\n");

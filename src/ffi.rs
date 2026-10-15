@@ -277,7 +277,8 @@ pub fn trivia() -> String {
                         .iter()
                         .zip(&plain)
                         .map(|((label, text), (_, written))| {
-                            let options: Vec<String> = trivia_measures(text, written).iter().map(|(s, w)| format!("[{},{}]", json::string(s), json::string(w))).collect();
+                            let options: Vec<String> =
+                                trivia_measures(text, written).iter().map(|(s, w)| format!("[{},{}]", json::string(s), json::string(w))).collect();
                             format!("[{},{},[{}]]", json::string(label), json::string(text), options.join(","))
                         })
                         .collect();
@@ -339,12 +340,7 @@ pub fn measures() -> String {
                 })
                 .collect();
             let systems: Vec<String> = c.systems.iter().map(|s| s.to_string()).collect();
-            Object::new()
-                .str("name", c.name)
-                .str("key", &c.key.to_string())
-                .strs("systems", &systems)
-                .list("units", &units)
-                .finish()
+            Object::new().str("name", c.name).str("key", &c.key.to_string()).strs("systems", &systems).list("units", &units).finish()
         })
         .collect();
     Object::new().list("classes", &classes).finish()
@@ -392,7 +388,8 @@ pub extern "C" fn tally_currencies() -> *mut c_char {
 }
 
 pub fn currencies() -> String {
-    let list: Vec<String> = crate::currency::all().iter().map(|c| Object::new().str("code", &c.code).str("name", &c.name).strs("symbols", &c.symbols).finish()).collect();
+    let list: Vec<String> =
+        crate::currency::all().iter().map(|c| Object::new().str("code", &c.code).str("name", &c.name).strs("symbols", &c.symbols).finish()).collect();
     Object::new().list("currencies", &list).finish()
 }
 
@@ -445,10 +442,20 @@ mod tests {
     #[test]
     fn trivia_measures_of_a_line() {
         assert_eq!(
-            trivia_measures("25,800,920,358 km - 172.4685 au - 2.7272e-3 ly (estimated, not synced yet)", "25800920358 km - 172.4685 au - 2.7272e-3 ly (estimated, not synced yet)"),
-            [("25,800,920,358 km".into(), "25800920358 km".into()), ("172.4685 au".into(), "172.4685 au".into()), ("2.7272e-3 ly".into(), "2.7272e-3 ly".into())]
+            trivia_measures(
+                "25,800,920,358 km - 172.4685 au - 2.7272e-3 ly (estimated, not synced yet)",
+                "25800920358 km - 172.4685 au - 2.7272e-3 ly (estimated, not synced yet)"
+            ),
+            [
+                ("25,800,920,358 km".into(), "25800920358 km".into()),
+                ("172.4685 au".into(), "172.4685 au".into()),
+                ("2.7272e-3 ly".into(), "2.7272e-3 ly".into())
+            ]
         );
-        assert_eq!(trivia_measures("16.88 km/s - 60,768 km/h - 37,759 mph, away from the Sun", "16.88 km/s - 60768 km/h - 37759 mph, away from the Sun")[2], ("37,759 mph".to_string(), "37759 mph".to_string()));
+        assert_eq!(
+            trivia_measures("16.88 km/s - 60,768 km/h - 37,759 mph, away from the Sun", "16.88 km/s - 60768 km/h - 37759 mph, away from the Sun")[2],
+            ("37,759 mph".to_string(), "37759 mph".to_string())
+        );
         assert!(trivia_measures("about 1.02 km/s (3,680 km/h) around the Earth", "about 1.02 km/s (3,680 km/h) around the Earth").is_empty());
         let doc = json::parse(&trivia()).unwrap();
         let space = doc.get("sections").unwrap().array().iter().find(|s| s.get("name").and_then(|v| v.str()) == Some("Space")).unwrap();

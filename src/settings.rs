@@ -62,15 +62,30 @@ const REFRESH: &[&str] = &["silent", "notify", "manual"];
 pub const KEYS: &[Key] = &[
     Key { key: "offline", default: "false", kind: Kind::Bool, about: "no network at all: online data stays as last downloaded" },
     Key { key: "cities.enabled", default: "true", kind: Kind::Bool, about: "distances between any city (the city archive), not only capitals" },
-    Key { key: "cities.refresh", default: "manual", kind: Kind::Choice(REFRESH), about: "the city archive: silent, notify (a notice when a new one is out) or manual" },
+    Key {
+        key: "cities.refresh",
+        default: "manual",
+        kind: Kind::Choice(REFRESH),
+        about: "the city archive: silent, notify (a notice when a new one is out) or manual",
+    },
     Key { key: "cities.interval", default: "30d", kind: Kind::Duration, about: "how often the city archive is checked (silent, notify)" },
     Key { key: "cities.url", default: crate::cities::URL, kind: Kind::Url, about: "where the city archive is downloaded from (a mirror, a file://)" },
     Key { key: "rates.refresh", default: "silent", kind: Kind::Choice(REFRESH), about: "the exchange rates: silent, notify or manual" },
     Key { key: "rates.interval", default: "24h", kind: Kind::Duration, about: "how old the exchange rates may be" },
-    Key { key: "live.refresh", default: "manual", kind: Kind::Choice(REFRESH), about: "the Trivia's live values (Voyagers, satellites): silent, notify or manual" },
+    Key {
+        key: "live.refresh",
+        default: "manual",
+        kind: Kind::Choice(REFRESH),
+        about: "the Trivia's live values (Voyagers, satellites): silent, notify or manual",
+    },
     Key { key: "live.interval", default: "24h", kind: Kind::Duration, about: "how old the live values may be" },
     Key { key: "currency.local", default: "auto", kind: Kind::Currency, about: "the local currency, for `12 usd` (auto: the time zone's country)" },
-    Key { key: "distance.unit", default: "auto", kind: Kind::Choice(&["auto", "km", "mi"]), about: "the unit of `Rome Paris` (auto: miles where the device is imperial)" },
+    Key {
+        key: "distance.unit",
+        default: "auto",
+        kind: Kind::Choice(&["auto", "km", "mi"]),
+        about: "the unit of `Rome Paris` (auto: miles where the device is imperial)",
+    },
     Key { key: "precision", default: "4", kind: Kind::Precision, about: "decimal places of numbers, 0-15 (--precision for one request)" },
     Key { key: "format.date", default: crate::time::HUMAN_DATE, kind: Kind::Format, about: "how dates are shown" },
     Key { key: "format.datetime", default: crate::time::HUMAN_DATETIME, kind: Kind::Format, about: "how dates with a time are shown" },
@@ -382,7 +397,15 @@ mod tests {
         assert!(duration("30s").is_none() && duration("soon").is_none());
         s.set("precision", None).unwrap();
         assert_eq!(s.precision(), 4);
-        for (key, bad) in [("offline", "maybe"), ("cities.refresh", "often"), ("rates.interval", "30s"), ("precision", "16"), ("currency.local", "dollar"), ("distance.unit", "ly"), ("cities.url", "nowhere")] {
+        for (key, bad) in [
+            ("offline", "maybe"),
+            ("cities.refresh", "often"),
+            ("rates.interval", "30s"),
+            ("precision", "16"),
+            ("currency.local", "dollar"),
+            ("distance.unit", "ly"),
+            ("cities.url", "nowhere"),
+        ] {
             let e = s.set(key, Some(bad)).unwrap_err();
             assert!(e.starts_with(&format!("`{key}` must be")), "{e}");
         }

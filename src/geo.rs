@@ -145,7 +145,10 @@ pub fn vincenty(a: Point, b: Point) -> Option<f64> {
             let big_b = u2_ / 1024.0 * (256.0 + u2_ * (-128.0 + u2_ * (74.0 - 47.0 * u2_)));
             let delta = big_b
                 * sin_sigma
-                * (cos_2sm + big_b / 4.0 * (cos_sigma * (-1.0 + 2.0 * cos_2sm * cos_2sm) - big_b / 6.0 * cos_2sm * (-3.0 + 4.0 * sin_sigma * sin_sigma) * (-3.0 + 4.0 * cos_2sm * cos_2sm)));
+                * (cos_2sm
+                    + big_b / 4.0
+                        * (cos_sigma * (-1.0 + 2.0 * cos_2sm * cos_2sm)
+                            - big_b / 6.0 * cos_2sm * (-3.0 + 4.0 * sin_sigma * sin_sigma) * (-3.0 + 4.0 * cos_2sm * cos_2sm)));
             return Some(b_axis * big_a * (sigma - delta));
         }
     }
@@ -340,7 +343,11 @@ fn two_places(config: &Config, words: &[&str], store: Option<&crate::cities::Sto
     let part = |w: &[&str]| {
         let text = w.join(" ");
         let bare_numbers = !text.contains(',') && !text.chars().any(char::is_alphabetic);
-        if bare_numbers { None } else { side(config, &text, store, false) }
+        if bare_numbers {
+            None
+        } else {
+            side(config, &text, store, false)
+        }
     };
     // Not right after a comma: `Springfield, Illinois` is one place.
     if let Some(found) = (1..words.len()).filter(|&i| !words[i - 1].ends_with(',')).find_map(|i| Some((part(&words[..i])?, part(&words[i..])?))) {
@@ -357,7 +364,14 @@ fn two_places(config: &Config, words: &[&str], store: Option<&crate::cities::Sto
     None
 }
 
-fn between(config: &Config, rest: &str, precision: usize, device: &dyn Fn() -> Device, store: Option<&crate::cities::Store>, asked: bool) -> Result<(String, Vec<String>), Error> {
+fn between(
+    config: &Config,
+    rest: &str,
+    precision: usize,
+    device: &dyn Fn() -> Device,
+    store: Option<&crate::cities::Store>,
+    asked: bool,
+) -> Result<(String, Vec<String>), Error> {
     const USAGE: &str = "write `distance <place> [to] <place> [unit]`, a place being a city, a country or coordinates (41.9,12.5)";
     let words: Vec<&str> = rest.split_whitespace().collect();
     // Two places, then a length unit when there is a third parameter (`in` before it optional:
@@ -595,7 +609,10 @@ mod tests {
             assert_eq!(run("Springfield, Illinois to Chicago in mi", None).unwrap().unwrap().0, "176 mi");
             // -v: where they are.
             let notes = run("Chicago Springfield, Illinois", None).unwrap().unwrap().1;
-            assert!(notes[1].starts_with("Chicago, Illinois, United States: 2746388 inhabitants, https://www.google.com/maps?q=41.85003,-87.65005"), "{notes:?}");
+            assert!(
+                notes[1].starts_with("Chicago, Illinois, United States: 2746388 inhabitants, https://www.google.com/maps?q=41.85003,-87.65005"),
+                "{notes:?}"
+            );
             // An alias in another script.
             assert!(run("Рим Chicago", None).unwrap().is_ok());
         }
@@ -607,7 +624,11 @@ mod tests {
             let a = ask("Chicago Paris", None);
             assert_eq!(a.kind, crate::time::AmbiguityKind::Place);
             assert_eq!(a.note, "`Paris` is several places");
-            assert_eq!(a.choices.iter().map(|c| c.pattern.as_str()).collect::<Vec<_>>(), ["Paris - France", "Paris - United States"], "short: one Paris per country");
+            assert_eq!(
+                a.choices.iter().map(|c| c.pattern.as_str()).collect::<Vec<_>>(),
+                ["Paris - France", "Paris - United States"],
+                "short: one Paris per country"
+            );
             assert_eq!(a.choices[0].request, "distance Chicago, Illinois, United States to Paris, Île-de-France, France km");
             let a = ask("Chicago Paris", Some("US"));
             assert_eq!(a.choices[0].pattern, "Paris - France", "the capital, even in the US");
