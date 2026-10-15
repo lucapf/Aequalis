@@ -165,17 +165,19 @@ fn words(config: &Config, before: &str, typing: bool) -> Option<Suggestions> {
     let countries = crate::time::tz::countries().iter().map(|c| (c.name.clone(), false));
     let mut names: Vec<String> = Vec::new();
     for (name, keyword) in keywords.chain(places).chain(countries) {
-        // A place whose name is something else to tally (`Bar`, a unit) is not offered.
-        let other = !keyword && crate::time::reserved(config, &name);
-        if crate::time::tz::key(&name).starts_with(&typed) && !names.contains(&name) && !other {
+        // A place whose name is something else to tally (`Bar`, a unit) is not offered (asked only
+        // of the names that fit: it looks the name up as a unit, a date word and a currency).
+        let fits = crate::time::tz::key(&name).starts_with(&typed) && !names.contains(&name);
+        if fits && (keyword || !crate::time::reserved(config, &name)) {
             names.push(name);
         }
         if names.len() == MAX {
             break;
         }
     }
-    // Nothing starts so: a misspelling, from four letters (`Room`: Rome, `Tokio`: Tokyo).
-    if names.is_empty() && prefix.chars().count() >= 4 {
+    // Nothing starts so: a misspelling, from four letters (`Room`: Rome, `Tokio`: Tokyo); not in
+    // a calculation being typed (`12+4/2*s`: no place has an operator in its name).
+    if names.is_empty() && prefix.chars().count() >= 4 && !prefix.contains(['+', '*', '/', '^', '=', '(', ')', '[', ']', '%']) {
         return misspelt_places(prefix, start);
     }
     Some(Suggestions { kind: Kind::Words, start, names, labels: Vec::new() })
@@ -350,6 +352,7 @@ mod tests {
         assert_eq!(at("Jappan"), ["Japan"]);
         assert_eq!(&at("12 dolar")[..2], ["USD", "CAD"]);
         assert!(at("Xyzzy").is_empty(), "too far from any place");
+        assert!(at("12+4/2*s").is_empty() && at("(1+2").is_empty(), "a calculation: no place");
     }
 
     #[test]
