@@ -21,7 +21,7 @@ pub enum ConvertError {
 impl fmt::Display for ConvertError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            ConvertError::UnknownUnit(u) => write!(f, "unknown unit `{u}` (see `tally --list`)"),
+            ConvertError::UnknownUnit(u) => write!(f, "unknown unit `{u}`"),
             ConvertError::Incompatible { from, to } => {
                 write!(f, "cannot convert `{from}` to `{to}`: different kinds of unit")
             }

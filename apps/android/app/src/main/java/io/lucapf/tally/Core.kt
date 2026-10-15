@@ -13,6 +13,12 @@ import java.util.TimeZone
 /** A choice of an ambiguous request: what it means, and the request that says it exactly. */
 data class Choice(val label: String, val detail: String, val request: String)
 
+/** A word offered while typing: what is written, and how it is shown (`km - kilometre`). */
+data class Suggestion(val write: String, val label: String)
+
+/** The words offered for the word being typed, which starts at `start` (an index in the text). */
+data class Suggestions(val start: Int, val items: List<Suggestion>)
+
 /** The core's answer to a request: a result, an error, or a question with its choices. */
 data class Reply(
     val result: String? = null,
@@ -31,9 +37,10 @@ object Core {
         System.loadLibrary("tally")
     }
 
-    // Implemented in Rust (src/jni.rs): `Java_io_lucapf_tally_Core_init` and `…_eval`.
+    // Implemented in Rust (src/jni.rs): `Java_io_lucapf_tally_Core_init`, `…_eval`, `…_suggest`.
     private external fun init(config: ByteArray): ByteArray
     private external fun eval(request: ByteArray): ByteArray
+    private external fun suggest(before: ByteArray): ByteArray
 
     /** Tells the core what it can't find on a phone: where to keep its files, the time zone, the
      *  zone database, the number format and the measurement system. Once, at start. */
@@ -64,6 +71,20 @@ object Core {
                 Choice(c.getString("pattern"), c.getString("date"), c.getString("request"))
             },
         )
+    }
+
+    /** The words to offer for the word being typed at the end of `before` (the text up to the
+     *  cursor), from its third letter: units, currencies, places, formats. */
+    fun suggestions(before: String): Suggestions {
+        val json = JSONObject(suggest(before.encodeToByteArray()).decodeToString())
+        val items = json.getJSONArray("items")
+        // The core counts characters (code points); a Kotlin string counts UTF-16 units, two for an
+        // emoji: the same position, in Kotlin's terms.
+        val start = before.offsetByCodePoints(0, json.getInt("start"))
+        return Suggestions(start, (0 until items.length()).map { i ->
+            val item = items.getJSONObject(i)
+            Suggestion(item.getString("write"), item.getString("label"))
+        })
     }
 
     /** Android's time zones, all in one file (since Android 10 in its own module, before in the

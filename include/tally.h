@@ -44,6 +44,12 @@ char *tally_set(const char *key, const char *value);
 /* Downloads the online data in this thread: everything, or with `auto` what the settings say. */
 char *tally_sync(bool automatic);
 
+/*
+ * Suggestions for the word being typed at the end of `before` (the text up to the cursor), from its
+ * `min`-th character: {"start":N,"items":[{"write":"km","label":"km - kilometre"}]}.
+ */
+char *tally_suggest(const char *before, uint32_t min);
+
 /* The Trivia, the unit classes, the currencies (see src/ffi.rs for their shapes). */
 char *tally_trivia(void);
 char *tally_measures(void);

@@ -150,8 +150,8 @@ pub extern "C" fn tally_set_fetcher(fetch: Fetch) {
 }
 
 /// The reply to a request, as `tally --json <words…>`: `{"ok":true,"result":…}`, an error, or
-/// the choices of an ambiguous request; the notices too. Flags work as on the command line
-/// (`--about`, `--online`, `-v 10 km mi`).
+/// the choices of an ambiguous request; the notices too. Only the request: no command-line
+/// options (`-v`, `--precision`), whose messages would make no sense in an app.
 ///
 /// # Safety
 /// `request` is a NUL-terminated string.
@@ -165,8 +165,11 @@ pub fn eval(request: &str) -> String {
     if let Some(e) = crate::settings::error() {
         return Object::new().num("ok", false).str("error", &format!("{e} (fix it in Settings)")).finish();
     }
-    let args: Vec<String> = request.split_whitespace().map(str::to_string).collect();
-    let result = crate::run(config(), &args, || None).into_iter().next().unwrap_or(Ok(crate::Output::default()));
+    // The request itself, not the command line's options: an app has no `--precision` or `-v`, and
+    // a message about them would make no sense there.
+    let tokens: Vec<&str> = request.split_whitespace().collect();
+    let options = crate::Options { positional: Vec::new(), precision: crate::settings::current().precision(), silent: false, verbose: false };
+    let result = crate::convert_request(config(), &options, &tokens);
     json::result(&result, &crate::notify::current())
 }
 
@@ -292,6 +295,41 @@ pub fn measures() -> String {
     Object::new().raw("classes", &format!("[{}]", classes.join(","))).finish()
 }
 
+/// Suggestions for the word being typed at the end of `before` (the text up to the cursor), from
+/// its `min`-th character: `{"start":N,"items":[{"write":"km","label":"km - kilometre"}]}`, `start`
+/// in characters (Unicode scalar values), `items` empty when there is nothing to offer. Units come
+/// once each, by their symbol (`kilometer`, `kilometres`… are `km`).
+pub fn suggest(before: &str, min: usize) -> String {
+    use crate::suggest::Kind;
+    let found = crate::suggest::suggest(config(), before, before.chars().count(), min);
+    let mut items: Vec<(String, String)> = Vec::new();
+    if let Some(s) = &found {
+        for (i, name) in s.names.iter().enumerate() {
+            let label = s.labels.get(i).cloned().unwrap_or_else(|| name.clone());
+            let item = match (s.kind, crate::convert::find_unit(config(), name)) {
+                // `megabyte (10⁶ bytes)`: the name, not the note.
+                (Kind::Units, Some((_, unit))) => (unit.symbol.to_string(), format!("{} - {}", unit.symbol, unit.name.split(" (").next().unwrap_or(unit.name))),
+                _ => (name.clone(), label),
+            };
+            if !items.iter().any(|(write, _)| *write == item.0) {
+                items.push(item);
+            }
+        }
+    }
+    let list: Vec<String> = items.iter().map(|(write, label)| Object::new().str("write", write).str("label", label).finish()).collect();
+    Object::new().num("start", found.as_ref().map_or(0, |s| s.start)).raw("items", &format!("[{}]", list.join(","))).finish()
+}
+
+/// `suggest`, for the C interface: `before` is the text up to the cursor.
+///
+/// # Safety
+/// `before` is a NUL-terminated string.
+#[no_mangle]
+pub unsafe extern "C" fn tally_suggest(before: *const c_char, min: u32) -> *mut c_char {
+    let Some(before) = (unsafe { text(before) }) else { return error("no text") };
+    give(suggest(before, min as usize))
+}
+
 /// Every currency, the most used first: `{"currencies":[{"code","name","symbols":[…]}]}`.
 #[no_mangle]
 pub extern "C" fn tally_currencies() -> *mut c_char {
@@ -323,11 +361,29 @@ mod tests {
         let reply = eval("12/04/2026 unix");
         assert!(reply.contains(r#""ambiguous":{"kind":"date""#), "{reply}");
         assert!(eval("10 foo bar").starts_with(r#"{"ok":false,"exit":"#));
-        assert!(eval("--version").contains(r#""result":"tally "#));
+        // No command-line options, nor their messages: `--version` is no request, and an unknown
+        // unit says so without `see tally --list`.
+        assert!(!eval("--version").contains("tally "));
+        assert!(eval("10 foo m").contains(r#""error":"unknown unit `foo`""#), "{}", eval("10 foo m"));
         let parsed = json::parse(&eval("12+4")).unwrap();
         assert_eq!(parsed.get("result").and_then(|v| v.str()), Some("16"));
         // A null request: an error, not a crash.
         assert!(call(|| unsafe { tally_eval(std::ptr::null()) }).contains(r#""ok":false"#));
+    }
+
+    /// The app's suggestions: from the third letter, units once each by their symbol.
+    #[test]
+    fn suggestions_for_the_app() {
+        assert_eq!(suggest("10 ki", 3), r#"{"start":0,"items":[]}"#, "two letters: nothing yet");
+        let units = json::parse(&suggest("10 kil", 3)).unwrap();
+        assert_eq!(units.get("start").and_then(|v| v.number()), Some(3.0));
+        let items = units.get("items").unwrap().array();
+        let write: Vec<&str> = items.iter().filter_map(|i| i.get("write")?.str()).collect();
+        assert_eq!(&write[..2], ["km", "kg"]);
+        assert_eq!(items[0].get("label").and_then(|v| v.str()), Some("km - kilometre"));
+        assert_eq!(write.iter().filter(|w| **w == "km").count(), 1, "kilometer, kilometres…: once");
+        assert!(suggest("12 dol", 3).contains(r#"{"write":"USD","label":"USD - US dollar"}"#));
+        assert!(suggest("Rome to Tok", 3).contains(r#""write":"Tokyo""#));
     }
 
     #[test]

@@ -914,7 +914,6 @@ pub fn place_name(name: &str) -> Option<&'static str> {
 }
 
 /// The places' names, as shown.
-#[cfg(test)]
 pub fn place_names() -> impl Iterator<Item = &'static str> {
     CITIES.iter().map(|(n, _)| *n)
 }

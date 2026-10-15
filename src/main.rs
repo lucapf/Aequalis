@@ -152,7 +152,10 @@ fn main() -> ExitCode {
                 println!("{}", out.stdout);
             }
             Err(err) => {
-                eprintln!("tally: error: {err}");
+                match err.hint() {
+                    Some(hint) => eprintln!("tally: error: {err} ({hint})"),
+                    None => eprintln!("tally: error: {err}"),
+                }
                 code = code.max(err.exit_code());
             }
         }
@@ -164,8 +167,9 @@ fn main() -> ExitCode {
         let mut state = notify::load();
         let now = time::unix_now();
         if !notices.is_empty() && now - state.shown_at >= 86_400 {
+            // The notices say what; here, how: the command that downloads.
             for n in &notices {
-                eprintln!("tally: note: {n}");
+                eprintln!("tally: note: {n}: tally --sync");
             }
             state.shown_at = now;
             notify::save(&state);

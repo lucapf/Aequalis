@@ -104,3 +104,14 @@ pub extern "system" fn Java_io_lucapf_tally_Core_eval(env: Env, _class: Class, r
     };
     unsafe { to_java(env, &reply) }
 }
+
+/// `Core.suggest(before)`: suggestions for the word being typed at the end of `before` (the text up
+/// to the cursor), from its third character (`ffi::suggest`).
+#[no_mangle]
+pub extern "system" fn Java_io_lucapf_tally_Core_suggest(env: Env, _class: Class, before: ByteArray) -> ByteArray {
+    let reply = match unsafe { text(env, before) } {
+        Some(before) => crate::ffi::suggest(&before, 3),
+        None => error("no text"),
+    };
+    unsafe { to_java(env, &reply) }
+}

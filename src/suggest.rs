@@ -1,0 +1,344 @@
+//! Suggestions for the word under the cursor, for every UI (the TUI's Tab, the Android app's chips):
+//! units after a value (the target of the same kind as the source), currencies after an amount,
+//! places (the city archive's, else the built-in capitals and major cities) and countries, the first
+//! words (`now`, `today`, `distance`) and date formats after a date.
+
+use crate::calc;
+use crate::config::{Category, Config};
+use crate::convert;
+
+/// What the suggestions are: an app shows units by their symbol, once each (`km - kilometre`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Kind {
+    Units,
+    Currencies,
+    /// Places, countries, the first words (`now`, `distance`).
+    Words,
+    /// Date formats (`unix`, `iso-week`).
+    Formats,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct Suggestions {
+    pub kind: Kind,
+    /// Position (in chars) where the word being completed starts.
+    pub start: usize,
+    /// What is written in its place.
+    pub names: Vec<String>,
+    /// What is shown for each (cities: `Milano - Italy`, currencies: `USD - US dollar`); the
+    /// names themselves when empty.
+    pub labels: Vec<String>,
+}
+
+/// At most this many suggestions.
+pub const MAX: usize = 8;
+
+/// What fits the word ending at `cursor`, once it has `min` characters (the phone: 3, while a few
+/// letters still say little; the TUI: 0, the target units offered right after a space).
+pub fn suggest(config: &Config, line: &str, cursor: usize, min: usize) -> Option<Suggestions> {
+    let before: String = line.chars().take(cursor).collect();
+    let typing = !before.ends_with(char::is_whitespace);
+    let prefix = if typing { before.split_whitespace().last().unwrap_or("") } else { "" };
+    if prefix.chars().count() < min {
+        return None;
+    }
+    let found = match calc::parse_prefix(&before) {
+        Ok((_, rest)) => after_a_value(config, &before, rest, typing),
+        // Not a value: a place (a distance, a time there), a first word, a date's format.
+        Err(_) => words(config, &before, typing),
+    }?;
+    (!found.names.is_empty()).then_some(found)
+}
+
+/// After a value: its unit, or after the unit the target unit of the same kind; for an amount, a
+/// currency, then the target currency (`to` or `in` between allowed).
+fn after_a_value(config: &Config, before: &str, rest: &str, typing: bool) -> Option<Suggestions> {
+    let words: Vec<&str> = rest.split_whitespace().filter(|w| !["to", "in"].contains(&w.to_ascii_lowercase().as_str())).collect();
+    let (done, prefix) = match words.split_last() {
+        Some((last, done)) if typing => (done, *last),
+        _ => (&words[..], ""),
+    };
+    let start = before.chars().count() - prefix.chars().count();
+    // The source: any unit, or a currency.
+    let category = match done {
+        [] => None,
+        [from] => match convert::find_unit(config, from) {
+            Some((category, _)) => Some(category),
+            None if currency_codes(from) => {
+                let (names, labels) = currencies(prefix, Some(from));
+                return Some(Suggestions { kind: Kind::Currencies, start, names, labels });
+            }
+            None => return None,
+        },
+        _ => return None,
+    };
+    // An empty source unit would list every unit; wait for the first letter.
+    if prefix.is_empty() && category.is_none() {
+        return None;
+    }
+    let mut names: Vec<String> = matching(config, category, prefix).into_iter().map(str::to_string).collect();
+    let mut labels = Vec::new();
+    let mut kind = Kind::Units;
+    // An amount (no unit yet): currencies too, after the units, from two letters (`x` is times).
+    if category.is_none() && prefix.chars().count() >= 2 {
+        let (codes, shown) = currencies(prefix, None);
+        if !codes.is_empty() {
+            kind = if names.is_empty() { Kind::Currencies } else { Kind::Units };
+            labels = names.clone();
+            for (code, label) in codes.into_iter().zip(shown) {
+                if !names.contains(&code) {
+                    names.push(code);
+                    labels.push(label);
+                }
+            }
+        }
+    }
+    Some(Suggestions { kind, start, names, labels })
+}
+
+/// Whether `word` is one currency (`usd`, `euro`, `€`): a target currency follows.
+fn currency_codes(word: &str) -> bool {
+    crate::currency::exact(word).is_some_and(|codes| codes.len() == 1)
+}
+
+/// Currencies whose code, name or another of their words starts with `prefix` (any case, accents
+/// aside), the most used first, but not `besides` (the source): written as their code, shown as
+/// `USD - US dollar`.
+fn currencies(prefix: &str, besides: Option<&str>) -> (Vec<String>, Vec<String>) {
+    let typed = crate::time::tz::key(prefix);
+    let source = besides.and_then(crate::currency::exact).and_then(|codes| codes.first().copied());
+    let mut names = Vec::new();
+    let mut labels = Vec::new();
+    for c in crate::currency::all() {
+        let fits = typed.is_empty()
+            || c.code.to_ascii_lowercase().starts_with(&typed)
+            || std::iter::once(&c.name).chain(&c.words).any(|w| crate::time::tz::key(w).starts_with(&typed));
+        if fits && Some(c.code.as_str()) != source {
+            names.push(c.code.clone());
+            labels.push(format!("{} - {}", c.code, c.name));
+        }
+        if names.len() == MAX {
+            break;
+        }
+    }
+    (names, labels)
+}
+
+/// Not after a value: a date's format (`now uni`), else places and countries, and the first words.
+fn words(config: &Config, before: &str, typing: bool) -> Option<Suggestions> {
+    let prefix = if typing { before.split_whitespace().last().unwrap_or("") } else { "" };
+    let start = before.chars().count() - prefix.chars().count();
+    let earlier = before[..before.len() - prefix.len()].trim_end();
+    // A format after a date: `now uni` → unix (else, `Rome to Tok`, a place).
+    if !earlier.is_empty() && crate::time::is_date_request(earlier) {
+        let formats: Vec<String> = crate::config::DATE_WORDS[3..]
+            .iter()
+            .map(|f| f.to_string())
+            .chain(crate::time::pattern_words())
+            .filter(|f| !prefix.is_empty() && f.to_lowercase().starts_with(&prefix.to_lowercase()))
+            .take(MAX)
+            .collect();
+        if !formats.is_empty() {
+            return Some(Suggestions { kind: Kind::Formats, start, names: formats, labels: Vec::new() });
+        }
+    }
+    // The archive's cities, for a distance (written as short as still finds them).
+    if let Some(found) = cities(config, before, crate::cities::store().as_ref(), crate::geo::local_country().as_deref()) {
+        return Some(found);
+    }
+    // Without the archive: the built-in capitals and major cities, the countries, the first words.
+    if prefix.chars().count() < 2 {
+        return None;
+    }
+    let typed = crate::time::tz::key(prefix);
+    let first = earlier.is_empty();
+    let keywords = ["now", "today", "distance"].into_iter().filter(|_| first).map(|k| (k.to_string(), true));
+    let places = crate::time::tz::place_names().map(|p| (p.to_string(), false));
+    let countries = crate::time::tz::countries().iter().map(|c| (c.name.clone(), false));
+    let mut names: Vec<String> = Vec::new();
+    for (name, keyword) in keywords.chain(places).chain(countries) {
+        // A place whose name is something else to tally (`Bar`, a unit) is not offered.
+        let other = !keyword && crate::time::reserved(config, &name);
+        if crate::time::tz::key(&name).starts_with(&typed) && !names.contains(&name) && !other {
+            names.push(name);
+        }
+        if names.len() == MAX {
+            break;
+        }
+    }
+    Some(Suggestions { kind: Kind::Words, start, names, labels: Vec::new() })
+}
+
+/// Cities whose name starts with the last words typed (up to 3: `New Yo`; never across `to`), in
+/// the order of `cities::rank` (`local`: the device's country); a name several cities share is
+/// written qualified (`Springfield, Illinois, United States`). Not after a word that is no place
+/// (a unit, a keyword).
+pub fn cities(config: &Config, before: &str, store: Option<&crate::cities::Store>, local: Option<&str>) -> Option<Suggestions> {
+    let store = store?;
+    if before.ends_with(char::is_whitespace) {
+        return None;
+    }
+    let words: Vec<&str> = before.split_whitespace().collect();
+    for n in (1..=words.len().min(3)).rev() {
+        let typed = words[words.len() - n..].join(" ");
+        if n == 1 && crate::time::reserved(config, &typed) {
+            return None;
+        }
+        // `Rieti to R`: the place after `to`, not one named `to R…`.
+        if n > 1 && words[words.len() - n..].iter().any(|w| ["to", "->"].contains(&w.to_ascii_lowercase().as_str())) {
+            continue;
+        }
+        let found = store.starting_with(&typed, 8, local);
+        if found.is_empty() {
+            continue;
+        }
+        let (mut names, mut labels) = (Vec::new(), Vec::new());
+        for (label, name) in found.iter().map(|c| store.offer(c, &typed)) {
+            if !names.contains(&name) {
+                names.push(name);
+                labels.push(label);
+            }
+        }
+        // Replaced from where the typed words start (the last `n` words).
+        return Some(Suggestions { kind: Kind::Words, start: before_start(before, n), names, labels });
+    }
+    None
+}
+
+/// The position (in chars) where the last `n` words of `text` start.
+fn before_start(text: &str, n: usize) -> usize {
+    let chars: Vec<char> = text.chars().collect();
+    let mut seen = 0;
+    let mut i = chars.len();
+    while i > 0 {
+        // The start of a word: a non-space after a space (or the line's start).
+        if !chars[i - 1].is_whitespace() && (i == 1 || chars[i - 2].is_whitespace()) {
+            seen += 1;
+            if seen == n {
+                return i - 1;
+            }
+        }
+        i -= 1;
+    }
+    0
+}
+
+fn matching(config: &Config, only: Option<&Category>, prefix: &str) -> Vec<&'static str> {
+    let lower = prefix.to_lowercase();
+    let fits = |cat: &Category, name: &str| match cat.case_sensitive {
+        true => name.starts_with(prefix),
+        false => name.to_lowercase().starts_with(&lower),
+    };
+    let categories = || config.categories.iter().filter(|c| only.is_none_or(|o| o.name == c.name));
+    let mut names: Vec<&'static str> = categories()
+        .flat_map(|c| c.units.iter().filter(move |u| fits(c, u.symbol)).map(|u| u.symbol))
+        .collect();
+    // With no prefix (the target slot), the symbols are enough.
+    if !prefix.is_empty() {
+        for c in categories() {
+            for alias in c.units.iter().flat_map(|u| u.aliases.iter()) {
+                if fits(c, alias) && !names.contains(alias) {
+                    names.push(alias);
+                }
+            }
+        }
+    }
+    names
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn names(line: &str) -> Vec<&'static str> {
+        // Leaked: a test's few names, compared with literals.
+        let found = suggest(&Config::default(), line, line.chars().count(), 0).map(|s| s.names).unwrap_or_default();
+        found.into_iter().map(|n| &*Box::leak(n.into_boxed_str())).collect()
+    }
+
+    #[test]
+    fn source_unit() {
+        // In the order of the categories: Time, Data, Length, Area, Volume, Mass, Temperature…
+        assert_eq!(names("10 k")[..5], ["kB", "kb", "km", "km2", "kg"]);
+        assert!(names("100 + 20 sq").starts_with(&["sq-mm", "sqmm"]));
+        assert_eq!(names("100 + 20 sqf"), ["sqft"]);
+        // Attached to the value.
+        assert_eq!(names("100sqf"), ["sqft"]);
+        assert!(names("[1+2]/3 mil").contains(&"mile"));
+    }
+
+    #[test]
+    fn target_unit_is_the_same_kind() {
+        let to = names("10 km ");
+        assert_eq!(to, ["mm", "cm", "m", "km", "au", "ly", "pc", "in", "ft", "yd", "mi"]);
+        assert_eq!(names("10 km m"), ["mm", "m", "mi", "millimeter", "millimeters", "millimetre", "millimetres", "meter", "meters", "metre", "metres", "mile", "miles"]);
+        assert_eq!(names("100 sqft m"), ["mm2", "m2", "mi2", "mm²", "mmq", "m²", "mq", "mi²"]);
+        assert_eq!(names("1 kg p"), ["pound", "pounds"]);
+    }
+
+    #[test]
+    fn data_units_are_case_sensitive() {
+        assert_eq!(names("1 GB M"), ["MB", "MiB", "Mb", "Mib"], "bytes first");
+        assert!(names("1 GB m").is_empty());
+        // The source slot offers every kind of unit.
+        assert!(names("1 M").contains(&"MB") && names("1 M").contains(&"m"));
+    }
+
+    /// More than units, for the phone (from the third letter): currencies after an amount and after a
+    /// currency; without the archive, the built-in places and countries, the first words; formats
+    /// after a date.
+    #[test]
+    fn more_than_units() {
+        let config = Config::default();
+        let at = |line: &str| suggest(&config, line, line.chars().count(), 3).map(|s| s.names).unwrap_or_default();
+        assert!(at("10 ki").is_empty(), "two letters");
+        assert_eq!(&at("12 dol")[..3], ["USD", "CAD", "AUD"]);
+        assert_eq!(at("12 usd eur"), ["EUR"]);
+        assert_eq!(at("12 usd to eur"), ["EUR"]);
+        assert_eq!(at("Par"), ["Paris", "Paramaribo", "Paraguay"]);
+        assert_eq!(at("Rome to Tok"), ["Tokyo"]);
+        assert_eq!(at("now uni"), ["unix", "unix-ms", "unix-us", "unix-ns"]);
+        assert_eq!(at("dis"), ["distance"]);
+        assert_eq!(at("Bar"), ["Barcelona", "Barbados"], "not Bar: a unit");
+    }
+
+    #[test]
+    fn nothing_to_suggest() {
+        for line in ["", "10", "10 ", "1 +", "abc", "10 km mi ", "10 foo ", "10 zz", "2x"] {
+            assert!(names(line).is_empty(), "{line}");
+        }
+    }
+
+    #[test]
+    fn start_of_the_word() {
+        let config = Config::default();
+        assert_eq!(suggest(&config, "100 + 20 sq", 11, 0).unwrap().start, 9);
+        assert_eq!(suggest(&config, "10 km ", 6, 0).unwrap().start, 6);
+        // Cursor in the middle: only the text before it counts.
+        assert_eq!(suggest(&config, "10 k mi", 4, 0).unwrap().start, 3);
+    }
+
+    /// City names (the sample archive): written as short as still finds them, shown as `Name -
+    /// Country` (the region when the country has several); not after a unit or in a calculation.
+    #[test]
+    fn cities() {
+        let config = Config::default();
+        let (_, store) = crate::cities::tests::sample("suggest");
+        let names = |before: &str| super::cities(&config, before, Some(&store), None).map(|s| (s.start, s.names));
+        let (start, found) = names("Rome to Chi").unwrap();
+        assert_eq!((start, found), (8, vec!["Chicago".to_string()]));
+        let (_, found) = names("spr").unwrap();
+        assert_eq!(found[0], "Springfield, Missouri, United States");
+        let labels = |before: &str| super::cities(&config, before, Some(&store), None).unwrap().labels;
+        assert_eq!(labels("spr")[0], "Springfield - Missouri - United States");
+        // One per country: no region; written with the country (another country has one too).
+        assert_eq!(labels("Pari"), ["Paris - France", "Paris - United States"]);
+        assert_eq!(names("Pari").unwrap().1, ["Paris, France", "Paris, United States"]);
+        // The person's wording: an alias typed is shown and written (`Parigi`, Paris's Italian name).
+        assert_eq!(labels("Parig"), ["Parigi - France"]);
+        assert_eq!(names("Parig").unwrap().1, ["Parigi"]);
+        assert!(names("Chicago ").is_none(), "after a space: nothing yet");
+        assert!(names("10 ba").is_none_or(|(_, n)| n.iter().all(|n| n != "bar")));
+        assert!(names("x").is_none(), "one letter: too few");
+    }
+}

@@ -22,7 +22,6 @@ mod picker;
 mod render;
 mod search;
 mod settings;
-mod suggest;
 mod term;
 mod trivia;
 
@@ -640,7 +639,7 @@ impl<'a> App<'a> {
                 c
             }
             None => {
-                let Some(s) = suggest::suggest(self.config, &self.line.text(), self.line.cursor()) else {
+                let Some(s) = crate::suggest::suggest(self.config, &self.line.text(), self.line.cursor(), 0) else {
                     return;
                 };
                 let index = if forward { 0 } else { s.names.len() - 1 };
@@ -777,7 +776,7 @@ impl<'a> App<'a> {
             let (list, cities) = shown(&c.names, &c.labels);
             return Some((list, Some(c.index), cities));
         }
-        suggest::suggest(self.config, &self.line.text(), self.line.cursor()).map(|s| {
+        crate::suggest::suggest(self.config, &self.line.text(), self.line.cursor(), 0).map(|s| {
             let (list, cities) = shown(&s.names, &s.labels);
             (list, None, cities)
         })

@@ -23,6 +23,7 @@ pub mod notify;
 pub mod numbers;
 pub mod online;
 pub mod settings;
+pub mod suggest;
 pub mod planets;
 pub mod time;
 pub mod trivia;
@@ -217,8 +218,7 @@ from the environment):
                             YYYY YY MMMM MMM MM M DD D dddd ddd H24/HH H H12/hh h
                             mm ss AM/A tz (GMT+2) ZZ (+02:00); [text] is literal";
 
-const EXPECTED: &str =
-    "expected <value> <from> <to>, <value><from> <to> or an expression without units (see `tally --help`)";
+const EXPECTED: &str = "expected <value> <from> <to>, <value><from> <to> or an expression without units";
 
 #[derive(Debug, PartialEq)]
 pub enum CliError {
@@ -242,6 +242,16 @@ impl std::fmt::Display for CliError {
 }
 
 impl CliError {
+    /// Where the command line's help says more (`see tally --list`), printed after the message at a
+    /// terminal only: the message itself is for every UI (`--json`, the widget, the apps).
+    pub fn hint(&self) -> Option<&'static str> {
+        match self {
+            CliError::Convert(convert::ConvertError::UnknownUnit(_)) => Some("see `tally --list`"),
+            CliError::Usage(msg) if msg == EXPECTED => Some("see `tally --help`"),
+            _ => None,
+        }
+    }
+
     pub fn exit_code(&self) -> u8 {
         match self {
             CliError::Convert(_) => 1,

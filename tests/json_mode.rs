@@ -47,7 +47,7 @@ fn results_with_notes_and_warnings() {
 
 #[test]
 fn errors_keep_their_exit_codes() {
-    assert_eq!(json("10 foo m"), ("{\"ok\":false,\"exit\":1,\"error\":\"unknown unit `foo` (see `tally --list`)\"}\n".into(), String::new(), 1));
+    assert_eq!(json("10 foo m"), ("{\"ok\":false,\"exit\":1,\"error\":\"unknown unit `foo`\"}\n".into(), String::new(), 1));
     let (out, _, code) = json("10 km");
     assert!(out.starts_with("{\"ok\":false,\"exit\":2,\"error\":\"expected <value>"));
     assert_eq!(code, 2);
