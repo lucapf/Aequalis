@@ -446,6 +446,11 @@ fn request(config: &Config, opts: &Options, tokens: &[&str]) -> Result<Output, C
             time::TimeError::Ambiguous(a) => CliError::Ambiguous(a),
         });
     }
+    // A written date with no format yet (`12/04/2026`): a date on its way, not
+    // the division it reads as (`12/04/2026 num` asks for that).
+    if time::is_date_value(&input) {
+        return Err(CliError::Incomplete("now the format to convert to: iso, unix, local…".into()));
+    }
     // Not a number: one place so far (`Rieti`, `Rieti to`) is a distance on its way.
     let (expr, rest) = calc::parse_prefix(&input).map_err(|e| match geo::being_typed(config, &input) {
         Some(next) => CliError::Usage(next),
@@ -713,6 +718,12 @@ mod tests {
         assert_eq!(cli("10 km").unwrap_err(), CliError::Incomplete("now the length unit to convert to: in, ft, yd…".into()));
         assert_eq!(cli("100 m/s^2").unwrap_err(), CliError::Incomplete("now the unit to convert to".into()));
         assert_eq!(cli("10 foo").unwrap_err(), CliError::Usage(EXPECTED.into()));
+        // A written date alone: its format comes next; a division stays one.
+        for date in ["12/04/2026", "2026/12/04", "13/04/2026"] {
+            assert_eq!(cli(date).unwrap_err(), CliError::Incomplete("now the format to convert to: iso, unix, local…".into()), "{date}");
+        }
+        assert_eq!(cli("12/4").unwrap(), "3");
+        assert_eq!(cli("12/04/2026 num").unwrap(), "0.0015");
         assert_eq!(code("1 2 3 4"), 2);
         assert_eq!(code(""), 2);
         assert_eq!(code("1 km m --precision 16"), 2);
