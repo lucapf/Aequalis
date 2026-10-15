@@ -101,6 +101,12 @@ fun TallyApp() {
     // Letters or the calculator: kept while the app is open, and when the screen turns.
     var mode by rememberSaveable { mutableStateOf(Mode.Text) }
     var settings by rememberSaveable { mutableStateOf(false) }
+    // A page opened from the Trivia (Wikipedia), shown inside the app.
+    var page by rememberSaveable { mutableStateOf<String?>(null) }
+    page?.let { url ->
+        WebScreen(url, close = { page = null }, modifier = Modifier.statusBarsPadding())
+        return
+    }
     if (settings) {
         SettingsScreen(close = { settings = false }, modifier = Modifier.statusBarsPadding())
         return
@@ -171,7 +177,7 @@ fun TallyApp() {
                     is Key.Switch -> mode = key.mode
                 }
             })
-            else -> PanelView(open, write = { change(edit.word(it)); panel = null }, close = { panel = null })
+            else -> PanelView(open, write = { change(edit.word(it)); panel = null }, close = { panel = null }, openLink = { page = it })
         }
     }
 }

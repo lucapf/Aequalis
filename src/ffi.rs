@@ -248,9 +248,15 @@ pub fn trivia() -> String {
                         }
                         (_, Err(err)) => (format!("error: {err}"), String::new()),
                     };
+                    // Each line twice: for people (the device's separators) and plain, to write a measure.
+                    let plain = trivia::popup(config, e, live, now, precision, &|n| n);
                     let popup: Vec<String> = trivia::popup(config, e, live, now, precision, &number)
                         .iter()
-                        .map(|(label, text)| format!("[{},{}]", json::string(label), json::string(text)))
+                        .zip(&plain)
+                        .map(|((label, text), (_, written))| {
+                            let options: Vec<String> = trivia_measures(text, written).iter().map(|(s, w)| format!("[{},{}]", json::string(s), json::string(w))).collect();
+                            format!("[{},{},[{}]]", json::string(label), json::string(text), options.join(","))
+                        })
                         .collect();
                     Object::new()
                         .str("name", &e.name)
@@ -258,6 +264,7 @@ pub fn trivia() -> String {
                         .str("description", &e.description)
                         .str("value", &value)
                         .str("written", &written)
+                        .str("symbol", e.symbol.as_deref().unwrap_or(""))
                         .raw("popup", &format!("[{}]", popup.join(",")))
                         .finish()
                 })
@@ -266,6 +273,22 @@ pub fn trivia() -> String {
         })
         .collect();
     Object::new().raw("sections", &format!("[{}]", sections.join(","))).finish()
+}
+
+/// The measures of a Trivia popup line, to write one into the request: the line's parts (split at
+/// ` - `), each part's leading number and unit, as shown (`25,800,920,358 km`) and as written
+/// (`25800920358 km`, from the same line in plain digits). A part that starts with no number
+/// (`about 1.02 km/s…`) is none.
+pub fn trivia_measures(shown: &str, plain: &str) -> Vec<(String, String)> {
+    let head = |part: &str| -> Option<String> {
+        // What follows the measure: `(estimated…)`, `, next on 12 Mar 27`, `, away from the Sun`.
+        let end = [" (", ", "].iter().filter_map(|s| part.find(s)).min().unwrap_or(part.len());
+        let measure = part[..end].trim();
+        // A number and its unit: `8 min 19 s` (a light time) is no value to calculate with.
+        let shape = measure.split_whitespace().count() == 2;
+        (shape && measure.starts_with(|c: char| c.is_ascii_digit() || c == '-')).then(|| measure.to_string())
+    };
+    shown.split(" - ").zip(plain.split(" - ")).filter_map(|(s, p)| Some((head(s)?, head(p)?))).collect()
 }
 
 /// The unit classes for the Measures: `{"classes":[{"name","key","systems":[…,…],"units":
@@ -393,6 +416,21 @@ mod tests {
         assert_eq!(write.iter().filter(|w| **w == "km").count(), 1, "kilometer, kilometres…: once");
         assert!(suggest("12 dol", 3).contains(r#"{"write":"USD","label":"USD - US dollar"}"#));
         assert!(suggest("Rome to Tok", 3).contains(r#""write":"Tokyo""#));
+    }
+
+    /// A popup line's measures: each part's number and unit, shown and plain, without what follows.
+    #[test]
+    fn trivia_measures_of_a_line() {
+        assert_eq!(
+            trivia_measures("25,800,920,358 km - 172.4685 au - 2.7272e-3 ly (estimated, not synced yet)", "25800920358 km - 172.4685 au - 2.7272e-3 ly (estimated, not synced yet)"),
+            [("25,800,920,358 km".into(), "25800920358 km".into()), ("172.4685 au".into(), "172.4685 au".into()), ("2.7272e-3 ly".into(), "2.7272e-3 ly".into())]
+        );
+        assert_eq!(trivia_measures("16.88 km/s - 60,768 km/h - 37,759 mph, away from the Sun", "16.88 km/s - 60768 km/h - 37759 mph, away from the Sun")[2], ("37,759 mph".to_string(), "37759 mph".to_string()));
+        assert!(trivia_measures("about 1.02 km/s (3,680 km/h) around the Earth", "about 1.02 km/s (3,680 km/h) around the Earth").is_empty());
+        let doc = json::parse(&trivia()).unwrap();
+        let space = doc.get("sections").unwrap().array().iter().find(|s| s.get("name").and_then(|v| v.str()) == Some("Space")).unwrap();
+        let voyager = &space.get("entries").unwrap().array()[0];
+        assert_eq!(voyager.get("symbol").and_then(|v| v.str()), Some("☄"));
     }
 
     #[test]

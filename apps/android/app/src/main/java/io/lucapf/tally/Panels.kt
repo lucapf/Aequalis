@@ -4,6 +4,8 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -15,6 +17,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -31,11 +34,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
@@ -45,7 +48,7 @@ import androidx.compose.ui.unit.dp
  * request; `close` goes back to the keyboard.
  */
 @Composable
-fun PanelView(panel: Panel, write: (String) -> Unit, close: () -> Unit) {
+fun PanelView(panel: Panel, write: (String) -> Unit, close: () -> Unit, openLink: (String) -> Unit) {
     // The second level (a class, a section), when one is open, and in the Trivia a third, a value's
     // details: the back gesture goes up one level.
     var opened by remember(panel) { mutableStateOf<String?>(null) }
@@ -78,7 +81,7 @@ fun PanelView(panel: Panel, write: (String) -> Unit, close: () -> Unit) {
             when (panel) {
                 Panel.Measures -> MeasuresPanel(opened, open = { opened = it }, write)
                 Panel.Currencies -> CurrenciesPanel(write)
-                Panel.Trivia -> TriviaPanel(opened, detail, open = { opened = it }, show = { detail = it }, write)
+                Panel.Trivia -> TriviaPanel(opened, detail, open = { opened = it }, show = { detail = it }, write, openLink)
             }
         }
     }
@@ -133,7 +136,7 @@ private fun CurrenciesPanel(write: (String) -> Unit) {
 /** The Trivia's sections; a section opened: its values now; a value tapped: its details, as the
  *  TUI's popup (the description, then each line), and a button that writes it into the request. */
 @Composable
-private fun TriviaPanel(opened: String?, detail: String?, open: (String) -> Unit, show: (String) -> Unit, write: (String) -> Unit) {
+private fun TriviaPanel(opened: String?, detail: String?, open: (String) -> Unit, show: (String) -> Unit, write: (String) -> Unit, openLink: (String) -> Unit) {
     val sections = remember { Core.trivia() }
     val section = sections.firstOrNull { it.name == opened }
     val entry = section?.entries?.firstOrNull { it.name == detail }
@@ -142,25 +145,31 @@ private fun TriviaPanel(opened: String?, detail: String?, open: (String) -> Unit
             items(sections) { s -> Line(s.name, s.entries.take(3).joinToString(" · ") { it.name }) { open(s.name) } }
         }
         entry == null -> LazyColumn {
-            items(section.entries) { e -> Line(e.name, e.value.ifEmpty { e.short }) { show(e.name) } }
+            items(section.entries) { e -> Line(e.name, e.value.ifEmpty { e.short }, symbol = e.symbol) { show(e.name) } }
         }
-        else -> TriviaDetail(entry, write)
+        else -> TriviaDetail(entry, write, openLink)
     }
 }
 
 /** A Trivia value in full, as the TUI's popup: the description, then every line (the value among
- *  them); links open in the browser. The request gets the value only from the button. */
+ *  them), each measure of a line a chip that writes it (`172.4685 au`); a link opens inside the app.
+ *  The request gets a value only from a chip or the button. */
 @Composable
-private fun TriviaDetail(e: TriviaEntry, write: (String) -> Unit) {
-    val links = LocalUriHandler.current
+private fun TriviaDetail(e: TriviaEntry, write: (String) -> Unit, openLink: (String) -> Unit) {
     Column(Modifier.fillMaxSize()) {
         LazyColumn(Modifier.weight(1f).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (e.description.isNotEmpty()) item { Text(e.description, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 8.dp)) }
-            items(e.details) { (label, text) ->
-                val link = text.startsWith("https://")
-                Column(if (link) Modifier.clickable(role = Role.Button, onClickLabel = "Open") { links.openUri(text) } else Modifier) {
-                    Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(text, style = MaterialTheme.typography.bodyMedium, color = if (link) MaterialTheme.colorScheme.primary else Color.Unspecified)
+            items(e.details) { line ->
+                val link = line.text.startsWith("https://")
+                Column(if (link) Modifier.clickable(role = Role.Button, onClickLabel = "Open") { openLink(line.text) } else Modifier) {
+                    Text(line.label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(line.text, style = MaterialTheme.typography.bodyMedium, color = if (link) MaterialTheme.colorScheme.primary else Color.Unspecified)
+                    // Each measure, to pick: the distance in km, au or ly, a speed in km/s, km/h or mph…
+                    if (line.measures.size > 1) {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            line.measures.forEach { (shown, written) -> AssistChip(onClick = { write(written) }, label = { Text(shown) }) }
+                        }
+                    }
                 }
             }
         }
@@ -172,13 +181,25 @@ private fun TriviaDetail(e: TriviaEntry, write: (String) -> Unit) {
     }
 }
 
-/** A row of a panel's list: a title, a line below it, a tap. */
+/** A row of a panel's list: a symbol (`♃`, a Trivia value's), a title, a line below it, a tap. */
 @Composable
-private fun Line(title: String, detail: String, onClick: () -> Unit) {
-    Column(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp)) {
-        Text(title, style = MaterialTheme.typography.bodyLarge)
-        if (detail.isNotEmpty()) {
-            Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+private fun Line(title: String, detail: String, symbol: String = "", onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (symbol.isNotEmpty()) {
+            Text(
+                symbol,
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.primary,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                modifier = Modifier.width(44.dp).clearAndSetSemantics {},
+            )
+        }
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            if (detail.isNotEmpty()) {
+                Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
         }
     }
 }

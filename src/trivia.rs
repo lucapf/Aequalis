@@ -57,6 +57,8 @@ pub struct Entry {
     pub wikipedia: Option<String>,
     /// The value's label in the popup: `Current distance` (default `Value`).
     pub value_label: Option<String>,
+    /// A few characters that recall it, shown beside it: `♃` (Jupiter), `π`.
+    pub symbol: Option<String>,
 }
 
 /// Every entry, in the file's order; the sections in their order.
@@ -123,6 +125,7 @@ pub fn parse(text: &str) -> Result<Vec<Entry>, String> {
                 planet: text("planet"),
                 wikipedia: text("wikipedia"),
                 value_label: text("value_label"),
+                symbol: text("symbol"),
                 details: e
                     .get("details")
                     .map(Value::array)
@@ -264,6 +267,20 @@ fn distance_in_units(config: &Config, entry: &Entry, km: f64, precision: usize, 
     out.join(" - ")
 }
 
+/// The speed of light, km/s.
+const LIGHT_KM_S: f64 = 299_792.458;
+
+/// How long light takes to cover `km`, for people: `1.3 s`, `8 min 19 s`, `23 h 54 min`, `2 d 4 h`.
+fn light_time(km: f64) -> String {
+    let s = (km / LIGHT_KM_S).round() as i64;
+    match s {
+        _ if km / LIGHT_KM_S < 60.0 => format!("{:.1} s", km / LIGHT_KM_S),
+        0..3_600 => format!("{} min {} s", s / 60, s % 60),
+        3_600..172_800 => format!("{} h {} min", s / 3_600, s % 3_600 / 60),
+        _ => format!("{} d {} h", s / 86_400, s % 86_400 / 3_600),
+    }
+}
+
 /// The Sun's gravitational parameter GM, km³/s².
 const GM_SUN: f64 = 1.327_124_400_18e11;
 
@@ -321,6 +338,13 @@ pub fn popup(config: &Config, entry: &Entry, synced: Option<crate::online::Store
     }
     if let Source::Spacecraft { estimate, .. } = &entry.source {
         lines.push(("Speed".to_string(), format!("{}, away from the Sun", speed_text(estimate.km_per_s, number))));
+        // Its distance is the Earth's (JPL Horizons, centred on the Earth): the light from the Earth
+        // is exact (the signal's delay); from the Sun within 1 au of it, about 8 min 19 s either way.
+        if let Ok((v, _)) = value(config, entry, synced, now) {
+            let km = in_unit(config, entry, v, "km");
+            lines.push(("Light from the Earth now".to_string(), light_time(km)));
+            lines.push(("Light from the Sun now".to_string(), format!("about {} (±8 min: the Earth's side of its orbit)", light_time(km))));
+        }
     }
     lines.extend(entry.details.iter().cloned());
     if let Some(launched) = &entry.launched {
@@ -332,6 +356,7 @@ pub fn popup(config: &Config, entry: &Entry, synced: Option<crate::online::Store
         let t = now as f64;
         if let Some(d) = crate::planets::from_sun(planet, t) {
             lines.push(("Distance from the Sun now".to_string(), km(d.now)));
+            lines.push(("Light from the Sun now".to_string(), light_time(d.now * crate::planets::AU_KM)));
             lines.push(("Closest to the Sun (perihelion)".to_string(), format!("{}{}", km(d.min.au), when(d.min))));
             lines.push(("Farthest from the Sun (aphelion)".to_string(), format!("{}{}", km(d.max.au), when(d.max))));
             // Fastest at perihelion, slowest at aphelion.
@@ -341,6 +366,7 @@ pub fn popup(config: &Config, entry: &Entry, synced: Option<crate::online::Store
         }
         if let Some(d) = crate::planets::from_earth(planet, t) {
             lines.push(("Distance from the Earth now".to_string(), km(d.now)));
+            lines.push(("Light from the Earth now".to_string(), light_time(d.now * crate::planets::AU_KM)));
             lines.push(("Mean distance from the Earth".to_string(), km(d.mean)));
             lines.push(("Closest to the Earth".to_string(), format!("{}{}", km(d.min.au), when(d.min))));
             lines.push(("Farthest from the Earth".to_string(), format!("{}{}", km(d.max.au), when(d.max))));
@@ -541,6 +567,15 @@ pub fn list(config: &Config, precision: usize) -> String {
 mod tests {
     use super::*;
 
+    /// How long light takes, for people.
+    #[test]
+    fn light_times() {
+        assert_eq!(light_time(384_400.0), "1.3 s", "the Moon");
+        assert_eq!(light_time(149_597_870.7), "8 min 19 s", "1 au");
+        assert_eq!(light_time(172.4685 * 149_597_870.7), "23 h 54 min", "Voyager 1");
+        assert_eq!(light_time(30.07 * 149_597_870.7 * 20.0), "3 d 11 h");
+    }
+
     #[test]
     fn the_file_is_valid() {
         let all = entries();
@@ -613,7 +648,10 @@ mod tests {
         assert_eq!(v1[0], ("Wikipedia".to_string(), "https://en.wikipedia.org/wiki/Voyager_1".to_string()));
         assert_eq!(v1[1], ("Current distance".to_string(), "25794004453 km - 172.4223 au - 2.7264e-3 ly (estimated, not synced yet)".to_string()));
         assert_eq!(v1[2], ("Speed".to_string(), "16.88 km/s - 60768 km/h - 37759 mph, away from the Sun".to_string()));
-        assert_eq!(v1[3], ("Launched".to_string(), "1977-09-05 12:56 UTC".to_string()));
+        // How long light takes: from the Earth exact (its distance is the Earth's), from the Sun about.
+        assert_eq!(v1[3], ("Light from the Earth now".to_string(), "23 h 54 min".to_string()));
+        assert_eq!(v1[4], ("Light from the Sun now".to_string(), "about 23 h 54 min (±8 min: the Earth's side of its orbit)".to_string()));
+        assert_eq!(v1[5], ("Launched".to_string(), "1977-09-05 12:56 UTC".to_string()));
         let live = popup(&config, get("Voyager 1"), Some(crate::online::Stored { value: 172.5, at: 1_791_676_800 }), 1_791_676_800, 4, &|n| n);
         assert!(live[1].1.contains(" - 172.5 au - 2.7277e-3 ly (synced ") && live[1].1.ends_with(" from JPL Horizons)"), "{:?}", live[1]);
         // A planet: from the Sun and from the Earth, the next dates.
@@ -621,6 +659,10 @@ mod tests {
         let text = |label: &str| mars.iter().find(|(l, _)| l == label).map(|(_, t)| t.clone()).unwrap();
         assert_eq!(text("Mean distance from the Sun"), "227943822 km - 1.5237 au - 2.4094e-5 ly");
         assert!(text("Distance from the Earth now").ends_with(" ly"), "every distance in light-years too: {mars:?}");
+        // Light from the Sun (Mars: 12.7 to 13.9 min) and from the Earth now.
+        assert!(text("Light from the Sun now").contains(" min "), "{mars:?}");
+        assert!(text("Light from the Earth now").contains(" min ") || text("Light from the Earth now").ends_with(" s"), "{mars:?}");
+        assert!(!popup_of("Sun – Earth").iter().any(|(l, _)| l == "Light from the Earth now"), "not for the Earth itself");
         assert!(text("Closest to the Earth").contains(" au - ") && text("Closest to the Earth").contains(" ly, next on "), "{mars:?}");
         // The light-year itself, exact.
         assert_eq!(popup_of("Light-year")[1].1, "9460730472581 km - 63241.0771 au - 1 ly");

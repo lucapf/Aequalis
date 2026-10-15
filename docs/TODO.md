@@ -17,7 +17,9 @@ Tick an item when it is done, and note the commit.
 
 ### 2. Landscape, and copy / share / paste
 
-- [ ] Portrait only on phones, for now (#3); a landscape layout later.
+- [ ] Landscape prototype (#3): digits and operators on the right, arranged vertically; the toolbar
+      (C, 123, Measures…) on the left, also vertical; buttons shrunk to about their portrait size,
+      so the request and the result stay visible in the middle.
 - [ ] Tap or long-press the result: copy; a Share action (#7).
 - [ ] Long-press the request line: paste (#7).
 
@@ -25,6 +27,15 @@ Tick an item when it is done, and note the commit.
 
 - [ ] The core's calls (`evaluate`, `suggestions`) off the main thread, in a `ViewModel`, the
       previous answer shown until the new one arrives (#6).
+
+### 4. Asked on 15 Oct 2026 (next session)
+
+- [ ] Trivia: the length of a day and of a year for every planet.
+- [ ] Recheck the whole code: performance, cleanup, refactoring.
+- [ ] Ship the city archive and the exchange rates valid at build time inside the app, so the
+      features work before any download; with currencies, say how old the rates are (1h, 2d, 3w,
+      1m, 1y…).
+- [ ] Check on screen (not done yet): the Trivia measure chips and the Wikipedia page inside the app.
 
 ### Later (medium issues)
 
@@ -40,3 +51,7 @@ Tick an item when it is done, and note the commit.
 
 - [ ] Downloads on the phone: exchange rates and the city archive (the app's downloader).
 - [ ] Push the local commits (`git status` says how many).
+
+## Nice to have
+- [ ] add how long is a day in a planet (time to 360 degree rotation)
+- [ ] add how long it takes to rotate around the sun (year)
