@@ -377,6 +377,12 @@ pub struct Context {
 
 /// The request's parts, when it is a currency request: the amount, and the currency pieces in order.
 fn shape(config: &Config, input: &str) -> Option<Result<(String, Vec<Piece>), Error>> {
+    // One amount, and an amount has digits while no currency or country name has any (the test
+    // `names_have_no_digits` keeps it so): without exactly one word with digits it is no currency
+    // request, and nothing is looked up (`now Tokyo`, `Rome Paris`, `2026/12/04 + 5wd`).
+    if input.split_whitespace().filter(|w| w.contains(|c: char| c.is_ascii_digit())).count() != 1 {
+        return None;
+    }
     let parts = pieces(config, input);
     let amounts = parts.iter().filter(|p| matches!(p, Piece::Amount(_))).count();
     if amounts != 1 || parts.iter().any(|p| matches!(p, Piece::Other)) {
@@ -731,6 +737,20 @@ mod tests {
             Some(Err(Error::Ambiguous(a))) => a,
             other => panic!("{input}: {other:?}"),
         }
+    }
+
+    /// No currency or country name has a digit: `shape` tells an amount by its digits.
+    #[test]
+    fn names_have_no_digits() {
+        let digit = |w: &String| w.contains(|c: char| c.is_ascii_digit());
+        for c in all() {
+            let words = std::iter::once(&c.name).chain(&c.words).chain(&c.symbols).chain(&c.abbreviations);
+            assert!(!words.clone().any(digit), "{}: {:?}", c.code, words.collect::<Vec<_>>());
+        }
+        for c in tz::countries() {
+            assert!(!std::iter::once(&c.name).chain(&c.aliases).any(digit), "{}", c.name);
+        }
+        assert!(!EURO_AREA.iter().any(|r| r.contains(|c: char| c.is_ascii_digit())));
     }
 
     /// Rates shipped with an app: stored when newer than the ones there, else kept.

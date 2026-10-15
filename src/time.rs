@@ -1460,8 +1460,7 @@ fn written_date_then_math(text: &str) -> Option<usize> {
 
 /// Whether `text` starts with a duration: a number, optional spaces, a time unit (`12d`, `3 hours`).
 fn starts_with_duration(text: &str) -> bool {
-    static CONFIG: std::sync::OnceLock<Config> = std::sync::OnceLock::new();
-    let config = CONFIG.get_or_init(Config::default);
+    let config = Config::shared();
     let text = text.trim_start();
     let n = text.bytes().take_while(|b| b.is_ascii_digit() || *b == b'.').count();
     let unit = text[n..].trim_start();
@@ -2114,29 +2113,33 @@ fn leading_time(words: &[&str]) -> Option<usize> {
 /// (`10:00 Italy to Japan` → `10:00 Rome to Tokyo`) and a note, or the choice of a country with
 /// several time zones (the first such one), each with the request using that zone's city.
 /// `None`: no country. A city's name (`Mexico City`, `Singapore`) or a unit (`us`) is not one.
+/// The first country named in `words` from word `from` on: at each word its longest name, unless a
+/// city's name is longer or as long (`Mexico City`); never a unit, format or currency word. Its
+/// first word, its number of words, the words as written, and the country.
+fn next_country(config: &Config, words: &[&str], from: usize) -> Option<(usize, usize, String, &'static tz::Country)> {
+    (from..words.len()).find_map(|i| {
+        let longest = tz::longest_country().max(tz::longest_name()).min(words.len() - i);
+        for n in (1..=longest).rev() {
+            let span = words[i..i + n].join(" ");
+            if tz::city(&span).is_some() {
+                return None;
+            }
+            if let Some(c) = tz::country(&span).filter(|_| !reserved_word(config, &span)) {
+                return Some((i, n, span, c));
+            }
+        }
+        None
+    })
+}
+
 fn countries_in(config: &Config, input: &str) -> Option<Result<(String, String), Ambiguity>> {
     let words: Vec<&str> = input.split_whitespace().collect();
     let mut out: Vec<String> = Vec::new();
     let mut named: Vec<String> = Vec::new();
     let mut i = 0;
-    while i < words.len() {
-        let longest = tz::longest_country().max(tz::longest_name()).min(words.len() - i);
-        let mut hit = None;
-        for n in (1..=longest).rev() {
-            let span = words[i..i + n].join(" ");
-            if tz::city(&span).is_some() {
-                break;
-            }
-            if let Some(c) = tz::country(&span).filter(|_| !reserved_word(config, &span)) {
-                hit = Some((n, span, c));
-                break;
-            }
-        }
-        let Some((n, span, country)) = hit else {
-            out.push(words[i].to_string());
-            i += 1;
-            continue;
-        };
+    while let Some((at, n, span, country)) = next_country(config, &words, i) {
+        out.extend(words[i..at].iter().map(|w| w.to_string()));
+        i = at;
         if let [one] = &country.cities[..] {
             named.push(format!("{} is {one}", country.name));
             out.push(one.clone());
@@ -2162,6 +2165,7 @@ fn countries_in(config: &Config, input: &str) -> Option<Result<(String, String),
             .collect();
         return Some(Err(Ambiguity { text: span, choices, kind: AmbiguityKind::Country, note: String::new() }));
     }
+    out.extend(words[i..].iter().map(|w| w.to_string()));
     (!named.is_empty()).then(|| Ok((out.join(" "), named.join(", "))))
 }
 
@@ -2318,8 +2322,8 @@ fn place_typos(config: &Config, input: &str, precision: usize, verbose: bool) ->
 
 /// Whether a request names a city (`Paris`, `10:00AM New York to Paris`), for the stdin rule.
 pub fn names_city(input: &str) -> bool {
-    take_zone(input).is_ok_and(|(rest, _)| !matches!(take_cities(&rest), Ok((_, None))))
-        || countries_in(&Config::default(), input).is_some()
+    let words: Vec<&str> = input.split_whitespace().collect();
+    take_zone(input).is_ok_and(|(rest, _)| !matches!(take_cities(&rest), Ok((_, None)))) || next_country(Config::shared(), &words, 0).is_some()
 }
 
 #[cfg(test)]

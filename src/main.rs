@@ -8,7 +8,7 @@ use tally::{convert, convert_request, json, notify, online, parse_options, run, 
 use tally::tui;
 
 fn main() -> ExitCode {
-    let config = Config::default();
+    let config = Config::shared();
     // `--json` changes only how results are printed (and that nothing is asked).
     let mut all: Vec<String> = std::env::args().skip(1).collect();
     // `--now <unix seconds>` (not in the help): "now" frozen, for tests whose data has a date.
@@ -108,9 +108,9 @@ fn main() -> ExitCode {
     let _sync = online::ensure_fresh();
     // No value and no stdin to read, at a terminal: interactive mode.
     #[cfg(feature = "tui")]
-    if let Ok(Parsed::Convert(opts)) = parse_options(&config, &args) {
+    if let Ok(Parsed::Convert(opts)) = parse_options(config, &args) {
         if !json && opts.positional.is_empty() && std::io::stdin().is_terminal() && std::io::stdout().is_terminal() {
-            return tui::run(&config, &opts);
+            return tui::run(config, &opts);
         }
     }
     let read_stdin = || {
@@ -123,12 +123,12 @@ fn main() -> ExitCode {
     let can_ask = !json && std::io::stdin().is_terminal() && std::io::stderr().is_terminal();
     // Every request is reported; the exit code is the most severe one seen.
     let mut code = 0;
-    for result in run(&config, &args, read_stdin) {
+    for result in run(config, &args, read_stdin) {
         let result = match result {
-            Err(CliError::Ambiguous(a)) if can_ask => match (ask(&a), parse_options(&config, &args)) {
+            Err(CliError::Ambiguous(a)) if can_ask => match (ask(&a), parse_options(config, &args)) {
                 (Some(choice), Ok(Parsed::Convert(opts))) => {
                     let tokens: Vec<&str> = choice.request.split_whitespace().collect();
-                    convert_request(&config, &opts, &tokens)
+                    convert_request(config, &opts, &tokens)
                 }
                 _ => Err(CliError::Ambiguous(a)),
             },

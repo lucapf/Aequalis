@@ -128,6 +128,13 @@ pub struct UnitNames {
 }
 
 impl Config {
+    /// The process's configuration, built once with its tables (the unit names): the data is
+    /// constant, so every caller shares it instead of building its own.
+    pub fn shared() -> &'static Config {
+        static SHARED: OnceLock<Config> = OnceLock::new();
+        SHARED.get_or_init(Config::default)
+    }
+
     pub fn unit_names(&self) -> &UnitNames {
         self.unit_names.get_or_init(|| {
             let mut names = UnitNames { exact: HashMap::new(), lower: HashMap::new() };

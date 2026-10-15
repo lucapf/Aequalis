@@ -14,11 +14,9 @@ use crate::config::{Config, System};
 use crate::json::{self, Object};
 use std::ffi::{c_char, CStr, CString};
 use std::path::Path;
-use std::sync::OnceLock;
 
 fn config() -> &'static Config {
-    static CONFIG: OnceLock<Config> = OnceLock::new();
-    CONFIG.get_or_init(Config::default)
+    Config::shared()
 }
 
 /// A string from the app (`None`: null or not UTF-8).
