@@ -28,8 +28,16 @@ data class Measure(val name: String, val systems: List<String>, val units: List<
 /** A currency: its code (what is written), name and symbols. */
 data class Currency(val code: String, val name: String, val symbols: List<String>)
 
-/** A Trivia value: its name, a few words, its value now, and what tapping it writes. */
-data class TriviaEntry(val name: String, val short: String, val value: String, val written: String)
+/** A Trivia value: its name, a few words, its value now, what it writes into the request, and its
+ *  details, as the TUI's popup shows them: a description, then (label, text) lines. */
+data class TriviaEntry(
+    val name: String,
+    val short: String,
+    val value: String,
+    val written: String,
+    val description: String,
+    val details: List<Pair<String, String>>,
+)
 
 data class TriviaSection(val name: String, val entries: List<TriviaEntry>)
 
@@ -132,7 +140,11 @@ object Core {
     /** The Trivia, by section. */
     fun trivia(): List<TriviaSection> = list("trivia").getJSONArray("sections").objects { s ->
         TriviaSection(s.getString("name"), s.getJSONArray("entries").objects { e ->
-            TriviaEntry(e.getString("name"), e.getString("short"), e.getString("value"), e.getString("written"))
+            val popup = e.getJSONArray("popup")
+            TriviaEntry(
+                e.getString("name"), e.getString("short"), e.getString("value"), e.getString("written"), e.getString("description"),
+                (0 until popup.length()).map { i -> popup.getJSONArray(i).let { it.getString(0) to it.getString(1) } },
+            )
         })
     }
 
