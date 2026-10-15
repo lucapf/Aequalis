@@ -30,7 +30,7 @@ Tick an item when it is done, and note the commit.
 
 ### 4. Asked on 15 Oct 2026 (next session)
 
-- [ ] Trivia: the length of a day and of a year for every planet.
+- [x] Trivia: the length of a day and of a year for every planet.
 - [ ] Recheck the whole code: performance, cleanup, refactoring.
 - [ ] Ship the city archive and the exchange rates valid at build time inside the app, so the
       features work before any download; with currencies, say how old the rates are (1h, 2d, 3w,

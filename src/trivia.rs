@@ -659,6 +659,12 @@ mod tests {
         let text = |label: &str| mars.iter().find(|(l, _)| l == label).map(|(_, t)| t.clone()).unwrap();
         assert_eq!(text("Mean distance from the Sun"), "227943822 km - 1.5237 au - 2.4094e-5 ly");
         assert!(text("Distance from the Earth now").ends_with(" ly"), "every distance in light-years too: {mars:?}");
+        // The length of a day (a rotation, sunrise to sunrise) and of a year, for every planet.
+        for e in entries().iter().filter(|e| e.planet.is_some()) {
+            let lines = popup_of(&e.name);
+            assert!(lines.iter().any(|(l, _)| l == "Day (one rotation)") && lines.iter().any(|(l, _)| l == "Year"), "{}", e.name);
+        }
+        assert_eq!(text("Year"), "686.98 d - 1.8808 yr");
         // Light from the Sun (Mars: 12.7 to 13.9 min) and from the Earth now.
         assert!(text("Light from the Sun now").contains(" min "), "{mars:?}");
         assert!(text("Light from the Earth now").contains(" min ") || text("Light from the Earth now").ends_with(" s"), "{mars:?}");
