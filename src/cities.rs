@@ -207,17 +207,40 @@ pub struct Store {
 /// Alexandria, Egypt (whose Italian name it is); `Roma` in Italy: Rome, Lazio before Roma, Lesotho.
 pub fn rank(cities: &mut [City], typed: &str, local: Option<&str>) {
     let target = tz::key(typed.split(',').next().unwrap_or(""));
-    cities.sort_by_cached_key(|c| {
-        let capital = c.capital && tz::country_by_code(&c.country_code).is_some();
-        let exact = tz::key(&c.name) == target;
-        let tier = match (local == Some(c.country_code.as_str()), exact) {
-            (true, true) => 0,
-            (true, false) => 1,
-            (false, true) => 2,
-            (false, false) => 3,
-        };
-        (!capital, tier)
-    });
+    cities.sort_by_cached_key(|c| rank_key(&c.name, &c.country_code, c.capital, &target, local));
+}
+
+/// `rank`'s place for one city (smaller first): capital or not, then its tier; `target` is what
+/// was typed, as `tz::key` writes it.
+fn rank_key(name: &str, country_code: &str, capital: bool, target: &str, local: Option<&str>) -> (bool, u8) {
+    let capital = capital && tz::country_by_code(country_code).is_some();
+    let exact = tz::key(name) == target;
+    let tier = match (local == Some(country_code), exact) {
+        (true, true) => 0,
+        (true, false) => 1,
+        (false, true) => 2,
+        (false, false) => 3,
+    };
+    (!capital, tier)
+}
+
+/// What ranking a city needs from its line in `cities.tsv`, read without the rest (the aliases can
+/// be hundreds of names): its name, population, country and whether it is a capital.
+struct Brief {
+    name: String,
+    population: u64,
+    country_code: String,
+    capital: bool,
+}
+
+impl Brief {
+    fn from_line(line: &str) -> Option<Brief> {
+        let mut f = line.split('\t');
+        let (_id, name, _lat, _lon, population, country_code) = (f.next()?, f.next()?, f.next()?, f.next()?, f.next()?, f.next()?);
+        // After the country, region, updated date and aliases: the capital (not in older archives).
+        let capital = f.nth(4) == Some("1");
+        Some(Brief { name: name.to_string(), population: population.parse().ok()?, country_code: country_code.to_string(), capital })
+    }
 }
 
 impl Store {
@@ -255,22 +278,35 @@ impl Store {
         lo
     }
 
-    /// The index lines from `start` on, while `keep` says so (at most `limit`).
-    fn scan(&self, start: u64, limit: usize, keep: &dyn Fn(&str) -> bool) -> Vec<(String, u64)> {
+    /// Each index line from `start` on, as (key, the city's offset in `cities.tsv`), while `visit`
+    /// returns true; read through one buffer, nothing kept.
+    fn walk(&self, start: u64, mut visit: impl FnMut(&str, u64) -> bool) {
         let mut reader = BufReader::new(&self.idx);
         if reader.seek(SeekFrom::Start(start)).is_err() {
-            return Vec::new();
+            return;
         }
-        let mut out = Vec::new();
-        for line in reader.lines().map_while(Result::ok) {
-            let Some((k, offset)) = line.split_once('\t') else { break };
-            if !keep(k) || out.len() >= limit {
-                break;
-            }
+        let mut line = String::new();
+        while matches!(reader.read_line(&mut line), Ok(n) if n > 0) {
+            let Some((k, offset)) = line.trim_end_matches('\n').split_once('\t') else { break };
             if let Ok(offset) = offset.parse() {
+                if !visit(k, offset) {
+                    break;
+                }
+            }
+            line.clear();
+        }
+    }
+
+    /// The index lines from `start` on, while `keep` says so (at most `limit`).
+    fn scan(&self, start: u64, limit: usize, keep: &dyn Fn(&str) -> bool) -> Vec<(String, u64)> {
+        let mut out = Vec::new();
+        self.walk(start, |k, offset| {
+            let more = keep(k) && out.len() < limit;
+            if more {
                 out.push((k.to_string(), offset));
             }
-        }
+            more
+        });
         out
     }
 
@@ -279,15 +315,11 @@ impl Store {
         City::from_line(&line_at(&self.tsv, offset)?)
     }
 
+    /// The cities at `offsets`, each read once (a city's name and aliases are index lines of their
+    /// own, so a prefix finds many cities several times), the most populous first.
     fn cities(&self, offsets: impl IntoIterator<Item = u64>) -> Vec<City> {
-        let mut out: Vec<City> = Vec::new();
-        for offset in offsets {
-            if let Some(c) = self.city_at(offset) {
-                if !out.iter().any(|o| o.id == c.id) {
-                    out.push(c);
-                }
-            }
-        }
+        let mut seen = std::collections::HashSet::new();
+        let mut out: Vec<City> = offsets.into_iter().filter(|o| seen.insert(*o)).filter_map(|o| self.city_at(o)).collect();
         out.sort_by(|a, b| b.population.cmp(&a.population).then(a.name.cmp(&b.name)));
         out
     }
@@ -331,19 +363,45 @@ impl Store {
         (city.label(&called, twin), written)
     }
 
-    /// Cities whose name or alias starts with `prefix` (Tab), in the order of `rank` (`local`: the
-    /// device's country).
+    /// Cities whose name or alias starts with `prefix` (Tab), at most `limit`: first those whose own
+    /// name starts so or one of whose names is `prefix` itself (`new` offers New York before San
+    /// Diego, once called New San Diego; `roma` in Italy still Rome first), then the others; each
+    /// group in the order of `rank` (`local`: the device's country). Ranked from each line's first
+    /// fields (`Brief`); the whole city is read only for those offered.
     #[cfg_attr(not(feature = "tui"), allow(dead_code))]
     pub fn starting_with(&self, prefix: &str, limit: usize, local: Option<&str>) -> Vec<City> {
         let target = tz::key(prefix);
         if target.chars().count() < 2 {
             return Vec::new();
         }
-        let hits = self.scan(self.lower_bound(&target), 2000, &|k| k.starts_with(target.as_str()));
-        let mut found = self.cities(hits.into_iter().map(|(_, o)| o));
-        rank(&mut found, prefix, local);
-        found.truncate(limit);
-        found
+        // Each city once (its name and its aliases are lines of their own), noting those with a name
+        // that is exactly `prefix`.
+        let (mut offsets, mut exact) = (Vec::new(), std::collections::HashSet::new());
+        let mut seen = std::collections::HashSet::new();
+        for (k, offset) in self.scan(self.lower_bound(&target), 2000, &|k| k.starts_with(target.as_str())) {
+            if seen.insert(offset) {
+                offsets.push(offset);
+            }
+            if k == target {
+                exact.insert(offset);
+            }
+        }
+        let mut found: Vec<(u64, String, Brief)> = offsets
+            .into_iter()
+            .filter_map(|o| {
+                let line = line_at(&self.tsv, o)?;
+                let brief = Brief::from_line(&line)?;
+                Some((o, line, brief))
+            })
+            .collect();
+        // The most populous first (as `cities`), then by rank: the sort is stable.
+        found.sort_by(|a, b| b.2.population.cmp(&a.2.population).then(a.2.name.cmp(&b.2.name)));
+        found.sort_by_cached_key(|(o, _, b)| {
+            let named_so = tz::key(&b.name).starts_with(&target) || exact.contains(o);
+            let (not_capital, tier) = rank_key(&b.name, &b.country_code, b.capital, &target, local);
+            (!named_so, not_capital, tier)
+        });
+        found.into_iter().take(limit).filter_map(|(_, line, _)| City::from_line(&line)).collect()
     }
 
     /// Cities whose name or alias is within 1 letter of `name` (2 from 6 letters): `Sprinfield`.
@@ -354,20 +412,21 @@ impl Store {
             return Vec::new();
         }
         let limit = if len <= 5 { 1 } else { 2 };
-        // Names sharing the first two letters (a misspelling rarely changes them).
+        // Names sharing the first two letters (a misspelling rarely changes them): their lengths
+        // first, then the distance, stopped once past the limit.
         let first: String = tz::key(name).chars().take(2).collect();
-        let hits = self.scan(self.lower_bound(&first), 200_000, &|k| k.starts_with(first.as_str()));
         let mut best: Vec<(usize, u64)> = Vec::new();
-        for (k, offset) in hits {
-            let squeezed = k.replace(' ', "");
-            if squeezed.chars().count().abs_diff(len) > limit {
-                continue;
+        self.walk(self.lower_bound(&first), |k, offset| {
+            if !k.starts_with(first.as_str()) {
+                return false;
             }
-            let d = tz::levenshtein(&target, &squeezed);
-            if d <= limit {
-                best.push((d, offset));
+            if k.chars().filter(|&c| c != ' ').count().abs_diff(len) <= limit {
+                if let Some(d) = tz::levenshtein_within(&target, &k.replace(' ', ""), limit) {
+                    best.push((d, offset));
+                }
             }
-        }
+            true
+        });
         // An exact name is not a misspelling.
         let Some(min) = best.iter().map(|b| b.0).min().filter(|&m| m > 0) else { return Vec::new() };
         self.cities(best.into_iter().filter(|b| b.0 == min).map(|b| b.1))

@@ -807,15 +807,14 @@ pub(crate) fn nearest<'a, T: Copy>(wanted: &str, candidates: impl IntoIterator<I
         if k.chars().count().abs_diff(len) > limit {
             continue;
         }
-        let d = levenshtein(wanted, k);
+        let Some(d) = levenshtein_within(wanted, k, limit) else { continue };
         if d == 0 {
             return None;
         }
         match &mut best {
             Some((b, items)) if d == *b => items.push(item),
             Some((b, _)) if d > *b => {}
-            _ if d <= limit => best = Some((d, vec![item])),
-            _ => {}
+            _ => best = Some((d, vec![item])),
         }
     }
     best
@@ -941,6 +940,28 @@ pub fn near_names(name: &str) -> Vec<&'static str> {
 }
 
 /// The distance between two words: the fewest letters added, removed or changed (Levenshtein).
+/// `levenshtein`, when it is `limit` or less: it stops once a row has no value within the limit
+/// (the values only grow from there), so a name far off costs a few letters, not the whole table.
+pub(crate) fn levenshtein_within(a: &str, b: &str, limit: usize) -> Option<usize> {
+    let b: Vec<char> = b.chars().collect();
+    let mut row: Vec<usize> = (0..=b.len()).collect();
+    for (i, ca) in a.chars().enumerate() {
+        let mut diagonal = row[0];
+        row[0] = i + 1;
+        let mut lowest = row[0];
+        for (j, &cb) in b.iter().enumerate() {
+            let above = row[j + 1];
+            row[j + 1] = (above + 1).min(row[j] + 1).min(diagonal + usize::from(ca != cb));
+            diagonal = above;
+            lowest = lowest.min(row[j + 1]);
+        }
+        if lowest > limit {
+            return None;
+        }
+    }
+    Some(row[b.len()]).filter(|&d| d <= limit)
+}
+
 pub(crate) fn levenshtein(a: &str, b: &str) -> usize {
     let b: Vec<char> = b.chars().collect();
     let mut row: Vec<usize> = (0..=b.len()).collect();
@@ -1065,6 +1086,13 @@ mod tests {
         assert!(near_names("km").is_empty(), "too short");
         assert_eq!(levenshtein("kitten", "sitting"), 3);
         assert_eq!(levenshtein("tokio", "tokyo"), 1);
+        // Within a limit: the distance, or none past it (stopping early).
+        assert_eq!(levenshtein_within("tokio", "tokyo", 1), Some(1));
+        assert_eq!(levenshtein_within("kitten", "sitting", 2), None);
+        assert_eq!(levenshtein_within("kitten", "sitting", 3), Some(3));
+        assert_eq!(levenshtein_within("rome", "rome", 0), Some(0));
+        assert_eq!(levenshtein_within("sanfransisco", "sanfrancisco", 2), Some(1));
+        assert_eq!(levenshtein_within("abcdef", "uvwxyz", 2), None);
         // Names are distinct.
         let mut keys: Vec<String> = CITIES.iter().map(|(n, _)| key(n)).collect();
         keys.sort();
