@@ -1644,19 +1644,28 @@ mod tests {
 
     /// How long a keystroke takes in the interactive mode (the key, then the whole screen drawn
     /// again, the preview evaluated): `cargo test --release -- --ignored keystroke_cost --nocapture`.
+    /// Each request is typed once first (the tables built once per process are not a keystroke's
+    /// cost), then the best of 5 runs is kept (the others met the machine's other work).
     #[test]
-    #[ignore]
+    #[ignore = "a measure, not a check"]
     fn keystroke_cost() {
         let config = Config::default();
         let opts = Options { positional: Vec::new(), precision: 4, silent: false, verbose: false };
-        for input in ["10 km mi", "12+4/2*sqrt 16", "Rome Paris", "10:00am jappan romme", "12 USA UAE"] {
+        let typed = |input: &str| {
             let mut app = App::new(&config, &opts);
             let started = std::time::Instant::now();
             for c in input.chars() {
                 app.handle(Key::Char(c));
                 std::hint::black_box(render(&app, 40, 120));
             }
-            let each = started.elapsed() / input.chars().count() as u32;
+            started.elapsed() / input.chars().count() as u32
+        };
+        let inputs = ["10 km mi", "12+4/2*sqrt 16", "Rome Paris", "10:00am jappan romme", "12 USA UAE", "now Tokyo"];
+        for input in inputs {
+            typed(input);
+        }
+        for input in inputs {
+            let each = (0..5).map(|_| typed(input)).min().unwrap();
             println!("KEYSTROKE {input:<24} {each:?} per key (handle + render)");
         }
     }
