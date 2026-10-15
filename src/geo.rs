@@ -173,16 +173,29 @@ pub enum Error {
 /// word `distance`, only when both sides are places (`10:00 Rome Paris` is a time request). The
 /// result and, for `-v`, notes on the places used. `None` if `input` is not one.
 pub fn request(config: &Config, input: &str, precision: usize) -> Option<Result<(String, Vec<String>), Error>> {
-    let unit = match crate::settings::current().distance_unit() {
-        crate::settings::DistanceUnit::Km => "km",
-        crate::settings::DistanceUnit::Mi => "mi",
-        crate::settings::DistanceUnit::Auto => match crate::locale::device_system() {
-            crate::config::System::Imperial => "mi",
-            _ => "km",
+    let device = || Device {
+        format: numbers::device().clone(),
+        unit: match crate::settings::current().distance_unit() {
+            crate::settings::DistanceUnit::Km => "km",
+            crate::settings::DistanceUnit::Mi => "mi",
+            crate::settings::DistanceUnit::Auto => match crate::locale::device_system() {
+                crate::config::System::Imperial => "mi",
+                _ => "km",
+            },
         },
+        local: local_country(),
     };
-    let store = crate::cities::store();
-    request_in(config, input, precision, numbers::device(), unit, store.as_ref(), local_country().as_deref())
+    request_in(config, input, precision, &device, crate::cities::store().as_ref())
+}
+
+/// How this device writes a distance: its number format, the length unit when the request names
+/// none (the `distance.unit` setting, else miles where the device is imperial), and its country (to
+/// order the choices). Asked for only once a request has two places: most requests are no
+/// distance, and on a Mac the unit and the format each come from a `defaults` process.
+pub struct Device {
+    pub format: NumberFormat,
+    pub unit: &'static str,
+    pub local: Option<String>,
 }
 
 /// The ISO code of the device time zone's country (`IT` for Europe/Rome), to offer its cities first.
@@ -190,28 +203,26 @@ pub fn local_country() -> Option<String> {
     crate::time::tz::zone_country(&crate::currency::local_zone()?).map(|c| c.code.clone())
 }
 
-/// `request`, with its numbers written in `format` (whole units: `1,107 km`, since places are not
-/// precise to the metre; below 1, `precision` decimals), `unit` when none is written, the city
-/// archive `store` (if any) and the device's country `local` (to order choices).
+/// `request`, with the city archive `store` (if any), and the `device` asked for once there are two
+/// places: its number format (whole units: `1,107 km`, since places are not precise to the metre;
+/// below 1, `precision` decimals), the unit when none is written, its country.
 pub fn request_in(
     config: &Config,
     input: &str,
     precision: usize,
-    format: &NumberFormat,
-    unit: &str,
+    device: &dyn Fn() -> Device,
     store: Option<&crate::cities::Store>,
-    local: Option<&str>,
 ) -> Option<Result<(String, Vec<String>), Error>> {
     if is_request(input) {
         let rest = input.trim_start()["distance".len()..].trim();
         // Being typed: one place so far (`distance Rieti`): what comes next.
-        return Some(match between(config, rest, precision, format, unit, store, local, true) {
+        return Some(match between(config, rest, precision, device, store, true) {
             Err(Error::Usage(usage)) => Err(Error::Usage(next_place(config, input, store).unwrap_or(usage))),
             other => other,
         });
     }
     // Without the word: only when both sides are places (a choice among them included).
-    match between(config, input, precision, format, unit, store, local, false) {
+    match between(config, input, precision, device, store, false) {
         Err(Error::Usage(_)) => None,
         other => Some(other),
     }
@@ -346,17 +357,7 @@ fn two_places(config: &Config, words: &[&str], store: Option<&crate::cities::Sto
     None
 }
 
-#[allow(clippy::too_many_arguments)]
-fn between(
-    config: &Config,
-    rest: &str,
-    precision: usize,
-    format: &NumberFormat,
-    default_unit: &str,
-    store: Option<&crate::cities::Store>,
-    local: Option<&str>,
-    asked: bool,
-) -> Result<(String, Vec<String>), Error> {
+fn between(config: &Config, rest: &str, precision: usize, device: &dyn Fn() -> Device, store: Option<&crate::cities::Store>, asked: bool) -> Result<(String, Vec<String>), Error> {
     const USAGE: &str = "write `distance <place> [to] <place> [unit]`, a place being a city, a country or coordinates (41.9,12.5)";
     let words: Vec<&str> = rest.split_whitespace().collect();
     // Two places, then a length unit when there is a third parameter (`in` before it optional:
@@ -367,19 +368,22 @@ fn between(
                 [rest @ .., word] if word.eq_ignore_ascii_case("in") => rest,
                 _ => before,
             };
-            (before.to_vec(), *last)
+            (before.to_vec(), Some(*last))
         }
-        _ => (words.clone(), default_unit),
+        _ => (words.clone(), None),
     };
     let (a, b) = match two_places(config, &places, store, asked) {
         Some(Ok(sides)) => sides,
         Some(Err(e)) => return Err(Error::Usage(e)),
         None => return Err(Error::Usage(USAGE.to_string())),
     };
+    let device = device();
+    let unit = unit.unwrap_or(device.unit);
     let ((a, ca), (b, cb)) = match (a, b) {
         (Side::One(a, ca), Side::One(b, cb)) => ((a, ca), (b, cb)),
-        (a, b) => return Err(Error::Ambiguous(question(&a, &b, unit, local))),
+        (a, b) => return Err(Error::Ambiguous(question(&a, &b, unit, &device))),
     };
+    let format = &device.format;
     let metres = distance(a.point, b.point);
     let (value, symbol) = convert::convert(config, metres, "m", unit).map_err(|e| Error::Usage(e.to_string()))?;
     let shown = |p: &Place| match coordinates(&p.name) {
@@ -399,7 +403,8 @@ fn between(
 /// Paris km`), in the order of `cities::rank`: a country's capital first (so the first choice,
 /// the default, is the capitals: `Rome Paris`), then the city named exactly as written, those in
 /// the device's country, the others; by population within each.
-fn question(a: &Side, b: &Side, unit: &str, local: Option<&str>) -> crate::time::Ambiguity {
+fn question(a: &Side, b: &Side, unit: &str, device: &Device) -> crate::time::Ambiguity {
+    let local = device.local.as_deref();
     use crate::cities::City;
     // Each city: the request's name (qualified: exact), the city, its short label (`Milano -
     // Italy`, the region only when its country has another city of that name).
@@ -436,8 +441,8 @@ fn question(a: &Side, b: &Side, unit: &str, local: Option<&str>) -> crate::time:
                 pattern: labels.join(" → "),
                 // One city: its population and map link; two: their populations.
                 date: match &asked[..] {
-                    [one] => format!("{} inhabitants · {}", numbers::device().apply(&one.population.to_string()), one.maps()),
-                    _ => asked.iter().map(|c| numbers::device().apply(&c.population.to_string())).collect::<Vec<_>>().join(" / ") + " inhabitants",
+                    [one] => format!("{} inhabitants · {}", device.format.apply(&one.population.to_string()), one.maps()),
+                    _ => asked.iter().map(|c| device.format.apply(&c.population.to_string())).collect::<Vec<_>>().join(" / ") + " inhabitants",
                 },
                 request: format!("distance {name_a} to {name_b} {unit}"),
             });
@@ -517,7 +522,7 @@ mod tests {
         let config = Config::default();
         let plain = NumberFormat::default();
         let r = |s: &str| {
-            request_in(&config, s, 1, &plain, "km", None, None).unwrap().map(|(out, _)| out).map_err(|e| match e {
+            request_in(&config, s, 1, &|| Device { format: plain.clone(), unit: "km", local: None }, None).unwrap().map(|(out, _)| out).map_err(|e| match e {
                 Error::Usage(m) => m,
                 Error::Ambiguous(a) => a.message(),
             })
@@ -556,7 +561,7 @@ mod tests {
         // Whole units, with the device's thousands separator; below 1, decimals.
         let italian = NumberFormat { decimal: ",".into(), thousands: ".".into(), grouping: vec![3, 3] };
         let english = NumberFormat { decimal: ".".into(), thousands: ",".into(), grouping: vec![3, 3] };
-        let shown = |s: &str, f: &NumberFormat| request_in(&config, s, 4, f, "km", None, None).unwrap().unwrap().0;
+        let shown = |s: &str, f: &NumberFormat| request_in(&config, s, 4, &|| Device { format: f.clone(), unit: "km", local: None }, None).unwrap().unwrap().0;
         assert_eq!(shown("Rome to Doha", &italian), "4.019 km");
         assert_eq!(shown("Rome to Doha", &english), "4,019 km");
         assert_eq!(shown("Rome to Paris", &english), "1,107 km");
@@ -571,7 +576,8 @@ mod tests {
 
         fn run(input: &str, local: Option<&str>) -> Option<Result<(String, Vec<String>), Error>> {
             let (_, store) = sample(&format!("geo-{}", input.len() * 31 + local.map_or(0, str::len)));
-            request_in(&Config::default(), input, 1, &NumberFormat::default(), "km", Some(&store), local)
+            let device = || Device { format: NumberFormat::default(), unit: "km", local: local.map(str::to_string) };
+            request_in(&Config::default(), input, 1, &device, Some(&store))
         }
 
         fn ask(input: &str, local: Option<&str>) -> crate::time::Ambiguity {
