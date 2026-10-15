@@ -81,17 +81,24 @@ fn main() -> ExitCode {
             eprintln!("tally: error: `--sync` downloads everything: no `{extra}` after it");
             return ExitCode::from(2);
         }
+        // A group that failed is reported (stderr; `--json`: its warnings) and makes the exit code 1,
+        // after the others had their turn.
+        let code = |report: &online::Report| if report.failed.is_empty() { ExitCode::SUCCESS } else { ExitCode::from(1) };
         return match (online::sync(auto), json) {
             // `--json`: the usual reply, the lines as the result (with the peak memory).
-            (Ok(lines), true) => {
-                println!("{}", json::result(&Ok(Output::from(lines.join("\n"))), &[]));
-                ExitCode::SUCCESS
+            (Ok(report), true) => {
+                let output = Output { stdout: report.done.join("\n"), warnings: report.failed.clone(), ..Output::default() };
+                println!("{}", json::result(&Ok(output), &[]));
+                code(&report)
             }
-            (Ok(lines), false) => {
-                for line in lines {
+            (Ok(report), false) => {
+                for line in &report.done {
                     println!("{line}");
                 }
-                ExitCode::SUCCESS
+                for line in &report.failed {
+                    eprintln!("tally: {line}");
+                }
+                code(&report)
             }
             (Err(e), true) => {
                 println!("{}", json::result(&Err(CliError::Convert(convert::ConvertError::Domain(e))), &[]));

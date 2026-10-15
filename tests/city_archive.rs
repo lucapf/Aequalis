@@ -75,6 +75,20 @@ fn the_default_unit_follows_the_device() {
     assert_eq!(run("it_IT.UTF-8"), "1107 km");
 }
 
+/// A group that fails does not keep the others from their turn: the archive can't be downloaded,
+/// the exchange rates and live values are still synced; the failure is said, and the exit code 1.
+#[test]
+fn a_failed_download_stops_nothing_else() {
+    let url = format!("file://{}/nowhere/cities.json", std::env::temp_dir().display());
+    let dir = common::config("failed", &[("offline", "false"), ("cities.refresh", "manual"), ("rates.refresh", "manual"), ("live.refresh", "manual"), ("cities.url", &url)]);
+    let o = common::tally(&dir, &["--sync"]);
+    assert_eq!(o.status.code(), Some(1));
+    assert_eq!(common::out(&o), "0 exchange rates\n0 live values");
+    assert_eq!(common::err(&o), format!("tally: cities: could not download the city archive ({url})"));
+    let json = common::out(&common::tally(&dir, &["--json", "--sync"]));
+    assert!(json.starts_with(r#"{"ok":true,"result":"0 exchange rates\n0 live values","notes":[],"warnings":["cities: could not download"#), "{json}");
+}
+
 #[test]
 fn offline_no_download() {
     let dir = common::config("offline", &[]);

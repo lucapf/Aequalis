@@ -234,8 +234,9 @@ pub fn seed(rates: Option<&str>, cities: Option<&Path>) -> String {
 /// `tally --sync --json`.
 #[no_mangle]
 pub extern "C" fn tally_sync(auto: bool) -> *mut c_char {
+    // The groups that failed: the reply's warnings, after the others had their turn.
     let result = crate::online::sync(auto)
-        .map(|lines| crate::Output::from(lines.join("\n")))
+        .map(|report| crate::Output { stdout: report.done.join("\n"), warnings: report.failed, ..crate::Output::default() })
         .map_err(|e| crate::CliError::Convert(crate::convert::ConvertError::Domain(e)));
     give(json::result(&result, &crate::notify::current()))
 }

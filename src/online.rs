@@ -269,7 +269,18 @@ pub type Fetch = Box<dyn Fn() -> Option<Vec<(String, f64)>>>;
 /// `tally --sync` (`auto`: the background sync, `--auto`): under the lock, by hand every group
 /// is downloaded again; the background sync does what the policies say (`due`). Returns a line
 /// per group.
-pub fn sync(auto: bool) -> Result<Vec<String>, String> {
+/// What a sync did: a line for each group that managed (`12 exchange rates`) and for each that did
+/// not (`cities: could not download the city archive (…)`). Each group is synced on its own: one
+/// that fails does not keep the others from their turn.
+#[derive(Debug, Default, PartialEq)]
+pub struct Report {
+    pub done: Vec<String>,
+    pub failed: Vec<String>,
+}
+
+/// Syncs every group (`auto`: those the refresh settings say are due). `Err`: no sync at all (the
+/// offline setting, another sync running).
+pub fn sync(auto: bool) -> Result<Report, String> {
     let settings = crate::settings::current();
     if settings.offline() {
         return Err("the offline setting is on: no sync".into());
@@ -277,27 +288,29 @@ pub fn sync(auto: bool) -> Result<Vec<String>, String> {
     let _lock = take_lock()?;
     let now = crate::time::unix_now();
     let groups: Vec<Group> = if auto { due(&settings, now) } else { Group::ALL.to_vec() };
-    let mut out = Vec::new();
+    let no_home = || "no home directory".to_string();
+    let mut report = Report::default();
     for group in groups {
         let interval = if auto { settings.interval(group.name()) } else { 0 };
         let line = match group {
-            Group::Live => {
-                let n = sync_into(&path().ok_or("no home directory")?, crate::trivia::sources(), interval, &crate::time::unix_now);
+            Group::Live => path().ok_or_else(no_home).map(|path| {
+                let n = sync_into(&path, crate::trivia::sources(), interval, &crate::time::unix_now);
                 format!("{n} live value{}", if n == 1 { "" } else { "s" })
-            }
-            Group::Rates => {
-                let path = crate::currency::path().ok_or("no home directory")?;
+            }),
+            Group::Rates => crate::currency::path().ok_or_else(no_home).map(|path| {
                 let n = sync_into(&path, vec![crate::currency::source()], interval, &crate::time::unix_now);
                 format!("{n} exchange rate{}", if n == 1 { "" } else { "s" })
-            }
-            Group::Cities => {
-                let base = crate::files::dir().ok_or("no home directory")?;
-                sync_cities(&base, &settings, auto, now, &|text| crate::notify::desktop("Tally", text))?
-            }
+            }),
+            Group::Cities => crate::files::dir()
+                .ok_or_else(no_home)
+                .and_then(|base| sync_cities(&base, &settings, auto, now, &|text| crate::notify::desktop("Tally", text))),
         };
-        out.push(line);
+        match line {
+            Ok(line) => report.done.push(line),
+            Err(e) => report.failed.push(format!("{}: {e}", group.name())),
+        }
     }
-    Ok(out)
+    Ok(report)
 }
 
 /// The city archive: under `notify` (in the background) only its version is checked, and a newer
