@@ -707,19 +707,10 @@ impl<'a> App<'a> {
         if input.trim().is_empty() || ["exit", "quit", "about"].contains(&input.trim()) {
             return None;
         }
-        // A written date with no format yet (`12/04/26 3:20PM`): say what comes next.
+        // A written date with no format yet (`12/04/26 3:20PM`): say what comes next, with the keys
+        // that write one (alone, the core reads `12/04/2026` as a division).
         if !crate::time::is_date_request(&input) && crate::time::is_date_value(&input) {
             return Some(Err("now the target format (T, then Tab: Formats)".into()));
-        }
-        // Only a known source unit so far: say what comes next instead of the usage error. Not for a
-        // date (`2026/12/24 - 12d`: the `d` is date math, the request is complete; bug 007).
-        let date = crate::time::is_date_request(&input);
-        if let (false, Ok((_, rest))) = (date, crate::calc::parse_prefix(&input)) {
-            if let [from] = rest.split_whitespace().collect::<Vec<_>>()[..] {
-                if crate::convert::resolve(self.config, from).is_ok() {
-                    return Some(Err("now the target unit".into()));
-                }
-            }
         }
         let preview = match &*self.evaluated(&input) {
             // An ambiguous request: Enter asks which reading is meant.
@@ -1343,7 +1334,7 @@ mod tests {
         let opts = options(&config);
         let mut app = App::new(&config, &opts);
         typed(&mut app, "25 km ");
-        assert_eq!(app.preview(), Some(Err("now the target unit".into())));
+        assert_eq!(app.preview(), Some(Err("now the length unit to convert to: in, ft, yd…".into())), "what comes next, as in every UI");
         app.handle(Key::Ctrl('u'));
         typed(&mut app, "25 foo");
         assert_eq!(app.preview(), None, "a word being typed: no error yet");

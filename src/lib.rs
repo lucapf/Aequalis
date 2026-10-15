@@ -464,9 +464,11 @@ fn request(config: &Config, opts: &Options, tokens: &[&str]) -> Result<Output, C
         [] => return Ok(Output { stdout: convert::format_value(value, opts.precision), notes, ..Output::default() }),
         [to] if config::is_number_word(to) => return Ok(Output { stdout: convert::format_value(value, opts.precision), notes, ..Output::default() }),
         [from, to] => (from, to),
-        // A unit so far (`10 km`): the target comes next.
+        // A unit so far (`10 km`): the target comes next; for a compound one (`m/s^2`) no kind's units
+        // to list.
         [from] => return Err(match convert::find_unit(config, from) {
             Some((category, unit)) => CliError::Incomplete(next_unit(category, unit)),
+            None if convert::resolve(config, from).is_ok() => CliError::Incomplete("now the unit to convert to".into()),
             None => CliError::Usage(EXPECTED.into()),
         }),
         _ => return usage(EXPECTED),
@@ -707,6 +709,10 @@ mod tests {
         assert_eq!(code("abc km m"), 2);
         assert_eq!(code("inf km m"), 2);
         assert_eq!(code("10 km"), 2);
+        // Not finished yet: what comes next, also after a compound unit.
+        assert_eq!(cli("10 km").unwrap_err(), CliError::Incomplete("now the length unit to convert to: in, ft, yd…".into()));
+        assert_eq!(cli("100 m/s^2").unwrap_err(), CliError::Incomplete("now the unit to convert to".into()));
+        assert_eq!(cli("10 foo").unwrap_err(), CliError::Usage(EXPECTED.into()));
         assert_eq!(code("1 2 3 4"), 2);
         assert_eq!(code(""), 2);
         assert_eq!(code("1 km m --precision 16"), 2);

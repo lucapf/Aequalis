@@ -1599,9 +1599,12 @@ mod tests {
         // A plain conversion: just the result.
         let (lines, _) = screen("10 km mi", 12, 80);
         assert!(lines[9].starts_with("│   = 6.2137 mi"), "{}", lines[9]);
-        // Only the source unit so far: what comes next follows the grouping.
+        // Only the source unit so far: what comes next follows the grouping, once the unit is typed
+        // (a space after it: `km` may still become `km/h`, and Tab offers those meanwhile).
         let (lines, _) = screen("1+2 km", 12, 100);
-        assert!(lines[9].starts_with("│   (1 + 2) · now the target unit"), "{}", lines[9]);
+        assert!(lines[9].starts_with("│   (1 + 2)    Tab: km · km2 · km/h"), "{}", lines[9]);
+        let (lines, _) = screen("1+2 km ", 12, 100);
+        assert!(lines[9].starts_with("│   (1 + 2) · now the length unit to convert to: in, ft, yd…"), "{}", lines[9]);
         // A real error follows the grouping too, once the word is typed (a space after it).
         let (lines, _) = screen("1+2 km mi m", 12, 100);
         assert!(lines[9].starts_with("│   (1 + 2)") && !lines[9].contains("expected"), "{}", lines[9]);
