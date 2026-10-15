@@ -28,7 +28,7 @@ pub fn device_system() -> System {
 
 static DEVICE_SYSTEM: std::sync::OnceLock<System> = std::sync::OnceLock::new();
 
-/// The device's system as the app embedding tally knows it (the iPhone app: from `Locale`); set
+/// The device's system as the app embedding tally knows it (the Android app: from its `Locale`); set
 /// once, before use.
 pub fn set_device_system(system: System) {
     let _ = DEVICE_SYSTEM.set(system);

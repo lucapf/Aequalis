@@ -1,5 +1,5 @@
 /*
- * tally's C interface (src/ffi.rs), for apps that embed it: the iPhone app.
+ * tally's C interface (src/ffi.rs), for apps that embed it: the Android app.
  *
  * Every string is UTF-8 and NUL-terminated. Every string returned is JSON and must be given
  * back with tally_free(). Call tally_init() once, first, then tally_set_fetcher().

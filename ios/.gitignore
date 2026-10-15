@@ -1,5 +1,0 @@
-# Built: scripts/build-ios.sh, xcodegen generate.
-TallyCore.xcframework/
-Tally.xcodeproj/
-build/
-Tally/Info.plist

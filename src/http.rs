@@ -1,5 +1,5 @@
-//! Downloads. The command line runs `curl`; an app that embeds tally (the iPhone app, `ffi.rs`)
-//! can't start programs, so it registers its own `Fetcher` (there: `URLSession`) once, at start.
+//! Downloads. The command line runs `curl`; an app that embeds tally (the Android app, `ffi.rs`)
+//! has no `curl`, so it registers its own `Fetcher` once, at start.
 
 use std::path::Path;
 use std::process::Command;

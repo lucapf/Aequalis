@@ -155,7 +155,7 @@ pub fn device() -> &'static NumberFormat {
 #[cfg_attr(test, allow(dead_code))]
 static DEVICE: std::sync::OnceLock<NumberFormat> = std::sync::OnceLock::new();
 
-/// The device's format as the app embedding tally knows it (the iPhone app: from `Locale`),
+/// The device's format as the app embedding tally knows it (the Android app: from its `Locale`),
 /// before any number is formatted; later calls are ignored.
 pub fn set_device(format: NumberFormat) {
     let _ = DEVICE.set(format);

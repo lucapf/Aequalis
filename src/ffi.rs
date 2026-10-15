@@ -1,10 +1,10 @@
-//! The C interface for apps that embed tally (the iPhone app; feature `ffi`, built as a static
-//! library: `scripts/build-ios.sh`). Strings in and out are UTF-8 and NUL-terminated; every
-//! string returned is JSON and is given back with `tally_free`. `include/tally.h` declares them.
+//! The C interface for apps that embed tally (the Android app; feature `ffi`, built as a shared
+//! library). Strings in and out are UTF-8 and NUL-terminated; every string returned is JSON and is
+//! given back with `tally_free`. `include/tally.h` declares them.
 //!
 //! - `tally_init(config)` once, first: the data folder, the time zone, the number format and the
-//!   measurement system, which the app knows (an iPhone app gets no `HOME`, `TZ` or `LANG` that
-//!   say them).
+//!   measurement system, which the app knows (an app gets no `HOME`, `TZ` or `LANG` that say
+//!   them).
 //! - `tally_set_fetcher(fetch)`: the app's downloader (the app can't start `curl`).
 //! - `tally_eval(request)`: the reply of `tally --json <request>` (results, errors, choices).
 //! - `tally_settings()`, `tally_set(key, value)`, `tally_sync(auto)`, `tally_trivia()`,
