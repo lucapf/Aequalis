@@ -32,9 +32,10 @@ Tick an item when it is done, and note the commit.
 
 - [x] Trivia: the length of a day and of a year for every planet.
 - [ ] Recheck the whole code: performance, cleanup, refactoring.
-- [ ] Ship the city archive and the exchange rates valid at build time inside the app, so the
+- [x] Ship the city archive and the exchange rates valid at build time inside the app, so the
       features work before any download; with currencies, say how old the rates are (1h, 2d, 3w,
-      1m, 1y…).
+      1m, 1y…). `scripts/build-android.sh` downloads them into the app's assets; the app installs
+      them at its first start.
 - [ ] Check on screen (not done yet): the Trivia measure chips and the Wikipedia page inside the app.
 
 ### Later (medium issues)
@@ -52,6 +53,3 @@ Tick an item when it is done, and note the commit.
 - [ ] Downloads on the phone: exchange rates and the city archive (the app's downloader).
 - [ ] Push the local commits (`git status` says how many).
 
-## Nice to have
-- [ ] add how long is a day in a planet (time to 360 degree rotation)
-- [ ] add how long it takes to rotate around the sun (year)

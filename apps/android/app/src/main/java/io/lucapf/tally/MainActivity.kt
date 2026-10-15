@@ -56,6 +56,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         // The core first: it must know the device before the first request.
         Core.start(applicationContext)
+        // The data shipped with the app, in the background: requests work meanwhile, with what the
+        // core already has.
+        Thread { Core.seedShipped(applicationContext) }.start()
         enableEdgeToEdge()
         setContent {
             TallyTheme {
@@ -138,7 +141,10 @@ fun TallyApp() {
             ) {
                 when {
                     reply == null -> {}
-                    reply.result != null -> Text(reply.result, style = MaterialTheme.typography.headlineMedium)
+                    reply.result != null -> Column {
+                        Text(reply.result, style = MaterialTheme.typography.headlineMedium)
+                        reply.ratesAge?.let { Text("rates $it old", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    }
                     !finished -> {}
                     // What comes next (`now the length unit to convert to: in, ft, yd…`): a hint, in grey.
                     reply.hint != null -> Text(reply.hint, color = MaterialTheme.colorScheme.onSurfaceVariant)

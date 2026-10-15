@@ -6,6 +6,11 @@
 #   rustup target add x86_64-linux-android aarch64-linux-android
 #   scripts/build-android.sh
 # Run it again after changing the Rust code, then Run in Android Studio.
+#
+# It also ships the online data as valid now, in app/src/main/assets/ (not in git): the exchange
+# rates (ExchangeRate-API's answer, refreshed after 12 hours) and the city archive (refreshed
+# after 30 days); the app installs them at its first start, so currencies and distances between
+# any cities work before its first download. Offline, the ones already there are shipped.
 set -eu
 cd "$(dirname "$0")/.."
 sdk=${ANDROID_HOME:-$HOME/Android/Sdk}
@@ -24,3 +29,21 @@ for pair in x86_64-linux-android:x86_64 aarch64-linux-android:arm64-v8a; do
     cp "target/$target/release/libtally.so" "apps/android/app/src/main/jniLibs/$abi/"
     echo "apps/android/app/src/main/jniLibs/$abi/libtally.so"
 done
+
+# The online data, as valid now (a download that fails keeps the copy there, if any).
+assets=apps/android/app/src/main/assets
+mkdir -p "$assets"
+fresh() { [ -s "$1" ] && [ -n "$(find "$1" -mmin -"$2" 2>/dev/null)" ]; }
+if ! fresh "$assets/rates.json" 720; then
+    curl -sfL --max-time 30 https://open.er-api.com/v6/latest/USD -o "$assets/rates.json.new" \
+        && mv "$assets/rates.json.new" "$assets/rates.json" || echo "rates: not downloaded (offline?)" >&2
+fi
+if ! fresh "$assets/cities.json" 43200; then
+    release=https://github.com/lucapf/tally/releases/download/cities
+    # The plain archive; while the release still has only the compressed one, that one unpacked.
+    { curl -sfL --max-time 600 "$release/cities.json" -o "$assets/cities.json.new" \
+        || curl -sfL --max-time 600 "$release/cities.json.gz" | gzip -dc > "$assets/cities.json.new"; } \
+        && [ -s "$assets/cities.json.new" ] && mv "$assets/cities.json.new" "$assets/cities.json" \
+        || { rm -f "$assets/cities.json.new"; echo "cities: not downloaded (offline?)" >&2; }
+fi
+ls -la "$assets"

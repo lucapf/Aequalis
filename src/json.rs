@@ -164,7 +164,14 @@ pub fn result(result: &Result<Output, CliError>, notices: &[String]) -> String {
 
 fn outcome(result: &Result<Output, CliError>) -> String {
     match result {
-        Ok(out) => Object::new().num("ok", true).str("result", &out.stdout).strs("notes", &out.notes).strs("warnings", &out.warnings).finish(),
+        Ok(out) => {
+            let reply = Object::new().num("ok", true).str("result", &out.stdout).strs("notes", &out.notes).strs("warnings", &out.warnings);
+            // A currency result: how old its rates are (`2d`).
+            match &out.rates_age {
+                Some(age) => reply.str("rates_age", age).finish(),
+                None => reply.finish(),
+            }
+        }
         Err(err) => {
             let ambiguous = match err {
                 CliError::Ambiguous(a) => {

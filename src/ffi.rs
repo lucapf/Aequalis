@@ -207,6 +207,30 @@ pub fn set(key: &str, value: Option<&str>) -> String {
     }
 }
 
+/// The data shipped with an app (as valid when it was built), so the features work before any
+/// download: `rates`, ExchangeRate-API's answer, stored when newer than the rates there; `cities`,
+/// the city archive's JSON file, installed when no archive is (it takes a second or two: call it
+/// off the main thread). `{"ok":true,"rates":N,"cities":N}`: how many were stored (0: the ones
+/// there were kept), or the error.
+pub fn seed(rates: Option<&str>, cities: Option<&Path>) -> String {
+    let now = crate::time::unix_now();
+    let stored = match rates {
+        Some(body) => match crate::currency::store(body, now) {
+            Ok(n) => n,
+            Err(e) => return Object::new().num("ok", false).str("error", &e).finish(),
+        },
+        None => 0,
+    };
+    let installed = match (cities, crate::files::dir()) {
+        (Some(json), Some(base)) if crate::cities::meta_in(&base).is_none() => match crate::cities::install(&base, json, "", now) {
+            Ok(n) => n,
+            Err(e) => return Object::new().num("ok", false).str("error", &e).finish(),
+        },
+        _ => 0,
+    };
+    Object::new().num("ok", true).num("rates", stored).num("cities", installed).finish()
+}
+
 /// Downloads the online data, in this thread (call it off the main thread): everything, or with
 /// `auto` what the refresh settings say (at launch, in a background refresh). The reply of
 /// `tally --sync --json`.

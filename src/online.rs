@@ -59,7 +59,7 @@ impl Data {
         self.values.iter().find(|(n, _)| n == name).map(|(_, s)| *s)
     }
 
-    fn set(&mut self, name: &str, value: f64, at: i64) {
+    pub fn set(&mut self, name: &str, value: f64, at: i64) {
         match self.values.iter_mut().find(|(n, _)| n == name) {
             Some((_, s)) => *s = Stored { value, at },
             None => self.values.push((name.to_string(), Stored { value, at })),

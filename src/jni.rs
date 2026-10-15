@@ -140,3 +140,14 @@ pub extern "system" fn Java_io_lucapf_tally_Core_set(env: Env, _class: Class, ke
     };
     unsafe { to_java(env, &reply) }
 }
+
+/// `Core.seed(rates, cities)`: the data shipped with the app (`ffi::seed`): ExchangeRate-API's
+/// answer (empty: none) and the path of the city archive's JSON file (empty: none). Off the main
+/// thread: installing the archive takes a second or two.
+#[no_mangle]
+pub extern "system" fn Java_io_lucapf_tally_Core_seed(env: Env, _class: Class, rates: ByteArray, cities: ByteArray) -> ByteArray {
+    let rates = unsafe { text(env, rates) }.filter(|r| !r.is_empty());
+    let cities = unsafe { text(env, cities) }.filter(|c| !c.is_empty());
+    let reply = crate::ffi::seed(rates.as_deref(), cities.as_deref().map(std::path::Path::new));
+    unsafe { to_java(env, &reply) }
+}

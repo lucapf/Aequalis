@@ -342,6 +342,8 @@ fn pieces(config: &Config, input: &str) -> Vec<Piece> {
 #[derive(Debug, PartialEq)]
 pub struct Converted {
     pub result: String,
+    /// How old the rates are, for people (`2d`: `age`).
+    pub age: String,
     /// When countries stand for currencies, the currencies used (`describe`): shown always.
     pub check: Option<String>,
     pub notes: Vec<String>,
@@ -481,7 +483,47 @@ fn convert(amount: &str, money: &[Piece], ctx: &Context) -> Result<Converted, Er
     }
     // Countries written for currencies: which ones were used, to check.
     let check = sides(money, Some(to));
-    Ok(Converted { result: format!("{result:.2} {to}"), check, notes, warnings })
+    Ok(Converted { result: format!("{result:.2} {to}"), age: age(ctx.now - day), check, notes, warnings })
+}
+
+/// An age for people, in its largest whole unit: `less than 1h`, `5h`, `2d`, `3w`, `4m`, `1y`.
+pub fn age(seconds: i64) -> String {
+    let s = seconds.max(0);
+    match s {
+        0..3_600 => "less than 1h".to_string(),
+        3_600..86_400 => format!("{}h", s / 3_600),
+        86_400..604_800 => format!("{}d", s / 86_400),
+        604_800..2_592_000 => format!("{}w", s / 604_800),
+        2_592_000..31_557_600 => format!("{}m", s / 2_592_000),
+        _ => format!("{}y", s / 31_557_600),
+    }
+}
+
+/// Stores rates from an answer of ExchangeRate-API (`parse`), the ones shipped with an app: only
+/// when they are newer than the rates already there (a sync's are kept). How many rates were
+/// stored (0: the ones there are as new or newer).
+pub fn store(body: &str, now: i64) -> Result<usize, String> {
+    store_in(&path().ok_or("no data folder")?, body, now)
+}
+
+/// `store`, into the rates file at `path`.
+fn store_in(path: &std::path::Path, body: &str, now: i64) -> Result<usize, String> {
+    let rates = parse(body).ok_or("the exchange rates are not ExchangeRate-API's answer")?;
+    let day = |data: &Data| data.get(RATES_DATE).map(|s| s.value);
+    let mut data = crate::online::load_from(path);
+    let shipped = rates.iter().find(|(n, _)| n == RATES_DATE).map(|(_, v)| *v);
+    if day(&data).zip(shipped).is_some_and(|(there, shipped)| there >= shipped) {
+        return Ok(0);
+    }
+    for (name, value) in &rates {
+        data.set(name, *value, now);
+    }
+    // Synced at their own date, not now: their age (and when to sync again) follows from it.
+    data.synced_at = shipped.map(|d| d as i64);
+    data.attempted_at = Some(now);
+    data.ok = true;
+    crate::online::save_to(path, &data).map_err(|e| e.to_string())?;
+    Ok(rates.len())
 }
 
 fn name(code: &str) -> String {
@@ -688,6 +730,29 @@ mod tests {
         match with(input, Some("EUR")) {
             Some(Err(Error::Ambiguous(a))) => a,
             other => panic!("{input}: {other:?}"),
+        }
+    }
+
+    /// Rates shipped with an app: stored when newer than the ones there, else kept.
+    #[test]
+    fn shipped_rates() {
+        let dir = std::env::temp_dir().join(format!("tally-shipped-rates-{}", std::process::id()));
+        let path = dir.join("currencies.json");
+        let answer = |day: i64| format!(r#"{{"result":"success","time_last_update_unix":{day},"rates":{{"USD":1,"EUR":0.9,"JPY":150}}}}"#);
+        assert_eq!(store_in(&path, &answer(1_000), 5_000), Ok(4), "three rates and their date");
+        let data = crate::online::load_from(&path);
+        assert_eq!((data.get("USD/EUR").map(|s| s.value), data.synced_at), (Some(0.9), Some(1_000)));
+        assert_eq!(store_in(&path, &answer(900), 6_000), Ok(0), "older: the ones there are kept");
+        assert_eq!(store_in(&path, &answer(2_000), 7_000), Ok(4), "newer: stored");
+        assert!(store_in(&path, "not rates", 8_000).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// An age for people, in its largest whole unit.
+    #[test]
+    fn ages() {
+        for (seconds, shown) in [(0, "less than 1h"), (3_599, "less than 1h"), (3_600, "1h"), (86_399, "23h"), (86_400, "1d"), (6 * 86_400, "6d"), (7 * 86_400, "1w"), (29 * 86_400, "4w"), (30 * 86_400, "1m"), (364 * 86_400, "12m"), (366 * 86_400, "1y"), (-5, "less than 1h")] {
+            assert_eq!(age(seconds), shown, "{seconds}");
         }
     }
 

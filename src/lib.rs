@@ -279,6 +279,8 @@ pub struct Output {
     /// The currencies countries stood for (also the first note), next to the result in the
     /// interactive mode.
     pub check: Option<String>,
+    /// For a currency result: how old the rates are (`2d`), for a UI to say it.
+    pub rates_age: Option<String>,
 }
 
 impl From<String> for Output {
@@ -420,6 +422,7 @@ fn request(config: &Config, opts: &Options, tokens: &[&str]) -> Result<Output, C
                 },
                 check: c.check.filter(|_| !opts.silent),
                 formatted: false,
+                rates_age: Some(c.age),
             }),
             Err(currency::Error::Usage(msg)) => Err(CliError::Usage(msg)),
             Err(currency::Error::Ambiguous(a)) => Err(CliError::Ambiguous(a)),

@@ -15,3 +15,6 @@
 local.properties
 # The Rust core, built by scripts/build-android.sh
 /app/src/main/jniLibs
+# The online data shipped with the app, downloaded by scripts/build-android.sh
+/app/src/main/assets/rates.json
+/app/src/main/assets/cities.json
