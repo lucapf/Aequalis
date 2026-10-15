@@ -29,6 +29,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -41,6 +42,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * A panel over the keyboard (the same height): Measures (the unit classes, then a class's units),
@@ -94,10 +97,16 @@ fun PanelView(
     }
 }
 
+/** A panel's list, loaded off the main thread once the panel opens (the Trivia computes the planets'
+ *  distances now); null until it arrives, a frame or two later. */
+@Composable
+private fun <T> loaded(load: () -> T): T? =
+    produceState<T?>(null) { value = withContext(Dispatchers.Default) { load() } }.value
+
 /** The unit classes; a class opened: its units, by its two systems (Metric and Imperial…). */
 @Composable
 private fun MeasuresPanel(opened: String?, open: (String) -> Unit, write: (String) -> Unit) {
-    val measures = remember { Core.measures() }
+    val measures = loaded { Core.measures() } ?: return
     val measure = measures.firstOrNull { it.name == opened }
     if (measure == null) {
         LazyColumn {
@@ -134,7 +143,7 @@ private fun MeasuresPanel(opened: String?, open: (String) -> Unit, write: (Strin
 /** Every currency, the most used first: a tap writes its code. */
 @Composable
 private fun CurrenciesPanel(write: (String) -> Unit) {
-    val currencies = remember { Core.currencies() }
+    val currencies = loaded { Core.currencies() } ?: return
     LazyColumn {
         items(currencies) { c -> Line("${c.code}  ${c.name}", c.symbols.joinToString(" ")) { write(c.code) } }
     }
@@ -144,7 +153,7 @@ private fun CurrenciesPanel(write: (String) -> Unit) {
  *  TUI's popup (the description, then each line), and a button that writes it into the request. */
 @Composable
 private fun TriviaPanel(opened: String?, detail: String?, open: (String) -> Unit, show: (String) -> Unit, write: (String) -> Unit, openLink: (String) -> Unit) {
-    val sections = remember { Core.trivia() }
+    val sections = loaded { Core.trivia() } ?: return
     val section = sections.firstOrNull { it.name == opened }
     val entry = section?.entries?.firstOrNull { it.name == detail }
     when {
