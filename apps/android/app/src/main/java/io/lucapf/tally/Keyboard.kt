@@ -90,9 +90,9 @@ private val OPERATORS = listOf("+" to "+", "−" to "-", "×" to "*", "÷" to "/
 @Composable
 private fun ColumnScope.Letters(onKey: (Key) -> Unit) {
     val write = { s: String -> onKey(Key.Write(s)) }
-    KeyRow { "1234567890".forEach { c -> CharKey(c, write) } }
-    // Next to the digits: the request's numbers and operators are typed together.
+    // Above the digits, next to them: the request's numbers and operators are typed together.
     KeyRow { OPERATORS.forEach { (shown, written) -> KeyButton(shown, tone = Tone.Operator) { write(written) } } }
+    KeyRow { "1234567890".forEach { c -> CharKey(c, write) } }
     KeyRow { "qwertyuiop".forEach { c -> CharKey(c, write) } }
     // The middle rows are half a key shorter on each side, as on a phone.
     KeyRow {
