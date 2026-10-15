@@ -35,13 +35,21 @@ Tick an item when it is done, and note the commit.
 ### 4. Asked on 15 Oct 2026 (next session)
 
 - [x] Trivia: the length of a day and of a year for every planet.
-- [ ] Recheck the whole code: performance, cleanup, refactoring.
+- [x] Recheck the whole code: performance, cleanup, refactoring (15 Oct 2026; `docs/CORE_REVIEW.md`
+      §9: what was measured, fixed, and left open).
 - [x] Ship the city archive and the exchange rates valid at build time inside the app, so the
       features work before any download; with currencies, say how old the rates are (1h, 2d, 3w,
       1m, 1y…). `scripts/build-android.sh` downloads them into the app's assets; the app installs
       them at its first start.
 - [x] Check on screen: the Trivia measure chips (a chip writes `0.3871 au `) and the Wikipedia page
       inside the app (with Open in browser).
+
+### From the recheck (`docs/CORE_REVIEW.md` §9, to decide)
+
+- [ ] A `rustfmt.toml` (`max_width = 160`, `use_small_heuristics = "Max"`) and one `cargo fmt`
+      (142 changes).
+- [ ] A written date alone (`12/04/2026`): a hint in every UI (the app shows `0.0015` now), or the
+      division it is on the command line.
 
 ### Later (medium issues)
 

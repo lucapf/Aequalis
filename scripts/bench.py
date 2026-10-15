@@ -55,9 +55,9 @@ def config(settings):
 
 
 def peak_kb(binary, args, env):
-    """The process's peak memory (VmHWM): from `--json` for a request (tally reads its own), else
-    by watching /proc while it runs."""
-    if not args[0].startswith("--"):
+    """The process's peak memory (VmHWM): from `--json` for a request and for `--sync` (tally reads
+    its own), else by watching /proc while it runs (once read 17.6 MB for a 6.1 MB `--sync`)."""
+    if not args[0].startswith("--") or args[0] == "--sync":
         out = subprocess.run([binary, "--json"] + args, env=env, capture_output=True, text=True, stdin=subprocess.DEVNULL).stdout
         for line in out.splitlines():
             if '"peak_kb":' in line:

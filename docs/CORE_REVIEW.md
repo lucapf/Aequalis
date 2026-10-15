@@ -46,14 +46,14 @@ the first attempt at this separation.
 | # | Severity | Where | Finding | Fix |
 |---|---|---|---|---|
 | 1 | High | `time/tz.rs:44`, `time/sys.rs:80` | **Two time-zone engines disagree in a DST gap.** The device's zone goes through the C library (`mktime`), a named zone through `tz.rs`. With `TZ=Europe/Rome`: `2026-03-29 02:30 unix` → 01:30Z, but `2026-03-29 02:30 Rome to London` → 00:30Z. `to_utc`'s doc says "the offset in force just before"; the code uses the offset after, in gaps and overlaps. | One engine: the device's zone by name through `tz.rs` too (also the fix for iOS, Android, Windows: §4). Pick one rule and document it, e.g. JavaScript Temporal's "compatible": a gap moves forward, an overlap takes the earlier time. |
-| 2 | High | `convert.rs:212`, `currency.rs:485` | **Halves round to even** (Rust's formatting): `2.5 --precision 0` → `2`, `1.25 --precision 1` → `1.2`, `0.125 --precision 2` → `0.12`, and `0.5 --precision 0` → `0`, which breaks `format_value`'s own rule that a non-zero value never shows as 0. Calculators round halves up. | Round half away from zero on the shortest decimal form (`{}`), so the digits people typed decide (`2.675` → `2.68`). Same function for currencies. |
+| 2 | High | `convert.rs:212`, `currency.rs:485` | **Halves round to even** (Rust's formatting): `2.5 --precision 0` → `2`, `1.25 --precision 1` → `1.2`, `0.125 --precision 2` → `0.12`, and `0.5 --precision 0` → `0`, which breaks `format_value`'s own rule that a non-zero value never shows as 0. Calculators round halves up. | Round half away from zero on the shortest decimal form (`{}`), so the digits people typed decide (`2.675` → `2.68`). Same function for currencies. **Fixed** 15 Oct (`b69595e`, §9). |
 | 3 | High (mobile) | `calc.rs` number grammar, `geo.rs:394` | **Separators break round trips.** Input only accepts `.` (`2,5 + 1` → a generic usage error), so the Italian keypad on a phone can't be used. Output is sometimes localized: `Rome Tokyo` → `6,136 mi` (en_US), and `6,136 mi km` is refused; an Italian device would show `1.107 km`, and `1.107 km mi` reads it as 1.107 (`0.6879 mi`). | The core returns a plain result (`6136 mi`) plus a display text in the device's format, and reads the locale's decimal separator in input (comma when the locale says so; coordinates `41,9 12,5` need a rule). |
 | 4 | Medium | `geo.rs:394`, `currency.rs:485`, `convert.rs:212` | **Each kind of result is formatted its own way:** distances grouped by the device locale, in the CLI and in `--json` too (`6,136 mi`); money always `{:.2}` (`895156.00 EUR`, `1902.53 JPY`: the yen has no cents), ignoring `--precision`; units plain (`100000000 kb`). | One reply type (§4.4): value, unit, plain text, display text. Currencies get their minor units (ISO 4217) from `currencies.json`. |
 | 5 | Medium | README, `docs/Accepted_Syntax.md`, `docs/install_mac.md` | **The docs say otherwise:** "`Chicago Paris` asks Paris, Texas first (same country as Chicago)", but `cities::rank` (`cities.rs:201`) orders by the *device's* country, so Paris, France comes first. `12 Sept 2026 10:00 PM + 5wd` is documented as `18/09/2026 DD/MM/YYYY` and answers `18/09/2026 10:00:00 PM DD/MM/YYYY-12h`. `TALLY_CURRENCY` is gone (it is `currency.local`). The README's distance example, `Rome to Paris` → `1,107 km`, asks which Rome and which Paris once the archive is installed. The Mac guide installs v0.1.1 (the latest tag is v0.2.4). `docs/SPEC.md` is ignored by git. | Fixed in this pass: the order of the cities (now the capital first, §7), the `10:00 PM` example, `TALLY_CURRENCY`. Left: the Mac guide's version; track `docs/SPEC.md`. |
-| 6 | Medium | `calc.rs:324` (recursion) | **Crash on nested input:** 50,000 nested brackets overflow the stack (exit 134). In an app, a paste can do it. | A depth limit (a few hundred) with a usage error. |
-| 7 | Medium | `online.rs:293` | **One failing group stops the sync:** `sync_cities(…)?` returns early, so a failed archive download skips the exchange rates and the live values after it. | Sync each group on its own, and report a line per group (error or count). |
-| 8 | Low | `calc.rs:158`, `lib.rs:424` | `(-2)^0.5` says "result is out of range": NaN is reported as an overflow. | NaN is a domain error ("not a real number"). |
-| 9 | Low | `time.rs:2283`, `time.rs:1425` | `names_city` builds a new `Config` on every call, and `starts_with_duration` keeps a second static one; with a country in the request, the unit-name table is rebuilt. | One `Config` for the process (it is constant data). |
+| 6 | Medium | `calc.rs:324` (recursion) | **Crash on nested input:** 50,000 nested brackets overflow the stack (exit 134). In an app, a paste can do it. | A depth limit (a few hundred) with a usage error. **Fixed** 15 Oct (`e0b1105`, §9). |
+| 7 | Medium | `online.rs:293` | **One failing group stops the sync:** `sync_cities(…)?` returns early, so a failed archive download skips the exchange rates and the live values after it. | Sync each group on its own, and report a line per group (error or count). **Fixed** 15 Oct (`03d33ca`, §9). |
+| 8 | Low | `calc.rs:158`, `lib.rs:424` | `(-2)^0.5` says "result is out of range": NaN is reported as an overflow. | NaN is a domain error ("not a real number"). **Fixed** 15 Oct (`b69595e`, §9). |
+| 9 | Low | `time.rs:2283`, `time.rs:1425` | `names_city` builds a new `Config` on every call, and `starts_with_duration` keeps a second static one; with a country in the request, the unit-name table is rebuilt. | One `Config` for the process (it is constant data). **Fixed** 15 Oct (`b797e47`, §9). |
 | 10 | Low | `numbers.rs:104`, `time/sys.rs:68` | On macOS the number format comes from the region setting (`AppleLocale`) but the date order from `LANG` (read from the code, not run: no Mac here): a Mac set to Italy with `LANG=en_US.UTF-8` gets `1.234,5` and month-first dates. | One locale source per platform (§4.3). |
 | 11 | Low | `time.rs:1172` | Dates for people are English only (`MMMM`, `MMM`, `dddd`), while input reads 6 languages. | Month and weekday names from the locale given by the UI. |
 | 12 | Low | `notify.rs:58`, error texts | Notices and errors name CLI commands (`tally --sync`, `see tally --list`), shown as they are in every UI. | Notices as data (`CitiesNotDownloaded`, `NewCities`, `Stale(group)`); each UI words them. |
@@ -87,7 +87,7 @@ file (`name, zone, lat, lon`) would prevent drift.
 the on-disk index (no database, nothing loaded), an external merge sort to build it, hash tables
 for names, zones cached once loaded, Vincenty with a great-circle fallback. Three hot spots remain:
 
-1. **macOS: `defaults` on every request** (`geo.rs:175`). `geo::request` works out the default
+1. **macOS: `defaults` on every request** (`geo.rs:175`; **fixed** 15 Oct, `21949c0`: asked for only once a request has two places). `geo::request` works out the default
    unit (`locale::device_system`, `locale.rs:13`: up to 3 `defaults` processes, not cached), the
    number format (`numbers.rs:163`: 1 more) and opens the archive *before* it knows the request is a
    distance. So `tally 10 km mi` runs `defaults` on a Mac. Not measured here (no Mac). A
@@ -95,7 +95,7 @@ for names, zones cached once loaded, Vincenty with a great-circle fallback. Thre
    only for a distance request, and read the locale through CoreFoundation
    (`CFLocaleCopyCurrent`, `CFPreferencesCopyAppValue`). It is a system framework, so there is still
    no dependency, and the same code serves iOS.
-2. **Misspellings in the archive: +12–17 ms** (`cities.rs:341`). Every index line sharing the
+2. **Misspellings in the archive: +12–17 ms** (`cities.rs:341`; **fixed** 15 Oct, `8a59cc7`: bounded, no copy per line). Every index line sharing the
    first two letters is read (12,284 for `sa`), copied without spaces (`cities.rs:353`) and compared
    with a full Levenshtein. A bounded Levenshtein (stop once a row's minimum passes the limit) and no
    copy per line should cut it several times. It only runs for a name that is not found.
@@ -325,3 +325,67 @@ without the TUI is clean; `cargo check` passes for iOS.
 4. Move the TUI's logic into the core (§4.2), so the TUI, the widget and the apps share it.
 5. The workspace (§6).
 6. The new UIs: Windows TUI, Android app; finish the iOS app.
+
+## 9. Recheck, 15 Oct 2026: performance, cleanup, refactoring
+
+Master at `44d6a5b` (the Android app's landscape layout), rechecked against the goals above:
+what the code costs per request and per keystroke (the TUI's, the app's), what it repeats, and
+which of §2's findings were still open. 12 commits, `659b6ab`..`58ce13f`; 377 tests pass (4
+new), clippy clean in the four feature sets.
+
+### Measured
+
+In process, on this laptop (a phone is several times slower; the app calls the core on a
+background thread since step 3 of `docs/TODO.md`):
+
+| What | Before | After | Why |
+|---|---|---|---|
+| The app's Trivia panel (`ffi::trivia`) | 17.0 ms | 3.5 ms | a planet's mean distance from the Earth |
+| `--trivia` (fresh process) | 20.6 ms | 6.1 ms | the same |
+| A planet's distances from the Earth (`planets::from_earth`) | 1.0–2.2 ms | 0.06–0.17 ms | the same |
+| TUI suggestions for `no` (two letters, the archive) | 20.9 ms | 3.7 ms | each city read once, ranked from its first fields |
+| TUI suggestions for `12+4/2*s` (a calculation) | 1.4 ms | 0.08 ms | no misspelt places in a calculation |
+| Archive prefix `rom` (the app's suggestions) | 0.71 ms | 0.21 ms | each city read once |
+| Archive misspelling `Tokio` | 1.3 ms | 0.49 ms | bounded distance, no copy per line |
+| `is_date_request("12 USA UAE")` (3–4 times per keystroke) | 141 µs | 3 µs | one shared `Config` |
+| `convert_request`: `10 km mi` / `now Tokyo` / `Springfield, Illinois Chicago` | 177 / 114 / 848 µs | 66 / 21 / 160 µs | the same, and the currency stage |
+| The currency stage on a request with no amount, per keystroke | 75–120 µs | 1 µs | an amount has digits, no currency name has any |
+| A TUI keystroke (`keystroke_cost`) | 0.5–1.2 ms | 0.13–0.29 ms | all of the above |
+
+A request in a fresh process stays 2–6 ms (the process's start and the tables built once
+dominate); installing the archive stays at 6.1 MB.
+
+### Fixed
+
+- **Performance:** a planet's mean distance from the Earth is the average over every pair of
+  positions of the two orbits (32 × 32), not over the next century: exact to 6 digits, within
+  0.03% of an average over 2,000 years, and a true long-run mean (a century's moved by up to 0.9%
+  with the century chosen) (`659b6ab`). One `Config` for the process; `names_city` only detects a
+  country, without building its question; the currency stage steps aside without exactly one word
+  with digits (`b797e47`). The archive: each city read once, ranked from its first fields, the
+  misspelling scan bounded (`8a59cc7`). Suggestions: the cheap test first (`48bf228`). The device's
+  unit, number format and country asked for only for a distance (`21949c0`). The app's panels load
+  off the main thread (`1f2c9e6`).
+- **Correctness:** nesting past 100 levels or 1,000 operations is an error, not a stack overflow
+  (a paste in the app could crash it); the JSON reader too, past 64 (`e0b1105`). Halves away from
+  zero, currencies too; `(-2)^0.5` is no real number, not "out of range" (`b69595e`). A failed
+  group no longer stops the sync (`03d33ca`). The archive's prefix order: a city whose own name
+  starts so before one only an old alias does (`new` offered San Diego before New Orleans)
+  (`8a59cc7`). A compound unit alone (`100 m/s^2`) is a hint, not an error (`58ce13f`).
+- **Cleanup:** `Value::strings` and `Object::list` replace the same code in six places
+  (`bf387db`); the TUI shows the core's hint for a target unit instead of its own rule
+  (`58ce13f`); `keystroke_cost` warms up and keeps the best of 5 runs (`4023f75`); `bench.py`
+  reads `--sync`'s memory from the process itself (watching `/proc` once read 17.6 MB for 6.1).
+
+### Left open (proposals)
+
+| What | Why not now |
+|---|---|
+| A `rustfmt.toml` (`max_width = 160`, `use_small_heuristics = "Max"`): `cargo fmt` would then change 142 places, instead of 1,154 with the defaults | a style choice across every file |
+| A written date alone (`12/04/2026`): the app shows `0.0015` (a division, as the command line does by design: a date needs `date` or a format after it); the TUI says "now the target format" | a choice for every UI: the core could give that hint, then `tally 12/04/2026` would be one too |
+| The tables built once per process: ~1–1.5 ms of a 2–6 ms request (JSON allocations, ~0.6 ms; the name indexes) | felt only by the widget's process per keystroke, and well below a frame |
+| Two-letter prefixes in the TUI read ~1,000 records (3.5 ms) | the population in `cities.idx` would avoid it: an archive format change |
+| A misspelling scans every index line with its first two letters (`Sanf Fransisco`: 12,000 lines, 5.2 ms) | rare, and off the main thread in the app |
+| `ffi::trivia` computes each popup twice (shown and in plain digits) | 3.5 ms in all, once per panel opening |
+| §2.3–2.4 (plain and display results, currencies' minor units: `1902.53 JPY`), §2.10–2.12 | features, not fixes |
+| `time.rs` is 2,900 lines (parse, format, calendar, cities, requests) | a split as §6 proposes is best done with the workspace |
