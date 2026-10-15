@@ -34,6 +34,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -86,6 +87,8 @@ fun TallyApp() {
     // Enter was pressed on this request: its error shows even in the middle of a word.
     var submitted by remember { mutableStateOf(false) }
     var panel by remember { mutableStateOf<Panel?>(null) }
+    // Letters or the calculator: kept while the app is open, and when the screen turns.
+    var mode by rememberSaveable { mutableStateOf(Mode.Text) }
     var settings by remember { mutableStateOf(false) }
     if (settings) {
         SettingsScreen(close = { settings = false }, modifier = Modifier.statusBarsPadding())
@@ -137,7 +140,7 @@ fun TallyApp() {
         }
         // The keyboard, or a panel in its place.
         when (val open = panel) {
-            null -> TallyKeyboard(onKey = { key ->
+            null -> TallyKeyboard(mode, onKey = { key ->
                 when (key) {
                     is Key.Write -> change(edit.write(key.text))
                     Key.Backspace -> change(edit.backspace())
@@ -148,6 +151,7 @@ fun TallyApp() {
                         submitted = true
                     }
                     is Key.Open -> panel = key.panel
+                    is Key.Switch -> mode = key.mode
                 }
             })
             else -> PanelView(open, write = { change(edit.word(it)); panel = null }, close = { panel = null })

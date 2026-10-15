@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -40,53 +41,134 @@ sealed interface Key {
     data object Enter : Key
     /** Opens a panel over the keyboard. */
     data class Open(val panel: Panel) : Key
+    /** Switches the keyboard: letters, or the calculator (basic or scientific). */
+    data class Switch(val mode: Mode) : Key
 }
 
 enum class Panel { Measures, Currencies, Trivia }
 
+/** The keyboard's layouts: letters (with the digits and operators), or the calculator's keys. */
+enum class Mode { Text, Basic, Scientific }
+
 /**
- * Tally's own keyboard: the letters as on a phone's (lower case only: what is written is matched
- * in any case, and the units whose case matters, `MB` and `Mb`, come from the suggestions and the
- * Measures), the numbers always there, the calculator's keys, and the three panels.
+ * Tally's own keyboard, in one of its `mode`s. Letters: as on a phone (lower case only: what is
+ * written is matched in any case, and the units whose case matters, `MB` and `Mb`, come from the
+ * suggestions and the Measures), with the digits and the operators above them. The calculator: the
+ * digits and operators in a grid, and in scientific mode the functions and constants beside them.
  */
 @Composable
-fun TallyKeyboard(onKey: (Key) -> Unit, modifier: Modifier = Modifier) {
-    val write = { s: String -> onKey(Key.Write(s)) }
+fun TallyKeyboard(mode: Mode, onKey: (Key) -> Unit, modifier: Modifier = Modifier) {
     Surface(color = MaterialTheme.colorScheme.surfaceContainer, modifier = modifier) {
         Column(
             Modifier.fillMaxWidth().navigationBarsPadding().height(KeyboardHeight).padding(4.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            KeyRow { "1234567890".forEach { c -> CharKey(c, write) } }
-            KeyRow { "qwertyuiop".forEach { c -> CharKey(c, write) } }
-            // The middle row is half a key shorter on each side, as on a phone.
-            KeyRow {
-                Spacer(Modifier.weight(0.5f))
-                "asdfghjkl".forEach { c -> CharKey(c, write) }
-                Spacer(Modifier.weight(0.5f))
-            }
-            KeyRow {
-                Spacer(Modifier.weight(0.5f))
-                "zxcvbnm".forEach { c -> CharKey(c, write) }
-                KeyButton("⌫", weight = 2f, tone = Tone.Action, onLongPress = { onKey(Key.Clear) }) { onKey(Key.Backspace) }
-                Spacer(Modifier.weight(0.5f))
-            }
-            // Shown as people write them, written as Tally reads them: × is *, ÷ is /, − is -.
-            KeyRow {
-                listOf("+" to "+", "−" to "-", "×" to "*", "÷" to "/", "^" to "^", "(" to "(", ")" to ")", "%" to "%", "." to ".", ":" to ":")
-                    .forEach { (shown, written) -> KeyButton(shown, tone = Tone.Operator) { write(written) } }
-            }
-            KeyRow {
-                KeyButton("Measures", weight = 2f, tone = Tone.Action, small = true) { onKey(Key.Open(Panel.Measures)) }
-                KeyButton("Currencies", weight = 2f, tone = Tone.Action, small = true) { onKey(Key.Open(Panel.Currencies)) }
-                KeyButton("Trivia", weight = 1.6f, tone = Tone.Action, small = true) { onKey(Key.Open(Panel.Trivia)) }
-                KeyButton(",") { write(",") }
-                KeyButton("space", weight = 2.4f, small = true) { write(" ") }
-                KeyButton("⏎", weight = 1.4f, tone = Tone.Enter) { onKey(Key.Enter) }
+            when (mode) {
+                Mode.Text -> Letters(onKey)
+                Mode.Basic, Mode.Scientific -> Calculator(scientific = mode == Mode.Scientific, onKey)
             }
         }
     }
 }
+
+/** The operators as people write them, written as Tally reads them: × is *, ÷ is /, − is -. */
+private val OPERATORS = listOf("+" to "+", "−" to "-", "×" to "*", "÷" to "/", "^" to "^", "(" to "(", ")" to ")", "%" to "%", "." to ".", ":" to ":")
+
+@Composable
+private fun ColumnScope.Letters(onKey: (Key) -> Unit) {
+    val write = { s: String -> onKey(Key.Write(s)) }
+    KeyRow { "1234567890".forEach { c -> CharKey(c, write) } }
+    // Next to the digits: the request's numbers and operators are typed together.
+    KeyRow { OPERATORS.forEach { (shown, written) -> KeyButton(shown, tone = Tone.Operator) { write(written) } } }
+    KeyRow { "qwertyuiop".forEach { c -> CharKey(c, write) } }
+    // The middle rows are half a key shorter on each side, as on a phone.
+    KeyRow {
+        Spacer(Modifier.weight(0.5f))
+        "asdfghjkl".forEach { c -> CharKey(c, write) }
+        Spacer(Modifier.weight(0.5f))
+    }
+    KeyRow {
+        Spacer(Modifier.weight(0.5f))
+        "zxcvbnm".forEach { c -> CharKey(c, write) }
+        BackspaceKey(onKey, weight = 2f)
+        Spacer(Modifier.weight(0.5f))
+    }
+    KeyRow {
+        KeyButton("123", weight = 1.2f, tone = Tone.Action, small = true) { onKey(Key.Switch(Mode.Basic)) }
+        PanelKeys(onKey)
+        KeyButton(",") { write(",") }
+        KeyButton("space", weight = 2f, small = true) { write(" ") }
+        KeyButton("⏎", weight = 1.3f, tone = Tone.Enter) { onKey(Key.Enter) }
+    }
+}
+
+/** A calculator key: its label, and what it writes (null: ⌫ or ⏎, by its label). */
+private data class Calc(val label: String, val writes: String?, val tone: Tone)
+
+private fun digit(d: String) = Calc(d, d, Tone.Letter)
+private fun op(shown: String, written: String) = Calc(shown, written, Tone.Operator)
+
+/** The calculator's grid: digits and operators; ⌫ and ⏎ in the last row. */
+private val CALCULATOR = listOf(
+    listOf(op("(", "("), op(")", ")"), op("%", "%"), op("÷", "/")),
+    listOf(digit("7"), digit("8"), digit("9"), op("×", "*")),
+    listOf(digit("4"), digit("5"), digit("6"), op("−", "-")),
+    listOf(digit("1"), digit("2"), digit("3"), op("+", "+")),
+    listOf(digit("0"), digit("."), Calc("⌫", null, Tone.Action), Calc("⏎", null, Tone.Enter)),
+)
+
+/** Scientific: two columns beside the grid. Each function writes its bracket (`sin(`), `)` closes
+ *  it; ° makes the angle degrees (`sin(30°)`). */
+private val SCIENCE = listOf(
+    listOf("sin" to "sin(", "cos" to "cos("),
+    listOf("tan" to "tan(", "√" to "sqrt("),
+    listOf("ln" to "ln(", "log" to "log("),
+    listOf("π" to "pi", "e" to "e"),
+    listOf("^" to "^", "°" to "°"),
+)
+
+/** The calculator: digits and operators in a grid; scientific: two columns of functions on the left. */
+@Composable
+private fun ColumnScope.Calculator(scientific: Boolean, onKey: (Key) -> Unit) {
+    val write = { s: String -> onKey(Key.Write(s)) }
+    CALCULATOR.forEachIndexed { i, keys ->
+        KeyRow {
+            if (scientific) {
+                SCIENCE[i].forEach { (shown, written) -> KeyButton(shown, tone = Tone.Action, small = true) { write(written) } }
+                Spacer(Modifier.width(6.dp))
+            }
+            keys.forEach { k ->
+                when {
+                    k.writes != null -> KeyButton(k.label, tone = k.tone) { write(k.writes) }
+                    k.label == "⌫" -> BackspaceKey(onKey)
+                    else -> KeyButton(k.label, tone = k.tone) { onKey(Key.Enter) }
+                }
+            }
+        }
+    }
+    KeyRow {
+        KeyButton("ABC", weight = 1.2f, tone = Tone.Action, small = true) { onKey(Key.Switch(Mode.Text)) }
+        if (scientific) {
+            KeyButton("Basic", weight = 1.2f, tone = Tone.Action, small = true) { onKey(Key.Switch(Mode.Basic)) }
+        } else {
+            KeyButton("Sci", weight = 1.2f, tone = Tone.Action, small = true) { onKey(Key.Switch(Mode.Scientific)) }
+        }
+        PanelKeys(onKey)
+    }
+}
+
+/** The three panels, in every mode. */
+@Composable
+private fun RowScope.PanelKeys(onKey: (Key) -> Unit) {
+    KeyButton("Measures", weight = 2f, tone = Tone.Action, small = true) { onKey(Key.Open(Panel.Measures)) }
+    KeyButton("Currencies", weight = 2f, tone = Tone.Action, small = true) { onKey(Key.Open(Panel.Currencies)) }
+    KeyButton("Trivia", weight = 1.6f, tone = Tone.Action, small = true) { onKey(Key.Open(Panel.Trivia)) }
+}
+
+/** ⌫: a tap removes the character before the cursor, a long press the whole request. */
+@Composable
+private fun RowScope.BackspaceKey(onKey: (Key) -> Unit, weight: Float = 1f) =
+    KeyButton("⌫", weight = weight, tone = Tone.Action, onLongPress = { onKey(Key.Clear) }) { onKey(Key.Backspace) }
 
 /** A row of keys, sharing the keyboard's height with the other rows. */
 @Composable
