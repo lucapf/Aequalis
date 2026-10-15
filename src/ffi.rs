@@ -93,22 +93,26 @@ pub unsafe extern "C" fn tally_init(config_json: *const c_char) -> *mut c_char {
         Ok(i) => i,
         Err(e) => return error(&e),
     };
-    // The places the rest of tally reads (before any other thread runs): the data folder
-    // (`files::dir`), the zone (`TZ`), the zone files (`TZDIR`).
-    std::env::set_var("XDG_CONFIG_HOME", &init.dir);
+    start(&init);
+    give(Object::new().num("ok", true).finish())
+}
+
+/// Gives tally what the app knows, once, before anything else: set directly, not through
+/// environment variables (`setenv` races with the app's other threads).
+pub fn start(init: &Init) {
+    crate::files::set_dir(Path::new(&init.dir));
     if let Some(zone) = &init.zone {
-        std::env::set_var("TZ", zone);
+        crate::currency::set_local_zone(zone);
     }
-    if let Some(dir) = &init.zoneinfo {
-        std::env::set_var("TZDIR", dir);
+    if let Some(database) = &init.zoneinfo {
+        crate::time::tz::set_zoneinfo(database);
     }
-    if let Some(format) = init.format {
-        crate::numbers::set_device(format);
+    if let Some(format) = &init.format {
+        crate::numbers::set_device(format.clone());
     }
     if let Some(imperial) = init.imperial {
         crate::locale::set_device_system(if imperial { System::Imperial } else { System::Metric });
     }
-    give(Object::new().num("ok", true).finish())
 }
 
 /// The app's downloader: saves `url` into the file `to` within `seconds`; with `strict`, an HTTP

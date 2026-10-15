@@ -197,7 +197,10 @@ impl Instant {
     pub fn offset(&self) -> i32 {
         match self.zone {
             Zone::Fixed(offset) => offset,
-            Zone::Local => sys::local_offset(self.ns.div_euclid(NS) as i64).unwrap_or(0),
+            Zone::Local => match local_tz() {
+                Some(tz) => tz.offset_at(self.ns.div_euclid(NS) as i64),
+                None => sys::local_offset(self.ns.div_euclid(NS) as i64).unwrap_or(0),
+            },
             Zone::Named(tz) => tz.offset_at(self.ns.div_euclid(NS) as i64),
         }
     }
@@ -222,6 +225,20 @@ impl Instant {
     }
 }
 
+/// The device's zone, from the zone database, when its name is known: local time through the same
+/// engine as the cities' (the same answer for `02:30` in a DST gap either way), and on phones,
+/// whose C library Tally doesn't read. The app's zone, else `TZ` (a POSIX rule such as `CET-1CEST`
+/// is no name: the C library's), else /etc/localtime. `None`: the C library (UTC elsewhere).
+fn local_tz() -> Option<&'static tz::Tz> {
+    static LOCAL: std::sync::OnceLock<Option<&'static tz::Tz>> = std::sync::OnceLock::new();
+    *LOCAL.get_or_init(|| {
+        let name = crate::currency::app_zone()
+            .or_else(|| std::env::var("TZ").ok().filter(|t| !t.is_empty()).map(|t| t.trim_start_matches(':').to_string()))
+            .or_else(crate::currency::local_zone)?;
+        tz::load(&name).ok()
+    })
+}
+
 /// The instant of a wall-clock time in `zone`.
 fn from_civil(c: &Civil, zone: Zone) -> Result<Instant, TimeError> {
     if !(MIN_YEAR..=MAX_YEAR).contains(&c.year) {
@@ -231,7 +248,10 @@ fn from_civil(c: &Civil, zone: Zone) -> Result<Instant, TimeError> {
     let wall = i128::from(days) * 86_400 + i128::from(c.hour * 3600 + c.minute * 60 + c.second);
     let secs = match zone {
         Zone::Fixed(offset) => wall - i128::from(offset),
-        Zone::Local => i128::from(sys::local_to_utc(c).unwrap_or(wall as i64)),
+        Zone::Local => match local_tz() {
+            Some(tz) => i128::from(tz.to_utc(wall as i64)),
+            None => i128::from(sys::local_to_utc(c).unwrap_or(wall as i64)),
+        },
         Zone::Named(tz) => i128::from(tz.to_utc(wall as i64)),
     };
     Instant { ns: secs * NS + i128::from(c.nano), zone }.in_range()

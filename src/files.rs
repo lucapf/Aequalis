@@ -6,8 +6,19 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-/// `~/.config/tally` (`$XDG_CONFIG_HOME/tally`).
+static APP_DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+/// The folder given by the app embedding tally (`<dir>/tally`: its own storage, there is no
+/// `HOME`); set once, before anything is read. The command line doesn't set it.
+pub fn set_dir(base: &Path) {
+    let _ = APP_DIR.set(base.join("tally"));
+}
+
+/// `~/.config/tally` (`$XDG_CONFIG_HOME/tally`), or the app's (`set_dir`).
 pub fn dir() -> Option<PathBuf> {
+    if let Some(dir) = APP_DIR.get() {
+        return Some(dir.clone());
+    }
     let base = std::env::var_os("XDG_CONFIG_HOME")
         .filter(|v| !v.is_empty())
         .map(PathBuf::from)

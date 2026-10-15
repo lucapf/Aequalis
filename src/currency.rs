@@ -550,9 +550,25 @@ pub fn local_from(setting: Option<&str>, zone: Option<&str>) -> Result<Option<Lo
     Ok(country.map(|c| Local { code: c.currency.as_str(), from: format!("{}'s time zone, {zone}", c.name) }))
 }
 
-/// The device's time zone name: `TZ`, else where /etc/localtime points (`…/zoneinfo/Europe/Rome`).
-/// Read once.
+static APP_ZONE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// The device's time zone as the app embedding tally knows it (`Europe/Rome`: phones have no `TZ`
+/// or /etc/localtime); set once, before anything is computed.
+pub fn set_local_zone(zone: &str) {
+    let _ = APP_ZONE.set(zone.to_string());
+}
+
+/// The zone the app gave (`set_local_zone`), if any.
+pub fn app_zone() -> Option<String> {
+    APP_ZONE.get().cloned()
+}
+
+/// The device's time zone name: the app's, else `TZ`, else where /etc/localtime points
+/// (`…/zoneinfo/Europe/Rome`). Read once.
 pub fn local_zone() -> Option<String> {
+    if let Some(zone) = APP_ZONE.get() {
+        return Some(zone.clone());
+    }
     static ZONE: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
     ZONE.get_or_init(|| {
         let after = |path: &str| path.split_once("zoneinfo/").map_or(path.to_string(), |(_, z)| z.to_string());

@@ -39,16 +39,21 @@ impl Tz {
         }
     }
 
-    /// The UTC time of a wall-clock time here (seconds since the epoch, both). In a DST gap or
-    /// overlap, the reading with the offset in force just before.
+    /// The UTC time of a wall-clock time here (seconds since the epoch, both), as JavaScript
+    /// Temporal's `compatible`: when the clocks go back (an overlap), the earlier reading; when they
+    /// go forward (a gap), the time moves on by the gap (02:30 is 03:30), as the C library does.
     pub fn to_utc(&self, wall: i64) -> i64 {
-        let first = self.offset_at(wall - i64::from(self.offset_at(wall)));
-        let t = wall - i64::from(first);
-        let second = self.offset_at(t);
-        if second == first {
-            t
-        } else {
-            wall - i64::from(second)
+        // The offsets a day before and after: around a change, each is one side of it.
+        let (before, after) = (i64::from(self.offset_at(wall - 86_400)), i64::from(self.offset_at(wall + 86_400)));
+        let reads = |offset: i64| {
+            let t = wall - offset;
+            (t + i64::from(self.offset_at(t)) == wall).then_some(t)
+        };
+        match (reads(before), reads(after)) {
+            (Some(a), Some(b)) => a.min(b),
+            (Some(t), None) | (None, Some(t)) => t,
+            // A gap: read with the offset before it, which lands after it.
+            (None, None) => wall - before,
         }
     }
 
@@ -277,9 +282,49 @@ fn day_of(year: i64, day: RuleDay) -> i64 {
 
 // ---------------------------------------------------------------- loading
 
-/// The zone database's folder.
+static APP_ZONEINFO: OnceLock<String> = OnceLock::new();
+
+/// The zone database given by the app embedding tally: a folder of zone files, or Android's
+/// single file (`/apex/com.android.tzdata/etc/tz/tzdata`); set once, before any zone is loaded.
+pub fn set_zoneinfo(path: &str) {
+    let _ = APP_ZONEINFO.set(path.to_string());
+}
+
+/// The zone database: the app's, else `$TZDIR`, else `/usr/share/zoneinfo`.
 fn zoneinfo() -> String {
+    if let Some(path) = APP_ZONEINFO.get() {
+        return path.clone();
+    }
     std::env::var("TZDIR").ok().filter(|d| !d.is_empty()).unwrap_or_else(|| "/usr/share/zoneinfo".into())
+}
+
+/// A zone file from Android's `tzdata`: every zone in one file. A 12-byte version
+/// (`tzdata2026c\0`), the offsets of the index and of the data (big endian), then the index: 52
+/// bytes per zone (its name, NUL-padded to 40 bytes, its offset in the data, its length, 4 unused).
+fn from_bundle(bundle: &[u8], name: &str) -> Option<Vec<u8>> {
+    let int = |at: usize| -> Option<usize> { Some(u32::from_be_bytes(bundle.get(at..at + 4)?.try_into().ok()?) as usize) };
+    if !bundle.starts_with(b"tzdata") {
+        return None;
+    }
+    let (index, data) = (int(12)?, int(16)?);
+    bundle.get(index..data)?.as_chunks::<52>().0.iter().find_map(|entry| {
+        let end = entry[..40].iter().position(|&b| b == 0).unwrap_or(40);
+        if &entry[..end] != name.as_bytes() {
+            return None;
+        }
+        let start = data + u32::from_be_bytes(entry[40..44].try_into().ok()?) as usize;
+        let len = u32::from_be_bytes(entry[44..48].try_into().ok()?) as usize;
+        Some(bundle.get(start..start + len)?.to_vec())
+    })
+}
+
+/// A zone's TZif data: `<folder>/<name>`, or its entry in a single-file database (read once).
+fn zone_data(database: &str, name: &str) -> Option<Vec<u8>> {
+    if !std::path::Path::new(database).is_file() {
+        return std::fs::read(format!("{database}/{name}")).ok();
+    }
+    static BUNDLE: OnceLock<Option<Vec<u8>>> = OnceLock::new();
+    from_bundle(BUNDLE.get_or_init(|| std::fs::read(database).ok()).as_deref()?, name)
 }
 
 /// A zone of the database by its name (`Europe/Paris`), loaded once. `Err`: not installed.
@@ -296,8 +341,9 @@ pub fn load(name: &str) -> Result<&'static Tz, String> {
     if let Some(tz) = cache.get(name) {
         return Ok(tz);
     }
-    let path = format!("{}/{name}", zoneinfo());
-    let data = std::fs::read(&path).map_err(|_| format!("the time zone {name} is not installed ({path})"))?;
+    let database = zoneinfo();
+    let path = format!("{database}/{name}");
+    let data = zone_data(&database, name).ok_or_else(|| format!("the time zone {name} is not installed ({path})"))?;
     let static_name: &'static str = Box::leak(name.to_string().into_boxed_str());
     let tz = Tz::parse(static_name, &data).ok_or_else(|| format!("{path} is not a time zone file"))?;
     let tz: &'static Tz = Box::leak(Box::new(tz));
@@ -975,6 +1021,12 @@ mod tests {
         assert_eq!(paris.offset_at(secs(1950, 1, 1, 12)), 3600);
         let wall = secs(2026, 7, 1, 14);
         assert_eq!(paris.to_utc(wall), wall - 7200);
+        // 29 March 2026, 02:30 doesn't exist (02:00 → 03:00): 03:30 CEST, 01:30Z.
+        let gap = secs(2026, 3, 29, 2) + 1800;
+        assert_eq!(paris.to_utc(gap), secs(2026, 3, 29, 1) + 1800);
+        // 25 October 2026, 02:30 happens twice (03:00 → 02:00): the first, CEST, 00:30Z.
+        let overlap = secs(2026, 10, 25, 2) + 1800;
+        assert_eq!(paris.to_utc(overlap), secs(2026, 10, 25, 0) + 1800);
         assert!(std::ptr::eq(paris, load("Europe/Paris").unwrap()), "loaded once");
         let Ok(kolkata) = load("Asia/Kolkata") else { return };
         assert_eq!(kolkata.offset_at(secs(2026, 1, 1, 0)), 19_800);
