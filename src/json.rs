@@ -261,7 +261,7 @@ impl Value {
 
 /// Parses a JSON document; the error says where it went wrong.
 pub fn parse(text: &str) -> Result<Value, String> {
-    let mut p = Reader { s: text.as_bytes(), pos: 0 };
+    let mut p = Reader { s: text.as_bytes(), pos: 0, depth: 0 };
     let value = p.value()?;
     p.ws();
     match p.pos == p.s.len() {
@@ -270,9 +270,15 @@ pub fn parse(text: &str) -> Result<Value, String> {
     }
 }
 
+/// How many arrays and objects may stand inside one another: the files and downloads read nest a
+/// few levels; a deeper document (`[[[[…`) is an error, not a crash (each level is a call deeper).
+const MAX_DEPTH: usize = 64;
+
 struct Reader<'a> {
     s: &'a [u8],
     pos: usize,
+    /// The arrays and objects open now.
+    depth: usize,
 }
 
 impl Reader<'_> {
@@ -295,6 +301,16 @@ impl Reader<'_> {
     }
 
     fn value(&mut self) -> Result<Value, String> {
+        if self.depth == MAX_DEPTH {
+            return Err(self.error("nested too deeply"));
+        }
+        self.depth += 1;
+        let value = self.one_value();
+        self.depth -= 1;
+        value
+    }
+
+    fn one_value(&mut self) -> Result<Value, String> {
         self.ws();
         match self.s.get(self.pos) {
             Some(b'{') => {
@@ -462,6 +478,9 @@ mod tests {
         assert!(parse("[1 2]").unwrap_err().contains("`,` or `]` expected"));
         assert!(parse("1 2").is_err());
         assert!(parse("\"abc").unwrap_err().contains("unterminated"));
+        // Nested past the limit: an error, not a crash.
+        assert!(parse(&format!("{}1{}", "[".repeat(MAX_DEPTH - 1), "]".repeat(MAX_DEPTH - 1))).is_ok());
+        assert!(parse(&"[".repeat(100_000)).unwrap_err().contains("nested too deeply"));
     }
 
     #[test]

@@ -225,10 +225,19 @@ fn constant(name: &str) -> Option<(&'static str, f64)> {
     CONSTANTS.iter().find(|(n, _)| *n == name).copied()
 }
 
+/// How many brackets, functions, signs and powers may stand inside one another (`((1))`, `--1`,
+/// `2^2^2`): far more than anyone writes. Each level is a few calls deeper in the parser (about 1
+/// KB of stack), so that a pasted `(((((…` is an error, not a crash: a phone runs the core on a
+/// background thread, whose stack is small (1 MB on Android, 512 KB on iOS).
+pub const MAX_NESTING: usize = 100;
+/// How many operations a calculation may have: the evaluation goes one call deeper per operation
+/// (`1+1+…+1` is a chain of them).
+pub const MAX_OPERATIONS: usize = 1_000;
+
 /// Parses the longest expression at the start of `input` and returns it with the rest of the
 /// input (the units), trimmed.
 pub fn parse_prefix(input: &str) -> Result<(Expr, &str), CalcError> {
-    let mut p = Parser { s: input, pos: 0, calls: 0 };
+    let mut p = Parser { s: input, pos: 0, calls: 0, nesting: 0, operations: 0 };
     let expr = p.sum()?;
     p.skip_ws();
     let rest = &input[p.pos..];
@@ -245,6 +254,9 @@ struct Parser<'a> {
     /// Inside a function's argument: `°` / `deg` there are degrees (`sin(30°)`); elsewhere they
     /// are left for the angle unit (`30° rad`).
     calls: usize,
+    /// How deep the parse is now (`MAX_NESTING`), and the operations so far (`MAX_OPERATIONS`).
+    nesting: usize,
+    operations: usize,
 }
 
 impl Parser<'_> {
@@ -266,6 +278,16 @@ impl Parser<'_> {
         found
     }
 
+    /// One more operation (an operator, a sign, a function, `°`, `%`): an error past
+    /// `MAX_OPERATIONS`.
+    fn operation(&mut self) -> Result<(), CalcError> {
+        self.operations += 1;
+        match self.operations > MAX_OPERATIONS {
+            true => Err(CalcError::Syntax(format!("the calculation is too long: at most {MAX_OPERATIONS} operations"))),
+            false => Ok(()),
+        }
+    }
+
     fn sum(&mut self) -> Result<Expr, CalcError> {
         let mut left = self.product()?;
         loop {
@@ -276,6 +298,7 @@ impl Parser<'_> {
             } else {
                 return Ok(left);
             };
+            self.operation()?;
             left = Expr::Bin(op, Box::new(left), Box::new(self.product()?));
         }
     }
@@ -285,6 +308,7 @@ impl Parser<'_> {
         loop {
             // `20% of 150`.
             if matches!(left, Expr::Percent(_)) && self.eat_word("of") {
+                self.operation()?;
                 left = Expr::Bin(Op::Mul, Box::new(left), Box::new(self.unary()?));
                 continue;
             }
@@ -297,6 +321,7 @@ impl Parser<'_> {
             } else {
                 return Ok(left);
             };
+            self.operation()?;
             left = Expr::Bin(op, Box::new(left), Box::new(self.unary()?));
         }
     }
@@ -321,13 +346,27 @@ impl Parser<'_> {
         found
     }
 
+    /// Every nesting goes through here (a bracket's sum, a sign, a function, a power's exponent):
+    /// one level deeper, at most `MAX_NESTING`.
     fn unary(&mut self) -> Result<Expr, CalcError> {
+        if self.nesting == MAX_NESTING {
+            return Err(CalcError::Syntax(format!("the calculation is nested too deeply: at most {MAX_NESTING} brackets, functions, signs or powers inside one another")));
+        }
+        self.nesting += 1;
+        let result = self.signed();
+        self.nesting -= 1;
+        result
+    }
+
+    fn signed(&mut self) -> Result<Expr, CalcError> {
         if self.eat("-") {
+            self.operation()?;
             Ok(Expr::Neg(Box::new(self.unary()?)))
         } else if self.eat("+") {
             self.unary()
         } else if let Some(f) = self.function(false) {
             // Without brackets: `sqrt 16`.
+            self.operation()?;
             self.calls += 1;
             let argument = self.unary();
             self.calls -= 1;
@@ -354,12 +393,15 @@ impl Parser<'_> {
     fn power(&mut self) -> Result<Expr, CalcError> {
         let mut base = self.atom()?;
         if self.eat_degrees() {
+            self.operation()?;
             base = Expr::Degrees(Box::new(base));
         }
         if self.eat("%") {
+            self.operation()?;
             base = Expr::Percent(Box::new(base));
         }
         if self.eat("**") || self.eat("^") {
+            self.operation()?;
             return Ok(Expr::Bin(Op::Pow, Box::new(base), Box::new(self.unary()?)));
         }
         Ok(base)
@@ -386,6 +428,7 @@ impl Parser<'_> {
 
     fn atom(&mut self) -> Result<Expr, CalcError> {
         if let Some(f) = self.function(true) {
+            self.operation()?;
             self.calls += 1;
             let argument = self.atom();
             self.calls -= 1;
@@ -528,6 +571,19 @@ mod tests {
         assert_eq!(ops("1/3"), 1);
         assert_eq!(ops("-2**2"), 2);
         assert_eq!(ops("100 + 20 + 50 / 10"), 3);
+    }
+
+    /// Nested or long past the limits: an error, not a crash (the stack of a phone's thread).
+    #[test]
+    fn limits() {
+        let nested = |n: usize| format!("{}1{}", "(".repeat(n), ")".repeat(n));
+        assert_eq!(eval(&nested(MAX_NESTING - 1)), 1.0);
+        for deep in [nested(MAX_NESTING), nested(50_000), format!("{}16{}", "sqrt(".repeat(50_000), ")".repeat(50_000)), "-".repeat(50_000) + "1", vec!["2"; 50_000].join("^")] {
+            assert!(matches!(parse_prefix(&deep), Err(CalcError::Syntax(m)) if m.contains("nested too deeply")), "{}…", &deep[..20]);
+        }
+        assert_eq!(eval(&vec!["1"; MAX_OPERATIONS + 1].join("+")), (MAX_OPERATIONS + 1) as f64);
+        let long = vec!["1"; 50_000].join("+");
+        assert!(matches!(parse_prefix(&long), Err(CalcError::Syntax(m)) if m.contains("too long")));
     }
 
     #[test]
