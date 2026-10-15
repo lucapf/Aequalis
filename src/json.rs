@@ -184,6 +184,8 @@ fn outcome(result: &Result<Output, CliError>) -> String {
                     let note = if a.note.is_empty() { String::new() } else { format!(r#","note":{}"#, string(&a.note)) };
                     format!(r#","ambiguous":{{"kind":"{kind}","text":{}{note},"choices":[{}]}}"#, string(&a.text), choices.join(","))
                 }
+                // Not finished yet: a hint, not an error.
+                CliError::Incomplete(_) => r#","incomplete":true"#.to_string(),
                 _ => String::new(),
             };
             format!(r#"{{"ok":false,"exit":{},"error":{}{ambiguous}}}"#, err.exit_code(), string(&err.to_string()))

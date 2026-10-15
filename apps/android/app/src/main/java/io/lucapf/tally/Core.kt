@@ -19,10 +19,12 @@ data class Suggestion(val write: String, val label: String)
 /** The words offered for the word being typed, which starts at `start` (an index in the text). */
 data class Suggestions(val start: Int, val items: List<Suggestion>)
 
-/** The core's answer to a request: a result, an error, or a question with its choices. */
+/** The core's answer to a request: a result, an error, a hint (not finished yet: what comes next),
+ *  or a question with its choices. */
 data class Reply(
     val result: String? = null,
     val error: String? = null,
+    val hint: String? = null,
     val question: String? = null,
     val choices: List<Choice> = emptyList(),
 )
@@ -61,6 +63,8 @@ object Core {
     fun evaluate(request: String): Reply {
         val json = JSONObject(eval(request.encodeToByteArray()).decodeToString())
         if (json.optBoolean("ok")) return Reply(result = json.getString("result"))
+        // Not finished yet (`10 km`): what comes next, no mistake.
+        if (json.optBoolean("incomplete")) return Reply(hint = json.optString("error"))
         val ambiguous = json.optJSONObject("ambiguous") ?: return Reply(error = json.optString("error"))
         val choices = ambiguous.getJSONArray("choices")
         return Reply(

@@ -91,6 +91,8 @@ fun TallyScreen(modifier: Modifier = Modifier) {
             reply == null -> {}
             reply.result != null -> Text(reply.result, style = MaterialTheme.typography.headlineMedium)
             !finished -> {}
+            // What comes next (`now the length unit to convert to: in, ft, yd…`): a hint, in grey.
+            reply.hint != null -> Text(reply.hint, color = MaterialTheme.colorScheme.onSurfaceVariant)
             reply.choices.isNotEmpty() -> {
                 Text(reply.question ?: "Which one?", style = MaterialTheme.typography.titleMedium)
                 // Each choice is a complete request: choosing it writes it in.

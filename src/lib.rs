@@ -229,12 +229,15 @@ pub enum CliError {
     /// A written date with more than one reading (`12/04/2026`): the operator chooses at a
     /// terminal; elsewhere exit code 2.
     Ambiguous(time::Ambiguity),
+    /// Not finished yet, no mistake: what comes next (`10 km`: the unit to convert to; `Rieti`:
+    /// the place to go to). A UI shows it as a hint; exit code 2.
+    Incomplete(String),
 }
 
 impl std::fmt::Display for CliError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            CliError::Usage(msg) => f.write_str(msg),
+            CliError::Usage(msg) | CliError::Incomplete(msg) => f.write_str(msg),
             CliError::Convert(e) => write!(f, "{e}"),
             CliError::Ambiguous(a) => f.write_str(&a.message()),
         }
@@ -255,7 +258,7 @@ impl CliError {
     pub fn exit_code(&self) -> u8 {
         match self {
             CliError::Convert(_) => 1,
-            CliError::Usage(_) | CliError::Ambiguous(_) => 2,
+            CliError::Usage(_) | CliError::Ambiguous(_) | CliError::Incomplete(_) => 2,
         }
     }
 }
@@ -387,6 +390,16 @@ pub fn parse_options<'a>(config: &Config, args: &'a [String]) -> Result<Parsed<'
 /// Converts one request: `<value> <from> <to>`, `<value><from> <to>`, or `<value>` alone (a calculation).
 /// The value is an expression (`100 + 20 sqft m2`, `[1+2]km mi`); a plain number is the simplest one.
 pub fn convert_request(config: &Config, opts: &Options, tokens: &[&str]) -> Result<Output, CliError> {
+    match request(config, opts, tokens) {
+        // What comes next (`now the place to go to…`, `now the currency to convert to…`): a request
+        // on its way, not a wrong one.
+        Err(CliError::Usage(msg)) if msg.starts_with("now the ") => Err(CliError::Incomplete(msg)),
+        other => other,
+    }
+}
+
+/// `convert_request`, before what comes next is told from a mistake.
+fn request(config: &Config, opts: &Options, tokens: &[&str]) -> Result<Output, CliError> {
     let input = tokens.join(" ");
     if input.trim().is_empty() {
         return usage(EXPECTED);
@@ -448,6 +461,11 @@ pub fn convert_request(config: &Config, opts: &Options, tokens: &[&str]) -> Resu
         [] => return Ok(Output { stdout: convert::format_value(value, opts.precision), notes, ..Output::default() }),
         [to] if config::is_number_word(to) => return Ok(Output { stdout: convert::format_value(value, opts.precision), notes, ..Output::default() }),
         [from, to] => (from, to),
+        // A unit so far (`10 km`): the target comes next.
+        [from] => return Err(match convert::find_unit(config, from) {
+            Some((category, unit)) => CliError::Incomplete(next_unit(category, unit)),
+            None => CliError::Usage(EXPECTED.into()),
+        }),
         _ => return usage(EXPECTED),
     };
     let (result, target) = convert::convert(config, value, from, to).map_err(CliError::Convert)?;
@@ -467,6 +485,15 @@ fn needs_value(config: &Config, args: &[&str]) -> bool {
     };
     let value_first = args.first().is_some_and(|t| calc::starts_expression(t) || time::starts_date(t));
     !value_first && args.len() <= 2 && args.iter().all(target)
+}
+
+/// After `10 km`, what comes next, without guessing which: `now the length unit to convert to: in,
+/// ft, yd…`, the other system's units first, in the table's order.
+fn next_unit(category: &config::Category, from: &config::Unit) -> String {
+    let others = |same: bool| category.units.iter().filter(move |u| u.symbol != from.symbol && (u.system == from.system) == same);
+    let shown: Vec<&str> = others(false).chain(others(true)).take(3).map(|u| u.symbol).collect();
+    let more = if category.units.len() - 1 > shown.len() { "…" } else { "" };
+    format!("now the {} unit to convert to: {}{more}", category.name.to_lowercase(), shown.join(", "))
 }
 
 fn calc_error(err: calc::CalcError) -> CliError {

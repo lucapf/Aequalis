@@ -48,8 +48,12 @@ fn results_with_notes_and_warnings() {
 #[test]
 fn errors_keep_their_exit_codes() {
     assert_eq!(json("10 foo m"), ("{\"ok\":false,\"exit\":1,\"error\":\"unknown unit `foo`\"}\n".into(), String::new(), 1));
-    let (out, _, code) = json("10 km");
+    let (out, _, code) = json("10 km mi m");
     assert!(out.starts_with("{\"ok\":false,\"exit\":2,\"error\":\"expected <value>"));
+    assert_eq!(code, 2);
+    // Not finished yet (a unit so far): what comes next, marked so a UI shows a hint, not an error.
+    let (out, _, code) = json("10 km");
+    assert_eq!(out, "{\"ok\":false,\"exit\":2,\"error\":\"now the length unit to convert to: in, ft, yd…\",\"incomplete\":true}\n");
     assert_eq!(code, 2);
 }
 
