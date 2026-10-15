@@ -353,3 +353,15 @@ fn iso_shows_seconds_only_when_needed() {
     assert_eq!(rome("2026-12-04T22:00Z iso-basic"), "2026-12-04T22:00Z iso = 20261204T2200Z iso-basic");
     assert_eq!(rome("20261204T220000Z iso-basic"), "2026-12-04T22:00:00Z iso = 20261204T220000Z iso-basic", "seconds written");
 }
+
+/// `--now` (not in the help) freezes "now" for the whole run, for tests whose data has a date:
+/// `now`, `today` and date math from them use it; a value that is not Unix seconds is refused.
+#[test]
+fn now_can_be_frozen() {
+    assert_eq!(value(utc("--now 1791800000 now unix")), "1791800000");
+    assert_eq!(value(utc("--now=1791800000 now unix")), "1791800000");
+    assert_eq!(value(utc("--now 1791800000 today iso-date")), "2026-10-12");
+    assert_eq!(value(utc("--now 1791800000 now + 1d unix")), "1791886400");
+    let (out, code) = run("UTC", "--now soon now unix");
+    assert_eq!((out.unwrap_err(), code), ("tally: error: --now requires Unix seconds (--now 1791800000)".to_string(), 2));
+}

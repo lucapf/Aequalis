@@ -257,7 +257,26 @@ fn from_civil(c: &Civil, zone: Zone) -> Result<Instant, TimeError> {
     Instant { ns: secs * NS + i128::from(c.nano), zone }.in_range()
 }
 
+static FIXED_NOW: std::sync::OnceLock<i64> = std::sync::OnceLock::new();
+
+/// Freezes "now" at `unix_seconds` for the whole process: the hidden `--now` option, for tests
+/// whose data has a date (exchange rates, the city archive, the Trivia's estimates). Set once,
+/// before anything; later calls are ignored. File times (the sync's lock, the rates' cache) stay
+/// real: they are about files, not dates.
+pub fn set_now(unix_seconds: i64) {
+    let _ = FIXED_NOW.set(unix_seconds);
+}
+
+/// The frozen "now" (`set_now`), if any: passed on to the background sync.
+pub fn fixed_now() -> Option<i64> {
+    FIXED_NOW.get().copied()
+}
+
+/// Now: the clock, or the frozen time (`set_now`). Every date of tally comes from here.
 pub fn now() -> Instant {
+    if let Some(&seconds) = FIXED_NOW.get() {
+        return Instant { ns: i128::from(seconds) * NS, zone: Zone::Local };
+    }
     let ns = match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
         Ok(d) => d.as_nanos() as i128,
         Err(e) => -(e.duration().as_nanos() as i128),

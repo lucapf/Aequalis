@@ -125,6 +125,7 @@ fn download(view: &mut View) {
     let started = std::env::current_exe().ok().and_then(|exe| {
         Command::new(exe)
             .arg("--sync")
+            .args(crate::time::fixed_now().map(|t| format!("--now={t}")))
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())

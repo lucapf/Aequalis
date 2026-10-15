@@ -10,7 +10,20 @@ use tally::tui;
 fn main() -> ExitCode {
     let config = Config::default();
     // `--json` changes only how results are printed (and that nothing is asked).
-    let all: Vec<String> = std::env::args().skip(1).collect();
+    let mut all: Vec<String> = std::env::args().skip(1).collect();
+    // `--now <unix seconds>` (not in the help): "now" frozen, for tests whose data has a date.
+    if let Some(i) = all.iter().position(|a| a == "--now" || a.starts_with("--now=")) {
+        let value = match all[i].strip_prefix("--now=") {
+            Some(v) => Some(v.to_string()),
+            None => all.get(i + 1).cloned(),
+        };
+        let Some(seconds) = value.as_deref().and_then(|v| v.parse::<i64>().ok()) else {
+            eprintln!("tally: error: --now requires Unix seconds (--now 1791800000)");
+            return ExitCode::from(2);
+        };
+        time::set_now(seconds);
+        all.drain(i..if all[i].starts_with("--now=") { i + 1 } else { i + 2 });
+    }
     let json = all.iter().any(|a| a == "--json");
     let args: Vec<String> = all.into_iter().filter(|a| a != "--json").collect();
     // `--settings`, `--set key[=value]`: the settings (`settings.rs`); they work even when the file

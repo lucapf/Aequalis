@@ -209,6 +209,8 @@ pub fn ensure_fresh() -> Option<std::process::Child> {
     let exe = std::env::current_exe().ok()?;
     Command::new(exe)
         .args(["--sync", "--auto"])
+        // A frozen "now" (`--now`, tests) holds for the sync too.
+        .args(crate::time::fixed_now().map(|t| format!("--now={t}")))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())

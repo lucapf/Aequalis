@@ -4,30 +4,32 @@
 use std::path::PathBuf;
 use std::process::{Command, Output, Stdio};
 
-/// Rates per US dollar, as synced from ExchangeRate-API; their date (`RATES_DAY`) is set to now by
-/// `config`, so they are never out of date (3 days old: a warning).
+/// Rates per US dollar, as synced from ExchangeRate-API, dated 12 Oct 2026.
 const RATES: &str = r#"{"format":1,"synced_at":1791800000,"attempted_at":1791800000,"ok":true,"values":{
-    "rates date":{"value":RATES_DAY,"at":1791800000},"USD/EUR":{"value":0.8945,"at":1791800000},
+    "rates date":{"value":1791763351,"at":1791800000},"USD/EUR":{"value":0.8945,"at":1791800000},
     "USD/AED":{"value":3.6725,"at":1791800000},"USD/CNY":{"value":7.1243,"at":1791800000},
     "USD/JPY":{"value":158.6,"at":1791800000},"USD/GBP":{"value":0.7556,"at":1791800000},
     "USD/CAD":{"value":1.4262,"at":1791800000},"USD/CHF":{"value":0.8312,"at":1791800000}}}"#;
+
+/// The day of the tests: the rates' day, a few hours later.
+const NOW: i64 = 1_791_800_000;
 
 fn config(name: &str, rates: bool) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("tally-currencies-{}-{name}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("tally")).unwrap();
     if rates {
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
-        std::fs::write(dir.join("tally/currencies.json"), RATES.replace("RATES_DAY", &now.to_string())).unwrap();
+        std::fs::write(dir.join("tally/currencies.json"), RATES).unwrap();
     }
     dir
 }
 
-/// The binary: offline, in Rome's time zone; `env` sets settings (`currency.local`) and `TZ`.
+/// The binary: offline, in Rome's time zone, on 12 Oct 2026 (`--now`: the rates are a few hours old,
+/// whatever the day the tests run); `env` sets settings (`currency.local`) and `TZ`.
 fn tally(dir: &PathBuf, args: &[&str], env: &[(&str, &str)]) -> Output {
     let mut settings = vec!["\"offline\": true".to_string()];
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_tally"));
-    cmd.args(args).env("XDG_CONFIG_HOME", dir).env("TZ", "Europe/Rome").env("LC_ALL", "C").stdin(Stdio::null());
+    cmd.arg(format!("--now={NOW}")).args(args).env("XDG_CONFIG_HOME", dir).env("TZ", "Europe/Rome").env("LC_ALL", "C").stdin(Stdio::null());
     for (k, v) in env {
         match *k {
             "TZ" => {
@@ -76,8 +78,7 @@ fn names_countries_symbols() {
     assert!(err(&tally(&dir, &["12", "usd", "eur"], &[])).is_empty(), "no country, no note");
     // With -v, the rate and its source.
     let o = tally(&dir, &["-v", "12", "usd", "eur"], &[]);
-    let e = err(&o);
-    assert!(e.contains("1 USD = 0.8945 EUR, rates of ") && e.contains(" from ExchangeRate-API (open.er-api.com)"), "{e}");
+    assert!(err(&o).contains("1 USD = 0.8945 EUR, rates of 12 Oct 26 from ExchangeRate-API (open.er-api.com)"), "{}", err(&o));
 }
 
 #[test]
