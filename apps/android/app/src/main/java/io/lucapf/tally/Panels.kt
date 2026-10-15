@@ -48,7 +48,14 @@ import androidx.compose.ui.unit.dp
  * request; `close` goes back to the keyboard.
  */
 @Composable
-fun PanelView(panel: Panel, write: (String) -> Unit, close: () -> Unit, openLink: (String) -> Unit) {
+fun PanelView(
+    panel: Panel,
+    write: (String) -> Unit,
+    close: () -> Unit,
+    openLink: (String) -> Unit,
+    // In portrait the keyboard's place; in landscape, the right side.
+    size: Modifier = Modifier.fillMaxWidth().height(KeyboardHeight),
+) {
     // The second level (a class, a section), when one is open, and in the Trivia a third, a value's
     // details: the back gesture goes up one level.
     var opened by remember(panel) { mutableStateOf<String?>(null) }
@@ -62,7 +69,7 @@ fun PanelView(panel: Panel, write: (String) -> Unit, close: () -> Unit, openLink
     }
     BackHandler(onBack = up)
     Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
-        Column(Modifier.fillMaxWidth().navigationBarsPadding().height(KeyboardHeight)) {
+        Column(Modifier.navigationBarsPadding().then(size)) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 val back = when {
                     detail != null -> "Back to $opened"

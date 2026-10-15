@@ -53,6 +53,8 @@ sealed interface Key {
     data class Open(val panel: Panel) : Key
     /** Switches the keyboard: letters, or the calculator (basic or scientific). */
     data class Switch(val mode: Mode) : Key
+    /** Opens the Settings (the landscape toolbar; in portrait, ⚙ at the top). */
+    data object Settings : Key
 }
 
 enum class Panel { Measures, Currencies, Trivia }
@@ -77,15 +79,7 @@ fun TallyKeyboard(mode: Mode, onKey: (Key) -> Unit, modifier: Modifier = Modifie
             KeyRow {
                 // Clearing has its own key: no gesture on ⌫ wipes the request by surprise.
                 KeyButton("C", weight = 0.8f, tone = Tone.Action) { onKey(Key.Clear) }
-                when (mode) {
-                    Mode.Text -> KeyButton("123", weight = 1.2f, tone = Tone.Action, small = true) { onKey(Key.Switch(Mode.Basic)) }
-                    else -> KeyButton("ABC", weight = 1.2f, tone = Tone.Action, small = true) { onKey(Key.Switch(Mode.Text)) }
-                }
-                when (mode) {
-                    Mode.Text -> {}
-                    Mode.Basic -> KeyButton("Sci", weight = 1.2f, tone = Tone.Action, small = true) { onKey(Key.Switch(Mode.Scientific)) }
-                    Mode.Scientific -> KeyButton("Basic", weight = 1.2f, tone = Tone.Action, small = true) { onKey(Key.Switch(Mode.Basic)) }
-                }
+                switches(mode).forEach { (label, to) -> KeyButton(label, weight = 1.2f, tone = Tone.Action, small = true) { onKey(Key.Switch(to)) } }
                 PanelKeys(onKey)
             }
             when (mode) {
@@ -94,6 +88,14 @@ fun TallyKeyboard(mode: Mode, onKey: (Key) -> Unit, modifier: Modifier = Modifie
             }
         }
     }
+}
+
+/** The toolbar's keys that switch the keyboard: to the calculator or back to the letters, and in
+ *  the calculator between basic and scientific. */
+private fun switches(mode: Mode): List<Pair<String, Mode>> = when (mode) {
+    Mode.Text -> listOf("123" to Mode.Basic)
+    Mode.Basic -> listOf("ABC" to Mode.Text, "Sci" to Mode.Scientific)
+    Mode.Scientific -> listOf("ABC" to Mode.Text, "Basic" to Mode.Basic)
 }
 
 /** The operators as people write them, written as Tally reads them: × is *, ÷ is /, − is -. */
@@ -161,16 +163,86 @@ private fun ColumnScope.Calculator(scientific: Boolean, onKey: (Key) -> Unit) {
                 SCIENCE[i].forEach { (shown, written) -> KeyButton(shown, tone = Tone.Action, small = true) { write(written) } }
                 Spacer(Modifier.width(6.dp))
             }
-            keys.forEach { k ->
-                when {
-                    k.writes != null -> KeyButton(k.label, tone = k.tone) { write(k.writes) }
-                    k.label == "⌫" -> BackspaceKey(onKey)
-                    else -> KeyButton(k.label, tone = k.tone) { onKey(Key.Enter) }
+            keys.forEach { k -> CalcKey(k, onKey) }
+        }
+    }
+}
+
+/** A key's height in landscape: about the portrait one, so the request and the result keep the
+ *  rest of the screen. */
+private val LandscapeRow: Dp = 44.dp
+
+/** Landscape, on the left: the toolbar, as a column (C, the keyboards, the panels, Settings). */
+@Composable
+fun SideToolbar(mode: Mode, onKey: (Key) -> Unit, modifier: Modifier = Modifier) {
+    Column(modifier.fillMaxHeight().width(100.dp).padding(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        ColumnKey("C") { onKey(Key.Clear) }
+        switches(mode).forEach { (label, to) -> ColumnKey(label, small = true) { onKey(Key.Switch(to)) } }
+        Panel.entries.forEach { p -> ColumnKey(p.name, small = true) { onKey(Key.Open(p)) } }
+        ColumnKey("⚙") { onKey(Key.Settings) }
+    }
+}
+
+/** Landscape, under the request: the letters, as in portrait, with ⌫, space and ⏎. */
+@Composable
+fun LetterPad(onKey: (Key) -> Unit, modifier: Modifier = Modifier) {
+    val write = { s: String -> onKey(Key.Write(s)) }
+    Column(modifier.fillMaxWidth().padding(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        PadRow { "qwertyuiop".forEach { c -> CharKey(c, write) } }
+        PadRow {
+            Spacer(Modifier.weight(0.5f))
+            "asdfghjkl".forEach { c -> CharKey(c, write) }
+            Spacer(Modifier.weight(0.5f))
+        }
+        PadRow {
+            Spacer(Modifier.weight(0.5f))
+            "zxcvbnm".forEach { c -> CharKey(c, write) }
+            BackspaceKey(onKey, weight = 2f)
+            Spacer(Modifier.weight(0.5f))
+        }
+        PadRow {
+            KeyButton("space", weight = 4f, small = true) { write(" ") }
+            KeyButton("⏎", weight = 1.4f, tone = Tone.Enter) { onKey(Key.Enter) }
+        }
+    }
+}
+
+/** Landscape, on the right: the digits and operators in the calculator's grid, the functions beside
+ *  them in scientific mode. With the letters (whose rows have ⌫ and ⏎), its last row is `0 . : ^`. */
+@Composable
+fun NumberPad(mode: Mode, onKey: (Key) -> Unit, modifier: Modifier = Modifier) {
+    val write = { s: String -> onKey(Key.Write(s)) }
+    val rows = if (mode == Mode.Text) CALCULATOR.dropLast(1) + listOf(listOf(digit("0"), digit("."), op(":", ":"), op("^", "^"))) else CALCULATOR
+    val columns = if (mode == Mode.Scientific) 6 else 4
+    Column(modifier.width(58.dp * columns).padding(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        rows.forEachIndexed { i, keys ->
+            PadRow {
+                if (mode == Mode.Scientific) {
+                    SCIENCE[i].forEach { (shown, written) -> KeyButton(shown, tone = Tone.Action, small = true) { write(written) } }
                 }
+                keys.forEach { k -> CalcKey(k, onKey) }
             }
         }
     }
 }
+
+/** A row of the landscape pads: a fixed height. */
+@Composable
+private fun PadRow(content: @Composable RowScope.() -> Unit) {
+    Row(Modifier.fillMaxWidth().height(LandscapeRow), horizontalArrangement = Arrangement.spacedBy(4.dp), content = content)
+}
+
+@Composable
+private fun RowScope.CalcKey(k: Calc, onKey: (Key) -> Unit) = when {
+    k.writes != null -> KeyButton(k.label, tone = k.tone) { onKey(Key.Write(k.writes)) }
+    k.label == "⌫" -> BackspaceKey(onKey)
+    else -> KeyButton(k.label, tone = k.tone) { onKey(Key.Enter) }
+}
+
+/** A key of the landscape toolbar: the column's width, a share of its height. */
+@Composable
+private fun ColumnScope.ColumnKey(label: String, small: Boolean = false, onTap: () -> Unit) =
+    KeyCap(label, Modifier.weight(1f).fillMaxWidth(), Tone.Action, small, repeat = false, onTap)
 
 /** The three panels, on the toolbar of every mode. */
 @Composable
@@ -201,7 +273,7 @@ private val SPOKEN = mapOf(
     "⌫" to "Backspace", "⏎" to "Enter", "C" to "Clear", "+" to "plus", "−" to "minus", "×" to "times", "÷" to "divided by",
     "^" to "to the power of", "(" to "open bracket", ")" to "close bracket", "%" to "percent", "." to "point", ":" to "colon",
     "√" to "square root", "π" to "pi", "°" to "degrees", "123" to "Calculator keys", "ABC" to "Letter keys",
-    "Sci" to "Scientific calculator", "Basic" to "Basic calculator", "space" to "Space",
+    "Sci" to "Scientific calculator", "Basic" to "Basic calculator", "space" to "Space", "⚙" to "Settings",
 )
 
 /**
@@ -217,7 +289,11 @@ private fun RowScope.KeyButton(
     small: Boolean = false,
     repeat: Boolean = false,
     onTap: () -> Unit,
-) {
+) = KeyCap(label, Modifier.weight(weight).fillMaxHeight(), tone, small, repeat, onTap)
+
+/** A key, sized by `size` (a share of a row, or of a column). */
+@Composable
+private fun KeyCap(label: String, size: Modifier, tone: Tone, small: Boolean, repeat: Boolean, onTap: () -> Unit) {
     val haptic = LocalHapticFeedback.current
     val colors = MaterialTheme.colorScheme
     val (background, foreground) = when (tone) {
@@ -243,7 +319,7 @@ private fun RowScope.KeyButton(
     Surface(
         color = background,
         shape = RoundedCornerShape(8.dp),
-        modifier = Modifier.weight(weight).fillMaxHeight()
+        modifier = size
             .clip(RoundedCornerShape(8.dp))
             .combinedClickable(
                 interactionSource = interactions,

@@ -15,13 +15,14 @@ Tick an item when it is done, and note the commit.
 - [x] ⌫ held repeats, as on every keyboard; clearing gets its own key (#5).
 - [x] Results are announced to screen readers (#11, cheap with #1).
 
-### 2. Landscape, and copy / share / paste
+### 2. Landscape, and copy / share / paste (done, 15 Oct 2026)
 
-- [ ] Landscape prototype (#3): digits and operators on the right, arranged vertically; the toolbar
-      (C, 123, Measures…) on the left, also vertical; buttons shrunk to about their portrait size,
-      so the request and the result stay visible in the middle.
-- [ ] Tap or long-press the result: copy; a Share action (#7).
-- [ ] Long-press the request line: paste (#7).
+- [x] Landscape prototype (#3): digits and operators on the right, in the calculator's grid (the
+      functions beside it in Sci); the toolbar (C, 123, Measures…, ⚙) on the left, vertical; the
+      letters under the request, at about their portrait size; a panel takes the right side.
+- [x] Tap or long-press the result: copy; Copy and Share beside it (#7). Share sends
+      `request = result`.
+- [x] Long-press the request line: paste, on one line (#7); for screen readers, a Paste action.
 
 ### 3. Responsiveness (done, 15 Oct 2026)
 
@@ -39,7 +40,8 @@ Tick an item when it is done, and note the commit.
       features work before any download; with currencies, say how old the rates are (1h, 2d, 3w,
       1m, 1y…). `scripts/build-android.sh` downloads them into the app's assets; the app installs
       them at its first start.
-- [ ] Check on screen (not done yet): the Trivia measure chips and the Wikipedia page inside the app.
+- [x] Check on screen: the Trivia measure chips (a chip writes `0.3871 au `) and the Wikipedia page
+      inside the app (with Open in browser).
 
 ### Later (medium issues)
 
