@@ -14,6 +14,8 @@ pub mod ffi;
 pub mod files;
 pub mod geo;
 pub mod http;
+#[cfg(all(feature = "ffi", target_os = "android"))]
+pub mod jni;
 pub mod json;
 pub mod locale;
 pub mod network;
