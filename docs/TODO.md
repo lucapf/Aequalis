@@ -46,10 +46,10 @@ Tick an item when it is done, and note the commit.
 
 ### From the recheck (`docs/CORE_REVIEW.md` §9, to decide)
 
-- [ ] A `rustfmt.toml` (`max_width = 160`, `use_small_heuristics = "Max"`) and one `cargo fmt`
+- [x] A `rustfmt.toml` (`max_width = 160`, `use_small_heuristics = "Max"`) and one `cargo fmt`
       (142 changes).
-- [ ] A written date alone (`12/04/2026`): a hint in every UI (the app shows `0.0015` now), or the
-      division it is on the command line.
+- [x] A written date alone (`12/04/2026`): a hint in every UI ("now the format to convert to…");
+      `12/04/2026 num` is the division.
 
 ### Later (medium issues)
 
