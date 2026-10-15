@@ -1,6 +1,8 @@
 package io.lucapf.tally
 
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,17 +18,25 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ripple
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
 
 /** The keyboard's height: the Measures, Currencies and Trivia panels take its place exactly. */
 val KeyboardHeight: Dp = 380.dp
@@ -36,7 +46,7 @@ sealed interface Key {
     /** Writes this text. */
     data class Write(val text: String) : Key
     data object Backspace : Key
-    /** A long press on ⌫: the request cleared. */
+    /** The request cleared (the C key). */
     data object Clear : Key
     data object Enter : Key
     /** Opens a panel over the keyboard. */
@@ -65,6 +75,8 @@ fun TallyKeyboard(mode: Mode, onKey: (Key) -> Unit, modifier: Modifier = Modifie
         ) {
             // The toolbar, in every mode: the keyboards and the panels, apart from the keys typed.
             KeyRow {
+                // Clearing has its own key: no gesture on ⌫ wipes the request by surprise.
+                KeyButton("C", weight = 0.8f, tone = Tone.Action) { onKey(Key.Clear) }
                 when (mode) {
                     Mode.Text -> KeyButton("123", weight = 1.2f, tone = Tone.Action, small = true) { onKey(Key.Switch(Mode.Basic)) }
                     else -> KeyButton("ABC", weight = 1.2f, tone = Tone.Action, small = true) { onKey(Key.Switch(Mode.Text)) }
@@ -168,10 +180,10 @@ private fun RowScope.PanelKeys(onKey: (Key) -> Unit) {
     KeyButton("Trivia", weight = 1.6f, tone = Tone.Action, small = true) { onKey(Key.Open(Panel.Trivia)) }
 }
 
-/** ⌫: a tap removes the character before the cursor, a long press the whole request. */
+/** ⌫: a tap removes the character before the cursor; held, it goes on removing, as on every keyboard. */
 @Composable
 private fun RowScope.BackspaceKey(onKey: (Key) -> Unit, weight: Float = 1f) =
-    KeyButton("⌫", weight = weight, tone = Tone.Action, onLongPress = { onKey(Key.Clear) }) { onKey(Key.Backspace) }
+    KeyButton("⌫", weight = weight, tone = Tone.Action, repeat = true) { onKey(Key.Backspace) }
 
 /** A row of keys, sharing the keyboard's height with the other rows. */
 @Composable
@@ -184,14 +196,26 @@ private enum class Tone { Letter, Operator, Action, Enter }
 @Composable
 private fun RowScope.CharKey(c: Char, write: (String) -> Unit) = KeyButton(c.toString()) { write(c.toString()) }
 
-/** A key: its label, its share of the row's width, and what a tap (and a long press) does. */
+/** What a screen reader says for a key whose label is a symbol (the letters and digits say themselves). */
+private val SPOKEN = mapOf(
+    "⌫" to "Backspace", "⏎" to "Enter", "C" to "Clear", "+" to "plus", "−" to "minus", "×" to "times", "÷" to "divided by",
+    "^" to "to the power of", "(" to "open bracket", ")" to "close bracket", "%" to "percent", "." to "point", ":" to "colon",
+    "√" to "square root", "π" to "pi", "°" to "degrees", "123" to "Calculator keys", "ABC" to "Letter keys",
+    "Sci" to "Scientific calculator", "Basic" to "Basic calculator", "space" to "Space",
+)
+
+/**
+ * A key: its label, its share of the row's width, what a tap does, and with `repeat` the same again
+ * while it is held (after 0.4 s, every 50 ms). A button for accessibility services (TalkBack,
+ * Switch Access, Voice Access), named by `SPOKEN`; a ripple while pressed.
+ */
 @Composable
 private fun RowScope.KeyButton(
     label: String,
     weight: Float = 1f,
     tone: Tone = Tone.Letter,
     small: Boolean = false,
-    onLongPress: (() -> Unit)? = null,
+    repeat: Boolean = false,
     onTap: () -> Unit,
 ) {
     val haptic = LocalHapticFeedback.current
@@ -202,15 +226,35 @@ private fun RowScope.KeyButton(
         Tone.Action -> colors.surfaceContainerHigh to colors.onSurfaceVariant
         Tone.Enter -> colors.primary to colors.onPrimary
     }
+    val interactions = remember { MutableInteractionSource() }
+    if (repeat) {
+        val pressed by interactions.collectIsPressedAsState()
+        LaunchedEffect(pressed) {
+            if (pressed) {
+                delay(400)
+                while (true) {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onTap()
+                    delay(50)
+                }
+            }
+        }
+    }
     Surface(
         color = background,
         shape = RoundedCornerShape(8.dp),
-        modifier = Modifier.weight(weight).fillMaxHeight().pointerInput(onTap, onLongPress) {
-            detectTapGestures(
-                onTap = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); onTap() },
-                onLongPress = onLongPress?.let { long -> { haptic.performHapticFeedback(HapticFeedbackType.LongPress); long() } },
+        modifier = Modifier.weight(weight).fillMaxHeight()
+            .clip(RoundedCornerShape(8.dp))
+            .combinedClickable(
+                interactionSource = interactions,
+                indication = ripple(),
+                role = Role.Button,
+                onClickLabel = SPOKEN[label] ?: label,
+                // Held (repeating), the release is no tap.
+                onLongClick = if (repeat) ({}) else null,
+                onClick = { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); onTap() },
             )
-        },
+            .semantics { contentDescription = SPOKEN[label] ?: label },
     ) {
         Box(contentAlignment = Alignment.Center) {
             Text(label, color = foreground, fontSize = if (small) 13.sp else 20.sp, maxLines = 1)

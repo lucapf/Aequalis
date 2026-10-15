@@ -25,6 +25,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 
 /** Every setting, changed in place and saved at once (the core checks each value). */
@@ -40,7 +43,9 @@ fun SettingsScreen(close: () -> Unit, modifier: Modifier = Modifier) {
     }
     Column(modifier.fillMaxSize().imePadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = close) { Text("←") }
+            TextButton(onClick = close, modifier = Modifier.semantics { contentDescription = "Back" }) {
+                Text("←", modifier = Modifier.clearAndSetSemantics {})
+            }
             Text("Settings", style = MaterialTheme.typography.titleLarge)
         }
         message?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 16.dp)) }

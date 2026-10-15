@@ -34,6 +34,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -41,6 +42,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.dp
 import io.lucapf.tally.ui.theme.TallyTheme
@@ -81,15 +87,20 @@ data class Edit(val text: String = "", val cursor: Int = 0) {
     }
 }
 
+/** How an `Edit` is kept when Android recreates the screen (rotation, dark mode, font size, the app
+ *  stopped in the background): its text and cursor, as two values the system can store. */
+val EditSaver = listSaver<Edit, Any>(save = { listOf(it.text, it.cursor) }, restore = { Edit(it[0] as String, it[1] as Int) })
+
 @Composable
 fun TallyApp() {
-    var edit by remember { mutableStateOf(Edit()) }
+    // `rememberSaveable`: the user's work survives Android recreating the screen.
+    var edit by rememberSaveable(stateSaver = EditSaver) { mutableStateOf(Edit()) }
     // Enter was pressed on this request: its error shows even in the middle of a word.
-    var submitted by remember { mutableStateOf(false) }
-    var panel by remember { mutableStateOf<Panel?>(null) }
+    var submitted by rememberSaveable { mutableStateOf(false) }
+    var panel by rememberSaveable { mutableStateOf<Panel?>(null) }
     // Letters or the calculator: kept while the app is open, and when the screen turns.
     var mode by rememberSaveable { mutableStateOf(Mode.Text) }
-    var settings by remember { mutableStateOf(false) }
+    var settings by rememberSaveable { mutableStateOf(false) }
     if (settings) {
         SettingsScreen(close = { settings = false }, modifier = Modifier.statusBarsPadding())
         return
@@ -109,10 +120,16 @@ fun TallyApp() {
             // The top bar: the name, and Settings at the right.
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Tally", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-                TextButton(onClick = { settings = true }) { Text("⚙", style = MaterialTheme.typography.titleLarge) }
+                TextButton(onClick = { settings = true }, modifier = Modifier.semantics { contentDescription = "Settings" }) {
+                    Text("⚙", style = MaterialTheme.typography.titleLarge, modifier = Modifier.clearAndSetSemantics {})
+                }
             }
             RequestLine(edit, onCursor = { edit = edit.copy(cursor = it) })
-            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            // A live region: a screen reader says the result, the hint or the error as it changes.
+            Column(
+                Modifier.weight(1f).verticalScroll(rememberScrollState()).semantics { liveRegion = LiveRegionMode.Polite },
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 when {
                     reply == null -> {}
                     reply.result != null -> Text(reply.result, style = MaterialTheme.typography.headlineMedium)
@@ -170,7 +187,9 @@ fun RequestLine(edit: Edit, onCursor: (Int) -> Unit) {
     )
     Box(
         Modifier.fillMaxWidth().border(1.dp, colors.outline, RoundedCornerShape(8.dp)).padding(horizontal = 16.dp, vertical = 14.dp)
-            .pointerInput(edit.text) { detectTapGestures { at -> layout?.let { onCursor(it.getOffsetForPosition(at)) } } },
+            .pointerInput(edit.text) { detectTapGestures { at -> layout?.let { onCursor(it.getOffsetForPosition(at)) } } }
+            // What a screen reader says: the request (not the placeholder's example).
+            .clearAndSetSemantics { contentDescription = if (edit.text.isEmpty()) "Request, empty" else "Request: ${edit.text}" },
     ) {
         if (edit.text.isEmpty()) Text("10 km mi, 12+4/2, now Tokyo…", color = colors.onSurfaceVariant, style = MaterialTheme.typography.headlineSmall)
         Text(

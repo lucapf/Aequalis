@@ -28,6 +28,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
@@ -44,9 +47,14 @@ fun PanelView(panel: Panel, write: (String) -> Unit, close: () -> Unit) {
     Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
         Column(Modifier.fillMaxWidth().navigationBarsPadding().height(KeyboardHeight)) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = { if (opened != null) opened = null else close() }) { Text(if (opened != null) "←" else "⌨") }
+                val back = if (opened != null) "Back to ${panel.name}" else "Back to the keyboard"
+                TextButton(onClick = { if (opened != null) opened = null else close() }, modifier = Modifier.semantics { contentDescription = back }) {
+                    Text(if (opened != null) "←" else "⌨", modifier = Modifier.clearAndSetSemantics {})
+                }
                 Text(opened ?: panel.name, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                TextButton(onClick = close) { Text("✕") }
+                TextButton(onClick = close, modifier = Modifier.semantics { contentDescription = "Close" }) {
+                    Text("✕", modifier = Modifier.clearAndSetSemantics {})
+                }
             }
             HorizontalDivider()
             when (panel) {
