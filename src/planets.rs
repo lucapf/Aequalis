@@ -38,8 +38,15 @@ fn elements(p: &Elements, t: f64) -> [f64; 6] {
 
 /// The heliocentric position (au, ecliptic of J2000) at `t`.
 fn position(p: &Elements, t: f64) -> [f64; 3] {
-    let [a, e, i, l, varpi, node] = elements(p, t);
-    let m = (l - varpi).rem_euclid(360.0).to_radians();
+    let el = elements(p, t);
+    // The mean anomaly: the mean longitude less the longitude of perihelion.
+    orbit_point(&el, el[3] - el[4])
+}
+
+/// The point of the orbit `el` (a, e, I, L, ϖ, Ω) at mean anomaly `m` (degrees).
+fn orbit_point(el: &[f64; 6], m: f64) -> [f64; 3] {
+    let [a, e, i, _, varpi, node] = *el;
+    let m = m.rem_euclid(360.0).to_radians();
     // Kepler's equation, E − e·sin E = M, by Newton's method.
     let mut big_e = if e < 0.8 { m } else { std::f64::consts::PI };
     for _ in 0..30 {
@@ -102,15 +109,30 @@ pub fn from_sun(name: &str, now: f64) -> Option<Distances> {
     })
 }
 
-/// From the Earth, after `now`: the mean (over a century), the next closest and farthest
-/// approaches (sampled every `STEP` days over one synodic period and a half, then found to the
-/// minute around the samples). `None`: not a planet, or the Earth.
+/// The mean distance between two planets in the long run (au), with their orbits at `t`. Their
+/// periods never come back in step, so over time every pair of positions (one on each orbit) is
+/// as likely as any other: the mean is the average over every pair, here `N` × `N` points evenly
+/// spread in time along each orbit (equal steps of mean anomaly). With 32 points it is exact to 6
+/// digits, and agrees with an average over 2,000 years to 0.03% (that average's own limit: 12
+/// orbits of Neptune); a century's average, by contrast, moves by up to 0.9% with the century
+/// chosen (Uranus: 1.2 orbits in 100 years).
+fn long_run_mean(a: &Elements, b: &Elements, t: f64) -> f64 {
+    const N: usize = 32;
+    let points = |p: &Elements| {
+        let el = elements(p, t);
+        (0..N).map(move |k| orbit_point(&el, k as f64 * 360.0 / N as f64)).collect::<Vec<_>>()
+    };
+    let (pa, pb) = (points(a), points(b));
+    let gap = |p: &[f64; 3], q: &[f64; 3]| ((p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2) + (p[2] - q[2]).powi(2)).sqrt();
+    pa.iter().map(|p| pb.iter().map(|q| gap(p, q)).sum::<f64>()).sum::<f64>() / (N * N) as f64
+}
+
+/// From the Earth, after `now`: the mean (in the long run, `long_run_mean`), the next closest and
+/// farthest approaches (sampled every `STEP` days over one synodic period and a half, then found
+/// to the minute around the samples). `None`: not a planet, or the Earth.
 pub fn from_earth(name: &str, now: f64) -> Option<Distances> {
     /// Days between the samples that find the extremes: they last weeks, so none falls between.
     const STEP: f64 = 4.0;
-    /// Days between the samples of the century mean: 1,588 instead of every 5 days (7,305); the
-    /// mean moves by 0.03% at most (Venus), well within the elements' own accuracy.
-    const MEAN_STEP: i64 = 23;
     let p = find(name).filter(|p| p.name != "Earth")?;
     let earth = find("Earth")?;
     let d = |t: f64| between(p, earth, t);
@@ -149,9 +171,7 @@ pub fn from_earth(name: &str, now: f64) -> Option<Distances> {
             })
             .map(|k| refine(k, lowest))
     };
-    let n = 36_525 / MEAN_STEP;
-    let mean = (0..n).map(|k| d(now + (k * MEAN_STEP) as f64 * DAY)).sum::<f64>() / n as f64;
-    Some(Distances { now: d(now), mean, min: extreme(true)?, max: extreme(false)? })
+    Some(Distances { now: d(now), mean: long_run_mean(p, earth, now), min: extreme(true)?, max: extreme(false)? })
 }
 
 #[cfg(test)]
@@ -182,8 +202,13 @@ mod tests {
         let mars = from_earth("Mars", at(2003, 7, 27)).unwrap();
         assert!((mars.min.au - 0.3727).abs() < 0.002, "{mars:?}");
         assert!((mars.min.at.unwrap() - at(2003, 8, 27)).abs() < 2.0 * DAY);
-        // Its mean distance from the Earth is about 1.7 au; Venus's closest is about 0.26–0.29 au.
-        assert!((1.5..1.8).contains(&mars.mean), "{}", mars.mean);
+        // Venus's closest is about 0.26–0.29 au.
+        // The long-run means (Mercury is on average the nearest planet: 1.04 au, Venus 1.14, Mars
+        // 1.70), as an average over 2,000 years of positions every half day finds them.
+        for (planet, years_2000) in [("Mercury", 1.038933), ("Venus", 1.136161), ("Mars", 1.700998), ("Jupiter", 5.257450), ("Saturn", 9.575015), ("Uranus", 19.216317), ("Neptune", 30.076388)] {
+            let mean = from_earth(planet, at(2026, 1, 1)).unwrap().mean;
+            assert!((mean / years_2000 - 1.0).abs() < 0.0004, "{planet}: {mean} au");
+        }
         let venus = from_earth("Venus", at(2026, 10, 11)).unwrap();
         assert!((0.25..0.30).contains(&venus.min.au), "{venus:?}");
         assert!(venus.min.at.unwrap() > at(2026, 10, 11));
