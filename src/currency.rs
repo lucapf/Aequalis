@@ -489,7 +489,7 @@ fn convert(amount: &str, money: &[Piece], ctx: &Context) -> Result<Converted, Er
     }
     // Countries written for currencies: which ones were used, to check.
     let check = sides(money, Some(to));
-    Ok(Converted { result: format!("{result:.2} {to}"), age: age(ctx.now - day), check, notes, warnings })
+    Ok(Converted { result: format!("{} {to}", crate::convert::fixed(result, 2)), age: age(ctx.now - day), check, notes, warnings })
 }
 
 /// An age for people, in its largest whole unit: `less than 1h`, `5h`, `2d`, `3w`, `4m`, `1y`.

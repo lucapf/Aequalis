@@ -155,6 +155,10 @@ impl Expr {
                     Op::Mul => l * r,
                     Op::Div if r == 0.0 => return Err(CalcError::DivisionByZero),
                     Op::Div => l / r,
+                    // `(-2)^0.5`: no real number (not a result too large).
+                    Op::Pow if l < 0.0 && r.is_finite() && r.fract() != 0.0 => {
+                        return Err(CalcError::Domain(format!("a negative number to a fractional power ({l})^{r}: not a real number")))
+                    }
                     Op::Pow => l.powf(r),
                 }
             }
@@ -682,6 +686,10 @@ mod tests {
         assert!(matches!(err("log(0)"), CalcError::Domain(m) if m.contains("`log`")));
         assert!(matches!(err("ln(-e)"), CalcError::Domain(m) if m.contains("`ln`")));
         assert!(matches!(err("sqrt"), CalcError::Syntax(_)));
+        // No real number, rather than a result out of range; whole powers of negatives are fine.
+        assert!(matches!(err("(-2)^0.5"), CalcError::Domain(m) if m == "a negative number to a fractional power (-2)^0.5: not a real number"));
+        assert_eq!(eval("(-2)^3"), -8.0);
+        assert_eq!(eval("-2^0.5"), -std::f64::consts::SQRT_2, "the power first, then the sign");
     }
 
     #[test]

@@ -204,7 +204,40 @@ pub fn warnings(from: &Unit, to: &Unit) -> Vec<String> {
     out
 }
 
-/// Fixed precision, then trailing zeros (and a dangling `.`) trimmed; `-0` becomes `0`. Scientific
+/// `value` with exactly `decimals` digits after the point, halves rounded away from zero on the
+/// shortest decimal that gives the value back (what `{}` prints): the digits people see decide,
+/// as on a calculator. `2.5` is `3`, `0.125` is `0.13`, `2.675` is `2.68`; Rust's own formatting
+/// reads the binary value (2.67499…) and rounds halves to even (`2`, `0.12`, `2.67`). `-0` is `0`.
+pub fn fixed(value: f64, decimals: usize) -> String {
+    // Plain digits, never an exponent: `2.675`, `0.0000001`, `1000000000000000000000`.
+    let shortest = format!("{}", value.abs());
+    let (int, frac) = shortest.split_once('.').unwrap_or((&shortest, ""));
+    let mut digits: Vec<u8> = int.bytes().chain(frac.bytes().chain(std::iter::repeat(b'0')).take(decimals)).collect();
+    // The first digit dropped decides: from 5 up, the last kept one goes up (and carries).
+    if frac.as_bytes().get(decimals).is_some_and(|&d| d >= b'5') {
+        match digits.iter().rposition(|&d| d != b'9') {
+            Some(i) => {
+                digits[i] += 1;
+                digits[i + 1..].fill(b'0');
+            }
+            None => {
+                digits.fill(b'0');
+                digits.insert(0, b'1');
+            }
+        }
+    }
+    let int_len = digits.len() - decimals;
+    let mut out: String = digits.into_iter().map(char::from).collect();
+    if decimals > 0 {
+        out.insert(int_len, '.');
+    }
+    if value.is_sign_negative() && out.bytes().any(|b| b.is_ascii_digit() && b != b'0') {
+        out.insert(0, '-');
+    }
+    out
+}
+
+/// Fixed precision (`fixed`), then trailing zeros (and a dangling `.`) trimmed. Scientific
 /// notation when the fixed form can't show the value: a non-zero value that would round to 0
 /// (`1 eV J` → `1.6022e-19`), or one of 10¹⁵ or more whose digits are not all exact (`1 J eV` →
 /// `6.2415e18`; but `1 yr ns` → `31557600000000000`) or of 10²¹ or more. `precision` is then the
@@ -226,7 +259,7 @@ pub fn format_value(value: f64, precision: usize) -> String {
     // `9460730472580.8`, not `…580.8008`).
     let int_digits = if value.abs() >= 1.0 { value.abs().log10().floor() as usize + 1 } else { 0 };
     let precision = precision.min(15usize.saturating_sub(int_digits));
-    let mut s = format!("{value:.precision$}");
+    let mut s = fixed(value, precision);
     if s.contains('.') {
         s.truncate(s.trim_end_matches('0').trim_end_matches('.').len());
     }
@@ -418,6 +451,21 @@ mod tests {
         assert!(warn("GB", "GiB")[0].contains("decimal (GB"));
         assert!(warn("MiB", "kB")[0].contains("decimal (kB"));
         assert_eq!(warn("Gib", "MB").len(), 2);
+    }
+
+    /// Halves away from zero, on the digits people see.
+    #[test]
+    fn rounding() {
+        for (value, decimals, want) in [
+            (2.5, 0, "3"), (0.5, 0, "1"), (-2.5, 0, "-3"), (1.25, 1, "1.3"), (0.125, 2, "0.13"), (2.675, 2, "2.68"),
+            (1.005, 2, "1.01"), (9.995, 2, "10.00"), (99.5, 0, "100"), (0.4, 0, "0"), (-0.4, 0, "0"), (-0.0, 2, "0.00"),
+            (12.3, 3, "12.300"), (1e21, 0, "1000000000000000000000"), (6.213711922373339, 4, "6.2137"), (0.1 + 0.2, 4, "0.3000"),
+        ] {
+            assert_eq!(fixed(value, decimals), want, "{value} to {decimals}");
+        }
+        assert_eq!(format_value(2.5, 0), "3");
+        assert_eq!(format_value(0.5, 0), "1", "a non-zero value never shows as 0");
+        assert_eq!(format_value(2.675, 2), "2.68");
     }
 
     #[test]
