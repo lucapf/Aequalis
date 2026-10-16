@@ -2,6 +2,10 @@ package io.lucapf.tally
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -137,6 +141,9 @@ private fun <T> loaded(load: () -> T): T? =
 
 /** The width of a list beside the next level, in landscape. */
 private val ListWidth = 230.dp
+
+/** The narrowest a Trivia value's details get beside the lists (landscape): room for its lines. */
+private val DetailWidth = 360.dp
 
 /** The unit classes; a class opened: its units, by its two systems (Metric and Imperial…). Wide:
  *  the classes on the left, the units of the one chosen beside them. */
@@ -328,15 +335,31 @@ private fun TriviaPanel(
         }
     }
     when {
-        wide -> Row(Modifier.fillMaxSize()) {
-            sectionList(Modifier.width(ListWidth * 0.8f).fillMaxHeight())
-            VerticalDivider()
-            if (section != null) {
-                entryList(section, Modifier.width(ListWidth * 1.3f).fillMaxHeight())
-                VerticalDivider()
+        // The lists at their widths, the details at least `DetailWidth` (the rest of the width, if
+        // more): when they don't fit (a phone), the row scrolls sideways, to the details when a value
+        // is opened and back to the sections when it's closed.
+        wide -> BoxWithConstraints(Modifier.fillMaxSize()) {
+            val sectionsWidth = ListWidth * 0.8f
+            val entriesWidth = ListWidth * 1.3f
+            val detailWidth = maxOf(DetailWidth, maxWidth - sectionsWidth - entriesWidth - 2.dp)
+            val scroll = rememberScrollState()
+            LaunchedEffect(detail) {
+                // After the layout with the details (or without), which sets how far it scrolls.
+                withFrameNanos {}
+                scroll.animateScrollTo(if (detail != null) scroll.maxValue else 0)
             }
-            if (entry != null) {
-                Box(Modifier.weight(1f)) { TriviaDetail(entry, write, openLink) }
+            Row(Modifier.fillMaxHeight().horizontalScroll(scroll)) {
+                sectionList(Modifier.width(sectionsWidth).fillMaxHeight())
+                VerticalDivider()
+                if (section != null) {
+                    entryList(section, Modifier.width(entriesWidth).fillMaxHeight())
+                    VerticalDivider()
+                }
+                if (entry != null) {
+                    Box(Modifier.width(detailWidth).fillMaxHeight()) {
+                        TriviaDetail(entry, write, openLink)
+                    }
+                }
             }
         }
         section == null -> sectionList(Modifier)
