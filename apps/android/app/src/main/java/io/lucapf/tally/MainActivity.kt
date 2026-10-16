@@ -241,8 +241,8 @@ fun TallyApp() {
             openSettings = { settings = true },
         )
     }
-    val showPanel = @Composable { open: Panel, size: Modifier ->
-        PanelView(open, write = { change(edit.word(it)); panel = null }, close = { panel = null }, openLink = { page = it }, size = size)
+    val showPanel = @Composable { open: Panel, size: Modifier, wide: Boolean ->
+        PanelView(open, write = { change(edit.word(it)); panel = null }, close = { panel = null }, openLink = { page = it }, size = size, wide = wide)
     }
 
     if (LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE) {
@@ -253,15 +253,16 @@ fun TallyApp() {
             SideToolbar(onKey)
             Column(Modifier.weight(1f).fillMaxHeight()) {
                 RequestLine(edit, onCursor = { edit = edit.copy(cursor = it) }, onPaste = paste, compact = true, modifier = Modifier.padding(start = 8.dp, top = 6.dp, end = 8.dp))
-                Row(Modifier.weight(1f)) {
-                    Column(Modifier.weight(1f).fillMaxHeight()) {
-                        workspace(true, Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp))
-                        if (panel == null) LetterPad(onKey)
+                when (val open = panel) {
+                    // A panel: the whole space under the request, its levels side by side.
+                    null -> Row(Modifier.weight(1f)) {
+                        Column(Modifier.weight(1f).fillMaxHeight()) {
+                            workspace(true, Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp))
+                            LetterPad(onKey)
+                        }
+                        NumberPad(scientific = mode == Mode.Scientific, onKey, Modifier.align(Alignment.Bottom))
                     }
-                    when (val open = panel) {
-                        null -> NumberPad(scientific = mode == Mode.Scientific, onKey, Modifier.align(Alignment.Bottom))
-                        else -> showPanel(open, Modifier.width(380.dp).fillMaxHeight())
-                    }
+                    else -> showPanel(open, Modifier.weight(1f).fillMaxWidth().padding(top = 6.dp), true)
                 }
             }
         }
@@ -272,7 +273,7 @@ fun TallyApp() {
         // The keyboard, or a panel in its place.
         when (val open = panel) {
             null -> TallyKeyboard(mode, onKey)
-            else -> showPanel(open, Modifier.fillMaxWidth().height(KeyboardHeight))
+            else -> showPanel(open, Modifier.fillMaxWidth().height(KeyboardHeight), false)
         }
     }
 }

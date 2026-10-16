@@ -1,7 +1,11 @@
 package io.lucapf.tally
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
@@ -56,8 +60,11 @@ fun PanelView(
     write: (String) -> Unit,
     close: () -> Unit,
     openLink: (String) -> Unit,
-    // In portrait the keyboard's place; in landscape, the right side.
+    // In portrait the keyboard's place; in landscape, the space under the request.
     size: Modifier = Modifier.fillMaxWidth().height(KeyboardHeight),
+    // Landscape: each level a column beside the previous one (the classes, then a class's units;
+    // the sections, their values, a value's details), the item chosen highlighted.
+    wide: Boolean = false,
 ) {
     // The second level (a class, a section), when one is open, and in the Trivia a third, a value's
     // details: the back gesture goes up one level.
@@ -82,16 +89,19 @@ fun PanelView(
                 TextButton(onClick = up, modifier = Modifier.semantics { contentDescription = back }) {
                     Text(if (opened != null) "←" else "⌨", modifier = Modifier.clearAndSetSemantics {})
                 }
-                Text(detail ?: opened ?: panel.name, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                // Wide, every level is in sight: the panel's name; else the level open.
+                Text(if (wide) panel.name else detail ?: opened ?: panel.name, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
                 TextButton(onClick = close, modifier = Modifier.semantics { contentDescription = "Close" }) {
                     Text("✕", modifier = Modifier.clearAndSetSemantics {})
                 }
             }
             HorizontalDivider()
+            // Another class or section: its own values, no detail of the previous one.
+            val open = { name: String -> opened = name; detail = null }
             when (panel) {
-                Panel.Measures -> MeasuresPanel(opened, open = { opened = it }, write)
+                Panel.Measures -> MeasuresPanel(opened, open, write, wide)
                 Panel.Currencies -> CurrenciesPanel(write)
-                Panel.Trivia -> TriviaPanel(opened, detail, open = { opened = it }, show = { detail = it }, write, openLink)
+                Panel.Trivia -> TriviaPanel(opened, detail, open, show = { detail = it }, write, openLink, wide)
             }
         }
     }
@@ -103,17 +113,34 @@ fun PanelView(
 private fun <T> loaded(load: () -> T): T? =
     produceState<T?>(null) { value = withContext(Dispatchers.Default) { load() } }.value
 
-/** The unit classes; a class opened: its units, by its two systems (Metric and Imperial…). */
+/** The width of a list beside the next level, in landscape. */
+private val ListWidth = 230.dp
+
+/** The unit classes; a class opened: its units, by its two systems (Metric and Imperial…). Wide:
+ *  the classes on the left, the units of the one chosen beside them. */
 @Composable
-private fun MeasuresPanel(opened: String?, open: (String) -> Unit, write: (String) -> Unit) {
+private fun MeasuresPanel(opened: String?, open: (String) -> Unit, write: (String) -> Unit, wide: Boolean) {
     val measures = loaded { Core.measures() } ?: return
     val measure = measures.firstOrNull { it.name == opened }
-    if (measure == null) {
-        LazyColumn {
-            items(measures) { m -> Line(m.name, m.units.take(5).joinToString(" · ") { it.symbol }) { open(m.name) } }
+    val classes = @Composable { modifier: Modifier ->
+        LazyColumn(modifier) {
+            items(measures) { m -> Line(m.name, m.units.take(5).joinToString(" · ") { it.symbol }, selected = m.name == opened) { open(m.name) } }
         }
-        return
     }
+    when {
+        wide -> Row(Modifier.fillMaxSize()) {
+            classes(Modifier.width(ListWidth).fillMaxHeight())
+            VerticalDivider()
+            measure?.let { MeasureUnits(it, write, columns = GridCells.Adaptive(96.dp)) }
+        }
+        measure == null -> classes(Modifier)
+        else -> MeasureUnits(measure, write, columns = GridCells.Fixed(3))
+    }
+}
+
+/** A class's units, as buttons that write them, on a tab per system. */
+@Composable
+private fun MeasureUnits(measure: Measure, write: (String) -> Unit, columns: GridCells) {
     // A system tab, when the class has units on both (Date & Time has durations only).
     val tabs = listOf("metric" to measure.systems[0], "imperial" to measure.systems[1])
         .filter { (system, _) -> measure.units.any { it.system == system } }
@@ -126,7 +153,7 @@ private fun MeasuresPanel(opened: String?, open: (String) -> Unit, write: (Strin
         }
         // A unit of both systems (`b`, `B`) on each tab.
         val units = measure.units.filter { it.system == tab || it.system == "both" }
-        LazyVerticalGrid(GridCells.Fixed(3), Modifier.padding(8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        LazyVerticalGrid(columns, Modifier.padding(8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             items(units) { u ->
                 OutlinedButton(onClick = { write(u.symbol) }) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -150,22 +177,48 @@ private fun CurrenciesPanel(write: (String) -> Unit) {
 }
 
 /** The Trivia's sections; a section opened: its values now; a value tapped: its details, as the
- *  TUI's popup (the description, then each line), and a button that writes it into the request. */
+ *  TUI's popup (the description, then each line), and a button that writes it into the request.
+ *  Wide: the three side by side, the section and the value chosen highlighted. */
 @Composable
-private fun TriviaPanel(opened: String?, detail: String?, open: (String) -> Unit, show: (String) -> Unit, write: (String) -> Unit, openLink: (String) -> Unit) {
+private fun TriviaPanel(
+    opened: String?,
+    detail: String?,
+    open: (String) -> Unit,
+    show: (String) -> Unit,
+    write: (String) -> Unit,
+    openLink: (String) -> Unit,
+    wide: Boolean,
+) {
     val sections = loaded { Core.trivia() } ?: return
     val section = sections.firstOrNull { it.name == opened }
     val entry = section?.entries?.firstOrNull { it.name == detail }
-    when {
-        section == null -> LazyColumn {
-            items(sections) { s -> Line(s.name, s.entries.take(3).joinToString(" · ") { it.name }) { open(s.name) } }
+    val sectionList = @Composable { modifier: Modifier ->
+        LazyColumn(modifier) {
+            items(sections) { s -> Line(s.name, s.entries.take(3).joinToString(" · ") { it.name }, selected = s.name == opened) { open(s.name) } }
         }
-        entry == null -> LazyColumn {
+    }
+    val entryList = @Composable { s: TriviaSection, modifier: Modifier ->
+        LazyColumn(modifier) {
             // What the value is, then the value: `Distance from the Earth now: 139,915,713 km (0.9353 au)`.
-            items(section.entries) { e ->
-                Line(e.name, if (e.value.isEmpty()) e.short else "${e.short}: ${e.value}", symbol = e.symbol, detailLines = 2) { show(e.name) }
+            items(s.entries) { e ->
+                Line(e.name, if (e.value.isEmpty()) e.short else "${e.short}: ${e.value}", symbol = e.symbol, detailLines = 2, selected = e.name == detail) { show(e.name) }
             }
         }
+    }
+    when {
+        wide -> Row(Modifier.fillMaxSize()) {
+            sectionList(Modifier.width(ListWidth * 0.8f).fillMaxHeight())
+            VerticalDivider()
+            if (section != null) {
+                entryList(section, Modifier.width(ListWidth * 1.3f).fillMaxHeight())
+                VerticalDivider()
+            }
+            if (entry != null) {
+                Box(Modifier.weight(1f)) { TriviaDetail(entry, write, openLink) }
+            }
+        }
+        section == null -> sectionList(Modifier)
+        entry == null -> entryList(section, Modifier)
         else -> TriviaDetail(entry, write, openLink)
     }
 }
@@ -202,8 +255,10 @@ private fun TriviaDetail(e: TriviaEntry, write: (String) -> Unit, openLink: (Str
 
 /** A row of a panel's list: a symbol (`♃`, a Trivia value's), a title, a line below it, a tap. */
 @Composable
-private fun Line(title: String, detail: String, symbol: String = "", detailLines: Int = 1, onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+private fun Line(title: String, detail: String, symbol: String = "", detailLines: Int = 1, selected: Boolean = false, onClick: () -> Unit) {
+    // The item chosen (wide, its next level beside it): highlighted.
+    val highlight = if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent
+    Row(Modifier.fillMaxWidth().background(highlight).clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
         if (symbol.isNotEmpty()) {
             Text(
                 symbol,
