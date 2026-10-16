@@ -174,10 +174,12 @@ private val LandscapeRow: Dp = 44.dp
 
 /** Landscape, on the left: the toolbar, as a column (C, the panels, Settings). */
 @Composable
-fun SideToolbar(onKey: (Key) -> Unit, modifier: Modifier = Modifier) {
+fun SideToolbar(onKey: (Key) -> Unit, open: Panel? = null, modifier: Modifier = Modifier) {
     Column(modifier.fillMaxHeight().width(100.dp).padding(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         ColumnKey("C") { onKey(Key.Clear) }
-        Panel.entries.forEach { p -> ColumnKey(p.name, small = true) { onKey(Key.Open(p)) } }
+        // The panel open: its key in the accent colour (the panel has no title bar here); tapped
+        // again, it closes the panel.
+        Panel.entries.forEach { p -> ColumnKey(p.name, small = true, lit = p == open) { onKey(Key.Open(p)) } }
         ColumnKey("⚙") { onKey(Key.Settings) }
     }
 }
@@ -246,8 +248,8 @@ private fun RowScope.CalcKey(k: Calc, onKey: (Key) -> Unit) = when {
 
 /** A key of the landscape toolbar: the column's width, a share of its height. */
 @Composable
-private fun ColumnScope.ColumnKey(label: String, small: Boolean = false, onTap: () -> Unit) =
-    KeyCap(label, Modifier.weight(1f).fillMaxWidth(), Tone.Action, small, repeat = false, onTap)
+private fun ColumnScope.ColumnKey(label: String, small: Boolean = false, lit: Boolean = false, onTap: () -> Unit) =
+    KeyCap(label, Modifier.weight(1f).fillMaxWidth(), if (lit) Tone.Enter else Tone.Action, small, repeat = false, onTap)
 
 /** The three panels, on the toolbar of every mode. */
 @Composable

@@ -221,7 +221,8 @@ fun TallyApp() {
                 }
                 Unit
             }
-            is Key.Open -> panel = key.panel
+            // Its key again (the landscape toolbar): closed.
+            is Key.Open -> panel = if (panel == key.panel) null else key.panel
             is Key.Switch -> mode = key.mode
             Key.Settings -> settings = true
         }
@@ -250,7 +251,7 @@ fun TallyApp() {
         // answer and the letters, and on the right the digits (Sci above them) or a panel. Keys at
         // about their portrait size; letters and digits both shown, so no 123 mode.
         Row(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
-            SideToolbar(onKey)
+            SideToolbar(onKey, open = panel)
             Column(Modifier.weight(1f).fillMaxHeight()) {
                 RequestLine(edit, onCursor = { edit = edit.copy(cursor = it) }, onPaste = paste, compact = true, modifier = Modifier.padding(start = 8.dp, top = 6.dp, end = 8.dp))
                 when (val open = panel) {

@@ -80,7 +80,9 @@ fun PanelView(
     BackHandler(onBack = up)
     Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
         Column(Modifier.navigationBarsPadding().then(size)) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            // Wide (landscape), no title bar: the toolbar's key of the panel is lit and closes it, the
+            // back gesture goes up a level.
+            if (!wide) Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 val back = when {
                     detail != null -> "Back to $opened"
                     opened != null -> "Back to ${panel.name}"
@@ -89,13 +91,12 @@ fun PanelView(
                 TextButton(onClick = up, modifier = Modifier.semantics { contentDescription = back }) {
                     Text(if (opened != null) "←" else "⌨", modifier = Modifier.clearAndSetSemantics {})
                 }
-                // Wide, every level is in sight: the panel's name; else the level open.
-                Text(if (wide) panel.name else detail ?: opened ?: panel.name, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                Text(detail ?: opened ?: panel.name, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
                 TextButton(onClick = close, modifier = Modifier.semantics { contentDescription = "Close" }) {
                     Text("✕", modifier = Modifier.clearAndSetSemantics {})
                 }
             }
-            HorizontalDivider()
+            if (!wide) HorizontalDivider()
             // Another class or section: its own values, no detail of the previous one.
             val open = { name: String -> opened = name; detail = null }
             when (panel) {
