@@ -100,6 +100,15 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+/** What Copy and Share give of a result: its value, without the unit (`7.4565 mi` → `7.4565`, `8.94
+ *  EUR` → `8.94`) or the pattern's name (`2026/12/11 YYYY/MM/DD` → `2026/12/11`); anything else (a
+ *  date for people, a time in a city) as it is shown. */
+fun valueOf(result: String): String {
+    val parts = result.trim().split(" ")
+    val number = parts.size == 2 && parts[0].firstOrNull()?.let { it.isDigit() || it == '-' || it == '.' } == true
+    return if (number) parts[0] else result.trim()
+}
+
 /** The core's reply, and the request it answers. */
 data class Answer(val request: String, val reply: Reply)
 
@@ -224,8 +233,9 @@ fun TallyApp() {
             request = !landscape,
             onCursor = { edit = edit.copy(cursor = it) },
             onPaste = paste,
-            onCopy = copy,
-            onShare = { result -> share("${input.trim()} = $result") },
+            // Only the value (`7.4565`, not `12 km mi = 7.4565 mi`).
+            onCopy = { result -> copy(valueOf(result)) },
+            onShare = { result -> share(valueOf(result)) },
             choose = { request -> edit = Edit(request, request.length); submitted = true },
             suggest = { s -> change(edit.word(s.write, offered.start.coerceAtMost(edit.cursor))) },
             openSettings = { settings = true },
