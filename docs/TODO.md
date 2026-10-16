@@ -63,6 +63,9 @@ Tick an item when it is done, and note the commit.
 - [ ] Icons instead of text characters, with names (#8).
 - [ ] Settings for people: titles, groups, choices for intervals, a top app bar (#9).
 - [x] Search in the Currencies panel (#10): by code, name or symbol, with the phone's keyboard.
+- [x] A fast start, even on old phones: the release build installable (R8, a Baseline Profile
+      compiled at install), the core started in the background, the window in the app's colours.
+      `scripts/install-android.sh` installs it, `scripts/android-startup.sh` measures it.
 - [ ] Errors and hints told apart by more than colour (#12).
 - [ ] Toolbar and panel buttons at least 48 dp (#13).
 - [ ] History and first-launch examples (#14).

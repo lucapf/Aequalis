@@ -5,7 +5,8 @@
 # (Android Studio: SDK Manager › SDK Tools › NDK) and the Rust targets:
 #   rustup target add x86_64-linux-android aarch64-linux-android armv7-linux-androideabi
 #   scripts/build-android.sh
-# Run it again after changing the Rust code, then Run in Android Studio.
+# Run it again after changing the Rust code, then Run in Android Studio (the debug build, slow on
+# purpose) or scripts/install-android.sh (the fast build, for using the app).
 #
 # It also ships the online data as valid now, in app/src/main/assets/ (not in git): the exchange
 # rates (ExchangeRate-API's answer, refreshed after 12 hours) and the city archive (refreshed

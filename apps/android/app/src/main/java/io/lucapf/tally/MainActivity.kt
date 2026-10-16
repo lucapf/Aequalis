@@ -84,13 +84,11 @@ import kotlinx.coroutines.withContext
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // The core first: it must know the device before the first request.
-        Core.start(applicationContext)
-        // The mode and skin chosen in Settings (the app's own preferences).
+        // The core in the background (requests wait for it, a few milliseconds), then the data
+        // shipped with the app: the first frame needs neither.
+        Core.startInBackground(applicationContext)
+        // The mode and skin chosen in Settings (the app's own preferences): the first frame's colours.
         Appearance.load(applicationContext)
-        // The data shipped with the app, in the background: requests work meanwhile, with what the
-        // core already has.
-        Thread { Core.seedShipped(applicationContext) }.start()
         enableEdgeToEdge()
         setContent {
             TallyTheme {

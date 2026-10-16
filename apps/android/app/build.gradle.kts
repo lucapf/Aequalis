@@ -20,10 +20,18 @@ android {
     }
 
     buildTypes {
+        // The fast build, for using the app (scripts/install-android.sh): compiled ahead of time,
+        // where the debug build runs in the interpreter so that a debugger can stop it anywhere.
         release {
+            // Signed with the debug key, as the debug build: either installs over the other, the
+            // app's data kept. The Play Store will need an upload key of its own.
+            signingConfig = signingConfigs.getByName("debug")
+            // R8 on the whole app. Its default rules keep the names of the native methods, which the
+            // Rust core's functions are found by (`Java_io_lucapf_tally_Core_init`, src/jni.rs).
+            // Not `packageScope` (androidx, kotlin): it moved a class out of kotlin.collections, away
+            // from its parent class, and the app stopped at start (IllegalAccessError).
             optimization {
                 enable = true
-                packageScope = setOf("androidx.**", "kotlin.**", "kotlinx.**")
             }
         }
     }

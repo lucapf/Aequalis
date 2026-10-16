@@ -73,7 +73,8 @@ data class About(val name: String, val tagline: String, val version: String, val
  */
 object Core {
     init {
-        // Loads lib/<abi>/libtally.so from the app: the x86_64 one on the emulator, arm64 on phones.
+        // Loads lib/<abi>/libtally.so from the app: the x86_64 one on the emulator, the arm64 or the
+        // 32-bit ARM one on phones.
         System.loadLibrary("tally")
     }
 
@@ -86,30 +87,53 @@ object Core {
     private external fun set(key: ByteArray, value: ByteArray): ByteArray
     private external fun seed(rates: ByteArray, cities: ByteArray): ByteArray
 
-    /** Tells the core what it can't find on a phone: where to keep its files, the time zone, the
-     *  zone database, the number format and the measurement system. Once, at start. */
-    fun start(context: Context) {
-        val symbols = DecimalFormatSymbols.getInstance()
-        val config = JSONObject()
-            .put("dir", context.filesDir.absolutePath)
-            .put("zone", TimeZone.getDefault().id)
-            .put("decimal", symbols.decimalSeparator.toString())
-            .put("thousands", symbols.groupingSeparator.toString())
-            .put("imperial", imperial())
-        zoneDatabase()?.let { config.put("zoneinfo", it) }
-        val reply = JSONObject(init(config.toString().encodeToByteArray()).decodeToString())
-        check(reply.optBoolean("ok")) { "tally: ${reply.optString("error")}" }
+    private val launched = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    /** Open once `start` has run: every call into the core waits for it. */
+    private val started = java.util.concurrent.CountDownLatch(1)
+
+    /**
+     * Starts the core in a thread of its own, so that the first frame doesn't wait for it: loading
+     * libtally.so and asking Android about the device (about 10 ms on a Redmi 9A, more when the
+     * phone is busy), while the first request comes later. Then, at a low priority so as not to slow
+     * the screen, the data shipped with the app (seconds, after an install). Once per process: the
+     * activity can start several times (a rotation, a theme change).
+     */
+    fun startInBackground(context: Context) {
+        if (!launched.compareAndSet(false, true)) return
+        val app = context.applicationContext
+        Thread {
+            start(app)
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
+            seedShipped(app)
+        }.start()
     }
 
-    private val seeded = java.util.concurrent.atomic.AtomicBoolean(false)
+    /** Tells the core what it can't find on a phone: where to keep its files, the time zone, the
+     *  zone database, the number format and the measurement system. */
+    private fun start(context: Context) {
+        try {
+            val symbols = DecimalFormatSymbols.getInstance()
+            val config = JSONObject()
+                .put("dir", context.filesDir.absolutePath)
+                .put("zone", TimeZone.getDefault().id)
+                .put("decimal", symbols.decimalSeparator.toString())
+                .put("thousands", symbols.groupingSeparator.toString())
+                .put("imperial", imperial())
+            zoneDatabase()?.let { config.put("zoneinfo", it) }
+            val reply = JSONObject(init(config.toString().encodeToByteArray()).decodeToString())
+            check(reply.optBoolean("ok")) { "tally: ${reply.optString("error")}" }
+        } finally {
+            // Even when it fails (the app then stops, as before), nothing waits forever.
+            started.countDown()
+        }
+    }
 
     /** Installs the online data shipped in the app (assets/, from scripts/build-android.sh): the
      *  exchange rates, kept only if newer than the ones there; the city archive, only if there is
      *  none yet (the core reads a file: the asset copied to the cache, then removed). Off the main
      *  thread: converting the archive takes a few seconds. */
-    fun seedShipped(context: Context) {
-        // Once per process: the activity can start several times (a rotation, a theme change).
-        if (!seeded.compareAndSet(false, true)) return
+    private fun seedShipped(context: Context) {
         val assets = context.assets
         val shipped = assets.list("").orEmpty()
         val rates = if ("rates.json" in shipped) assets.open("rates.json").use { it.readBytes() } else ByteArray(0)
@@ -130,6 +154,7 @@ object Core {
 
     /** The core's answer to `request`, as typed, with its grouping if it is a calculation. */
     fun evaluate(request: String): Reply {
+        started.await()
         val json = JSONObject(eval(request.encodeToByteArray()).decodeToString())
         return reply(json).copy(grouping = json.optString("grouping").ifEmpty { null })
     }
@@ -153,6 +178,7 @@ object Core {
     /** The words to offer for the word being typed at the end of `before` (the text up to the
      *  cursor), from its third letter: units, currencies, places, formats. */
     fun suggestions(before: String): Suggestions {
+        started.await()
         val json = JSONObject(suggest(before.encodeToByteArray()).decodeToString())
         val items = json.getJSONArray("items")
         // The core counts characters (code points); a Kotlin string counts UTF-16 units, two for an
@@ -164,7 +190,10 @@ object Core {
         })
     }
 
-    private fun list(which: String): JSONObject = JSONObject(lists(which.encodeToByteArray()).decodeToString())
+    private fun list(which: String): JSONObject {
+        started.await()
+        return JSONObject(lists(which.encodeToByteArray()).decodeToString())
+    }
 
     private fun org.json.JSONArray.strings(): List<String> = (0 until length()).map { getString(it) }
 
@@ -216,6 +245,7 @@ object Core {
 
     /** Changes a setting and saves it (`""`: its default); the error, or null. */
     fun change(key: String, value: String): String? {
+        started.await()
         val reply = JSONObject(set(key.encodeToByteArray(), value.encodeToByteArray()).decodeToString())
         return if (reply.optBoolean("ok")) null else reply.optString("error")
     }

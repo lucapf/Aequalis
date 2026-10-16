@@ -1,0 +1,6 @@
+# The Baseline Profile: the code Android compiles ahead of time when it installs the release build,
+# so the app doesn't start in the interpreter. Compose's libraries ship profiles of their own, merged
+# with this one. Here, the app's own code: all of it, as it's small. H: hot, S: run at the start,
+# P: run after the start; `**` stands for any classes, methods and types.
+HSPLio/lucapf/tally/**;->**(**)**
+Lio/lucapf/tally/**;
