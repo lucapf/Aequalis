@@ -3,6 +3,7 @@
 //! (`run`) and the interactive mode (`tui`); `main.rs` is the `tally` command around it.
 
 pub mod about;
+pub mod alloc;
 pub mod calc;
 pub mod cities;
 pub mod completion;

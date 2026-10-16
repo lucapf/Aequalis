@@ -26,6 +26,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
@@ -56,11 +58,12 @@ fun SettingsScreen(close: () -> Unit, openAbout: () -> Unit, modifier: Modifier 
     }
     Column(modifier.fillMaxSize().imePadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = close, modifier = Modifier.semantics { contentDescription = "Back" }) {
-                Text("←", modifier = Modifier.clearAndSetSemantics {})
-            }
+            IconButton(onClick = close) { Icon(BackIcon, contentDescription = "Back") }
             Text("Settings", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-            TextButton(onClick = openAbout) { Text("About") }
+            TextButton(onClick = openAbout) {
+                Icon(InfoIcon, contentDescription = null, modifier = Modifier.padding(end = 6.dp).size(18.dp))
+                Text("About")
+            }
         }
         message?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 16.dp)) }
         LazyColumn {

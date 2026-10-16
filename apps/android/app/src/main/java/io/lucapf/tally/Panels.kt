@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -32,12 +33,13 @@ import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -49,6 +51,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -101,13 +104,18 @@ fun PanelView(
                     opened != null -> "Back to ${panel.name}"
                     else -> "Back to the keyboard"
                 }
-                TextButton(onClick = up, modifier = Modifier.semantics { contentDescription = back }) {
-                    Text(if (opened != null) "←" else "⌨", modifier = Modifier.clearAndSetSemantics {})
+                IconButton(onClick = up) { Icon(if (opened != null) BackIcon else KeyboardIcon, contentDescription = back) }
+                // The panel's icon, or the class's or the section's, beside the title (a value's
+                // details: none).
+                val level = opened
+                val icon = when {
+                    detail != null -> null
+                    level != null -> measureIcon(level) ?: triviaIcon(level)
+                    else -> panel.icon
                 }
+                icon?.let { Icon(it, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(end = 8.dp).size(20.dp)) }
                 Text(detail ?: opened ?: panel.name, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                TextButton(onClick = close, modifier = Modifier.semantics { contentDescription = "Close" }) {
-                    Text("✕", modifier = Modifier.clearAndSetSemantics {})
-                }
+                IconButton(onClick = close) { Icon(CloseIcon, contentDescription = "Close") }
             }
             if (!wide) HorizontalDivider()
             // Another class or section: its own values, no detail of the previous one.
@@ -138,7 +146,7 @@ private fun MeasuresPanel(opened: String?, open: (String) -> Unit, write: (Strin
     val measure = measures.firstOrNull { it.name == opened }
     val classes = @Composable { modifier: Modifier ->
         LazyColumn(modifier) {
-            items(measures) { m -> Line(m.name, m.units.take(5).joinToString(" · ") { it.symbol }, selected = m.name == opened) { open(m.name) } }
+            items(measures) { m -> Line(m.name, m.units.take(5).joinToString(" · ") { it.symbol }, icon = measureIcon(m.name), selected = m.name == opened) { open(m.name) } }
         }
     }
     when {
@@ -202,10 +210,9 @@ private fun CurrenciesPanel(write: (String) -> Unit, wide: Boolean) {
             modifier = modifier.padding(horizontal = 8.dp, vertical = 4.dp),
             placeholder = { Text("Search: euro, yen, ₹, CHF, Brazil…", maxLines = 1, overflow = TextOverflow.Ellipsis) },
             singleLine = true,
+            leadingIcon = { Icon(SearchIcon, contentDescription = null) },
             trailingIcon = {
-                if (query.isNotEmpty()) TextButton(onClick = { query = "" }, modifier = Modifier.semantics { contentDescription = "Clear the search" }) {
-                    Text("✕", modifier = Modifier.clearAndSetSemantics {})
-                }
+                if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(CloseIcon, contentDescription = "Clear the search") }
             },
             keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false, imeAction = ImeAction.Done),
             keyboardActions = KeyboardActions(onDone = { found.firstOrNull()?.let(pick) ?: keyboard?.hide() }),
@@ -280,7 +287,7 @@ private fun TriviaPanel(
     val entry = section?.entries?.firstOrNull { it.name == detail }
     val sectionList = @Composable { modifier: Modifier ->
         LazyColumn(modifier) {
-            items(sections) { s -> Line(s.name, s.entries.take(3).joinToString(" · ") { it.name }, selected = s.name == opened) { open(s.name) } }
+            items(sections) { s -> Line(s.name, s.entries.take(3).joinToString(" · ") { it.name }, icon = triviaIcon(s.name), selected = s.name == opened) { open(s.name) } }
         }
     }
     val entryList = @Composable { s: TriviaSection, modifier: Modifier ->
@@ -339,13 +346,26 @@ private fun TriviaDetail(e: TriviaEntry, write: (String) -> Unit, openLink: (Str
     }
 }
 
-/** A row of a panel's list: a symbol (`♃`, a Trivia value's), a title, a line below it, a tap. */
+/** A row of a panel's list: an icon (a unit class's, a Trivia section's) or a symbol (`♃`, a Trivia
+ *  value's), a title, a line below it, a tap. */
 @Composable
-private fun Line(title: String, detail: String, symbol: String = "", detailLines: Int = 1, selected: Boolean = false, onClick: () -> Unit) {
+private fun Line(
+    title: String,
+    detail: String,
+    symbol: String = "",
+    icon: ImageVector? = null,
+    detailLines: Int = 1,
+    selected: Boolean = false,
+    onClick: () -> Unit,
+) {
     // The item chosen (wide, its next level beside it): highlighted.
     val highlight = if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent
     Row(Modifier.fillMaxWidth().background(highlight).clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-        if (symbol.isNotEmpty()) {
+        if (icon != null) {
+            Box(Modifier.width(44.dp), contentAlignment = Alignment.CenterStart) {
+                Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+            }
+        } else if (symbol.isNotEmpty()) {
             Text(
                 symbol,
                 style = MaterialTheme.typography.titleLarge,

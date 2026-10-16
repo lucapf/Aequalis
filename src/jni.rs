@@ -117,7 +117,8 @@ pub extern "system" fn Java_io_lucapf_tally_Core_suggest(env: Env, _class: Class
 }
 
 /// `Core.lists(which)`: the lists for the keyboard's panels and Settings, as the C interface gives
-/// them: `measures` (the unit classes and their units), `currencies`, `trivia`, `settings`.
+/// them: `measures` (the unit classes and their units), `currencies`, `trivia`, `settings`; and
+/// `about`, `memory` (what the core holds, `ffi::memory`).
 #[no_mangle]
 pub extern "system" fn Java_io_lucapf_tally_Core_lists(env: Env, _class: Class, which: ByteArray) -> ByteArray {
     let reply = match unsafe { text(env, which) }.as_deref() {
@@ -126,7 +127,8 @@ pub extern "system" fn Java_io_lucapf_tally_Core_lists(env: Env, _class: Class, 
         Some("trivia") => crate::ffi::trivia(),
         Some("settings") => crate::ffi::settings(),
         Some("about") => crate::ffi::about(),
-        _ => error("lists: measures, currencies, trivia, settings or about"),
+        Some("memory") => crate::ffi::memory(),
+        _ => error("lists: measures, currencies, trivia, settings, about or memory"),
     };
     unsafe { to_java(env, &reply) }
 }

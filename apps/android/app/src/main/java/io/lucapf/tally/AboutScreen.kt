@@ -15,9 +15,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
@@ -25,7 +25,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -60,9 +59,7 @@ fun AboutScreen(close: () -> Unit, modifier: Modifier = Modifier) {
     val appVersion = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull()
     Column(modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = close, modifier = Modifier.semantics { contentDescription = "Back" }) {
-                Text("←", modifier = Modifier.clearAndSetSemantics {})
-            }
+            IconButton(onClick = close) { Icon(BackIcon, contentDescription = "Back") }
             Text("About", style = MaterialTheme.typography.titleLarge)
         }
         val a = about ?: return@Column
@@ -88,6 +85,8 @@ fun AboutScreen(close: () -> Unit, modifier: Modifier = Modifier) {
             item { HorizontalDivider() }
             item { Text("Data", style = MaterialTheme.typography.titleMedium) }
             items(a.sources) { (label, text) -> Fact(label, text) }
+            // The app's own: its icons (Icons.kt).
+            item { Fact("Icons", "Material Icons by Google (https://github.com/google/material-design-icons), Apache License 2.0") }
         }
     }
 }

@@ -178,6 +178,15 @@ pub fn eval(request: &str) -> String {
 
 /// About, for an app: the version, a tagline, and the facts (`[label, text]`: the online data,
 /// the last sync), then the sources of the data with their credits.
+/// The memory the core holds, as its allocator counts it (`alloc::counted`): `{"held":bytes,
+/// "peak":bytes}`, or `{}` where it isn't counted (off Android).
+pub fn memory() -> String {
+    match crate::alloc::counted() {
+        Some((held, peak)) => Object::new().num("held", held).num("peak", peak).finish(),
+        None => Object::new().finish(),
+    }
+}
+
 pub fn about() -> String {
     let pair = |(label, text): (&str, String)| format!("[{},{}]", json::string(label), json::string(&text));
     // The process's memory is the app's, not tally's; the version is the reply's own: left out.
@@ -509,6 +518,12 @@ mod tests {
         assert_eq!((bare.zone, bare.format, bare.imperial), (None, None, None));
         assert!(parse_init("{}").unwrap_err().contains("`dir` is required"));
         assert!(parse_init("not json").is_err());
+    }
+
+    #[test]
+    fn memory_where_counted() {
+        // Off Android the system's allocator counts nothing: an empty object.
+        assert_eq!(memory(), "{}");
     }
 
     #[test]

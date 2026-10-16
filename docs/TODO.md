@@ -60,7 +60,10 @@ Tick an item when it is done, and note the commit.
 - [x] add share feature to share the mac, Linux and Android version (when available) installation link (github repo / official play store app)
       (Android: `PLAY_STORE` in AboutScreen.kt, once published)
 - [ ] add localization
-- [ ] Icons instead of text characters, with names (#8).
+- [x] Icons instead of text characters, with names (#8): ⌫ ⏎ ⚙ ← ✕ ⌨, the panels' keys and titles,
+      the unit classes and the Trivia sections (Material Icons, as paths in `Icons.kt`).
+- [x] A tap on "Tally": the memory the app uses (Android's figures by kind, the Rust core's own as
+      its allocator counts it, `src/alloc.rs`), the phone's free memory.
 - [ ] Settings for people: titles, groups, choices for intervals, a top app bar (#9).
 - [x] Search in the Currencies panel (#10): by code, name or symbol, with the phone's keyboard.
 - [x] A fast start, even on old phones: the release build installable (R8, a Baseline Profile

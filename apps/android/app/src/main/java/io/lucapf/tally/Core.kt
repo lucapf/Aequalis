@@ -238,6 +238,10 @@ object Core {
         About(a.getString("name"), a.getString("tagline"), a.getString("version"), pairs("facts"), pairs("sources"))
     }
 
+    /** The bytes the Rust core holds now and the most it has held (its allocator counts them,
+     *  src/alloc.rs); null if they aren't counted. */
+    fun memory(): Pair<Long, Long>? = list("memory").let { if (it.has("held")) it.getLong("held") to it.getLong("peak") else null }
+
     /** Every setting, in order. */
     fun settings(): List<Setting> = list("settings").getJSONArray("settings").objects { s ->
         Setting(s.getString("key"), s.getString("value"), s.getString("default"), s.getString("kind"), s.getJSONArray("options").strings(), s.getString("about"))

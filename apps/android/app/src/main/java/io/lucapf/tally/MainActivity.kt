@@ -8,6 +8,7 @@ import android.content.res.Configuration
 import android.os.Build
 import android.widget.Toast
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -52,7 +53,6 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -64,6 +64,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -307,12 +308,22 @@ fun Workspace(
 ) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(if (landscape) 4.dp else 12.dp)) {
         if (!landscape) {
+            // A tap on the name: the memory the app uses, under it; another tap hides it.
+            var memory by rememberSaveable { mutableStateOf(false) }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Tally", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-                TextButton(onClick = openSettings, modifier = Modifier.semantics { contentDescription = "Settings" }) {
-                    Text("⚙", style = MaterialTheme.typography.titleLarge, modifier = Modifier.clearAndSetSemantics {})
+                Box(Modifier.weight(1f)) {
+                    Text(
+                        "Tally",
+                        style = MaterialTheme.typography.titleLarge,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable(onClickLabel = if (memory) "Hide the memory use" else "Show the memory use") { memory = !memory }
+                            .padding(horizontal = 4.dp, vertical = 2.dp),
+                    )
                 }
+                IconButton(onClick = openSettings) { Icon(SettingsIcon, contentDescription = "Settings", tint = MaterialTheme.colorScheme.primary) }
             }
+            if (memory) MemoryCard(close = { memory = false })
         }
         if (request) RequestLine(edit, onCursor, onPaste, compact = landscape)
         // A live region: a screen reader says the result, the hint or the error as it changes.
