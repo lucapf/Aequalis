@@ -59,7 +59,13 @@ data class Reply(
     val choices: List<Choice> = emptyList(),
     /** With a currency result: how old its exchange rates are (`2d`, `less than 1h`). */
     val ratesAge: String? = null,
+    /** A calculation's grouping, every operation in brackets (`(12 + (4 / 2))`). */
+    val grouping: String? = null,
 )
+
+/** About: the app's name, tagline and core version, the facts (online data, last sync) and the
+ *  data's sources, each a (label, text). */
+data class About(val name: String, val tagline: String, val version: String, val facts: List<Pair<String, String>>, val sources: List<Pair<String, String>>)
 
 /**
  * The bridge to tally's Rust core: libtally.so (built by scripts/build-android.sh), whose
@@ -122,9 +128,13 @@ object Core {
         }
     }
 
-    /** The core's answer to `request`, as typed. */
+    /** The core's answer to `request`, as typed, with its grouping if it is a calculation. */
     fun evaluate(request: String): Reply {
         val json = JSONObject(eval(request.encodeToByteArray()).decodeToString())
+        return reply(json).copy(grouping = json.optString("grouping").ifEmpty { null })
+    }
+
+    private fun reply(json: JSONObject): Reply {
         if (json.optBoolean("ok")) return Reply(result = json.getString("result"), ratesAge = json.optString("rates_age").ifEmpty { null })
         // Not finished yet (`10 km`): what comes next, no mistake.
         if (json.optBoolean("incomplete")) return Reply(hint = json.optString("error"))
@@ -187,6 +197,16 @@ object Core {
                 },
             )
         })
+    }
+
+    /** About Tally: the version, the online data, the sources. */
+    fun about(): About = list("about").let { a ->
+        // `[[label, text], …]`
+        val pairs = { key: String ->
+            val list = a.getJSONArray(key)
+            (0 until list.length()).map { i -> list.getJSONArray(i).let { it.getString(0) to it.getString(1) } }
+        }
+        About(a.getString("name"), a.getString("tagline"), a.getString("version"), pairs("facts"), pairs("sources"))
     }
 
     /** Every setting, in order. */

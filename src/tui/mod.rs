@@ -745,13 +745,7 @@ impl<'a> App<'a> {
     /// How the expression in the bar is grouped, with every operation in brackets
     /// (`12+12/3` → `(12 + (12 / 3))`); `None` without operations.
     fn grouping(&self) -> Option<String> {
-        let input = self.line.text();
-        // A date is not arithmetic: `2026-12-25` is not 2026 − 12 − 25.
-        if crate::time::is_date_request(&input) {
-            return None;
-        }
-        let (expr, _) = crate::calc::parse_prefix(&input).ok()?;
-        (expr.operations() > 0).then(|| expr.bracketed())
+        crate::grouping(&self.line.text())
     }
 
     /// The suggestions to show (input mode only): their labels (cities: `Milano - Italy`, else

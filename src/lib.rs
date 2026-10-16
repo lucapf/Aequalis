@@ -496,6 +496,17 @@ fn request(config: &Config, opts: &Options, tokens: &[&str]) -> Result<Output, C
     Ok(Output { stdout: format!("{} {}", convert::format_value(result, opts.precision), target.symbol), warnings, notes, ..Output::default() })
 }
 
+/// How a calculation is grouped, every operation in brackets (`12+4/2` → `(12 + (4 / 2))`), for a
+/// UI to show beside the result while it is typed; `None` without operations, or for a date
+/// (`2026-12-25` is not 2026 − 12 − 25).
+pub fn grouping(input: &str) -> Option<String> {
+    if time::is_date_request(input) {
+        return None;
+    }
+    let (expr, _) = calc::parse_prefix(input).ok()?;
+    (expr.operations() > 0).then(|| expr.bracketed())
+}
+
 /// Whether the arguments wait for values on stdin: none, or one or two units, currencies or
 /// formats and nothing else (`F C`, `usd eur`, `unix`): `echo 100 | tally F C`. Anything else is a
 /// request of its own, evaluated once.
@@ -651,6 +662,14 @@ mod tests {
         for args in [&["100", "F", "C"][..], &["100F", "C"], &["Italy"], &["Rome", "Paris"], &["now"], &["km", "mi", "m"], &["abc"], &["2026-12-04", "unix"]] {
             assert!(!needs_value(&config, args), "{args:?}");
         }
+    }
+
+    #[test]
+    fn groupings() {
+        assert_eq!(grouping("12+4/2").as_deref(), Some("(12 + (4 / 2))"));
+        assert_eq!(grouping("100 + 20 + 50 / 10 sqft m2").as_deref(), Some("((100 + 20) + (50 / 10))"));
+        assert_eq!(grouping("10 km mi"), None, "no operation");
+        assert_eq!(grouping("2026-12-25"), None, "a date");
     }
 
     #[test]

@@ -168,7 +168,36 @@ pub fn eval(request: &str) -> String {
     let tokens: Vec<&str> = request.split_whitespace().collect();
     let options = crate::Options { positional: Vec::new(), precision: crate::settings::current().precision(), silent: false, verbose: false };
     let result = crate::convert_request(config(), &options, &tokens);
-    json::result(&result, &crate::notify::current())
+    let reply = json::result(&result, &crate::notify::current());
+    // How a calculation is grouped (`(12 + (4 / 2))`), shown beside the result as in the TUI.
+    match crate::grouping(request) {
+        Some(g) => format!("{},\"grouping\":{}}}", &reply[..reply.len() - 1], json::string(&g)),
+        None => reply,
+    }
+}
+
+/// About, for an app: the version, a tagline, and the facts (`[label, text]`: the online data,
+/// the last sync), then the sources of the data with their credits.
+pub fn about() -> String {
+    let pair = |(label, text): (&str, String)| format!("[{},{}]", json::string(label), json::string(&text));
+    // The process's memory is the app's, not tally's; the version is the reply's own: left out.
+    let facts: Vec<String> = crate::about::facts("").into_iter().filter(|(label, _)| !["Memory", "Version"].contains(label)).map(pair).collect();
+    let sources: Vec<String> = [
+        ("Cities", crate::cities::SOURCE.to_string()),
+        ("Exchange rates", crate::currency::SOURCE.to_string()),
+        ("Spacecraft", "JPL Horizons (https://ssd.jpl.nasa.gov/horizons)".to_string()),
+        ("Satellites", "CelesTrak (https://celestrak.org)".to_string()),
+    ]
+    .into_iter()
+    .map(pair)
+    .collect();
+    Object::new()
+        .str("name", crate::about::NAME)
+        .str("tagline", crate::about::TAGLINE)
+        .str("version", env!("CARGO_PKG_VERSION"))
+        .list("facts", &facts)
+        .list("sources", &sources)
+        .finish()
 }
 
 /// Every setting: key, value, default, kind, options, what it does (`tally --settings --json`).
@@ -413,6 +442,12 @@ mod tests {
         let reply = eval("12/04/2026 unix");
         assert!(reply.contains(r#""ambiguous":{"kind":"date""#), "{reply}");
         assert!(eval("10 foo bar").starts_with(r#"{"ok":false,"exit":"#));
+        // The grouping of a calculation, beside its result.
+        assert!(eval("12+4/2").ends_with(r#","grouping":"(12 + (4 / 2))"}"#), "{}", eval("12+4/2"));
+        assert!(!eval("10 km mi").contains("grouping"));
+        let about = json::parse(&about()).unwrap();
+        assert_eq!(about.get("name").and_then(|v| v.str()), Some("Tally"));
+        assert!(about.get("facts").unwrap().array().iter().all(|f| f.array()[0].str() != Some("Memory")));
         // No command-line options, nor their messages: `--version` is no request, and an unknown
         // unit says so without `see tally --list`.
         assert!(!eval("--version").contains("tally "));

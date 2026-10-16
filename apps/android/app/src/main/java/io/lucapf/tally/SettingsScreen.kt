@@ -45,7 +45,7 @@ import androidx.compose.ui.unit.dp
 
 /** Every setting, changed in place and saved at once (the core checks each value). */
 @Composable
-fun SettingsScreen(close: () -> Unit, modifier: Modifier = Modifier) {
+fun SettingsScreen(close: () -> Unit, openAbout: () -> Unit, modifier: Modifier = Modifier) {
     BackHandler(onBack = close)
     // Read again after each change: the core normalises the value (`ON` is `true`).
     var settings by remember { mutableStateOf(Core.settings()) }
@@ -59,7 +59,8 @@ fun SettingsScreen(close: () -> Unit, modifier: Modifier = Modifier) {
             TextButton(onClick = close, modifier = Modifier.semantics { contentDescription = "Back" }) {
                 Text("←", modifier = Modifier.clearAndSetSemantics {})
             }
-            Text("Settings", style = MaterialTheme.typography.titleLarge)
+            Text("Settings", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+            TextButton(onClick = openAbout) { Text("About") }
         }
         message?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 16.dp)) }
         LazyColumn {

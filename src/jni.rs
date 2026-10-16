@@ -125,7 +125,8 @@ pub extern "system" fn Java_io_lucapf_tally_Core_lists(env: Env, _class: Class, 
         Some("currencies") => crate::ffi::currencies(),
         Some("trivia") => crate::ffi::trivia(),
         Some("settings") => crate::ffi::settings(),
-        _ => error("lists: measures, currencies, trivia or settings"),
+        Some("about") => crate::ffi::about(),
+        _ => error("lists: measures, currencies, trivia, settings or about"),
     };
     unsafe { to_java(env, &reply) }
 }

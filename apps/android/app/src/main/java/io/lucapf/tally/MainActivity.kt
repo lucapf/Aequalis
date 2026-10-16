@@ -159,14 +159,20 @@ fun TallyApp() {
     // Letters or the calculator: kept while the app is open, and when the screen turns.
     var mode by rememberSaveable { mutableStateOf(Mode.Text) }
     var settings by rememberSaveable { mutableStateOf(false) }
+    // About (from Settings): the version, the data, the install links.
+    var about by rememberSaveable { mutableStateOf(false) }
     // A page opened from the Trivia (Wikipedia), shown inside the app.
     var page by rememberSaveable { mutableStateOf<String?>(null) }
     page?.let { url ->
         WebScreen(url, close = { page = null }, modifier = Modifier.statusBarsPadding())
         return
     }
+    if (about) {
+        AboutScreen(close = { about = false }, modifier = Modifier.statusBarsPadding())
+        return
+    }
     if (settings) {
-        SettingsScreen(close = { settings = false }, modifier = Modifier.statusBarsPadding())
+        SettingsScreen(close = { settings = false }, openAbout = { about = true }, modifier = Modifier.statusBarsPadding())
         return
     }
 
@@ -314,6 +320,8 @@ fun Workspace(
             Modifier.weight(1f).verticalScroll(rememberScrollState()).semantics { liveRegion = LiveRegionMode.Polite },
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            // A calculation's grouping (`(12 + (4 / 2))`), as the TUI shows it.
+            reply?.grouping?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             when {
                 reply == null -> {}
                 reply.result != null -> Column {
