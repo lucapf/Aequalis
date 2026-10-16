@@ -645,7 +645,7 @@ mod tests {
             assert!((v - now.unwrap().now).abs() < 1e-9 && origin == Origin::Fixed, "{name}: {v}");
         }
         assert!(shown_now("Mercury").ends_with(" au)"), "{}", shown_now("Mercury"));
-        assert_eq!(shown_now("Earth – Moon"), "384399 km (2.5695e-3 au)");
+        assert_eq!(shown_now("Moon"), "384399 km (2.5695e-3 au)");
         // A spacecraft at the estimate's epoch (2026-10-11), and a year later.
         assert_eq!(shown_now("Voyager 1"), "25794004453 km (172.4223 au)");
         // Written into an expression: the first unit, plain.

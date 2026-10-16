@@ -161,7 +161,10 @@ private fun TriviaPanel(opened: String?, detail: String?, open: (String) -> Unit
             items(sections) { s -> Line(s.name, s.entries.take(3).joinToString(" · ") { it.name }) { open(s.name) } }
         }
         entry == null -> LazyColumn {
-            items(section.entries) { e -> Line(e.name, e.value.ifEmpty { e.short }, symbol = e.symbol) { show(e.name) } }
+            // What the value is, then the value: `Distance from the Earth now: 139,915,713 km (0.9353 au)`.
+            items(section.entries) { e ->
+                Line(e.name, if (e.value.isEmpty()) e.short else "${e.short}: ${e.value}", symbol = e.symbol, detailLines = 2) { show(e.name) }
+            }
         }
         else -> TriviaDetail(entry, write, openLink)
     }
@@ -199,7 +202,7 @@ private fun TriviaDetail(e: TriviaEntry, write: (String) -> Unit, openLink: (Str
 
 /** A row of a panel's list: a symbol (`♃`, a Trivia value's), a title, a line below it, a tap. */
 @Composable
-private fun Line(title: String, detail: String, symbol: String = "", onClick: () -> Unit) {
+private fun Line(title: String, detail: String, symbol: String = "", detailLines: Int = 1, onClick: () -> Unit) {
     Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
         if (symbol.isNotEmpty()) {
             Text(
@@ -214,7 +217,7 @@ private fun Line(title: String, detail: String, symbol: String = "", onClick: ()
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.bodyLarge)
             if (detail.isNotEmpty()) {
-                Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = detailLines, overflow = TextOverflow.Ellipsis)
             }
         }
     }
