@@ -54,6 +54,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -90,6 +91,8 @@ class MainActivity : ComponentActivity() {
         Core.startInBackground(applicationContext)
         // The mode and skin chosen in Settings (the app's own preferences): the first frame's colours.
         Appearance.load(applicationContext)
+        // The history, read in the background: the empty screen shows its latest entries.
+        History.load(applicationContext)
         enableEdgeToEdge()
         setContent {
             TallyTheme {
@@ -97,6 +100,13 @@ class MainActivity : ComponentActivity() {
                 Surface(Modifier.fillMaxSize(), color = Color.Transparent, contentColor = MaterialTheme.colorScheme.onSurface) { TallyApp() }
             }
         }
+    }
+
+    // The app left (not a rotation, which comes back at once): the request on screen, with its
+    // result, kept in the history.
+    override fun onStop() {
+        super.onStop()
+        if (!isChangingConfigurations) History.keepShown()
     }
 }
 
@@ -184,6 +194,8 @@ fun TallyApp() {
         value = if (input.isBlank()) null else Answer(input, withContext(Dispatchers.Default) { Core.evaluate(input) })
     }
     val reply = answer?.reply
+    // The request on screen and its result, kept when the app is left.
+    SideEffect { History.shown = answer?.let { a -> a.reply.result?.let { a.request to it } } }
     // While a word is being typed (no space after it, no Enter), only a result shows: `Rie` on the way
     // to `Rieti to Rome` is no mistake. The same rule as the TUI and the Omarchy widget.
     val finished = submitted || input.endsWith(" ")
@@ -193,6 +205,18 @@ fun TallyApp() {
     }
     val change = { e: Edit -> edit = e; submitted = false }
     val scope = rememberCoroutineScope()
+    // The request on screen into the history, with its result (none: an error, a question, not kept).
+    val keepShown = { answer?.let { a -> a.reply.result?.let { History.add(a.request, it) } }; Unit }
+    // `request` into the history, once its answer is known (`known`, or the core's, computed now).
+    val keep = { request: String, known: Reply? ->
+        scope.launch {
+            val r = known ?: if (request.isBlank()) null else withContext(Dispatchers.Default) { Core.evaluate(request) }
+            r?.result?.let { History.add(request, it) }
+        }
+        Unit
+    }
+    // An entry of the history back in the line, to change it; the one on screen kept first.
+    val recall = { request: String -> keepShown(); edit = Edit(request, request.length); submitted = false; panel = null }
     val context = LocalContext.current
     val clipboard = remember { context.getSystemService(ClipboardManager::class.java) }
     // The clipboard's text at the cursor, on one line (a request is one line).
@@ -214,7 +238,7 @@ fun TallyApp() {
         when (key) {
             is Key.Write -> change(edit.write(key.text))
             Key.Backspace -> change(edit.backspace())
-            Key.Clear -> change(Edit())
+            Key.Clear -> { keepShown(); change(Edit()) }
             // On a question, the default choice (the first: the capitals for `Rome Paris`). The
             // answer on screen may still be the previous request's: this one's, then.
             Key.Enter -> {
@@ -222,8 +246,11 @@ fun TallyApp() {
                     val current = answer?.takeIf { it.request == input }?.reply
                         ?: if (input.isBlank()) null else withContext(Dispatchers.Default) { Core.evaluate(input) }
                     if (edit.text != input) return@launch
-                    current?.choices?.firstOrNull()?.let { edit = Edit(it.request, it.request.length) }
+                    val chosen = current?.choices?.firstOrNull()?.request
+                    chosen?.let { edit = Edit(it, it.length) }
                     submitted = true
+                    // Done with it: into the history (a choice's result computed first).
+                    keep(chosen ?: input, if (chosen == null) current else null)
                 }
                 Unit
             }
@@ -241,15 +268,21 @@ fun TallyApp() {
             onCursor = { edit = edit.copy(cursor = it) },
             onPaste = paste,
             // Only the value (`7.4565`, not `12 km mi = 7.4565 mi`).
-            onCopy = { result -> copy(valueOf(result)) },
-            onShare = { result -> share(valueOf(result)) },
-            choose = { request -> edit = Edit(request, request.length); submitted = true },
+            onCopy = { result -> copy(valueOf(result)); keepShown() },
+            onShare = { result -> share(valueOf(result)); keepShown() },
+            choose = { request -> edit = Edit(request, request.length); submitted = true; keep(request, null) },
             suggest = { s -> change(edit.word(s.write, offered.start.coerceAtMost(edit.cursor))) },
             openSettings = { settings = true },
+            recall = recall,
+            copyResult = { result -> copy(valueOf(result)) },
+            openHistory = { panel = Panel.History },
         )
     }
     val showPanel = @Composable { open: Panel, size: Modifier, wide: Boolean ->
-        PanelView(open, write = { change(edit.word(it)); panel = null }, close = { panel = null }, openLink = { page = it }, size = size, wide = wide)
+        PanelView(
+            open, write = { change(edit.word(it)); panel = null }, close = { panel = null }, openLink = { page = it }, request = edit.text,
+            recall = recall, copy = { result -> copy(valueOf(result)) }, share = share, size = size, wide = wide,
+        )
     }
 
     if (LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE) {
@@ -305,6 +338,9 @@ fun Workspace(
     choose: (String) -> Unit,
     suggest: (Suggestion) -> Unit,
     openSettings: () -> Unit,
+    recall: (String) -> Unit,
+    copyResult: (String) -> Unit,
+    openHistory: () -> Unit,
 ) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(if (landscape) 4.dp else 12.dp)) {
         if (!landscape) {
@@ -334,6 +370,8 @@ fun Workspace(
             // A calculation's grouping (`(12 + (4 / 2))`), as the TUI shows it.
             reply?.grouping?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             when {
+                // Nothing written yet: the latest entries of the history, to use again.
+                edit.text.isEmpty() -> Recent(recall, copyResult, openHistory)
                 reply == null -> {}
                 reply.result != null -> Column {
                     // Copy and Share beside the result (landscape has no room for a row under it).
@@ -373,6 +411,27 @@ fun Workspace(
                 SuggestionChip(onClick = { suggest(s) }, label = { Text(s.label) })
             }
         }
+    }
+}
+
+/** The three latest entries of the history, under "Recent" and All (the History panel); nothing
+ *  while the history is empty. */
+@Composable
+private fun Recent(recall: (String) -> Unit, copy: (String) -> Unit, openHistory: () -> Unit) {
+    val latest = History.entries.take(3)
+    if (latest.isEmpty()) return
+    Column {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Recent", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f).padding(start = 4.dp))
+            // Small: the room above the keys is short in landscape.
+            Text(
+                "All",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClickLabel = "Open the history", onClick = openHistory).padding(horizontal = 12.dp, vertical = 4.dp),
+            )
+        }
+        latest.forEach { RecentRow(it, recall, copy) }
     }
 }
 

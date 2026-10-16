@@ -43,7 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 
-/** The keyboard's height: the Measures, Currencies and Trivia panels take its place exactly. */
+/** The keyboard's height: the panels (Measures, Currencies, Trivia, History) take its place exactly. */
 val KeyboardHeight: Dp = 380.dp
 
 /** What a key does. */
@@ -63,7 +63,7 @@ sealed interface Key {
 }
 
 enum class Panel {
-    Measures, Currencies, Trivia;
+    Measures, Currencies, Trivia, History;
 
     /** Its icon: on its key, and beside its title. */
     val icon: ImageVector
@@ -71,6 +71,7 @@ enum class Panel {
             Measures -> MeasuresIcon
             Currencies -> CurrenciesIcon
             Trivia -> TriviaIcon
+            History -> HistoryIcon
         }
 }
 
@@ -267,12 +268,13 @@ private fun RowScope.CalcKey(k: Calc, onKey: (Key) -> Unit) = when {
 private fun ColumnScope.ColumnKey(label: String, small: Boolean = false, lit: Boolean = false, onTap: () -> Unit) =
     KeyCap(label, Modifier.weight(1f).fillMaxWidth(), if (lit) Tone.Enter else Tone.Action, small, repeat = false, onTap)
 
-/** The three panels, on the toolbar of every mode. */
+/** The panels, on the toolbar of every mode. */
 @Composable
 private fun RowScope.PanelKeys(onKey: (Key) -> Unit) {
     KeyButton("Measures", weight = 2f, tone = Tone.Action, small = true) { onKey(Key.Open(Panel.Measures)) }
     KeyButton("Currencies", weight = 2f, tone = Tone.Action, small = true) { onKey(Key.Open(Panel.Currencies)) }
     KeyButton("Trivia", weight = 1.6f, tone = Tone.Action, small = true) { onKey(Key.Open(Panel.Trivia)) }
+    KeyButton("History", weight = 1.6f, tone = Tone.Action, small = true) { onKey(Key.Open(Panel.History)) }
 }
 
 /** ⌫: a tap removes the character before the cursor; held, it goes on removing, as on every keyboard. */

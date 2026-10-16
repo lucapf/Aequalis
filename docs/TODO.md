@@ -71,7 +71,12 @@ Tick an item when it is done, and note the commit.
       `scripts/install-android.sh` installs it, `scripts/android-startup.sh` measures it.
 - [ ] Errors and hints told apart by more than colour (#12).
 - [ ] Toolbar and panel buttons at least 48 dp (#13).
-- [ ] History and first-launch examples (#14).
+- [x] History (#14): a History panel (a tap: the request back in the line, to change; ⧉ copies the
+      result; ⋮ Share, Remove; Clear the history), the three latest on the empty screen, kept in
+      `files/history.txt`. A request goes in once done with: ⏎, Copy, Share, C, the app left.
+- [ ] First-launch examples (#14).
+- [x] After a unit is chosen (`10 cm `), the units of its kind offered at once; Measures opens at
+      its class.
 - [ ] Tablets and foldables: a maximum keyboard width or two panes (#15).
 
 ## Elsewhere

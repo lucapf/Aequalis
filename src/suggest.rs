@@ -34,15 +34,21 @@ pub struct Suggestions {
 pub const MAX: usize = 8;
 
 /// What fits the word ending at `cursor`, once it has `min` characters (the phone: 3, while a few
-/// letters still say little; the TUI: 0, the target units offered right after a space). After a
-/// value, a unit or currency from its first letter: they are short, and a case may matter (`1 gb`
-/// offers `GB` and `Gb`).
+/// letters still say little; the TUI: 0). After a value, a unit or currency from its first letter:
+/// they are short, and a case may matter (`1 gb` offers `GB` and `Gb`). After its unit, the target
+/// units of the same kind at once, nothing typed (`10 cm ` offers `mm`, `m`, `in`…): the kind chosen
+/// stays.
 pub fn suggest(config: &Config, line: &str, cursor: usize, min: usize) -> Option<Suggestions> {
     let before: String = line.chars().take(cursor).collect();
     let typing = !before.ends_with(char::is_whitespace);
     let prefix = if typing { before.split_whitespace().last().unwrap_or("") } else { "" };
     let value = calc::parse_prefix(&before).ok();
-    let min = if value.is_some() { min.min(1) } else { min };
+    let min = match value {
+        // The target slot (`10 cm `, `12 EUR `): the source says the kind, its units are few.
+        Some((_, rest)) if !typing && rest.split_whitespace().count() == 1 => 0,
+        Some(_) => min.min(1),
+        None => min,
+    };
     if prefix.chars().count() < min {
         return None;
     }
@@ -80,7 +86,9 @@ fn after_a_value(config: &Config, before: &str, rest: &str, typing: bool) -> Opt
     if prefix.is_empty() && category.is_none() {
         return None;
     }
-    let mut names: Vec<String> = matching(config, category, prefix).into_iter().map(str::to_string).collect();
+    // The target: any unit of the source's kind but the source itself (`10 cm `: not `cm`).
+    let source = done.first().copied();
+    let mut names: Vec<String> = matching(config, category, prefix).into_iter().filter(|n| Some(*n) != source).map(str::to_string).collect();
     let mut labels = Vec::new();
     let mut kind = Kind::Units;
     // An amount (no unit yet): currencies too, after the units, from two letters (`x` is times).
@@ -323,7 +331,7 @@ mod tests {
     #[test]
     fn target_unit_is_the_same_kind() {
         let to = names("10 km ");
-        assert_eq!(to, ["mm", "cm", "m", "km", "au", "ly", "pc", "in", "ft", "yd", "mi"]);
+        assert_eq!(to, ["mm", "cm", "m", "au", "ly", "pc", "in", "ft", "yd", "mi"], "not the source");
         assert_eq!(
             names("10 km m"),
             ["mm", "m", "mi", "millimeter", "millimeters", "millimetre", "millimetres", "meter", "meters", "metre", "metres", "mile", "miles"]
@@ -356,7 +364,10 @@ mod tests {
         let gb = at("1 gb");
         assert!(gb.contains(&"GB".to_string()) && gb.contains(&"Gb".to_string()), "{gb:?}");
         assert!(at("12 k").contains(&"km".to_string()), "{:?}", at("12 k"));
-        assert!(at("10 km ").is_empty(), "nothing typed yet: no list of every target");
+        // After the unit, nothing typed yet: the units of its kind (the kind chosen stays).
+        assert_eq!(at("10 cm "), ["mm", "m", "km", "au", "ly", "pc", "in", "ft", "yd", "mi"]);
+        assert_eq!(&at("12 EUR ")[..3], ["USD", "JPY", "GBP"], "the most used first");
+        assert!(at("10 ").is_empty() && at("10 cm mm ").is_empty(), "no unit yet, or both written");
         assert_eq!(&at("12 dol")[..3], ["USD", "CAD", "AUD"]);
         assert_eq!(at("12 usd eur"), ["EUR"]);
         assert_eq!(at("12 usd to eur"), ["EUR"]);
