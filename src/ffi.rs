@@ -284,7 +284,7 @@ pub fn trivia() -> String {
                         .collect();
                     Object::new()
                         .str("name", &e.name)
-                        .str("short", &e.short)
+                        .str("short", &trivia::short(e, now))
                         .str("description", &e.description)
                         .str("value", &value)
                         .str("written", &written)

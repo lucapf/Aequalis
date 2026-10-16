@@ -197,6 +197,17 @@ pub fn value(config: &Config, entry: &Entry, synced: Option<crate::online::Store
     }
 }
 
+/// The few words of an entry's row (its `short`); a spacecraft's with its years of travel, counted
+/// from its launch to `now`: `Distance from the Earth after 49 years of travel`.
+pub fn short(entry: &Entry, now: i64) -> String {
+    // `1977-09-05 12:56 UTC`, as ISO 8601.
+    let launched = entry.launched.as_deref().and_then(|l| crate::time::parse_utc(&l.trim_end_matches(" UTC").replacen(' ', "T", 1)));
+    match (&entry.source, launched) {
+        (Source::Spacecraft { .. }, Some(at)) if now > at => format!("Distance from the Earth after {} years of travel", (now - at) / 31_557_600),
+        _ => entry.short.clone(),
+    }
+}
+
 /// Where a live value comes from: `JPL Horizons`, `CelesTrak`; `None` for a fixed one.
 pub fn source_name(entry: &Entry) -> Option<&'static str> {
     match entry.source {
@@ -581,7 +592,7 @@ pub fn list(config: &Config, precision: usize) -> String {
             }
             Err(err) => format!("error: {err}"),
         };
-        out.push_str(&format!("  {} = {value} · {}\n    {}\n", e.name, e.short, e.description));
+        out.push_str(&format!("  {} = {value} · {}\n    {}\n", e.name, short(e, now), e.description));
         // The popup's other lines: details, launch, a planet's distances.
         for (label, text) in popup(config, e, live, now, precision, &|n| crate::numbers::device().apply(&n)).into_iter().filter(|(l, _)| l != "Value") {
             out.push_str(&format!("    {}: {text}\n", label.trim()));
@@ -595,6 +606,17 @@ mod tests {
     use super::*;
 
     /// How long light takes, for people.
+    /// A spacecraft's row: its years of travel, to now.
+    #[test]
+    fn years_of_travel() {
+        let v1 = entries().iter().find(|e| e.name == "Voyager 1").unwrap();
+        // Launched 1977-09-05: 49 years on 2026-10-16, 50 a year later.
+        assert_eq!(short(v1, 1_792_108_800), "Distance from the Earth after 49 years of travel");
+        assert_eq!(short(v1, 1_792_108_800 + 31_557_600), "Distance from the Earth after 50 years of travel");
+        let pi = entries().iter().find(|e| e.name == "π (pi)").unwrap();
+        assert_eq!(short(pi, 1_792_108_800), pi.short);
+    }
+
     #[test]
     fn light_times() {
         assert_eq!(light_time(384_400.0), "1.3 s", "the Moon");

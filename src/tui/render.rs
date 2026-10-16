@@ -692,9 +692,10 @@ fn trivia(app: &App, v: &super::trivia::View, canvas: &mut Canvas, rows: usize, 
         let col = canvas.put_within(row, left + 1, right, &text, if selected { Style::Lit } else { Style::Plain });
         // The short description, cut with … when the window is too narrow.
         let room = right.saturating_sub(col + 1);
-        let short: String = match e.short.chars().count() > room {
-            true => e.short.chars().take(room.saturating_sub(1)).chain(['…']).collect(),
-            false => e.short.clone(),
+        let full = crate::trivia::short(e, crate::time::unix_now());
+        let short: String = match full.chars().count() > room {
+            true => full.chars().take(room.saturating_sub(1)).chain(['…']).collect(),
+            false => full,
         };
         canvas.put_within(row, col, right, &short, if selected { Style::Lit } else { Style::Dim });
     }
