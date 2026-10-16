@@ -1,7 +1,20 @@
 package io.lucapf.tally
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
+import io.lucapf.tally.ui.theme.Appearance
+import io.lucapf.tally.ui.theme.DarkMode
+import io.lucapf.tally.ui.theme.Skin
+import io.lucapf.tally.ui.theme.backdrop
+import io.lucapf.tally.ui.theme.colorScheme
+import io.lucapf.tally.ui.theme.isDark
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
@@ -50,9 +63,41 @@ fun SettingsScreen(close: () -> Unit, modifier: Modifier = Modifier) {
         }
         message?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 16.dp)) }
         LazyColumn {
+            item(key = "appearance") {
+                AppearanceRow()
+                HorizontalDivider()
+            }
             items(settings, key = { it.key }) { s ->
                 SettingRow(s, change)
                 HorizontalDivider()
+            }
+        }
+    }
+}
+
+/** The app's look (its own preferences, `Appearance`): light or dark, and the skin, each skin shown
+ *  by a swatch of its background and accent. */
+@Composable
+private fun AppearanceRow() {
+    val context = LocalContext.current
+    val dark = isDark()
+    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("appearance", style = MaterialTheme.typography.titleSmall)
+        Text("Light or dark, and the colours", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            DarkMode.entries.forEach { m -> FilterChip(selected = Appearance.mode == m, onClick = { Appearance.choose(mode = m) }, label = { Text(m.label) }) }
+        }
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Skin.entries.forEach { skin ->
+                val scheme = colorScheme(context, skin, dark)
+                FilterChip(
+                    selected = Appearance.skin == skin,
+                    onClick = { Appearance.choose(skin = skin) },
+                    label = { Text(skin.label) },
+                    leadingIcon = {
+                        Box(Modifier.size(18.dp).clip(CircleShape).background(backdrop(skin, dark, scheme)).border(4.dp, scheme.primary, CircleShape).clearAndSetSemantics {})
+                    },
+                )
             }
         }
     }

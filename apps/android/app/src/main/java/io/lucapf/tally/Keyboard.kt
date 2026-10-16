@@ -172,12 +172,11 @@ private fun ColumnScope.Calculator(scientific: Boolean, onKey: (Key) -> Unit) {
  *  rest of the screen. */
 private val LandscapeRow: Dp = 44.dp
 
-/** Landscape, on the left: the toolbar, as a column (C, the keyboards, the panels, Settings). */
+/** Landscape, on the left: the toolbar, as a column (C, the panels, Settings). */
 @Composable
-fun SideToolbar(mode: Mode, onKey: (Key) -> Unit, modifier: Modifier = Modifier) {
+fun SideToolbar(onKey: (Key) -> Unit, modifier: Modifier = Modifier) {
     Column(modifier.fillMaxHeight().width(100.dp).padding(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         ColumnKey("C") { onKey(Key.Clear) }
-        switches(mode).forEach { (label, to) -> ColumnKey(label, small = true) { onKey(Key.Switch(to)) } }
         Panel.entries.forEach { p -> ColumnKey(p.name, small = true) { onKey(Key.Open(p)) } }
         ColumnKey("⚙") { onKey(Key.Settings) }
     }
@@ -207,17 +206,23 @@ fun LetterPad(onKey: (Key) -> Unit, modifier: Modifier = Modifier) {
     }
 }
 
-/** Landscape, on the right: the digits and operators in the calculator's grid, the functions beside
- *  them in scientific mode. With the letters (whose rows have ⌫ and ⏎), its last row is `0 . : ^`. */
+/** Landscape, on the right: the digits and operators in the calculator's grid (the letters beside
+ *  have ⌫ and ⏎, so its last row is `0 . : ^`), Sci above it, which shows the functions beside it. */
 @Composable
-fun NumberPad(mode: Mode, onKey: (Key) -> Unit, modifier: Modifier = Modifier) {
+fun NumberPad(scientific: Boolean, onKey: (Key) -> Unit, modifier: Modifier = Modifier) {
     val write = { s: String -> onKey(Key.Write(s)) }
-    val rows = if (mode == Mode.Text) CALCULATOR.dropLast(1) + listOf(listOf(digit("0"), digit("."), op(":", ":"), op("^", "^"))) else CALCULATOR
-    val columns = if (mode == Mode.Scientific) 6 else 4
+    val rows = CALCULATOR.dropLast(1) + listOf(listOf(digit("0"), digit("."), op(":", ":"), op("^", "^")))
+    val columns = if (scientific) 6 else 4
     Column(modifier.width(58.dp * columns).padding(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        PadRow {
+            when (scientific) {
+                true -> KeyButton("Basic", tone = Tone.Action, small = true) { onKey(Key.Switch(Mode.Text)) }
+                false -> KeyButton("Sci", tone = Tone.Action, small = true) { onKey(Key.Switch(Mode.Scientific)) }
+            }
+        }
         rows.forEachIndexed { i, keys ->
             PadRow {
-                if (mode == Mode.Scientific) {
+                if (scientific) {
                     SCIENCE[i].forEach { (shown, written) -> KeyButton(shown, tone = Tone.Action, small = true) { write(written) } }
                 }
                 keys.forEach { k -> CalcKey(k, onKey) }

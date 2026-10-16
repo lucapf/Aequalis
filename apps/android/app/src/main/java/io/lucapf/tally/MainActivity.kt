@@ -44,6 +44,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -63,6 +65,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -71,6 +74,7 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.dp
+import io.lucapf.tally.ui.theme.Appearance
 import io.lucapf.tally.ui.theme.TallyTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -81,13 +85,16 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         // The core first: it must know the device before the first request.
         Core.start(applicationContext)
+        // The mode and skin chosen in Settings (the app's own preferences).
+        Appearance.load(applicationContext)
         // The data shipped with the app, in the background: requests work meanwhile, with what the
         // core already has.
         Thread { Core.seedShipped(applicationContext) }.start()
         enableEdgeToEdge()
         setContent {
             TallyTheme {
-                Surface(Modifier.fillMaxSize()) { TallyApp() }
+                // Transparent: the theme draws the skin's background behind everything.
+                Surface(Modifier.fillMaxSize(), color = Color.Transparent, contentColor = MaterialTheme.colorScheme.onSurface) { TallyApp() }
             }
         }
     }
@@ -99,7 +106,13 @@ data class Answer(val request: String, val reply: Reply)
 /** The request being written, and the cursor's place in it (an index in the text). Each key makes
  *  a new one; Compose redraws the screen from it. */
 data class Edit(val text: String = "", val cursor: Int = 0) {
-    fun write(s: String) = Edit(text.take(cursor) + s + text.drop(cursor), cursor + s.length)
+    /** `s` at the cursor, as much of it as fits in `MAX_INPUT` characters (a long paste is cut). */
+    fun write(s: String): Edit {
+        val room = MAX_INPUT - text.codePointCount(0, text.length)
+        if (room <= 0) return this
+        val fits = if (s.codePointCount(0, s.length) <= room) s else s.take(s.offsetByCodePoints(0, room))
+        return Edit(text.take(cursor) + fits + text.drop(cursor), cursor + fits.length)
+    }
 
     /** The character before the cursor removed (one character, even an emoji's two UTF-16 units). */
     fun backspace(): Edit {
@@ -114,9 +127,14 @@ data class Edit(val text: String = "", val cursor: Int = 0) {
         val before = text.take(start)
         val gap = if (before.isEmpty() || before.endsWith(" ")) "" else " "
         val head = before + gap + w + " "
-        return Edit(head + text.drop(cursor).trimStart(), head.length)
+        val written = head + text.drop(cursor).trimStart()
+        // Past `MAX_INPUT` characters: not written.
+        return if (written.codePointCount(0, written.length) > MAX_INPUT) this else Edit(written, head.length)
     }
 }
+
+/** The longest request, in characters (code points): the core's own limit (`MAX_INPUT`, src/lib.rs). */
+const val MAX_INPUT = 512
 
 /** How an `Edit` is kept when Android recreates the screen (rotation, dark mode, font size, the app
  *  stopped in the background): its text and cursor, as two values the system can store. */
@@ -202,6 +220,8 @@ fun TallyApp() {
     val workspace = @Composable { landscape: Boolean, modifier: Modifier ->
         Workspace(
             edit, reply, finished, offered, landscape, modifier,
+            // In landscape the request line is drawn apart, across the whole width.
+            request = !landscape,
             onCursor = { edit = edit.copy(cursor = it) },
             onPaste = paste,
             onCopy = copy,
@@ -216,18 +236,23 @@ fun TallyApp() {
     }
 
     if (LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE) {
-        // Landscape: the toolbar on the left, the request and the letters in the middle, the digits
-        // (or a panel) on the right; keys at about their portrait size, the rest for the request.
-        // One background: the keys stand out by their own colours.
+        // Landscape: the toolbar on the left; the request across the rest of the width; under it the
+        // answer and the letters, and on the right the digits (Sci above them) or a panel. Keys at
+        // about their portrait size; letters and digits both shown, so no 123 mode.
         Row(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
-            SideToolbar(mode, onKey)
+            SideToolbar(onKey)
             Column(Modifier.weight(1f).fillMaxHeight()) {
-                workspace(true, Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp))
-                if (panel == null && mode == Mode.Text) LetterPad(onKey)
-            }
-            when (val open = panel) {
-                null -> NumberPad(mode, onKey, Modifier.align(Alignment.Bottom))
-                else -> showPanel(open, Modifier.width(380.dp).fillMaxHeight())
+                RequestLine(edit, onCursor = { edit = edit.copy(cursor = it) }, onPaste = paste, compact = true, modifier = Modifier.padding(start = 8.dp, top = 6.dp, end = 8.dp))
+                Row(Modifier.weight(1f)) {
+                    Column(Modifier.weight(1f).fillMaxHeight()) {
+                        workspace(true, Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp))
+                        if (panel == null) LetterPad(onKey)
+                    }
+                    when (val open = panel) {
+                        null -> NumberPad(scientific = mode == Mode.Scientific, onKey, Modifier.align(Alignment.Bottom))
+                        else -> showPanel(open, Modifier.width(380.dp).fillMaxHeight())
+                    }
+                }
             }
         }
         return
@@ -253,6 +278,7 @@ fun Workspace(
     offered: Suggestions,
     landscape: Boolean,
     modifier: Modifier,
+    request: Boolean,
     onCursor: (Int) -> Unit,
     onPaste: () -> Unit,
     onCopy: (String) -> Unit,
@@ -270,7 +296,7 @@ fun Workspace(
                 }
             }
         }
-        RequestLine(edit, onCursor, onPaste, compact = landscape)
+        if (request) RequestLine(edit, onCursor, onPaste, compact = landscape)
         // A live region: a screen reader says the result, the hint or the error as it changes.
         Column(
             Modifier.weight(1f).verticalScroll(rememberScrollState()).semantics { liveRegion = LiveRegionMode.Polite },
@@ -290,8 +316,8 @@ fun Workspace(
                         )
                         // With a currency, how old its rates are.
                         reply.ratesAge?.let { Text("rates $it old", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                        TextButton(onClick = { onCopy(reply.result) }) { Text("Copy") }
-                        TextButton(onClick = { onShare(reply.result) }) { Text("Share") }
+                        IconButton(onClick = { onCopy(reply.result) }) { Icon(CopyIcon, contentDescription = "Copy") }
+                        IconButton(onClick = { onShare(reply.result) }) { Icon(ShareIcon, contentDescription = "Share") }
                     }
                 }
                 !finished -> {}
@@ -322,7 +348,7 @@ fun Workspace(
 /** The request, with its cursor: drawn here, not a text field, so the phone's keyboard never
  *  opens; a tap puts the cursor where it lands, a long press pastes. */
 @Composable
-fun RequestLine(edit: Edit, onCursor: (Int) -> Unit, onPaste: () -> Unit, compact: Boolean = false) {
+fun RequestLine(edit: Edit, onCursor: (Int) -> Unit, onPaste: () -> Unit, compact: Boolean = false, modifier: Modifier = Modifier) {
     var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
     val haptic = LocalHapticFeedback.current
     val textStyle = if (compact) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineSmall
@@ -331,7 +357,7 @@ fun RequestLine(edit: Edit, onCursor: (Int) -> Unit, onPaste: () -> Unit, compac
         initialValue = 1f, targetValue = 0f, animationSpec = infiniteRepeatable(tween(530), RepeatMode.Reverse), label = "blink",
     )
     Box(
-        Modifier.fillMaxWidth().border(1.dp, colors.outline, RoundedCornerShape(8.dp)).padding(horizontal = 16.dp, vertical = if (compact) 8.dp else 14.dp)
+        modifier.fillMaxWidth().border(1.dp, colors.outline, RoundedCornerShape(8.dp)).padding(horizontal = 16.dp, vertical = if (compact) 8.dp else 14.dp)
             .pointerInput(edit, onPaste) {
                 detectTapGestures(
                     onTap = { at -> layout?.let { onCursor(it.getOffsetForPosition(at)) } },
