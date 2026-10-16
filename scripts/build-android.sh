@@ -1,9 +1,9 @@
 #!/bin/sh
 # Builds tally's core for the Android app: libtally.so (the C interface and the JNI bridge,
-# src/ffi.rs and src/jni.rs) for the emulator (x86_64) and for phones (arm64), into
+# src/ffi.rs and src/jni.rs) for the emulator (x86_64) and for phones (arm64, and the 32-bit ones such as the Redmi 9A), into
 # apps/android/app/src/main/jniLibs/<abi>/, where Gradle packs it into the app. Needs the NDK
 # (Android Studio: SDK Manager › SDK Tools › NDK) and the Rust targets:
-#   rustup target add x86_64-linux-android aarch64-linux-android
+#   rustup target add x86_64-linux-android aarch64-linux-android armv7-linux-androideabi
 #   scripts/build-android.sh
 # Run it again after changing the Rust code, then Run in Android Studio.
 #
@@ -18,12 +18,17 @@ ndk=${ANDROID_NDK_HOME:-$(ls -d "$sdk"/ndk/* | sort -V | tail -1)}
 bin=$(ls -d "$ndk"/toolchains/llvm/prebuilt/*/bin | head -1)
 # The oldest Android the app runs on (app/build.gradle.kts: minSdk).
 api=26
-for pair in x86_64-linux-android:x86_64 aarch64-linux-android:arm64-v8a; do
-    target=${pair%%:*}
-    abi=${pair##*:}
+# Rust's target, the NDK's clang for it (the same name, but for 32-bit ARM), Android's ABI.
+for triple in x86_64-linux-android:x86_64-linux-android:x86_64 \
+    aarch64-linux-android:aarch64-linux-android:arm64-v8a \
+    armv7-linux-androideabi:armv7a-linux-androideabi:armeabi-v7a; do
+    target=${triple%%:*}
+    abi=${triple##*:}
+    clang=${triple#*:}
+    clang=${clang%%:*}
     # Cargo links with the NDK's clang for that target and Android version.
     linker_variable=CARGO_TARGET_$(echo "$target" | tr 'a-z-' 'A-Z_')_LINKER
-    env "$linker_variable=$bin/$target$api-clang" \
+    env "$linker_variable=$bin/$clang$api-clang" \
         cargo rustc --release --lib --no-default-features --features ffi --target "$target" --crate-type cdylib
     mkdir -p "apps/android/app/src/main/jniLibs/$abi"
     cp "target/$target/release/libtally.so" "apps/android/app/src/main/jniLibs/$abi/"
