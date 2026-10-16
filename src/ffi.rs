@@ -419,15 +419,25 @@ pub unsafe extern "C" fn tally_suggest(before: *const c_char, min: u32) -> *mut 
     give(suggest(before, min as usize))
 }
 
-/// Every currency, the most used first: `{"currencies":[{"code","name","symbols":[…]}]}`.
+/// Every currency, the most used first: `{"currencies":[{"code","name","symbols":[…],"countries":[…],
+/// "aliases":[…]}]}`; `countries`: the names of those that use it (`Italy`), `aliases`: their other
+/// names (`USA`), so a search finds a currency by its country, as requests do (`15 Italy UAE`).
 #[no_mangle]
 pub extern "C" fn tally_currencies() -> *mut c_char {
     give(currencies())
 }
 
 pub fn currencies() -> String {
-    let list: Vec<String> =
-        crate::currency::all().iter().map(|c| Object::new().str("code", &c.code).str("name", &c.name).strs("symbols", &c.symbols).finish()).collect();
+    let countries = crate::time::tz::countries();
+    let list: Vec<String> = crate::currency::all()
+        .iter()
+        .map(|c| {
+            let users: Vec<_> = countries.iter().filter(|k| k.currency == c.code).collect();
+            let names: Vec<String> = users.iter().map(|k| k.name.clone()).collect();
+            let aliases: Vec<String> = users.iter().flat_map(|k| k.aliases.iter().cloned()).collect();
+            Object::new().str("code", &c.code).str("name", &c.name).strs("symbols", &c.symbols).strs("countries", &names).strs("aliases", &aliases).finish()
+        })
+        .collect();
     Object::new().list("currencies", &list).finish()
 }
 
@@ -521,6 +531,17 @@ mod tests {
     }
 
     #[test]
+    fn currencies_with_their_countries() {
+        let doc = json::parse(&currencies()).unwrap();
+        let list = doc.get("currencies").unwrap().array();
+        let of = |code: &str| list.iter().find(|c| c.get("code").and_then(|v| v.str()) == Some(code)).unwrap();
+        let strings = |c: &json::Value, key: &str| c.get(key).unwrap().strings();
+        assert!(strings(of("EUR"), "countries").contains(&"Italy".to_string()));
+        assert!(strings(of("AED"), "countries").contains(&"United Arab Emirates".to_string()));
+        assert!(strings(of("USD"), "aliases").iter().any(|a| a.eq_ignore_ascii_case("usa")), "{:?}", strings(of("USD"), "aliases"));
+    }
+
+    #[test]
     fn memory_where_counted() {
         // Off Android the system's allocator counts nothing: an empty object.
         assert_eq!(memory(), "{}");
@@ -544,7 +565,7 @@ mod tests {
         let classes = measures.get("classes").unwrap().array();
         assert_eq!(classes[0].get("name").and_then(|v| v.str()), Some(crate::config::TIME));
         assert!(classes.iter().any(|c| c.get("key").and_then(|v| v.str()) == Some("K")));
-        assert!(currencies().contains(r#"{"code":"EUR","name":"euro","symbols":["€"]}"#));
+        assert!(currencies().contains(r#"{"code":"EUR","name":"euro","symbols":["€"],"countries":["#));
     }
 
     #[test]

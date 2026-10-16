@@ -51,7 +51,8 @@ economy, energy, power and angles.
 ### Currencies
 
 Currencies by code, name, symbol or country, in any case: `12 usd euro`, `12 USA Europe`,
-`12€ gbp`. With one currency, to your local one. Shared names (`dollar`) and misspellings are
+`12€ gbp`; the amount can be a calculation (`12+3 Italy UAE` is `15 Italy UAE`). With one
+currency, to your local one. Shared names (`dollar`) and misspellings are
 asked about. Rates from [ExchangeRate-API](https://www.exchangerate-api.com), synced once a day
 in the background.
 
@@ -60,6 +61,7 @@ in the background.
 | `12 usd euro` | `10.74 EUR` |
 | `12 USD UAE` | `44.07 AED` |
 | `12 China Euro` | `1.60 EUR` |
+| `12+3 Italy UAE` | `61.59 AED` |
 | `12 dollar euro` | asks which dollar |
 
 ### Dates

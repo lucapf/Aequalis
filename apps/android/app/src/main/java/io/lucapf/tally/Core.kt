@@ -25,8 +25,15 @@ data class MeasureUnit(val symbol: String, val name: String, val system: String)
 /** A class of units (`Length`): its two systems' names (`Metric`, `Imperial`) and its units. */
 data class Measure(val name: String, val systems: List<String>, val units: List<MeasureUnit>)
 
-/** A currency: its code (what is written), name and symbols. */
-data class Currency(val code: String, val name: String, val symbols: List<String>)
+/** A currency: its code (what is written), name and symbols; the countries that use it, and their
+ *  other names (`USA`), for the search. */
+data class Currency(
+    val code: String,
+    val name: String,
+    val symbols: List<String>,
+    val countries: List<String> = emptyList(),
+    val aliases: List<String> = emptyList(),
+)
 
 /** A line of a Trivia value's details (`Current distance`, `25,800,920,358 km - 172.4685 au`), and
  *  its measures: (as shown, as written into the request), one per unit. */
@@ -208,7 +215,7 @@ object Core {
 
     /** Every currency, the most used first. */
     fun currencies(): List<Currency> = list("currencies").getJSONArray("currencies").objects { c ->
-        Currency(c.getString("code"), c.getString("name"), c.getJSONArray("symbols").strings())
+        Currency(c.getString("code"), c.getString("name"), c.getJSONArray("symbols").strings(), c.getJSONArray("countries").strings(), c.getJSONArray("aliases").strings())
     }
 
     /** The Trivia, by section. */

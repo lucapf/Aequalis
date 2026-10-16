@@ -231,14 +231,22 @@ private fun CurrenciesPanel(write: (String) -> Unit, wide: Boolean) {
             if (inLine) {
                 if (found.isEmpty()) Text(none, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 LazyRow(state = list, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    items(found, key = { it.code }) { c -> AssistChip(onClick = { pick(c) }, label = { Text("${c.code}  ${c.name}") }) }
+                    items(found, key = { it.code }) { c ->
+                        val country = countriesMatched(c, query).firstOrNull()?.let { " ($it)" }.orEmpty()
+                        AssistChip(onClick = { pick(c) }, label = { Text("${c.code}  ${c.name}$country") })
+                    }
                 }
             }
         }
         if (!inLine) {
             if (found.isEmpty()) Text(none, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp))
             LazyColumn(state = list) {
-                items(found, key = { it.code }) { c -> Line("${c.code}  ${c.name}", c.symbols.joinToString(" ")) { pick(c) } }
+                items(found, key = { it.code }) { c ->
+                    // Found by a country: it before the symbols (`Italy · €`).
+                    val countries = countriesMatched(c, query)
+                    val shown = if (countries.size > 3) countries.take(3) + "…" else countries
+                    Line("${c.code}  ${c.name}", (shown + c.symbols.joinToString(" ")).filter { it.isNotEmpty() }.joinToString(" · ")) { pick(c) }
+                }
             }
         }
     }
@@ -246,9 +254,10 @@ private fun CurrenciesPanel(write: (String) -> Unit, wide: Boolean) {
 
 /**
  * The currencies matching `query`, ignoring case and accents: its code first (`ch` → CHF), then a
- * word of its name beginning with it (`yen`, `franc` → the Swiss and the CFA francs), then its name,
- * a symbol (`₹`, `kr`) or the code containing it anywhere. Within each, the order as given (the most
- * used first). An empty query: all of them.
+ * word of its name beginning with it (`yen`, `franc` → the Swiss and the CFA francs), then a word of
+ * a country using it (`italy` → the euro, `usa` → the US dollar, `franc` → the euro too, for
+ * France), then its name, a country, a symbol (`₹`, `kr`) or the code containing it anywhere. Within each, the order as given (the most used first).
+ * An empty query: all of them.
  */
 fun search(currencies: List<Currency>, query: String): List<Currency> {
     val q = plain(query.trim())
@@ -257,13 +266,33 @@ fun search(currencies: List<Currency>, query: String): List<Currency> {
         val name = plain(c.name)
         return when {
             plain(c.code).startsWith(q) -> 0
-            name.startsWith(q) || name.split(' ', '-', '(').any { it.startsWith(q) } -> 1
-            name.contains(q) || plain(c.code).contains(q) || c.symbols.any { plain(it).contains(q) } -> 2
+            startsAWord(name, q) -> 1
+            countriesFound(c, q, anywhere = false).isNotEmpty() -> 2
+            name.contains(q) || plain(c.code).contains(q) || c.symbols.any { plain(it).contains(q) } || countriesFound(c, q, anywhere = true).isNotEmpty() -> 3
             else -> null
         }
     }
     return currencies.mapNotNull { c -> rank(c)?.let { it to c } }.sortedBy { it.first }.map { it.second }
 }
+
+/** The countries a search found `c` by (`united` → United States, for the dollar): none when its
+ *  own name or code matches, as those say it already. Shown in its row, so the match is clear. */
+fun countriesMatched(c: Currency, query: String): List<String> {
+    val q = plain(query.trim())
+    if (q.isEmpty() || plain(c.code).contains(q) || plain(c.name).contains(q)) return emptyList()
+    return countriesFound(c, q, anywhere = false).ifEmpty { countriesFound(c, q, anywhere = true) }
+}
+
+/** The countries of `c` (by name, or by another name: `USA` is the United States) where `q` begins
+ *  a word, or with `anywhere` is anywhere in it. */
+private fun countriesFound(c: Currency, q: String, anywhere: Boolean): List<String> {
+    val found = { text: String -> if (anywhere) plain(text).contains(q) else startsAWord(plain(text), q) }
+    val byName = c.countries.filter(found)
+    // An alias stands for its country, which isn't known here: the alias itself is shown.
+    return byName.ifEmpty { c.aliases.filter(found) }
+}
+
+private fun startsAWord(text: String, q: String): Boolean = text.startsWith(q) || text.split(' ', '-', '(').any { it.startsWith(q) }
 
 /** Lower case, without accents: `Réal` → `real`, so the search finds it either way. */
 private fun plain(text: String): String =

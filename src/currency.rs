@@ -264,6 +264,19 @@ fn amount(word: &str) -> Option<f64> {
     expr.eval().ok().filter(|v| v.is_finite() && *v >= 0.0)
 }
 
+/// An amount written as a calculation, at the start and followed by words without digits (money,
+/// maybe): `12+3 Italy UAE` → (`12+3`, `Italy UAE`), `(10 + 5) * 2 usd eur`. As a plain amount,
+/// its value is a number not below 0. None for a plain number (`amount` takes it), for a
+/// calculation alone, or one followed by more numbers (`2026/12/04 + 5wd`, `12 + 3 eur 5`).
+fn calculated(input: &str) -> Option<(String, &str)> {
+    let (expr, rest) = crate::calc::parse_prefix(input).ok()?;
+    if expr.operations() == 0 || rest.trim().is_empty() || rest.contains(|c: char| c.is_ascii_digit()) {
+        return None;
+    }
+    expr.eval().ok().filter(|v| v.is_finite() && *v >= 0.0)?;
+    Some((input[..input.len() - rest.len()].trim().to_string(), rest))
+}
+
 /// An amount written together with its currency: `$12`, `US$12`, `12€`, `12usd`, `12.50EUR`.
 fn split_attached(word: &str) -> Vec<String> {
     // The number first: digits and a point.
@@ -384,13 +397,20 @@ pub struct Context {
 
 /// The request's parts, when it is a currency request: the amount, and the currency pieces in order.
 fn shape(config: &Config, input: &str) -> Option<Result<(String, Vec<Piece>), Error>> {
-    // One amount, and an amount has digits while no currency or country name has any (the test
-    // `names_have_no_digits` keeps it so): without exactly one word with digits it is no currency
-    // request, and nothing is looked up (`now Tokyo`, `Rome Paris`, `2026/12/04 + 5wd`).
-    if input.split_whitespace().filter(|w| w.contains(|c: char| c.is_ascii_digit())).count() != 1 {
-        return None;
-    }
-    let parts = pieces(config, input);
+    let parts = match calculated(input) {
+        // A calculation for the amount (`12+3 Italy UAE`): the money as for its value (`15 Italy
+        // UAE`), the calculation kept as written (`convert` evaluates it; questions repeat it).
+        Some((written, rest)) => std::iter::once(Piece::Amount(written)).chain(pieces(config, rest)).collect::<Vec<_>>(),
+        None => {
+            // One amount, and an amount has digits while no currency or country name has any (the
+            // test `names_have_no_digits` keeps it so): without exactly one word with digits it is
+            // no currency request, and nothing is looked up (`now Tokyo`, `Rome Paris`).
+            if input.split_whitespace().filter(|w| w.contains(|c: char| c.is_ascii_digit())).count() != 1 {
+                return None;
+            }
+            pieces(config, input)
+        }
+    };
     let amounts = parts.iter().filter(|p| matches!(p, Piece::Amount(_))).count();
     if amounts != 1 || parts.iter().any(|p| matches!(p, Piece::Other)) {
         return None;
@@ -927,7 +947,11 @@ mod tests {
             "1 cup ml",
             "12 cup pound",
             "12 Rome",
-            "12 + 3 usd eur",
+            // Calculations with something else than money.
+            "12 + 3 km mi",
+            "2026/12/04 + 5wd",
+            "12 + 3 eur 5",
+            "12 + 3",
         ] {
             assert!(with(input, Some("EUR")).is_none(), "{input}");
         }
@@ -936,6 +960,27 @@ mod tests {
         assert_eq!(ask("12 pounds euro").choices[0].request, "12 GBP euro");
         assert_eq!(ok("12 GBP euro"), "14.21 EUR");
         assert!(matches!(with("12 cup usd", Some("EUR")), Some(Err(Error::NoRates(_)))), "the Cuban peso, not in the test rates");
+    }
+
+    /// A calculation for the amount, as its value: `12+3 Italy UAE` is `15 Italy UAE`.
+    #[test]
+    fn calculated_amounts() {
+        // 15 / 0.8945 × 3.6725, with the test rates.
+        assert_eq!(ok("12+3 Italy UAE"), "61.58 AED");
+        assert_eq!(ok("12+3 Italy UAE"), ok("15 Italy UAE"));
+        assert_eq!(ok("12 + 3 eur to aed"), ok("15 eur aed"));
+        assert_eq!(ok("(10+5)*2 usd eur"), ok("30 usd eur"));
+        assert_eq!(ok("100 + 20% eur usd"), ok("120 eur usd"));
+        // To the local currency, and the hint for the one to convert to: the calculation as written.
+        assert_eq!(ok("12+3 usd"), ok("15 usd"));
+        match with("12+3 eur", Some("EUR")) {
+            Some(Err(Error::Usage(hint))) => assert_eq!(hint, "now the currency to convert to: `12+3 EUR USD`"),
+            other => panic!("{other:?}"),
+        }
+        // A question's requests keep it too.
+        assert_eq!(ask("12+3 pounds euro").choices[0].request, "12+3 GBP euro");
+        // Below 0, as a plain amount: no money request.
+        assert!(with("3-5 eur usd", Some("EUR")).is_none());
     }
 
     #[test]
