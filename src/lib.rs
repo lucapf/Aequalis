@@ -218,6 +218,11 @@ from the environment):
                             YYYY YY MMMM MMM MM M DD D dddd ddd H24/HH H H12/hh h
                             mm ss AM/A tz (GMT+2) ZZ (+02:00); [text] is literal";
 
+/// The longest request, in characters: far more than anyone types, and a bound for what each
+/// stage reads (a paste of a page is an error, not a long wait). The apps stop the request line
+/// there too.
+pub const MAX_INPUT: usize = 512;
+
 const EXPECTED: &str = "expected <value> <from> <to>, <value><from> <to> or an expression without units";
 
 #[derive(Debug, PartialEq)]
@@ -405,6 +410,9 @@ fn request(config: &Config, opts: &Options, tokens: &[&str]) -> Result<Output, C
     let input = tokens.join(" ");
     if input.trim().is_empty() {
         return usage(EXPECTED);
+    }
+    if input.chars().count() > MAX_INPUT {
+        return usage(format!("the request is too long: at most {MAX_INPUT} characters"));
     }
     // Currencies: `12 usd euro`, `12 USA Europe`; one amount (a plain number) and currencies or
     // countries, nothing else (a time with countries is a time request, countries alone a distance).
@@ -719,6 +727,9 @@ mod tests {
             assert_eq!(cli(date).unwrap_err(), CliError::Incomplete("now the format to convert to: iso, unix, local…".into()), "{date}");
         }
         assert_eq!(cli("12/4").unwrap(), "3");
+        // Past the longest request: an error, whatever it is.
+        assert_eq!(cli(&vec!["1"; 256].join("+")).unwrap(), "256", "511 characters");
+        assert_eq!(cli(&format!("{}+1", vec!["1"; 256].join("+"))).unwrap_err(), CliError::Usage("the request is too long: at most 512 characters".into()));
         assert_eq!(cli("12/04/2026 num").unwrap(), "0.0015");
         assert_eq!(code("1 2 3 4"), 2);
         assert_eq!(code(""), 2);
