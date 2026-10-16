@@ -4,6 +4,9 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.foundation.layout.Arrangement
@@ -17,32 +20,42 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -101,7 +114,7 @@ fun PanelView(
             val open = { name: String -> opened = name; detail = null }
             when (panel) {
                 Panel.Measures -> MeasuresPanel(opened, open, write, wide)
-                Panel.Currencies -> CurrenciesPanel(write)
+                Panel.Currencies -> CurrenciesPanel(write, wide)
                 Panel.Trivia -> TriviaPanel(opened, detail, open, show = { detail = it }, write, openLink, wide)
             }
         }
@@ -168,14 +181,86 @@ private fun MeasureUnits(measure: Measure, write: (String) -> Unit, columns: Gri
     }
 }
 
-/** Every currency, the most used first: a tap writes its code. */
+/** Every currency, the most used first, and a search field above them (typed with the phone's
+ *  keyboard): a tap writes its code; ⏎ on the phone's keyboard, the first one found. Wide
+ *  (landscape), while the phone's keyboard is up, only a line is left: the ones found beside the
+ *  field, as chips. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun CurrenciesPanel(write: (String) -> Unit) {
+private fun CurrenciesPanel(write: (String) -> Unit, wide: Boolean) {
     val currencies = loaded { Core.currencies() } ?: return
-    LazyColumn {
-        items(currencies) { c -> Line("${c.code}  ${c.name}", c.symbols.joinToString(" ")) { write(c.code) } }
+    // Kept across a rotation.
+    var query by rememberSaveable { mutableStateOf("") }
+    val found = remember(currencies, query) { search(currencies, query) }
+    val keyboard = LocalSoftwareKeyboardController.current
+    // The phone's keyboard away before the panel closes, the request's keys back.
+    val pick = { c: Currency -> keyboard?.hide(); write(c.code) }
+    val field = @Composable { modifier: Modifier ->
+        OutlinedTextField(
+            query,
+            onValueChange = { query = it },
+            modifier = modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            placeholder = { Text("Search: euro, yen, ₹, CHF, Brazil…", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            singleLine = true,
+            trailingIcon = {
+                if (query.isNotEmpty()) TextButton(onClick = { query = "" }, modifier = Modifier.semantics { contentDescription = "Clear the search" }) {
+                    Text("✕", modifier = Modifier.clearAndSetSemantics {})
+                }
+            },
+            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false, imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { found.firstOrNull()?.let(pick) ?: keyboard?.hide() }),
+        )
+    }
+    val none = "No currency matches “${query.trim()}”."
+    // The field always the first in the same row: drawn again elsewhere, it would lose the focus,
+    // and the phone's keyboard close.
+    val inLine = wide && WindowInsets.isImeVisible
+    // Another search: the list from its beginning, the best match first.
+    val list = rememberLazyListState()
+    LaunchedEffect(query) { list.scrollToItem(0) }
+    Column {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            field(if (inLine) Modifier.width(ListWidth * 1.4f) else Modifier.fillMaxWidth())
+            if (inLine) {
+                if (found.isEmpty()) Text(none, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                LazyRow(state = list, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(found, key = { it.code }) { c -> AssistChip(onClick = { pick(c) }, label = { Text("${c.code}  ${c.name}") }) }
+                }
+            }
+        }
+        if (!inLine) {
+            if (found.isEmpty()) Text(none, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp))
+            LazyColumn(state = list) {
+                items(found, key = { it.code }) { c -> Line("${c.code}  ${c.name}", c.symbols.joinToString(" ")) { pick(c) } }
+            }
+        }
     }
 }
+
+/**
+ * The currencies matching `query`, ignoring case and accents: its code first (`ch` → CHF), then a
+ * word of its name beginning with it (`yen`, `franc` → the Swiss and the CFA francs), then its name,
+ * a symbol (`₹`, `kr`) or the code containing it anywhere. Within each, the order as given (the most
+ * used first). An empty query: all of them.
+ */
+fun search(currencies: List<Currency>, query: String): List<Currency> {
+    val q = plain(query.trim())
+    if (q.isEmpty()) return currencies
+    fun rank(c: Currency): Int? {
+        val name = plain(c.name)
+        return when {
+            plain(c.code).startsWith(q) -> 0
+            name.startsWith(q) || name.split(' ', '-', '(').any { it.startsWith(q) } -> 1
+            name.contains(q) || plain(c.code).contains(q) || c.symbols.any { plain(it).contains(q) } -> 2
+            else -> null
+        }
+    }
+    return currencies.mapNotNull { c -> rank(c)?.let { it to c } }.sortedBy { it.first }.map { it.second }
+}
+
+/** Lower case, without accents: `Réal` → `real`, so the search finds it either way. */
+private fun plain(text: String): String =
+    java.text.Normalizer.normalize(text.lowercase(), java.text.Normalizer.Form.NFD).replace(Regex("\\p{Mn}+"), "")
 
 /** The Trivia's sections; a section opened: its values now; a value tapped: its details, as the
  *  TUI's popup (the description, then each line), and a button that writes it into the request.

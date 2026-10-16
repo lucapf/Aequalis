@@ -62,7 +62,7 @@ Tick an item when it is done, and note the commit.
 - [ ] add localization
 - [ ] Icons instead of text characters, with names (#8).
 - [ ] Settings for people: titles, groups, choices for intervals, a top app bar (#9).
-- [ ] Search in the Currencies panel (#10).
+- [x] Search in the Currencies panel (#10): by code, name or symbol, with the phone's keyboard.
 - [ ] Errors and hints told apart by more than colour (#12).
 - [ ] Toolbar and panel buttons at least 48 dp (#13).
 - [ ] History and first-launch examples (#14).

@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -275,7 +276,8 @@ fun TallyApp() {
         }
         return
     }
-    Column(Modifier.fillMaxSize()) {
+    // The phone's keyboard (the Currencies' search): the panel over it, the screen above smaller.
+    Column(Modifier.fillMaxSize().imePadding()) {
         workspace(false, Modifier.weight(1f).statusBarsPadding().padding(horizontal = 16.dp))
         // The keyboard, or a panel in its place.
         when (val open = panel) {
