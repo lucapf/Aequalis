@@ -34,18 +34,22 @@ pub struct Suggestions {
 pub const MAX: usize = 8;
 
 /// What fits the word ending at `cursor`, once it has `min` characters (the phone: 3, while a few
-/// letters still say little; the TUI: 0, the target units offered right after a space).
+/// letters still say little; the TUI: 0, the target units offered right after a space). After a
+/// value, a unit or currency from its first letter: they are short, and a case may matter (`1 gb`
+/// offers `GB` and `Gb`).
 pub fn suggest(config: &Config, line: &str, cursor: usize, min: usize) -> Option<Suggestions> {
     let before: String = line.chars().take(cursor).collect();
     let typing = !before.ends_with(char::is_whitespace);
     let prefix = if typing { before.split_whitespace().last().unwrap_or("") } else { "" };
+    let value = calc::parse_prefix(&before).ok();
+    let min = if value.is_some() { min.min(1) } else { min };
     if prefix.chars().count() < min {
         return None;
     }
-    let found = match calc::parse_prefix(&before) {
-        Ok((_, rest)) => after_a_value(config, &before, rest, typing),
+    let found = match value {
+        Some((_, rest)) => after_a_value(config, &before, rest, typing),
         // Not a value: a place (a distance, a time there), a first word, a date's format.
-        Err(_) => words(config, &before, typing),
+        None => words(config, &before, typing),
     }?;
     (!found.names.is_empty()).then_some(found)
 }
@@ -271,7 +275,12 @@ fn before_start(text: &str, n: usize) -> usize {
 
 fn matching(config: &Config, only: Option<&Category>, prefix: &str) -> Vec<&'static str> {
     let lower = prefix.to_lowercase();
-    let fits = |cat: &Category, name: &str| match cat.case_sensitive {
+    // A category whose case matters, written in a case none of its units has (`gb`, `GiB` aside):
+    // its units in any case, to choose the right one (`GB`, `Gb`). Written in a case one has (`k`,
+    // `Gb`): that case only (`kB` and `kb`, not `KiB`).
+    let any_case =
+        |cat: &Category| cat.case_sensitive && !cat.units.iter().any(|u| std::iter::once(&u.symbol).chain(u.aliases.iter()).any(|n| n.starts_with(prefix)));
+    let fits = |cat: &Category, name: &str| match cat.case_sensitive && !any_case(cat) {
         true => name.starts_with(prefix),
         false => name.to_lowercase().starts_with(&lower),
     };
@@ -326,19 +335,28 @@ mod tests {
     #[test]
     fn data_units_are_case_sensitive() {
         assert_eq!(names("1 GB M"), ["MB", "MiB", "Mb", "Mib"], "bytes first");
-        assert!(names("1 GB m").is_empty());
+        // A case no unit has (a phone's keyboard writes lower case): every case, to choose.
+        assert_eq!(names("1 GB m"), ["MB", "MiB", "Mb", "Mib"]);
+        assert_eq!(names("1 gb"), ["GB", "Gb", "GBP"], "and the pound sterling");
+        // A case one has: that one only.
+        assert_eq!(names("1 Gb"), ["Gb", "GBP"]);
         // The source slot offers every kind of unit.
         assert!(names("1 M").contains(&"MB") && names("1 M").contains(&"m"));
     }
 
-    /// More than units, for the phone (from the third letter): currencies after an amount and after a
-    /// currency; without the archive, the built-in places and countries, the first words; formats
-    /// after a date.
+    /// More than units, for the phone (from the third letter, but a value's unit from its first):
+    /// currencies after an amount and after a currency; without the archive, the built-in places and
+    /// countries, the first words; formats after a date.
     #[test]
     fn more_than_units() {
         let config = Config::default();
         let at = |line: &str| suggest(&config, line, line.chars().count(), 3).map(|s| s.names).unwrap_or_default();
-        assert!(at("10 ki").is_empty(), "two letters");
+        assert!(at("Ro").is_empty(), "two letters of a place");
+        // After a value, a unit from its first letter, in each case that means one (`gb`: neither).
+        let gb = at("1 gb");
+        assert!(gb.contains(&"GB".to_string()) && gb.contains(&"Gb".to_string()), "{gb:?}");
+        assert!(at("12 k").contains(&"km".to_string()), "{:?}", at("12 k"));
+        assert!(at("10 km ").is_empty(), "nothing typed yet: no list of every target");
         assert_eq!(&at("12 dol")[..3], ["USD", "CAD", "AUD"]);
         assert_eq!(at("12 usd eur"), ["EUR"]);
         assert_eq!(at("12 usd to eur"), ["EUR"]);

@@ -477,10 +477,12 @@ mod tests {
         assert!(call(|| unsafe { tally_eval(std::ptr::null()) }).contains(r#""ok":false"#));
     }
 
-    /// The app's suggestions: from the third letter, units once each by their symbol.
+    /// The app's suggestions: from the third letter (a value's unit from its first), units once
+    /// each by their symbol.
     #[test]
     fn suggestions_for_the_app() {
-        assert_eq!(suggest("10 ki", 3), r#"{"start":0,"items":[]}"#, "two letters: nothing yet");
+        assert_eq!(suggest("Ro", 3), r#"{"start":0,"items":[]}"#, "two letters of a place: nothing yet");
+        assert!(suggest("10 gb", 3).starts_with(r#"{"start":3,"items":[{"write":"GB","label":"GB - gigabyte"}"#), "{}", suggest("10 gb", 3));
         let units = json::parse(&suggest("10 kil", 3)).unwrap();
         assert_eq!(units.get("start").and_then(|v| v.number()), Some(3.0));
         let items = units.get("items").unwrap().array();

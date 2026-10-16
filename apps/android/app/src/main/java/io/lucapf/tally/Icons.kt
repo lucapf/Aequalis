@@ -17,6 +17,24 @@ private fun icon(name: String, vararg paths: String): ImageVector =
         .apply { paths.forEach { addPath(addPathNodes(it), fill = SolidColor(Color.Black)) } }
         .build()
 
+/** A Material Symbols icon (the newer set, github.com/google/material-design-icons/symbols, Apache
+ *  License 2.0): its paths are drawn on 960 × 960, from -960 to 0 upwards, so moved down by 960. */
+private fun symbol(name: String, path: String): ImageVector =
+    ImageVector.Builder(name, 24.dp, 24.dp, 960f, 960f)
+        .addGroup(translationY = 960f)
+        .addPath(addPathNodes(path), fill = SolidColor(Color.Black))
+        .clearGroup()
+        .build()
+
+/** Material Symbols' "shift": Shift off. */
+val ShiftIcon: ImageVector by lazy { symbol("shift", "M320-120v-320H120l360-440 360 440H640v320H320Zm80-80h160v-320h111L480-754 289-520h111v320Zm80-320Z") }
+
+/** "shift", filled: the next letter a capital. */
+val ShiftOnIcon: ImageVector by lazy { symbol("shift on", "M320-120v-320H120l360-440 360 440H640v320H320Z") }
+
+/** "shift lock", filled: capitals until it is tapped again. */
+val ShiftLockIcon: ImageVector by lazy { symbol("shift lock", "M320-240v-200H120l360-440 360 440H640v200H320ZM160-80v-80h640v80H160Z") }
+
 /** Material's "content copy". */
 val CopyIcon: ImageVector by lazy { icon(
     "Copy",

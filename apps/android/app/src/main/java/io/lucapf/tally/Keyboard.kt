@@ -26,7 +26,9 @@ import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -76,10 +78,11 @@ enum class Panel {
 enum class Mode { Text, Basic, Scientific }
 
 /**
- * Tally's own keyboard, in one of its `mode`s. Letters: as on a phone (lower case only: what is
- * written is matched in any case, and the units whose case matters, `MB` and `Mb`, come from the
- * suggestions and the Measures), with the digits and the operators above them. The calculator: the
- * digits and operators in a grid, and in scientific mode the functions and constants beside them.
+ * Tally's own keyboard, in one of its `mode`s. Letters: as on a phone, with ⇧ for the capitals
+ * (what is written is matched in any case, but for the units whose case matters, `MB` and `Mb`,
+ * also offered by the suggestions and the Measures), with the digits and the operators above
+ * them. The calculator: the digits and operators in a grid, and in scientific mode the functions
+ * and constants beside them.
  */
 @Composable
 fun TallyKeyboard(mode: Mode, onKey: (Key) -> Unit, modifier: Modifier = Modifier) {
@@ -117,21 +120,21 @@ private val OPERATORS = listOf("+" to "+", "−" to "-", "×" to "*", "÷" to "/
 @Composable
 private fun ColumnScope.Letters(onKey: (Key) -> Unit) {
     val write = { s: String -> onKey(Key.Write(s)) }
+    val capitals = remember { Capitals() }
     // Above the digits, next to them: the request's numbers and operators are typed together.
     KeyRow { OPERATORS.forEach { (shown, written) -> KeyButton(shown, tone = Tone.Operator) { write(written) } } }
     KeyRow { "1234567890".forEach { c -> CharKey(c, write) } }
-    KeyRow { "qwertyuiop".forEach { c -> CharKey(c, write) } }
-    // The middle rows are half a key shorter on each side, as on a phone.
+    KeyRow { "qwertyuiop".forEach { c -> LetterKey(c, capitals, write) } }
+    // The middle row is half a key shorter on each side, as on a phone; the last one has ⇧ and ⌫.
     KeyRow {
         Spacer(Modifier.weight(0.5f))
-        "asdfghjkl".forEach { c -> CharKey(c, write) }
+        "asdfghjkl".forEach { c -> LetterKey(c, capitals, write) }
         Spacer(Modifier.weight(0.5f))
     }
     KeyRow {
-        Spacer(Modifier.weight(0.5f))
-        "zxcvbnm".forEach { c -> CharKey(c, write) }
-        BackspaceKey(onKey, weight = 2f)
-        Spacer(Modifier.weight(0.5f))
+        ShiftKey(capitals)
+        "zxcvbnm".forEach { c -> LetterKey(c, capitals, write) }
+        BackspaceKey(onKey, weight = 1.5f)
     }
     // Space and ⏎ alone, under the thumbs. No comma: coordinates take a space (`41.9 12.5`), and the
     // suggestions write the names that need one (`Springfield, Illinois`).
@@ -201,18 +204,18 @@ fun SideToolbar(onKey: (Key) -> Unit, open: Panel? = null, modifier: Modifier = 
 @Composable
 fun LetterPad(onKey: (Key) -> Unit, modifier: Modifier = Modifier) {
     val write = { s: String -> onKey(Key.Write(s)) }
+    val capitals = remember { Capitals() }
     Column(modifier.fillMaxWidth().padding(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        PadRow { "qwertyuiop".forEach { c -> CharKey(c, write) } }
+        PadRow { "qwertyuiop".forEach { c -> LetterKey(c, capitals, write) } }
         PadRow {
             Spacer(Modifier.weight(0.5f))
-            "asdfghjkl".forEach { c -> CharKey(c, write) }
+            "asdfghjkl".forEach { c -> LetterKey(c, capitals, write) }
             Spacer(Modifier.weight(0.5f))
         }
         PadRow {
-            Spacer(Modifier.weight(0.5f))
-            "zxcvbnm".forEach { c -> CharKey(c, write) }
-            BackspaceKey(onKey, weight = 2f)
-            Spacer(Modifier.weight(0.5f))
+            ShiftKey(capitals)
+            "zxcvbnm".forEach { c -> LetterKey(c, capitals, write) }
+            BackspaceKey(onKey, weight = 1.5f)
         }
         PadRow {
             KeyButton("space", weight = 4f, small = true) { write(" ") }
@@ -288,12 +291,61 @@ private enum class Tone { Letter, Operator, Action, Enter }
 @Composable
 private fun RowScope.CharKey(c: Char, write: (String) -> Unit) = KeyButton(c.toString()) { write(c.toString()) }
 
-/** The keys drawn as an icon: ⌫, ⏎ and ⚙ alone, the panels' keys above their names. The label
+/** Shift: off, on for the next letter, or locked (two quick taps) until it is tapped again. */
+enum class Shift { Off, Once, Locked }
+
+/** Shift's state while the letters are shown, and the letters it makes capitals. Most requests
+ *  don't need them (case doesn't matter, but for units such as `GB` and `Gb`). */
+class Capitals {
+    var shift by mutableStateOf(Shift.Off)
+        private set
+    private var lastTap = 0L
+
+    /** A tap on ⇧ at `now` (ms): on; tapped again within 0.4 s, locked; else off. */
+    fun tap(now: Long) {
+        shift = when {
+            shift == Shift.Off -> Shift.Once
+            shift == Shift.Once && now - lastTap < 400 -> Shift.Locked
+            else -> Shift.Off
+        }
+        lastTap = now
+    }
+
+    /** What the key of `c` writes: a capital with Shift on, which then goes off unless locked. */
+    fun letter(c: Char): String {
+        if (shift == Shift.Off) return c.toString()
+        if (shift == Shift.Once) shift = Shift.Off
+        return c.uppercase()
+    }
+}
+
+/** A letter's key: shown and written as a capital while Shift is on. */
+@Composable
+private fun RowScope.LetterKey(c: Char, capitals: Capitals, write: (String) -> Unit) =
+    KeyButton(if (capitals.shift == Shift.Off) c.toString() else c.uppercase()) { write(capitals.letter(c)) }
+
+/** ⇧, its icon telling its state (outlined: off; filled: the next letter; with a bar: locked). */
+@Composable
+private fun RowScope.ShiftKey(capitals: Capitals) {
+    val label = when (capitals.shift) {
+        Shift.Off -> "Shift"
+        Shift.Once -> "Shift on"
+        Shift.Locked -> "Caps lock"
+    }
+    KeyButton(label, weight = 1.5f, tone = if (capitals.shift == Shift.Off) Tone.Action else Tone.Operator) {
+        capitals.tap(android.os.SystemClock.uptimeMillis())
+    }
+}
+
+/** The keys drawn as an icon: ⌫, ⏎, ⚙ and Shift alone, the panels' keys above their names. The label
  *  stays what the key is called (`SPOKEN`). */
 private fun keyIcon(label: String): ImageVector? = when (label) {
     "⌫" -> BackspaceIcon
     "⏎" -> EnterIcon
     "⚙" -> SettingsIcon
+    "Shift" -> ShiftIcon
+    "Shift on" -> ShiftOnIcon
+    "Caps lock" -> ShiftLockIcon
     else -> Panel.entries.firstOrNull { it.name == label }?.icon
 }
 
