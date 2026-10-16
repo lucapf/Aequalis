@@ -163,6 +163,14 @@ pub enum Origin {
 /// (`online.rs`), if any: a satellite count as it is, a spacecraft's distance (au) carried forward
 /// to `now` at its speed; else the entry's estimate.
 pub fn value(config: &Config, entry: &Entry, synced: Option<crate::online::Stored>, now: i64) -> Result<(f64, Origin), String> {
+    // A planet: its distance now from the Earth (the Earth's: from the Sun); its `value` (the mean
+    // distance from the Sun) is a line of the popup.
+    if let Some(planet) = &entry.planet {
+        let distances = if planet == "Earth" { crate::planets::from_sun(planet, now as f64) } else { crate::planets::from_earth(planet, now as f64) };
+        let au = distances.ok_or(format!("{planet}: not a planet"))?.now;
+        let (v, _) = convert::convert(config, au, "au", entry.unit.as_deref().unwrap_or("au")).map_err(|e| e.to_string())?;
+        return Ok((v, Origin::Fixed));
+    }
     match &entry.source {
         Source::Value(v) => Ok((*v, Origin::Fixed)),
         Source::Tip(example) => Err(format!("a tip: {example}")),
@@ -368,8 +376,14 @@ pub fn popup(
         let km = |au: f64| distance_in_units(config, entry, au * crate::planets::AU_KM, precision, number);
         let when = |r: crate::planets::Reached| r.at.map(|t| format!(", next on {}", crate::time::day_for_people(t))).unwrap_or_default();
         let t = now as f64;
+        // The value's line is the distance now (from the Earth; the Earth's from the Sun): not twice.
         if let Some(d) = crate::planets::from_sun(planet, t) {
-            lines.push(("Distance from the Sun now".to_string(), km(d.now)));
+            // The file's figure (the orbit's semi-major axis at J2000), as before it moved here.
+            let mean = if let Source::Value(au) = entry.source { au } else { d.mean };
+            lines.push(("Mean distance from the Sun".to_string(), km(mean)));
+            if planet != "Earth" {
+                lines.push(("Distance from the Sun now".to_string(), km(d.now)));
+            }
             lines.push(("Light from the Sun now".to_string(), light_time(d.now * crate::planets::AU_KM)));
             lines.push(("Closest to the Sun (perihelion)".to_string(), format!("{}{}", km(d.min.au), when(d.min))));
             lines.push(("Farthest from the Sun (aphelion)".to_string(), format!("{}{}", km(d.max.au), when(d.max))));
@@ -379,7 +393,6 @@ pub fn popup(
             lines.push(("Slowest (aphelion)".to_string(), speed_text(orbital_speed(d.max.au, d.mean), number)));
         }
         if let Some(d) = crate::planets::from_earth(planet, t) {
-            lines.push(("Distance from the Earth now".to_string(), km(d.now)));
             lines.push(("Light from the Earth now".to_string(), light_time(d.now * crate::planets::AU_KM)));
             lines.push(("Mean distance from the Earth".to_string(), km(d.mean)));
             lines.push(("Closest to the Earth".to_string(), format!("{}{}", km(d.min.au), when(d.min))));
@@ -625,13 +638,19 @@ mod tests {
         assert_eq!(example, "London to Paris km");
         assert!(crate::geo::request(&config, example, 4).is_some_and(|r| r.is_ok()));
         // Space: km, and in brackets the astronomical unit (the Earth's distance from the Sun).
-        assert_eq!(shown_now("Sun – Mercury"), "57909227 km (0.3871 au)");
+        // A planet: its distance now from the Earth (the Earth's from the Sun), in km and au.
+        let t = 1_791_676_800;
+        for (name, now) in [("Mercury", crate::planets::from_earth("Mercury", t as f64)), ("Earth", crate::planets::from_sun("Earth", t as f64))] {
+            let (v, origin) = value(&config, get(name), None, t).unwrap();
+            assert!((v - now.unwrap().now).abs() < 1e-9 && origin == Origin::Fixed, "{name}: {v}");
+        }
+        assert!(shown_now("Mercury").ends_with(" au)"), "{}", shown_now("Mercury"));
         assert_eq!(shown_now("Earth – Moon"), "384399 km (2.5695e-3 au)");
         // A spacecraft at the estimate's epoch (2026-10-11), and a year later.
         assert_eq!(shown_now("Voyager 1"), "25794004453 km (172.4223 au)");
         // Written into an expression: the first unit, plain.
-        let mercury = get("Sun – Mercury");
-        assert_eq!(written(&config, mercury, value(&config, mercury, None, 0).unwrap().0), "57909227 km");
+        let mercury = get("Mercury");
+        assert_eq!(written(&config, mercury, 0.38709927), "57909227 km");
         assert_eq!(written(&config, get("π (pi)"), std::f64::consts::PI), "3.1415926536");
         // The device's separators.
         let grouped = |n: String| n.replace("57909227", "57,909,227");
@@ -669,10 +688,12 @@ mod tests {
         let live = popup(&config, get("Voyager 1"), Some(crate::online::Stored { value: 172.5, at: 1_791_676_800 }), 1_791_676_800, 4, &|n| n);
         assert!(live[1].1.contains(" - 172.5 au - 2.7277e-3 ly (synced ") && live[1].1.ends_with(" from JPL Horizons)"), "{:?}", live[1]);
         // A planet: from the Sun and from the Earth, the next dates.
-        let mars = popup_of("Sun – Mars");
+        let mars = popup_of("Mars");
         let text = |label: &str| mars.iter().find(|(l, _)| l == label).map(|(_, t)| t.clone()).unwrap();
         assert_eq!(text("Mean distance from the Sun"), "227943822 km - 1.5237 au - 2.4094e-5 ly");
         assert!(text("Distance from the Earth now").ends_with(" ly"), "every distance in light-years too: {mars:?}");
+        assert_eq!(mars.iter().filter(|(l, _)| l == "Distance from the Earth now").count(), 1, "the value's line, not twice");
+        assert_eq!(mars[1].0, "Distance from the Earth now", "the value first, after the link");
         // The length of a day (a rotation, sunrise to sunrise) and of a year, for every planet.
         for e in entries().iter().filter(|e| e.planet.is_some()) {
             let lines = popup_of(&e.name);
@@ -682,16 +703,17 @@ mod tests {
         // Light from the Sun (Mars: 12.7 to 13.9 min) and from the Earth now.
         assert!(text("Light from the Sun now").contains(" min "), "{mars:?}");
         assert!(text("Light from the Earth now").contains(" min ") || text("Light from the Earth now").ends_with(" s"), "{mars:?}");
-        assert!(!popup_of("Sun – Earth").iter().any(|(l, _)| l == "Light from the Earth now"), "not for the Earth itself");
+        assert!(!popup_of("Earth").iter().any(|(l, _)| l == "Light from the Earth now"), "not for the Earth itself");
+        assert_eq!(popup_of("Earth").iter().filter(|(l, _)| l == "Distance from the Sun now").count(), 1);
         assert!(text("Closest to the Earth").contains(" au - ") && text("Closest to the Earth").contains(" ly, next on "), "{mars:?}");
         // The light-year itself, exact.
         assert_eq!(popup_of("Light-year")[1].1, "9460730472581 km - 63241.0771 au - 1 ly");
         assert!(text("Closest to the Sun (perihelion)").contains(" ly, next on "), "{mars:?}");
         // Mars's next closest approach: the opposition of February 2027, about 101 million km.
         assert!(text("Closest to the Earth").starts_with("1014") && text("Closest to the Earth").contains(" Feb 2027"), "{mars:?}");
-        assert!(!popup_of("Sun – Earth").iter().any(|(l, _)| l == "Closest to the Earth"));
+        assert!(!popup_of("Earth").iter().any(|(l, _)| l == "Closest to the Earth"));
         // Orbital speeds: the Earth's 29.78 km/s on average, 30.29 at perihelion, 29.29 at aphelion.
-        let earth = popup_of("Sun – Earth");
+        let earth = popup_of("Earth");
         let speed = |label: &str| earth.iter().find(|(l, _)| l == label).map(|(_, t)| t.clone()).unwrap();
         assert!(speed("Fastest (perihelion)").starts_with("30.29 km/s - 109"), "{earth:?}");
         assert!(speed("Slowest (aphelion)").starts_with("29.29 km/s - 105"), "{earth:?}");

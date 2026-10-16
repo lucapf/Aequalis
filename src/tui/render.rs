@@ -1243,7 +1243,8 @@ mod tests {
         // Space: km, and the astronomical unit in brackets.
         let (lines, _) = screen("\x1bR\t", 24, 80);
         assert!(lines[7].contains("│ Voyager 1 ") && lines[8].contains("│ Voyager 2 "), "the Voyagers first: {}", lines[7]);
-        assert!(lines[10].contains("│ Sun – Mercury ") && lines[10].contains(" 57909227 km (0.3871 au)  Mean distance"), "{}", lines[10]);
+        // A planet by its name, its distance from the Earth now (changing every day: its shape).
+        assert!(lines[10].contains("│ Mercury ") && lines[10].contains(" au)  Distance from the Earth"), "{}", lines[10]);
         assert!(lines[23].starts_with(" TRIVIA ") && lines[23].ends_with("Enter details · <Esc> back"), "{}", lines[23]);
         // Space: the Voyagers first, estimated (no retrieval in the tests), with their launch.
         let (lines, _) = screen("\x1bR\t", 24, 80);
