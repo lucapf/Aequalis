@@ -40,8 +40,9 @@ import androidx.compose.ui.unit.dp
 import java.io.File
 import java.util.concurrent.Executors
 
-/** A request done with, its result then, and when (milliseconds since 1970). */
-data class HistoryEntry(val request: String, val result: String, val time: Long)
+/** A request done with, its result then, when (milliseconds since 1970), and the result's value,
+ *  as the core gave it for Copy (`6.2137` of `6.2137 mi`). */
+data class HistoryEntry(val request: String, val result: String, val time: Long, val value: String = result)
 
 /** The most entries kept, the oldest dropped: as the TUI's history (`max_history`, src/config.rs). */
 const val MAX_HISTORY = 500
@@ -51,16 +52,19 @@ const val MAX_HISTORY = 500
 fun added(entries: List<HistoryEntry>, entry: HistoryEntry, cap: Int = MAX_HISTORY): List<HistoryEntry> =
     (listOf(entry) + entries.filter { it.request != entry.request }).take(cap)
 
-/** The history as a file's text: a line per entry, its time, request and result between tabs; a
- *  tab, a line break or a backslash in them written `\t`, `\n`, `\\`. */
+/** The history as a file's text: a line per entry, its time, request, result and value between
+ *  tabs; a tab, a line break or a backslash in them written `\t`, `\n`, `\\`. */
 fun historyText(entries: List<HistoryEntry>): String =
-    entries.joinToString("") { "${it.time}\t${escaped(it.request)}\t${escaped(it.result)}\n" }
+    entries.joinToString("") { "${it.time}\t${escaped(it.request)}\t${escaped(it.result)}\t${escaped(it.value)}\n" }
 
-/** The entries of a file's text; a line it can't read (a file cut short) is left out. */
+/** The entries of a file's text; a line it can't read (a file cut short) is left out. A line of
+ *  an older file has no value: its result stands for it. */
 fun historyEntries(text: String): List<HistoryEntry> = text.lineSequence().mapNotNull { line ->
     val fields = line.split('\t')
     val time = fields.firstOrNull()?.toLongOrNull()
-    if (fields.size == 3 && time != null && fields[1].isNotEmpty()) HistoryEntry(unescaped(fields[1]), unescaped(fields[2]), time) else null
+    if (fields.size !in 3..4 || time == null || fields[1].isEmpty()) return@mapNotNull null
+    val result = unescaped(fields[2])
+    HistoryEntry(unescaped(fields[1]), result, time, fields.getOrNull(3)?.let(::unescaped) ?: result)
 }.toList()
 
 private fun escaped(s: String) = s.replace("\\", "\\\\").replace("\t", "\\t").replace("\n", "\\n").replace("\r", "\\r")
@@ -91,7 +95,7 @@ object History {
         private set
 
     /** The request on screen and its result, if it has one: kept when the app is left (`MainActivity.onStop`). */
-    var shown: Pair<String, String>? = null
+    var shown: HistoryEntry? = null
 
     private val disk = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
@@ -114,19 +118,19 @@ object History {
         }
     }
 
-    /** `request` and its `result`, as the newest entry. */
-    fun add(request: String, result: String) {
+    /** `request` and its `result` (and the result's `value`), as the newest entry. */
+    fun add(request: String, result: String, value: String) {
         val r = request.trim()
         if (r.isEmpty() || result.isBlank()) return
         // Already the newest, with the same result: nothing to change (Copy pressed twice).
         if (entries.firstOrNull()?.let { it.request == r && it.result == result } == true) return
-        entries = added(entries, HistoryEntry(r, result, System.currentTimeMillis()))
+        entries = added(entries, HistoryEntry(r, result, System.currentTimeMillis(), value))
         save()
     }
 
     /** What was on screen, when the app is left. */
     fun keepShown() {
-        shown?.let { (request, result) -> add(request, result) }
+        shown?.let { add(it.request, it.result, it.value) }
     }
 
     fun remove(entry: HistoryEntry) {
@@ -163,7 +167,7 @@ private fun ago(time: Long): String {
 }
 
 /** An entry on one line, `12+3 = 15`, the result in the accent colour: the empty screen's Recent,
- *  where the room is short (landscape). A tap puts the request back in the line; ⧉ copies the result. */
+ *  where the room is short (landscape). A tap puts the request back in the line; ⧉ copies the result's value. */
 @Composable
 fun RecentRow(entry: HistoryEntry, recall: (String) -> Unit, copy: (String) -> Unit) {
     val accent = MaterialTheme.colorScheme.primary
@@ -181,7 +185,7 @@ fun RecentRow(entry: HistoryEntry, recall: (String) -> Unit, copy: (String) -> U
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
-        IconButton(onClick = { copy(entry.result) }, modifier = Modifier.size(36.dp)) {
+        IconButton(onClick = { copy(entry.value) }, modifier = Modifier.size(36.dp)) {
             Icon(CopyIcon, contentDescription = "Copy the result", modifier = Modifier.size(20.dp))
         }
     }
@@ -202,7 +206,7 @@ fun HistoryRow(entry: HistoryEntry, recall: (String) -> Unit, copy: (String) -> 
             Text("= ${entry.result}", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text(ago(entry.time), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        IconButton(onClick = { copy(entry.result) }) { Icon(CopyIcon, contentDescription = "Copy the result") }
+        IconButton(onClick = { copy(entry.value) }) { Icon(CopyIcon, contentDescription = "Copy the result") }
         var menu by remember { mutableStateOf(false) }
         Box {
             IconButton(onClick = { menu = true }) { Icon(MoreIcon, contentDescription = "More") }

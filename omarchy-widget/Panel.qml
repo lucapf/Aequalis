@@ -5,11 +5,12 @@ import qs.Commons
 import qs.Ui
 
 // Tally bar widget: a bar button opening a popup with one input field. As you type, the
-// request is evaluated by the tally CLI (`tally --json …`), so the widget accepts exactly
-// what the command line does: units (`10 km mi`), the calculator (`12+12/3`), dates
-// (`2026/12/04 - 12d`, `now unix`). Enter copies the value and keeps the request in Recent; an
-// ambiguous date (`12/04/2026 unix`) shows one button per reading. While a word is being typed
-// (no space after it yet, no Enter) errors and questions wait: only a result shows.
+// request is evaluated by the tally CLI as typed (`tally --json --as-typed "…"`), as the
+// Android app does: units (`10 km mi`), the calculator (`12+12/3`), dates (`2026/12/04 - 12d`,
+// `now unix`). Enter copies the value and keeps the request in Recent; an ambiguous date
+// (`12/04/2026 unix`) shows one button per reading. What shows, tally's reply says (`show`,
+// `message`, `copy`, `choices`): while a word is being typed (no space after it yet, no Enter)
+// errors and questions wait, only a result shows.
 //
 // Settings (this widget's entry in ~/.config/omarchy/shell.json):
 //   "command": the tally binary, when it is not on the shell's PATH (default "tally").
@@ -30,11 +31,9 @@ Panel {
   property string query: ""
   // The parsed `--json` object for `query` (null: nothing typed yet).
   property var reply: null
-  // Enter was pressed on this query: its error is shown even in the middle of a word.
+  // Enter was pressed on this query: tally then shows its error even in the middle of a word
+  // (what shows, the reply's `show`, tally decides: `--as-typed`).
   property bool submitted: false
-  // A word is being typed (no space after it, no Enter): no error or question yet, only a
-  // result (`Rie` on the way to `Rieti to Rome` is no mistake).
-  readonly property bool typing: root.reply !== null && !root.reply.ok && !root.submitted && !/\s$/.test(root.query)
   // The command could not be run (not installed, or not on PATH).
   property bool missing: false
   // [{input, result}], newest first.
@@ -93,22 +92,10 @@ Panel {
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
 
-  // The converted value without the format name: `… iso = 2026/11/22 YYYY/MM/DD` → `2026/11/22`;
-  // `6.2137 mi` stays as it is (the unit is part of the value).
-  // A city's time (`… = 2026-10-11T16:00+02:00 Paris`): the ISO time.
-  function valueOf(result) {
-    var side = result.indexOf(" = ") >= 0 && /T\d\d:\d\d/.test(result) ? result.slice(result.lastIndexOf(" = ") + 3) : result
-    var iso = side.match(/^(\d{4}-\d\d-\d\dT\S+) /)
-    if (iso) return iso[1]
-    var cut = side.lastIndexOf(" ")
-    var last = cut >= 0 ? side.slice(cut + 1) : ""
-    var isFormat = /^(iso|iso-[a-z]+|unix|unix-[a-z]+|local|[YMD]{2,4}\/[YMD]{2,4}\/[YMD]{2,4}(-(12|24)h(-tz)?)?)$/.test(last)
-    return isFormat ? side.slice(0, cut) : side
-  }
-
+  // The query as typed (a trailing space says a word is done), and whether Enter was pressed on it:
+  // the reply says what to show.
   function evaluate() {
-    var words = root.query.trim().split(/\s+/).filter(function(w) { return w !== "" })
-    if (words.length === 0) {
+    if (root.query.trim() === "") {
       root.reply = null
       return
     }
@@ -116,17 +103,21 @@ Panel {
       proc.pending = true
       return
     }
-    proc.command = [root.command, "--json"].concat(words)
+    proc.command = [root.command, "--json", "--as-typed"].concat(root.submitted ? ["--submitted"] : []).concat([root.query])
     proc.running = true
   }
 
-  // Enter: copy the value and remember the request.
+  // Enter: copy the value and remember the request; on anything else, the reply as submitted (an
+  // error or a question shows even in the middle of a word).
   function commit() {
-    root.submitted = true
-    if (!root.reply || !root.reply.ok) return
+    if (!root.submitted) {
+      root.submitted = true
+      if (!root.reply || root.reply.show !== "result") root.evaluate()
+    }
+    if (!root.reply || root.reply.show !== "result") return
     var entry = { input: root.query.trim(), result: root.reply.result }
     root.recent = [entry].concat(root.recent.filter(function(e) { return e.input !== entry.input })).slice(0, 6)
-    root.copied = root.valueOf(root.reply.result)
+    root.copied = root.reply.copy
     copyProc.command = ["wl-copy", "--", root.copied]
     copyProc.running = true
   }
@@ -207,7 +198,7 @@ Panel {
         try {
           root.reply = JSON.parse(line)
         } catch (e) {
-          root.reply = { ok: false, error: "unexpected output: " + line }
+          root.reply = { ok: false, show: "error", message: "unexpected output: " + line }
         }
       }
     }
@@ -642,29 +633,25 @@ Panel {
           anchors.verticalCenter: parent.verticalCenter
           wrapMode: Text.WrapAtWordBoundaryOrAnywhere
           textFormat: Text.PlainText
-          color: root.missing || (root.reply && !root.reply.ok) ? Color.muted : Color.foreground
+          color: root.missing || (root.reply && root.reply.show !== "result") ? Color.muted : Color.foreground
           font.family: Style.font.family
-          font.pixelSize: root.reply && root.reply.ok ? Style.font.subtitle : Style.font.body
+          font.pixelSize: root.reply && root.reply.show === "result" ? Style.font.subtitle : Style.font.body
           text: root.missing
             ? "`" + root.command + "` not found: install tally (see docs/omarchy-widget.md)"
-            : !root.reply || root.typing ? ""
-            : root.reply.ok ? "= " + root.reply.result
-            : root.reply.ambiguous && root.reply.ambiguous.kind === "city" ? (root.reply.ambiguous.note || "`" + root.reply.ambiguous.text + "` is not a city") + ": did you mean…"
-            : root.reply.ambiguous && root.reply.ambiguous.kind === "country" ? "`" + root.reply.ambiguous.text + "` has several time zones: which one?"
-            : root.reply.ambiguous && (root.reply.ambiguous.kind === "currency" || root.reply.ambiguous.kind === "place") ? root.reply.ambiguous.note + ": which one?"
-            : root.reply.ambiguous ? "Which date is " + root.reply.ambiguous.text + "?"
-            : root.reply.error
+            : !root.reply || root.reply.show === "none" ? ""
+            : root.reply.show === "result" ? "= " + root.reply.result
+            : root.reply.message || ""
         }
 
         Button {
           id: copyButton
           anchors.right: parent.right
           anchors.verticalCenter: parent.verticalCenter
-          visible: !root.missing && root.reply !== null && root.reply.ok === true
+          visible: !root.missing && root.reply !== null && root.reply.show === "result"
           iconText: "\uf0c5"  // Nerd Font: copy
           text: "Copy"
           fontSize: Style.font.caption
-          tooltipText: visible ? "Copy " + root.valueOf(root.reply.result) + " to the clipboard" : ""
+          tooltipText: visible ? "Copy " + root.reply.copy + " to the clipboard" : ""
           onClicked: root.commit()
         }
       }
@@ -678,7 +665,7 @@ Panel {
         color: Color.muted
         font.family: Style.font.family
         font.pixelSize: Style.font.caption
-        text: root.reply && root.reply.ok ? (root.reply.warnings || []).concat(root.reply.notes || []).join("\n") : ""
+        text: root.reply && root.reply.show === "result" ? (root.reply.details || []).join("\n") : ""
       }
 
       // An ambiguous date: one button per reading; the chosen pattern is written in. A misspelt
@@ -688,14 +675,14 @@ Panel {
       Flow {
         width: parent.width
         spacing: Style.space(6)
-        visible: root.reply !== null && root.reply.ambiguous !== undefined && !root.typing
+        visible: root.reply !== null && root.reply.show === "question"
         Repeater {
-          model: root.reply && root.reply.ambiguous ? root.reply.ambiguous.choices : []
+          model: root.reply && root.reply.show === "question" ? root.reply.choices : []
           Button {
             bordered: true
-            // A city: its name (population and map link as tooltip).
-            text: root.reply.ambiguous.kind === "place" ? modelData.pattern : modelData.pattern + "   " + modelData.date
-            tooltipText: root.reply.ambiguous.kind === "place" ? modelData.date : ""
+            // Its label, and more about it as a tooltip (a place's population and map link).
+            text: modelData.label
+            tooltipText: modelData.detail
             onClicked: root.use(modelData.request)
           }
         }

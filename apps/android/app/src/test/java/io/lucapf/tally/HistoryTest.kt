@@ -33,6 +33,15 @@ class HistoryTest {
             HistoryEntry("a\tb\\n", "line\none\r", 5),
         )
         assertEquals(h, historyEntries(historyText(h)))
+        // The result's value, for Copy, kept with it.
+        val valued = listOf(HistoryEntry("10 km mi", "6.2137 mi", 3, "6.2137"))
+        assertEquals(valued, historyEntries(historyText(valued)))
+    }
+
+    @Test
+    fun anOlderFileWithoutValues() {
+        // Three fields: the result stands for the value.
+        assertEquals(listOf(HistoryEntry("10 km mi", "6.2137 mi", 7, "6.2137 mi")), historyEntries("7\t10 km mi\t6.2137 mi"))
     }
 
     @Test

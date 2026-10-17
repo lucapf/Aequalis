@@ -80,8 +80,8 @@ fun PanelView(
     write: (String) -> Unit,
     close: () -> Unit,
     openLink: (String) -> Unit,
-    // The request: Measures opens at the class of its unit.
-    request: String,
+    // The class of the request's unit, from the core: Measures opens at it.
+    unitClass: String?,
     // The History's: a request back in the line, a result copied, an entry shared.
     recall: (String) -> Unit,
     copy: (String) -> Unit,
@@ -131,7 +131,7 @@ fun PanelView(
             // Another class or section: its own values, no detail of the previous one.
             val open = { name: String -> opened = name; detail = null }
             when (panel) {
-                Panel.Measures -> MeasuresPanel(opened, open, write, wide, request)
+                Panel.Measures -> MeasuresPanel(opened, open, write, wide, unitClass)
                 Panel.Currencies -> CurrenciesPanel(write, wide)
                 Panel.Trivia -> TriviaPanel(opened, detail, open, show = { detail = it }, write, openLink, wide)
                 Panel.History -> HistoryPanel(recall, copy, share)
@@ -154,11 +154,11 @@ private val DetailWidth = 360.dp
 
 /** The unit classes; a class opened: its units, by its two systems (Metric and Imperial…). Wide:
  *  the classes on the left, the units of the one chosen beside them. With a unit in the request
- *  (`10 cm `), its class opened at once: the target is of the same kind. */
+ *  (`10 cm `), its class (`unitClass`, the core's) opened at once: the target is of the same kind. */
 @Composable
-private fun MeasuresPanel(opened: String?, open: (String) -> Unit, write: (String) -> Unit, wide: Boolean, request: String) {
+private fun MeasuresPanel(opened: String?, open: (String) -> Unit, write: (String) -> Unit, wide: Boolean, unitClass: String?) {
     val measures = loaded { Core.measures() } ?: return
-    LaunchedEffect(measures) { if (opened == null) classOf(request, measures)?.let(open) }
+    LaunchedEffect(measures) { if (opened == null) unitClass?.let(open) }
     val measure = measures.firstOrNull { it.name == opened }
     val classes = @Composable { modifier: Modifier ->
         LazyColumn(modifier) {
@@ -174,16 +174,6 @@ private fun MeasuresPanel(opened: String?, open: (String) -> Unit, write: (Strin
         measure == null -> classes(Modifier)
         else -> MeasureUnits(measure, write, columns = GridCells.Fixed(3))
     }
-}
-
-/** The class of the request's unit, the word after its value (`10 cm mi` → Length, `1 GB` → Data,
- *  in that case first); none without a value or a unit (`12 EUR`, `Rome Paris`). */
-fun classOf(request: String, measures: List<Measure>): String? {
-    val words = request.trim().split(Regex("\\s+"))
-    val value = words.firstOrNull()?.firstOrNull()?.let { it.isDigit() || it in ".-+(" } == true
-    val unit = words.getOrNull(1)?.takeIf { value } ?: return null
-    val exact = measures.firstOrNull { m -> m.units.any { it.symbol == unit } }
-    return (exact ?: measures.firstOrNull { m -> m.units.any { it.symbol.equals(unit, ignoreCase = true) } })?.name
 }
 
 /** A class's units, as buttons that write them, on a tab per system. */

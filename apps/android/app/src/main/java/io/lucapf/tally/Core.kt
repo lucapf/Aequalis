@@ -10,7 +10,8 @@ import java.text.DecimalFormatSymbols
 import java.util.Locale
 import java.util.TimeZone
 
-/** A choice of an ambiguous request: what it means, and the request that says it exactly. */
+/** A choice of an ambiguous request, as the core words it: its button's label, more about it (a
+ *  place's population and map; may be empty), and the request that says it exactly. */
 data class Choice(val label: String, val detail: String, val request: String)
 
 /** A word offered while typing: what is written, and how it is shown (`km - kilometre`). */
@@ -56,18 +57,28 @@ data class TriviaSection(val name: String, val entries: List<TriviaEntry>)
 /** A setting: its key, value and default; `kind` is `bool`, `choice` (one of `options`) or `text`. */
 data class Setting(val key: String, val value: String, val default: String, val kind: String, val options: List<String>, val about: String)
 
-/** The core's answer to a request: a result, an error, a hint (not finished yet: what comes next),
- *  or a question with its choices. */
+/** What the screen shows of a reply: the core decides it (`json::view`, src/json.rs). */
+enum class Show { Result, Hint, Question, Error, None }
+
+/** The core's answer to a request, ready to show: nothing in it is worked out here. */
 data class Reply(
+    val show: Show = Show.None,
+    /** With `Show.Result`: the result, and its value for Copy and Share (`7.4565`). */
     val result: String? = null,
-    val error: String? = null,
-    val hint: String? = null,
-    val question: String? = null,
+    val value: String? = null,
+    /** The hint, the question or the error. */
+    val message: String = "",
     val choices: List<Choice> = emptyList(),
-    /** With a currency result: how old its exchange rates are (`2d`, `less than 1h`). */
-    val ratesAge: String? = null,
+    /** The request ⏎ picks, on a question. */
+    val default: String? = null,
+    /** With a currency result: `rates 2d old`. */
+    val rates: String? = null,
+    /** Notes and warnings, under the result. */
+    val details: List<String> = emptyList(),
     /** A calculation's grouping, every operation in brackets (`(12 + (4 / 2))`). */
     val grouping: String? = null,
+    /** The Measures class of the request's unit (`Length`): the Measures open at it. */
+    val unitClass: String? = null,
 )
 
 /** About: the app's name, tagline and core version, the facts (online data, last sync) and the
@@ -88,13 +99,19 @@ object Core {
     // Implemented in Rust (src/jni.rs): `Java_io_lucapf_tally_Core_init`, `…_eval`, `…_suggest`,
     // `…_lists`, `…_set`, `…_seed`.
     private external fun init(config: ByteArray): ByteArray
-    private external fun eval(request: ByteArray): ByteArray
+    private external fun eval(request: ByteArray, submitted: Boolean): ByteArray
     private external fun suggest(before: ByteArray): ByteArray
     private external fun lists(which: ByteArray): ByteArray
     private external fun set(key: ByteArray, value: ByteArray): ByteArray
     private external fun seed(rates: ByteArray, cities: ByteArray): ByteArray
 
     private val launched = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    /** The longest request, in characters (code points): the core's limit, from its start; a long
+     *  paste is cut to it. Until the core answers, its usual value. */
+    @Volatile
+    var maxInput = 512
+        private set
 
     /** Open once `start` has run: every call into the core waits for it. */
     private val started = java.util.concurrent.CountDownLatch(1)
@@ -130,6 +147,7 @@ object Core {
             zoneDatabase()?.let { config.put("zoneinfo", it) }
             val reply = JSONObject(init(config.toString().encodeToByteArray()).decodeToString())
             check(reply.optBoolean("ok")) { "tally: ${reply.optString("error")}" }
+            maxInput = reply.optInt("max_input", maxInput)
         } finally {
             // Even when it fails (the app then stops, as before), nothing waits forever.
             started.countDown()
@@ -159,26 +177,32 @@ object Core {
         }
     }
 
-    /** The core's answer to `request`, as typed, with its grouping if it is a calculation. */
-    fun evaluate(request: String): Reply {
+    /** The core's answer to `request`, as typed; `submitted`: ⏎ was pressed on it. */
+    fun evaluate(request: String, submitted: Boolean): Reply {
         started.await()
-        val json = JSONObject(eval(request.encodeToByteArray()).decodeToString())
-        return reply(json).copy(grouping = json.optString("grouping").ifEmpty { null })
+        return reply(JSONObject(eval(request.encodeToByteArray(), submitted).decodeToString()))
     }
 
+    /** The reply's fields, as the core sends them. */
     private fun reply(json: JSONObject): Reply {
-        if (json.optBoolean("ok")) return Reply(result = json.getString("result"), ratesAge = json.optString("rates_age").ifEmpty { null })
-        // Not finished yet (`10 km`): what comes next, no mistake.
-        if (json.optBoolean("incomplete")) return Reply(hint = json.optString("error"))
-        val ambiguous = json.optJSONObject("ambiguous") ?: return Reply(error = json.optString("error"))
-        val choices = ambiguous.getJSONArray("choices")
+        val text = { key: String -> json.optString(key).ifEmpty { null } }
         return Reply(
-            error = json.optString("error"),
-            question = ambiguous.optString("note").ifEmpty { ambiguous.optString("text") },
-            choices = (0 until choices.length()).map { i ->
-                val c = choices.getJSONObject(i)
-                Choice(c.getString("pattern"), c.getString("date"), c.getString("request"))
+            show = when (json.optString("show")) {
+                "result" -> Show.Result
+                "hint" -> Show.Hint
+                "question" -> Show.Question
+                "error" -> Show.Error
+                else -> Show.None
             },
+            result = text("result"),
+            value = text("value"),
+            message = json.optString("message"),
+            choices = json.optJSONArray("choices")?.objects { Choice(it.getString("label"), it.getString("detail"), it.getString("request")) }.orEmpty(),
+            default = text("default"),
+            rates = text("rates"),
+            details = json.optJSONArray("details")?.strings().orEmpty(),
+            grouping = text("grouping"),
+            unitClass = text("class"),
         )
     }
 

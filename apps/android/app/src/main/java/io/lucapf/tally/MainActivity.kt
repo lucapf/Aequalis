@@ -110,24 +110,15 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-/** What Copy and Share give of a result: its value, without the unit (`7.4565 mi` → `7.4565`, `8.94
- *  EUR` → `8.94`) or the pattern's name (`2026/12/11 YYYY/MM/DD` → `2026/12/11`); anything else (a
- *  date for people, a time in a city) as it is shown. */
-fun valueOf(result: String): String {
-    val parts = result.trim().split(" ")
-    val number = parts.size == 2 && parts[0].firstOrNull()?.let { it.isDigit() || it == '-' || it == '.' } == true
-    return if (number) parts[0] else result.trim()
-}
-
 /** The core's reply, and the request it answers. */
 data class Answer(val request: String, val reply: Reply)
 
 /** The request being written, and the cursor's place in it (an index in the text). Each key makes
  *  a new one; Compose redraws the screen from it. */
 data class Edit(val text: String = "", val cursor: Int = 0) {
-    /** `s` at the cursor, as much of it as fits in `MAX_INPUT` characters (a long paste is cut). */
-    fun write(s: String): Edit {
-        val room = MAX_INPUT - text.codePointCount(0, text.length)
+    /** `s` at the cursor, as much of it as fits in `max` characters (a long paste is cut). */
+    fun write(s: String, max: Int): Edit {
+        val room = max - text.codePointCount(0, text.length)
         if (room <= 0) return this
         val fits = if (s.codePointCount(0, s.length) <= room) s else s.take(s.offsetByCodePoints(0, room))
         return Edit(text.take(cursor) + fits + text.drop(cursor), cursor + fits.length)
@@ -141,19 +132,15 @@ data class Edit(val text: String = "", val cursor: Int = 0) {
     }
 
     /** A word from a suggestion or a panel, in place of `text[start, cursor)`: apart from what is
-     *  before it, and a space after it, so the next word follows. */
-    fun word(w: String, start: Int = cursor): Edit {
+     *  before it, and a space after it, so the next word follows; not written past `max` characters. */
+    fun word(w: String, max: Int, start: Int = cursor): Edit {
         val before = text.take(start)
         val gap = if (before.isEmpty() || before.endsWith(" ")) "" else " "
         val head = before + gap + w + " "
         val written = head + text.drop(cursor).trimStart()
-        // Past `MAX_INPUT` characters: not written.
-        return if (written.codePointCount(0, written.length) > MAX_INPUT) this else Edit(written, head.length)
+        return if (written.codePointCount(0, written.length) > max) this else Edit(written, head.length)
     }
 }
-
-/** The longest request, in characters (code points): the core's own limit (`MAX_INPUT`, src/lib.rs). */
-const val MAX_INPUT = 512
 
 /** How an `Edit` is kept when Android recreates the screen (rotation, dark mode, font size, the app
  *  stopped in the background): its text and cursor, as two values the system can store. */
@@ -163,7 +150,7 @@ val EditSaver = listSaver<Edit, Any>(save = { listOf(it.text, it.cursor) }, rest
 fun TallyApp() {
     // `rememberSaveable`: the user's work survives Android recreating the screen.
     var edit by rememberSaveable(stateSaver = EditSaver) { mutableStateOf(Edit()) }
-    // Enter was pressed on this request: its error shows even in the middle of a word.
+    // Enter was pressed on this request: the core then shows its error even in the middle of a word.
     var submitted by rememberSaveable { mutableStateOf(false) }
     var panel by rememberSaveable { mutableStateOf<Panel?>(null) }
     // Letters or the calculator: kept while the app is open, and when the screen turns.
@@ -190,28 +177,26 @@ fun TallyApp() {
     // The core works off the main thread (`Dispatchers.Default`), so a slow answer (a city search in
     // the archive) never stops the keys. Until the new answer arrives the previous one stays on
     // screen; a key pressed meanwhile cancels the wait, and only the latest request's answer shows.
-    val answer by produceState<Answer?>(null, input) {
-        value = if (input.isBlank()) null else Answer(input, withContext(Dispatchers.Default) { Core.evaluate(input) })
+    // What it shows (nothing but a result while a word is being typed) the core decides.
+    val answer by produceState<Answer?>(null, input, submitted) {
+        value = if (input.isBlank()) null else Answer(input, withContext(Dispatchers.Default) { Core.evaluate(input, submitted) })
     }
     val reply = answer?.reply
     // The request on screen and its result, kept when the app is left.
-    SideEffect { History.shown = answer?.let { a -> a.reply.result?.let { a.request to it } } }
-    // While a word is being typed (no space after it, no Enter), only a result shows: `Rie` on the way
-    // to `Rieti to Rome` is no mistake. The same rule as the TUI and the Omarchy widget.
-    val finished = submitted || input.endsWith(" ")
+    SideEffect { History.shown = answer?.let { a -> a.reply.result?.let { HistoryEntry(a.request, it, 0, a.reply.value ?: it) } } }
     val before = input.take(edit.cursor)
     val offered by produceState(Suggestions(0, emptyList()), before) {
         value = withContext(Dispatchers.Default) { Core.suggestions(before) }
     }
     val change = { e: Edit -> edit = e; submitted = false }
     val scope = rememberCoroutineScope()
-    // The request on screen into the history, with its result (none: an error, a question, not kept).
-    val keepShown = { answer?.let { a -> a.reply.result?.let { History.add(a.request, it) } }; Unit }
+    // A request into the history with its result (none: an error, a question, not kept).
+    val add = { request: String, r: Reply? -> r?.result?.let { History.add(request, it, r.value ?: it) }; Unit }
+    val keepShown = { answer?.let { add(it.request, it.reply) }; Unit }
     // `request` into the history, once its answer is known (`known`, or the core's, computed now).
     val keep = { request: String, known: Reply? ->
         scope.launch {
-            val r = known ?: if (request.isBlank()) null else withContext(Dispatchers.Default) { Core.evaluate(request) }
-            r?.result?.let { History.add(request, it) }
+            add(request, known ?: if (request.isBlank()) null else withContext(Dispatchers.Default) { Core.evaluate(request, true) })
         }
         Unit
     }
@@ -222,7 +207,7 @@ fun TallyApp() {
     // The clipboard's text at the cursor, on one line (a request is one line).
     val paste = {
         val clip = clipboard.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString()
-        clip?.replace(Regex("\\s+"), " ")?.trim()?.takeIf { it.isNotEmpty() }?.let { change(edit.write(it)) }
+        clip?.replace(Regex("\\s+"), " ")?.trim()?.takeIf { it.isNotEmpty() }?.let { change(edit.write(it, Core.maxInput)) }
         Unit
     }
     val copy = { text: String ->
@@ -236,17 +221,15 @@ fun TallyApp() {
     }
     val onKey = { key: Key ->
         when (key) {
-            is Key.Write -> change(edit.write(key.text))
+            is Key.Write -> change(edit.write(key.text, Core.maxInput))
             Key.Backspace -> change(edit.backspace())
             Key.Clear -> { keepShown(); change(Edit()) }
-            // On a question, the default choice (the first: the capitals for `Rome Paris`). The
-            // answer on screen may still be the previous request's: this one's, then.
+            // On a question, the core's default choice (the capitals for `Rome Paris`).
             Key.Enter -> {
                 scope.launch {
-                    val current = answer?.takeIf { it.request == input }?.reply
-                        ?: if (input.isBlank()) null else withContext(Dispatchers.Default) { Core.evaluate(input) }
+                    val current = if (input.isBlank()) null else withContext(Dispatchers.Default) { Core.evaluate(input, true) }
                     if (edit.text != input) return@launch
-                    val chosen = current?.choices?.firstOrNull()?.request
+                    val chosen = current?.default
                     chosen?.let { edit = Edit(it, it.length) }
                     submitted = true
                     // Done with it: into the history (a choice's result computed first).
@@ -262,26 +245,26 @@ fun TallyApp() {
     }
     val workspace = @Composable { landscape: Boolean, modifier: Modifier ->
         Workspace(
-            edit, reply, finished, offered, landscape, modifier,
+            edit, reply, offered, landscape, modifier,
             // In landscape the request line is drawn apart, across the whole width.
             request = !landscape,
             onCursor = { edit = edit.copy(cursor = it) },
             onPaste = paste,
-            // Only the value (`7.4565`, not `12 km mi = 7.4565 mi`).
-            onCopy = { result -> copy(valueOf(result)); keepShown() },
-            onShare = { result -> share(valueOf(result)); keepShown() },
+            // Only the value (`7.4565`, not `12 km mi = 7.4565 mi`), as the core gives it.
+            onCopy = { value -> copy(value); keepShown() },
+            onShare = { value -> share(value); keepShown() },
             choose = { request -> edit = Edit(request, request.length); submitted = true; keep(request, null) },
-            suggest = { s -> change(edit.word(s.write, offered.start.coerceAtMost(edit.cursor))) },
+            suggest = { s -> change(edit.word(s.write, Core.maxInput, offered.start.coerceAtMost(edit.cursor))) },
             openSettings = { settings = true },
             recall = recall,
-            copyResult = { result -> copy(valueOf(result)) },
+            copyResult = { value -> copy(value) },
             openHistory = { panel = Panel.History },
         )
     }
     val showPanel = @Composable { open: Panel, size: Modifier, wide: Boolean ->
         PanelView(
-            open, write = { change(edit.word(it)); panel = null }, close = { panel = null }, openLink = { page = it }, request = edit.text,
-            recall = recall, copy = { result -> copy(valueOf(result)) }, share = share, size = size, wide = wide,
+            open, write = { change(edit.word(it, Core.maxInput)); panel = null }, close = { panel = null }, openLink = { page = it }, unitClass = reply?.unitClass,
+            recall = recall, copy = { value -> copy(value) }, share = share, size = size, wide = wide,
         )
     }
 
@@ -326,7 +309,6 @@ fun TallyApp() {
 fun Workspace(
     edit: Edit,
     reply: Reply?,
-    finished: Boolean,
     offered: Suggestions,
     landscape: Boolean,
     modifier: Modifier,
@@ -373,35 +355,42 @@ fun Workspace(
                 // Nothing written yet: the latest entries of the history, to use again.
                 edit.text.isEmpty() -> Recent(recall, copyResult, openHistory)
                 reply == null -> {}
-                reply.result != null -> Column {
-                    // Copy and Share beside the result (landscape has no room for a row under it).
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        // A tap or a long press copies it, as the buttons beside it.
-                        Text(
-                            reply.result,
-                            style = if (landscape) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.headlineMedium,
-                            modifier = Modifier.weight(1f)
-                                .combinedClickable(onClickLabel = "Copy", onClick = { onCopy(reply.result) }, onLongClickLabel = "Copy", onLongClick = { onCopy(reply.result) }),
-                        )
-                        // With a currency, how old its rates are.
-                        reply.ratesAge?.let { Text("rates $it old", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                        IconButton(onClick = { onCopy(reply.result) }) { Icon(CopyIcon, contentDescription = "Copy") }
-                        IconButton(onClick = { onShare(reply.result) }) { Icon(ShareIcon, contentDescription = "Share") }
+                // What shows, the core decides: nothing but a result while a word is being typed.
+                else -> when (reply.show) {
+                    Show.Result -> Column {
+                        val result = reply.result.orEmpty()
+                        val value = reply.value ?: result
+                        // Copy and Share beside the result (landscape has no room for a row under it).
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            // A tap or a long press copies it, as the buttons beside it.
+                            Text(
+                                result,
+                                style = if (landscape) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.headlineMedium,
+                                modifier = Modifier.weight(1f)
+                                    .combinedClickable(onClickLabel = "Copy", onClick = { onCopy(value) }, onLongClickLabel = "Copy", onLongClick = { onCopy(value) }),
+                            )
+                            // With a currency, how old its rates are.
+                            reply.rates?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                            IconButton(onClick = { onCopy(value) }) { Icon(CopyIcon, contentDescription = "Copy") }
+                            IconButton(onClick = { onShare(value) }) { Icon(ShareIcon, contentDescription = "Share") }
+                        }
+                        // The notes and warnings that come with it.
+                        reply.details.forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     }
-                }
-                !finished -> {}
-                // What comes next (`now the length unit to convert to: in, ft, yd…`): a hint, in grey.
-                reply.hint != null -> Text(reply.hint, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                reply.choices.isNotEmpty() -> {
-                    Text(reply.question ?: "Which one?", style = MaterialTheme.typography.titleMedium)
-                    // Each choice is a complete request; the first is the default (⏎).
-                    reply.choices.forEach { choice ->
-                        OutlinedButton(onClick = { choose(choice.request) }, modifier = Modifier.fillMaxWidth()) {
-                            Text(choice.label)
+                    // What comes next (`now the length unit to convert to: in, ft, yd…`): a hint, in grey.
+                    Show.Hint -> Text(reply.message, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Show.Question -> {
+                        Text(reply.message, style = MaterialTheme.typography.titleMedium)
+                        // Each choice is a complete request; the default one is ⏎'s.
+                        reply.choices.forEach { choice ->
+                            OutlinedButton(onClick = { choose(choice.request) }, modifier = Modifier.fillMaxWidth()) {
+                                Text(choice.label)
+                            }
                         }
                     }
+                    Show.Error -> Text(reply.message, color = MaterialTheme.colorScheme.error)
+                    Show.None -> {}
                 }
-                else -> Text(reply.error ?: "", color = MaterialTheme.colorScheme.error)
             }
         }
         // The words offered for the word at the cursor: one tap writes it, then a space. The chips can
