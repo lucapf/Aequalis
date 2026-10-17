@@ -350,7 +350,12 @@ impl Parser<'_> {
     /// `x` means multiply only when an operand follows, so `2x3` is 6 but `2xyz` is left for the unit.
     fn eat_times(&mut self) -> bool {
         self.skip_ws();
-        let found = self.rest().strip_prefix('x').is_some_and(|after| starts_expression(after.trim_start()));
+        // The operand may have a sign of its own, spaced as `*` allows (`2 x - 3`, bug 014).
+        let operand = |after: &str| {
+            let after = after.trim_start();
+            after.strip_prefix(['-', '+']).map_or(after, str::trim_start).to_string()
+        };
+        let found = self.rest().strip_prefix('x').is_some_and(|after| starts_expression(&operand(after)));
         if found {
             self.pos += 1;
         }

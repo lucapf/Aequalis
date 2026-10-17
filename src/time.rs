@@ -112,18 +112,20 @@ impl Ambiguity {
     /// or MM/DD/YYYY (2026-12-04); write the pattern: `12/04/2026 DD/MM/YYYY unix` ``.
     pub fn message(&self) -> String {
         let names: Vec<&str> = self.choices.iter().map(|c| c.pattern.as_str()).collect();
+        // Every question has choices; the message must not take the process down if one hasn't.
+        let Some(first) = self.choices.first() else { return format!("`{}` is ambiguous", self.text) };
         match self.kind {
             AmbiguityKind::City | AmbiguityKind::Currency | AmbiguityKind::Place => {
-                return format!("{}: did you mean {}? (`{}`)", self.note, names.join(" or "), self.choices[0].request);
+                return format!("{}: did you mean {}? (`{}`)", self.note, names.join(" or "), first.request);
             }
             AmbiguityKind::Country => {
                 let zones: Vec<String> = self.choices.iter().map(|c| format!("{} ({})", c.pattern, c.date.split(" · ").next().unwrap_or(""))).collect();
-                return format!("`{}` has several time zones: {}; write a city: `{}`", self.text, zones.join(", "), self.choices[0].request);
+                return format!("`{}` has several time zones: {}; write a city: `{}`", self.text, zones.join(", "), first.request);
             }
             AmbiguityKind::Date => {}
         }
         let readings: Vec<String> = self.choices.iter().map(|c| format!("{} ({})", c.pattern, c.date)).collect();
-        format!("`{}` is ambiguous: {}; write the pattern: `{}`", self.text, readings.join(" or "), self.choices[0].request)
+        format!("`{}` is ambiguous: {}; write the pattern: `{}`", self.text, readings.join(" or "), first.request)
     }
 }
 
@@ -962,6 +964,9 @@ pub fn gmt_zone(word: &str) -> Option<Result<i32, String>> {
     let digits = &rest[1..];
     let (h, m) = match digits.split_once(':') {
         Some((h, m)) => (h, m),
+        // `hhmm`: the last two digits are the minutes. Only digits are cut by bytes: text after
+        // the sign may be anything (`GMT+2 €` is a request's words, not a zone), never a zone.
+        None if !digits.is_ascii() => (digits, "-"),
         None if digits.len() > 2 => digits.split_at(digits.len() - 2),
         None => (digits, "0"),
     };
@@ -1650,8 +1655,11 @@ impl<'a> Parser<'a> {
                 self.input_format = Some(reading.pattern.name());
                 return from_civil(&reading.civil, self.zone_for(reading.offset, &text)?);
             }
-            // `<text> <pattern> <format>`: read with that pattern exactly.
-            if let Some(i) = (1..words.len().saturating_sub(1)).find(|&i| Pattern::parse(words[i]).is_some()) {
+            // `<text> <pattern> <format>`: read with that pattern exactly. With a city the city is
+            // the target, already taken out: the pattern may come last (`12/04/2026 10:00
+            // MM/DD/YYYY-24h Paris`, the request a question's choice writes: bug 013).
+            let end = if self.cities.is_some() { words.len() } else { words.len().saturating_sub(1) };
+            if let Some(i) = (1..end).find(|&i| Pattern::parse(words[i]).is_some()) {
                 let pattern = Pattern::parse(words[i]).unwrap();
                 let text = words[..i].join(" ");
                 for _ in 0..=i {
@@ -2128,7 +2136,15 @@ fn countries_in(config: &Config, input: &str) -> Option<Result<(String, String),
                 let request = [&out.iter().map(String::as_str).collect::<Vec<_>>()[..], &[city.as_str()][..], &words[i + n..]].concat().join(" ");
                 Some(Choice { pattern: city.clone(), date: format!("{gmt} · {}", tz.name), request })
             })
-            .collect();
+            .collect::<Vec<_>>();
+        // None of its zones installed: its first city, which then says which zone is missing,
+        // as `now Tokyo` does; a question needs choices (bug 011).
+        if choices.is_empty() {
+            named.push(format!("{} is {}", country.name, country.cities[0]));
+            out.push(country.cities[0].clone());
+            i += n;
+            continue;
+        }
         return Some(Err(Ambiguity { text: span, choices, kind: AmbiguityKind::Country, note: String::new() }));
     }
     out.extend(words[i..].iter().map(|w| w.to_string()));

@@ -35,6 +35,12 @@ void tally_set_fetcher(tally_fetch_fn fetch);
 /* The reply of `tally --json <request>`: {"ok":true,"result":…} or the error, the choices. */
 char *tally_eval(const char *request);
 
+/* The reply as a UI shows it: tally_eval's, with "show" (result, hint, question, error, none),
+   "message", "value" (what Copy gives), "rates", "details", "choices", "default", "class".
+   submitted: Enter was pressed; until then a reply that is no result shows nothing while a word is
+   being typed. */
+char *tally_view(const char *request, bool submitted);
+
 /* Every setting ({"file":…,"settings":[{"key","value","default","kind","options","about"}]}). */
 char *tally_settings(void);
 
@@ -43,6 +49,12 @@ char *tally_set(const char *key, const char *value);
 
 /* Downloads the online data in this thread: everything, or with `auto` what the settings say. */
 char *tally_sync(bool automatic);
+
+/*
+ * The data shipped with an app: `rates` (ExchangeRate-API's answer) and the path of the city
+ * archive's JSON file (NULL or empty: none): {"ok":true,"rates":N,"cities":N} or the error.
+ */
+char *tally_seed(const char *rates, const char *cities);
 
 /*
  * Suggestions for the word being typed at the end of `before` (the text up to the cursor), from its

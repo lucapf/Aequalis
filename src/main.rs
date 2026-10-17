@@ -26,6 +26,15 @@ fn main() -> ExitCode {
     }
     let json = all.iter().any(|a| a == "--json");
     let args: Vec<String> = all.into_iter().filter(|a| a != "--json").collect();
+    // `--as-typed [--submitted] "<request>"` (with `--json`, for a UI such as the Omarchy widget):
+    // the request as typed, a trailing space included, and what the UI shows of its reply
+    // (`json::view`). `--submitted`: Enter was pressed on it. The reply says what went wrong.
+    if json && args.iter().any(|a| a == "--as-typed") {
+        let submitted = args.iter().any(|a| a == "--submitted");
+        let words: Vec<&str> = args.iter().map(String::as_str).filter(|a| !["--as-typed", "--submitted"].contains(a)).collect();
+        println!("{}", json::view(&words.join(" "), submitted));
+        return ExitCode::SUCCESS;
+    }
     // `--settings`, `--set key[=value]`: the settings (`settings.rs`); they work even when the file
     // has a problem, to fix it.
     if let Some(i) = args.iter().position(|a| a == "--set" || a.starts_with("--set=")) {

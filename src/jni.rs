@@ -67,6 +67,21 @@ unsafe fn to_java(env: Env, text: &str) -> ByteArray {
     }
 }
 
+/// Whether a Java `byte[]` holds more bytes than the longest request can take (`ffi::MAX_BYTES`):
+/// then it is refused without copying it.
+///
+/// # Safety
+/// As `bytes`.
+unsafe fn too_many_bytes(env: Env, array: ByteArray) -> bool {
+    if array.is_null() {
+        return false;
+    }
+    unsafe {
+        let length: extern "system" fn(Env, ByteArray) -> i32 = function(env, GET_ARRAY_LENGTH);
+        usize::try_from(length(env, array)).map_or(true, |n| n > crate::ffi::MAX_BYTES)
+    }
+}
+
 /// The text of a Java `byte[]` of UTF-8 (`None`: null or not UTF-8).
 ///
 /// # Safety
@@ -80,13 +95,13 @@ fn error(message: &str) -> String {
 }
 
 /// `Core.init(config)`, once, first: what the app knows about the device, as `tally_init`'s JSON
-/// (`{"dir": …, "zone": …, "zoneinfo": …, "decimal": …, …}`). Returns `{"ok":true}` or the error.
+/// (`{"dir": …, "zone": …, "zoneinfo": …, "decimal": …, …}`). Returns `{"ok":true,"max_input":512}` or the error.
 #[no_mangle]
 pub extern "system" fn Java_io_lucapf_tally_Core_init(env: Env, _class: Class, config: ByteArray) -> ByteArray {
     let reply = match unsafe { text(env, config) }.map(|t| crate::ffi::parse_init(&t)) {
         Some(Ok(init)) => {
             crate::ffi::start(&init);
-            crate::json::Object::new().num("ok", true).finish()
+            crate::ffi::started()
         }
         Some(Err(e)) => error(&e),
         None => error("init: no configuration"),
@@ -94,12 +109,16 @@ pub extern "system" fn Java_io_lucapf_tally_Core_init(env: Env, _class: Class, c
     unsafe { to_java(env, &reply) }
 }
 
-/// `Core.eval(request)`: the reply of `tally --json <request>` (the result, an error, or the choices
-/// of an ambiguous request).
+/// `Core.eval(request, submitted)`: the reply as the app shows it (`json::view`): what to show, its
+/// message, the value to copy, the choices of an ambiguous request. `submitted` is a `jboolean`.
 #[no_mangle]
-pub extern "system" fn Java_io_lucapf_tally_Core_eval(env: Env, _class: Class, request: ByteArray) -> ByteArray {
+pub extern "system" fn Java_io_lucapf_tally_Core_eval(env: Env, _class: Class, request: ByteArray, submitted: u8) -> ByteArray {
+    // Too long: refused before its bytes are even copied.
+    if unsafe { too_many_bytes(env, request) } {
+        return unsafe { to_java(env, &crate::ffi::too_long()) };
+    }
     let reply = match unsafe { text(env, request) } {
-        Some(request) => crate::ffi::eval(&request),
+        Some(request) => crate::json::view(&request, submitted != 0),
         None => error("no request"),
     };
     unsafe { to_java(env, &reply) }
@@ -109,6 +128,9 @@ pub extern "system" fn Java_io_lucapf_tally_Core_eval(env: Env, _class: Class, r
 /// to the cursor), from its third character (`ffi::suggest`).
 #[no_mangle]
 pub extern "system" fn Java_io_lucapf_tally_Core_suggest(env: Env, _class: Class, before: ByteArray) -> ByteArray {
+    if unsafe { too_many_bytes(env, before) } {
+        return unsafe { to_java(env, crate::ffi::NO_SUGGESTIONS) };
+    }
     let reply = match unsafe { text(env, before) } {
         Some(before) => crate::ffi::suggest(&before, 3),
         None => error("no text"),

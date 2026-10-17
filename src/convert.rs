@@ -99,7 +99,13 @@ pub fn resolve<'a>(config: &'a Config, text: &str) -> Result<Resolved<'a>, Conve
             false => out.factor *= factor,
         }
         for (total, d) in out.dims.iter_mut().zip(dims) {
-            *total += if divide { -d } else { d };
+            // A power past what a unit's dimensions hold (±127): an error, not a wrapped power
+            // (`m^64*m^64` read as m^-128, bug 012).
+            *total = match divide {
+                true => total.checked_sub(d),
+                false => total.checked_add(d),
+            }
+            .ok_or_else(|| too_large(text))?;
         }
         out.symbol.push_str(&symbol);
         let Some(op) = rest[end..].chars().next() else { break };
@@ -145,7 +151,16 @@ fn term(config: &Config, text: &str) -> Option<Result<(f64, Dims, String), Conve
     }
     let r = named(category, unit);
     let factor = coefficient * r.factor.powi(power.into());
-    Some(Ok((factor, r.dims.map(|d| d * power), format!("{number}{}{power_text}", unit.symbol))))
+    let mut dims = [0; 5];
+    for (out, d) in dims.iter_mut().zip(r.dims) {
+        let Some(p) = d.checked_mul(power) else { return Some(Err(too_large(text))) };
+        *out = p;
+    }
+    Some(Ok((factor, dims, format!("{number}{}{power_text}", unit.symbol))))
+}
+
+fn too_large(unit: &str) -> ConvertError {
+    ConvertError::Domain(format!("the powers in `{unit}` are too large (at most 127)"))
 }
 
 /// `s^2` → (`s`, `^2`), `s2` → (`s`, `2`), `m³` → (`m`, `³`), `s^-1` → (`s`, `^-1`).
@@ -169,7 +184,8 @@ pub fn convert<'a>(config: &'a Config, value: f64, from: &str, to: &str) -> Resu
     let categories_differ = matches!((a.category, b.category), (Some(x), Some(y)) if x != y);
     let result = if a.dims == b.dims && !categories_differ {
         (si - b.offset) / b.factor
-    } else if a.dims == b.dims.map(|d| -d) && (a.reciprocal || b.reciprocal) {
+    // Compared in i16: a power of −128 has no opposite in i8 (bug 015).
+    } else if a.dims.iter().zip(b.dims).all(|(&x, y)| i16::from(x) == -i16::from(y)) && (a.reciprocal || b.reciprocal) {
         if si == 0.0 {
             return Err(ConvertError::DivisionByZero);
         }

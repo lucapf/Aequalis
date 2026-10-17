@@ -176,10 +176,11 @@ the source; a time alone is today (24-hour unless AM/PM). A city misspelt by up 
 
 Interactive mode (no arguments, in a terminal), Vim style. Input mode (the
 start): type an expression, Enter evaluates, Tab completes units, Up/Down
-recall the history, Esc switches to command mode. Command mode: A D L M K T V
-show a category's units on the keypad (h j k l or arrows move, Tab switches
-tab, Enter writes the unit, Esc cancels), N writes `now`, I (or i) returns to
-input mode, H shows all the shortcuts, q quits.
+recall the history, Esc switches to command mode. Command mode: M lists the
+unit classes, a class its units (h j k l or arrows move, Tab switches tab,
+Enter writes the unit, Esc goes back), N writes `now`, C shows the keyboard
+(clicked with the mouse), I (or i) returns to input mode, E shows all the
+shortcuts, q quits.
 
 Options:
   --precision N             Decimal places, 0-15 (default: the precision setting, 4); trailing
@@ -223,6 +224,42 @@ from the environment):
 /// stage reads (a paste of a page is an error, not a long wait). The apps stop the request line
 /// there too.
 pub const MAX_INPUT: usize = 512;
+
+/// A request longer than `MAX_INPUT` characters, every character counted (spaces too), is refused
+/// before anything else reads it: the first thing each entry point does (`convert_request`,
+/// `grouping`, `suggest::suggest`, `ffi::eval`, `ffi::suggest`, the JNI bridge, the command line's
+/// lines). At most `MAX_INPUT + 1` characters are looked at, however long the text.
+pub fn check_length(text: &str) -> Result<(), CliError> {
+    // A character is 1 to 4 bytes: up to `MAX_INPUT` bytes, never too many characters.
+    match text.len() > MAX_INPUT && text.chars().nth(MAX_INPUT).is_some() {
+        true => Err(too_long()),
+        false => Ok(()),
+    }
+}
+
+/// `check_length` for a request already split into words, which are joined by one space.
+fn check_words(words: &[&str]) -> Result<(), CliError> {
+    let mut left = MAX_INPUT + 1;
+    for (i, word) in words.iter().enumerate() {
+        let spent = usize::from(i > 0) + word.chars().take(left).count();
+        left = left.saturating_sub(spent);
+        if left == 0 {
+            return Err(too_long());
+        }
+    }
+    Ok(())
+}
+
+/// A word is being typed: Enter not pressed, and no space after the last word. Every UI then shows
+/// only a result, not an error or a question, which would call a request on its way wrong (`Rie` →
+/// `Rieti to Rome`).
+pub fn typing(request: &str, submitted: bool) -> bool {
+    !submitted && !request.ends_with(char::is_whitespace)
+}
+
+pub(crate) fn too_long() -> CliError {
+    CliError::Usage(format!("the request is too long: at most {MAX_INPUT} characters"))
+}
 
 const EXPECTED: &str = "expected <value> <from> <to>, <value><from> <to> or an expression without units";
 
@@ -303,6 +340,9 @@ pub fn run(config: &Config, args: &[String], read_stdin: impl FnOnce() -> Option
         Ok(Parsed::Info(out)) => vec![Ok(out)],
         Ok(Parsed::Convert(opts)) => {
             let args = &opts.positional;
+            if let Err(e) = check_words(args) {
+                return vec![Err(e)];
+            }
             if !needs_value(config, args) {
                 return vec![convert_request(config, &opts, args)];
             }
@@ -313,6 +353,9 @@ pub fn run(config: &Config, args: &[String], read_stdin: impl FnOnce() -> Option
                 .lines()
                 .filter(|line| !line.trim().is_empty())
                 .map(|line| {
+                    // The line as it is, before its words are split (`convert_request` then checks
+                    // the line's words with the arguments').
+                    check_length(line)?;
                     let tokens: Vec<&str> = line.split_whitespace().chain(args.iter().copied()).collect();
                     convert_request(config, &opts, &tokens)
                 })
@@ -398,6 +441,7 @@ pub fn parse_options<'a>(config: &Config, args: &'a [String]) -> Result<Parsed<'
 /// Converts one request: `<value> <from> <to>`, `<value><from> <to>`, or `<value>` alone (a calculation).
 /// The value is an expression (`100 + 20 sqft m2`, `[1+2]km mi`); a plain number is the simplest one.
 pub fn convert_request(config: &Config, opts: &Options, tokens: &[&str]) -> Result<Output, CliError> {
+    check_words(tokens)?;
     match request(config, opts, tokens) {
         // What comes next (`now the place to go to…`, `now the currency to convert to…`): a request
         // on its way, not a wrong one.
@@ -411,9 +455,6 @@ fn request(config: &Config, opts: &Options, tokens: &[&str]) -> Result<Output, C
     let input = tokens.join(" ");
     if input.trim().is_empty() {
         return usage(EXPECTED);
-    }
-    if input.chars().count() > MAX_INPUT {
-        return usage(format!("the request is too long: at most {MAX_INPUT} characters"));
     }
     // Currencies: `12 usd euro`, `12 USA Europe`; one amount (a plain number) and currencies or
     // countries, nothing else (a time with countries is a time request, countries alone a distance).
@@ -501,6 +542,7 @@ fn request(config: &Config, opts: &Options, tokens: &[&str]) -> Result<Output, C
 /// UI to show beside the result while it is typed; `None` without operations, or for a date
 /// (`2026-12-25` is not 2026 − 12 − 25).
 pub fn grouping(input: &str) -> Option<String> {
+    check_length(input).ok()?;
     if time::is_date_request(input) {
         return None;
     }
@@ -671,6 +713,26 @@ mod tests {
         assert_eq!(grouping("100 + 20 + 50 / 10 sqft m2").as_deref(), Some("((100 + 20) + (50 / 10))"));
         assert_eq!(grouping("10 km mi"), None, "no operation");
         assert_eq!(grouping("2026-12-25"), None, "a date");
+    }
+
+    /// Every character counts, spaces too; characters, not bytes.
+    #[test]
+    fn the_longest_request() {
+        for c in ["1", " ", "é", "€", "🙂"] {
+            assert!(check_length(&c.repeat(MAX_INPUT)).is_ok(), "{c} × 512");
+            assert_eq!(check_length(&c.repeat(MAX_INPUT + 1)), Err(too_long()), "{c} × 513");
+        }
+        assert!(check_length("").is_ok());
+        // Words joined by one space: 256 words of 1 character and 255 spaces fit, 257 don't.
+        assert!(check_words(&["1"; 256]).is_ok());
+        assert!(check_words(&["1"; 257]).is_err());
+        assert!(check_words(&["é".repeat(511).as_str(), "x"]).is_err(), "511 + 1 + 1");
+        assert!(check_words(&["é".repeat(510).as_str(), "x"]).is_ok());
+        assert!(check_words(&[]).is_ok());
+        // Refused before anything reads it: no grouping either.
+        let long = vec!["1"; 300].join("+");
+        assert_eq!(grouping(&long), None);
+        assert_eq!(grouping(&vec!["1"; 256].join("+")).map(|g| g.len() > 500), Some(true), "511 characters: grouped");
     }
 
     #[test]

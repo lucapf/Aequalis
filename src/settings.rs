@@ -89,6 +89,13 @@ pub const KEYS: &[Key] = &[
     Key { key: "precision", default: "4", kind: Kind::Precision, about: "decimal places of numbers, 0-15 (--precision for one request)" },
     Key { key: "format.date", default: crate::time::HUMAN_DATE, kind: Kind::Format, about: "how dates are shown" },
     Key { key: "format.datetime", default: crate::time::HUMAN_DATETIME, kind: Kind::Format, about: "how dates with a time are shown" },
+    // Only the interactive mode's: the app (`ffi::settings`) doesn't list the `tui.` keys.
+    Key {
+        key: "tui.keyboard",
+        default: "false",
+        kind: Kind::Bool,
+        about: "the interactive mode's keyboard on screen, clicked with the mouse (C shows / hides it)",
+    },
 ];
 
 /// The settings in effect: every key with its value (as written in the file, or the default).
@@ -168,6 +175,11 @@ impl Settings {
 
     pub fn format_datetime(&self) -> &str {
         self.get("format.datetime")
+    }
+
+    /// The interactive mode starts with its keyboard on screen.
+    pub fn keyboard(&self) -> bool {
+        self.get("tui.keyboard") == "true"
     }
 
     /// The file's content: every key, one per line, in `KEYS` order.
@@ -334,8 +346,14 @@ pub fn change_in(path: &Path, key: &str, value: Option<&str>) -> Result<Settings
 /// `tally --settings --json`: every setting with its value, default, kind (`bool`, `choice` and its
 /// options, or `text`: typed) and what it does, for the widget's Settings section.
 pub fn json(settings: &Settings) -> String {
+    json_where(settings, |_| true)
+}
+
+/// `json`, with only the settings `keep` keeps (the app leaves out the interactive mode's).
+pub fn json_where(settings: &Settings, keep: impl Fn(&Key) -> bool) -> String {
     let items: Vec<String> = KEYS
         .iter()
+        .filter(|k| keep(k))
         .map(|k| {
             let (kind, options): (&str, &[&str]) = match k.kind {
                 Kind::Bool => ("bool", &["true", "false"]),

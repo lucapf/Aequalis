@@ -6,7 +6,8 @@
 //!   measurement system, which the app knows (an app gets no `HOME`, `TZ` or `LANG` that say
 //!   them).
 //! - `tally_set_fetcher(fetch)`: the app's downloader (the app can't start `curl`).
-//! - `tally_eval(request)`: the reply of `tally --json <request>` (results, errors, choices).
+//! - `tally_eval(request)`: the reply of `tally --json <request>` (results, errors, choices);
+//!   `tally_view(request, submitted)`: the same, with what a UI shows (`json::view`).
 //! - `tally_settings()`, `tally_set(key, value)`, `tally_sync(auto)`, `tally_trivia()`,
 //!   `tally_measures()`, `tally_currencies()`.
 
@@ -29,6 +30,39 @@ unsafe fn text<'a>(s: *const c_char) -> Option<&'a str> {
     }
     unsafe { CStr::from_ptr(s) }.to_str().ok()
 }
+
+/// A request (or the text before the cursor) from the app, read only as far as the longest request
+/// can reach: `Err` when it has more bytes than `MAX_INPUT` characters can take (4 each), unread
+/// past them; `Ok(None)`: null or not UTF-8.
+///
+/// # Safety
+/// `s` is null or a NUL-terminated string that stays valid during the call.
+unsafe fn request_text<'a>(s: *const c_char) -> Result<Option<&'a str>, ()> {
+    if s.is_null() {
+        return Ok(None);
+    }
+    let mut n = 0;
+    // SAFETY: every byte up to the NUL is the caller's string; none past it is read.
+    while unsafe { *s.add(n) } != 0 {
+        if n == MAX_BYTES {
+            return Err(());
+        }
+        n += 1;
+    }
+    Ok(std::str::from_utf8(unsafe { std::slice::from_raw_parts(s.cast::<u8>(), n) }).ok())
+}
+
+/// The most bytes a request of `MAX_INPUT` characters can take (4 a character, in UTF-8): more is
+/// refused without reading them (also by the JNI bridge).
+pub const MAX_BYTES: usize = 4 * crate::MAX_INPUT;
+
+/// The reply to a request longer than `MAX_INPUT` characters, given before anything reads it.
+pub fn too_long() -> String {
+    json::refused(crate::too_long())
+}
+
+/// No suggestions: `suggest`'s reply for a text with nothing to offer.
+pub const NO_SUGGESTIONS: &str = r#"{"start":0,"items":[]}"#;
 
 /// A string for the app, given back with `tally_free`.
 fn give(s: String) -> *mut c_char {
@@ -60,10 +94,13 @@ pub struct Init {
     pub zoneinfo: Option<String>,
     pub format: Option<crate::numbers::NumberFormat>,
     pub imperial: Option<bool>,
+    /// A frozen "now" (Unix seconds), for tests and the fuzzer (`fuzz/`): every date answer
+    /// then stays the same.
+    pub now: Option<i64>,
 }
 
 /// `{"dir": "…", "zone": "Europe/Rome", "zoneinfo": "…", "decimal": ",", "thousands": ".",
-/// "grouping": [3], "imperial": false}` (only `dir` is required).
+/// "grouping": [3], "imperial": false, "now": 1792222391}` (only `dir` is required).
 pub fn parse_init(text: &str) -> Result<Init, String> {
     let doc = json::parse(text).map_err(|e| format!("tally_init: {e}"))?;
     let s = |key: &str| doc.get(key).and_then(|v| v.str()).filter(|v| !v.is_empty()).map(str::to_string);
@@ -76,7 +113,8 @@ pub fn parse_init(text: &str) -> Result<Init, String> {
         }),
         _ => None,
     };
-    Ok(Init { dir, zone: s("zone"), zoneinfo: s("zoneinfo"), format, imperial: doc.get("imperial").and_then(|v| v.boolean()) })
+    let now = doc.get("now").and_then(|v| v.number()).map(|n| n as i64);
+    Ok(Init { dir, zone: s("zone"), zoneinfo: s("zoneinfo"), format, imperial: doc.get("imperial").and_then(|v| v.boolean()), now })
 }
 
 /// Starts tally for the app: `config` as in `parse_init`. Call once, before anything else.
@@ -92,7 +130,13 @@ pub unsafe extern "C" fn tally_init(config_json: *const c_char) -> *mut c_char {
         Err(e) => return error(&e),
     };
     start(&init);
-    give(Object::new().num("ok", true).finish())
+    give(started())
+}
+
+/// `tally_init`'s reply: `{"ok":true,"max_input":512}`, the longest request in characters, for an
+/// app that cuts a long paste.
+pub fn started() -> String {
+    Object::new().num("ok", true).num("max_input", crate::MAX_INPUT).finish()
 }
 
 /// Gives tally what the app knows, once, before anything else: set directly, not through
@@ -110,6 +154,9 @@ pub fn start(init: &Init) {
     }
     if let Some(imperial) = init.imperial {
         crate::locale::set_device_system(if imperial { System::Imperial } else { System::Metric });
+    }
+    if let Some(now) = init.now {
+        crate::time::set_now(now);
     }
 }
 
@@ -155,24 +202,30 @@ pub extern "C" fn tally_set_fetcher(fetch: Fetch) {
 /// `request` is a NUL-terminated string.
 #[no_mangle]
 pub unsafe extern "C" fn tally_eval(request: *const c_char) -> *mut c_char {
-    let Some(request) = (unsafe { text(request) }) else { return error("no request") };
-    give(eval(request))
+    match unsafe { request_text(request) } {
+        Err(()) => give(too_long()),
+        Ok(None) => error("no request"),
+        Ok(Some(request)) => give(eval(request)),
+    }
 }
 
+/// `tally_eval`'s reply, as submitted (Enter pressed): nothing hidden.
 pub fn eval(request: &str) -> String {
-    if let Some(e) = crate::settings::error() {
-        return Object::new().num("ok", false).str("error", &format!("{e} (fix it in Settings)")).finish();
-    }
-    // The request itself, not the command line's options: an app has no `--precision` or `-v`, and
-    // a message about them would make no sense there.
-    let tokens: Vec<&str> = request.split_whitespace().collect();
-    let options = crate::Options { positional: Vec::new(), precision: crate::settings::current().precision(), silent: false, verbose: false };
-    let result = crate::convert_request(config(), &options, &tokens);
-    let reply = json::result(&result, &crate::notify::current());
-    // How a calculation is grouped (`(12 + (4 / 2))`), shown beside the result as in the TUI.
-    match crate::grouping(request) {
-        Some(g) => format!("{},\"grouping\":{}}}", &reply[..reply.len() - 1], json::string(&g)),
-        None => reply,
+    json::view(request, true)
+}
+
+/// The reply to a request as a UI shows it (`json::view`): what to show, the value to copy, the
+/// question's choices; `submitted`: Enter was pressed on it, else a reply that is no result shows
+/// nothing while a word is being typed.
+///
+/// # Safety
+/// `request` is a NUL-terminated string.
+#[no_mangle]
+pub unsafe extern "C" fn tally_view(request: *const c_char, submitted: bool) -> *mut c_char {
+    match unsafe { request_text(request) } {
+        Err(()) => give(too_long()),
+        Ok(None) => error("no request"),
+        Ok(Some(request)) => give(json::view(request, submitted)),
     }
 }
 
@@ -209,7 +262,8 @@ pub fn about() -> String {
         .finish()
 }
 
-/// Every setting: key, value, default, kind, options, what it does (`tally --settings --json`).
+/// Every setting: key, value, default, kind, options, what it does (`tally --settings --json`),
+/// but the interactive mode's (`tui.`), which mean nothing in an app.
 #[no_mangle]
 pub extern "C" fn tally_settings() -> *mut c_char {
     give(settings())
@@ -218,7 +272,7 @@ pub extern "C" fn tally_settings() -> *mut c_char {
 pub fn settings() -> String {
     let settings = crate::settings::path().map(|p| crate::settings::load_from(&p)).unwrap_or(Ok(Default::default()));
     match settings {
-        Ok(s) => crate::settings::json(&s),
+        Ok(s) => crate::settings::json_where(&s, |k| !k.key.starts_with("tui.")),
         Err(e) => Object::new().num("ok", false).str("error", &e).finish(),
     }
 }
@@ -265,6 +319,18 @@ pub fn seed(rates: Option<&str>, cities: Option<&Path>) -> String {
         _ => 0,
     };
     Object::new().num("ok", true).num("rates", stored).num("cities", installed).finish()
+}
+
+/// `seed`, for the C interface: `rates` the answer's text, `cities` the archive file's path (null
+/// or empty: none).
+///
+/// # Safety
+/// `rates` and `cities` are null or NUL-terminated strings.
+#[no_mangle]
+pub unsafe extern "C" fn tally_seed(rates: *const c_char, cities: *const c_char) -> *mut c_char {
+    let rates = unsafe { text(rates) }.filter(|r| !r.is_empty());
+    let cities = unsafe { text(cities) }.filter(|c| !c.is_empty());
+    give(seed(rates, cities.map(Path::new)))
 }
 
 /// Downloads the online data, in this thread (call it off the main thread): everything, or with
@@ -390,6 +456,9 @@ pub fn measures() -> String {
 /// once each, by their symbol (`kilometer`, `kilometres`… are `km`).
 pub fn suggest(before: &str, min: usize) -> String {
     use crate::suggest::Kind;
+    if crate::check_length(before).is_err() {
+        return NO_SUGGESTIONS.to_string();
+    }
     let found = crate::suggest::suggest(config(), before, before.chars().count(), min);
     let mut items: Vec<(String, String)> = Vec::new();
     if let Some(s) = &found {
@@ -415,8 +484,11 @@ pub fn suggest(before: &str, min: usize) -> String {
 /// `before` is a NUL-terminated string.
 #[no_mangle]
 pub unsafe extern "C" fn tally_suggest(before: *const c_char, min: u32) -> *mut c_char {
-    let Some(before) = (unsafe { text(before) }) else { return error("no text") };
-    give(suggest(before, min as usize))
+    match unsafe { request_text(before) } {
+        Err(()) => give(NO_SUGGESTIONS.to_string()),
+        Ok(None) => error("no text"),
+        Ok(Some(before)) => give(suggest(before, min as usize)),
+    }
 }
 
 /// Every currency, the most used first: `{"currencies":[{"code","name","symbols":[…],"countries":[…],
@@ -462,7 +534,12 @@ mod tests {
         assert!(reply.contains(r#""ambiguous":{"kind":"date""#), "{reply}");
         assert!(eval("10 foo bar").starts_with(r#"{"ok":false,"exit":"#));
         // The grouping of a calculation, beside its result.
-        assert!(eval("12+4/2").ends_with(r#","grouping":"(12 + (4 / 2))"}"#), "{}", eval("12+4/2"));
+        assert!(eval("12+4/2").contains(r#","grouping":"(12 + (4 / 2))""#), "{}", eval("12+4/2"));
+        // `tally_view`: what to show, a word being typed hiding what is no result.
+        let typed = CString::new("10 km").unwrap();
+        assert!(call(|| unsafe { tally_view(typed.as_ptr(), false) }).contains(r#""show":"none""#));
+        assert!(call(|| unsafe { tally_view(typed.as_ptr(), true) }).contains(r#""show":"hint""#));
+        assert!(started().contains(r#""max_input":512"#));
         assert!(!eval("10 km mi").contains("grouping"));
         let about = json::parse(&about()).unwrap();
         assert_eq!(about.get("name").and_then(|v| v.str()), Some("Tally"));
@@ -475,6 +552,30 @@ mod tests {
         assert_eq!(parsed.get("result").and_then(|v| v.str()), Some("16"));
         // A null request: an error, not a crash.
         assert!(call(|| unsafe { tally_eval(std::ptr::null()) }).contains(r#""ok":false"#));
+    }
+
+    /// A request past 512 characters: refused before anything reads it, with no grouping; no
+    /// suggestions; through the C interface, more than 2,048 bytes are not even read.
+    #[test]
+    fn requests_too_long() {
+        let reply = |r: &str| json::parse(&eval(r)).unwrap();
+        let long = vec!["1"; 300].join("+");
+        let refused = reply(&long);
+        assert_eq!(refused.get("error").and_then(|v| v.str()), Some("the request is too long: at most 512 characters"));
+        assert!(refused.get("grouping").is_none(), "{}", eval(&long));
+        assert_eq!(reply(&format!("1{}+1", " ".repeat(2000))).get("ok").and_then(|v| v.boolean()), Some(false), "spaces count");
+        assert_eq!(reply(&format!("1+1{}", " ".repeat(509))).get("result").and_then(|v| v.str()), Some("2"), "512 characters");
+        assert_eq!(suggest(&format!("{}km", " ".repeat(511)), 0), NO_SUGGESTIONS);
+        assert_ne!(suggest(&format!("10 {}kil", " ".repeat(500)), 3), NO_SUGGESTIONS, "506 characters: suggestions");
+        let c = |s: &str| CString::new(s).unwrap();
+        let huge = c(&"Rome ".repeat(100_000));
+        assert_eq!(call(|| unsafe { tally_eval(huge.as_ptr()) }).split(",\"peak_kb\"").next(), too_long().split(",\"peak_kb\"").next());
+        assert_eq!(call(|| unsafe { tally_suggest(huge.as_ptr(), 3) }), NO_SUGGESTIONS);
+        // 512 emoji are 2,048 bytes: read, and answered (as a request of their own, not too long).
+        let emoji = c(&"🙂".repeat(512));
+        assert!(!call(|| unsafe { tally_eval(emoji.as_ptr()) }).contains("too long"));
+        let emoji = c(&"🙂".repeat(513));
+        assert!(call(|| unsafe { tally_eval(emoji.as_ptr()) }).contains("too long"));
     }
 
     /// The app's suggestions: from the third letter (a value's unit from its first), units once

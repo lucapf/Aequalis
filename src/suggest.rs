@@ -39,6 +39,8 @@ pub const MAX: usize = 8;
 /// units of the same kind at once, nothing typed (`10 cm ` offers `mm`, `m`, `in`…): the kind chosen
 /// stays.
 pub fn suggest(config: &Config, line: &str, cursor: usize, min: usize) -> Option<Suggestions> {
+    // A request too long for the engine: nothing offered (`crate::check_length`).
+    crate::check_length(line).ok()?;
     let before: String = line.chars().take(cursor).collect();
     let typing = !before.ends_with(char::is_whitespace);
     let prefix = if typing { before.split_whitespace().last().unwrap_or("") } else { "" };
