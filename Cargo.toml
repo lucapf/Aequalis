@@ -26,3 +26,15 @@ lto = true
 codegen-units = 1
 strip = true
 panic = "abort"
+
+# The fuzzer's build (`fuzz/fuzz.py build`): fast, and every integer overflow and debug assertion
+# a panic, where the release build wraps silently; aborts on a panic, as the app does.
+[profile.fuzz]
+inherits = "release"
+opt-level = 3
+lto = false
+codegen-units = 16
+overflow-checks = true
+debug-assertions = true
+debug = "line-tables-only"
+strip = false

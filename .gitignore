@@ -8,3 +8,7 @@ target/
 docs/SPEC.md
 /packaging
 docs/omarchy-widget.md
+# The fuzzer's working files and findings (docs/fuzzy.md)
+fuzz/work/
+fuzz/findings/
+__pycache__/

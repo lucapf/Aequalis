@@ -1,0 +1,17 @@
+# Every input the fuzzer (fuzz/fuzz.py) found that crashed or misled the engine, once fixed: one JSON
+# object per line, `input` and optionally `config` (one of fuzz.py's CONFIGS; none: all of them).
+# Replayed by `fuzz/fuzz.py replay` and, in its default configuration, by `cargo test` (tests/fuzz.rs).
+{"input": "GMT+؋*", "bug": "010"}
+{"input": "gmt+1 sin(30°)", "bug": "010"}
+{"input": "utc+5 °C", "bug": "010"}
+{"input": "GMT+2 €", "bug": "010"}
+{"input": "GMT+2 São Paulo", "bug": "010"}
+{"input": "Indonesia", "config": "no-zone-files", "bug": "011"}
+{"input": "now USA", "config": "no-zone-files", "bug": "011"}
+{"input": "1W·square-metre99", "bug": "012"}
+{"input": "4KT99/OUNCE*KILOWATT-HOUR*T/S99", "bug": "012"}
+{"input": "1 m^64*m^64 m^-128", "bug": "012"}
+{"input": "12/04/2026 10:00 MM/DD/YYYY-24h Paris", "bug": "013"}
+{"input": "6/12/05 8:58:59.123456789 MM/DD/YY-24h Vladivostok", "bug": "013"}
+{"input": "2 x - 3", "bug": "014"}
+{"input": "1 m^-121 m^-128"}
