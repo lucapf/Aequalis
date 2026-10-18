@@ -1,6 +1,6 @@
-//! tally: an ultra lightweight unit converter, calculator, date and distance tool. The library
+//! aequalis: an ultra lightweight unit converter, calculator, date and distance tool. The library
 //! is everything but the terminal: the requests (`convert_request`), the command line's options
-//! (`run`) and the interactive mode (`tui`); `main.rs` is the `tally` command around it.
+//! (`run`) and the interactive mode (`tui`); `main.rs` is the `aequalis` command around it.
 
 pub mod about;
 pub mod alloc;
@@ -35,74 +35,74 @@ use config::Config;
 
 const USAGE: &str = "\
 Usage:
-  tally <value> <from> <to> [--precision N] [--silent]
-  tally <value><from> <to> [--precision N] [--silent]
-  tally <expression> [<from> <to>] [--precision N] [--silent]
-  <input> | tally [<from>] [<to>] [options]
-  tally                 (no arguments, in a terminal) interactive mode
-  tally --list          units and currencies
-  tally --trivia        useful values (Voyagers' distance live when online)
-  tally --online        online, offline or offline (forced): the last download of the online data
-  tally --about         the logo, the version, memory, the online data and their sources
-  tally --sync          download all the online data now (the city archive, the exchange
+  aequalis <value> <from> <to> [--precision N] [--silent]
+  aequalis <value><from> <to> [--precision N] [--silent]
+  aequalis <expression> [<from> <to>] [--precision N] [--silent]
+  <input> | aequalis [<from>] [<to>] [options]
+  aequalis                 (no arguments, in a terminal) interactive mode
+  aequalis --list          units and currencies
+  aequalis --trivia        useful values (Voyagers' distance live when online)
+  aequalis --online        online, offline or offline (forced): the last download of the online data
+  aequalis --about         the logo, the version, memory, the online data and their sources
+  aequalis --sync          download all the online data now (the city archive, the exchange
                         rates, the Trivia's live values); otherwise as the refresh
                         settings say
-  tally --settings      every setting, its value and what it does
-  tally --set key=value change a setting (`tally --set key`: back to its default)
-  tally --autocompletion <bash|zsh>
-  tally --help | --version
+  aequalis --settings      every setting, its value and what it does
+  aequalis --set key=value change a setting (`aequalis --set key`: back to its default)
+  aequalis --autocompletion <bash|zsh>
+  aequalis --help | --version
 
 Examples:
-  tally 10 km mi          6.2137 mi
-  tally 100 C F           212 F
-  tally 1 gal-uk l        4.5461 l
-  tally 100 Mb MB         12.5 MB
-  tally 100Gb Kb          100000000 kb
-  tally -40C F            -40 F
-  tally 1 kg lb --precision 2
-  echo \"100F C\" | tally   37.7778 C
-  echo 100 | tally F C    37.7778 C
-  echo 100F | tally C     37.7778 C
-  tally 10^2              100
-  tally [100+20]/120      1
-  tally 1/3               0.3333
-  tally 100 + 20 + 50 / 10 sqft m2
+  aequalis 10 km mi          6.2137 mi
+  aequalis 100 C F           212 F
+  aequalis 1 gal-uk l        4.5461 l
+  aequalis 100 Mb MB         12.5 MB
+  aequalis 100Gb Kb          100000000 kb
+  aequalis -40C F            -40 F
+  aequalis 1 kg lb --precision 2
+  echo \"100F C\" | aequalis   37.7778 C
+  echo 100 | aequalis F C    37.7778 C
+  echo 100F | aequalis C     37.7778 C
+  aequalis 10^2              100
+  aequalis [100+20]/120      1
+  aequalis 1/3               0.3333
+  aequalis 100 + 20 + 50 / 10 sqft m2
                               11.6129 m2  (with -v, stderr: evaluated as (100 + 20) + (50 / 10))
-  tally 90 min h          1.5 h
-  tally 100 km/h mph      62.1371 mph
-  tally 1 bar psi         14.5038 psi
-  tally 5 l/100km mpg     47.0429 mpg
-  tally 1 kWh MJ          3.6 MJ
-  tally 100 hp kW         74.57 kW
-  tally 12 usd euro       10.73 EUR   (rates synced daily from ExchangeRate-API)
-  tally 12 USA Europe     10.73 EUR   (countries: their currency; any case, plurals,
-  tally 12usd dhs         44.07 AED    symbols, abbreviations, amount attached)
-  tally 12 usd            10.73 EUR   (one currency: to the local one, currency.local)
-  tally 9.81 m/s^2 ft/s2  32.185 ft/s2
-  tally 100 Mb/s MB/s     12.5 MB/s
-  tally sqrt 16           4
-  tally sin(30°)          0.5
-  tally 30 deg rad        0.5236 rad
-  tally 1 ly km           9460730472580.8 km
-  tally 150 + 20%         180
-  tally 20% of 150        30
-  tally Rome Paris        1,107 km    (distance.unit: km, or mi where the device is imperial)
-  tally Springfield, Illinois Chicago mi
-                              176 mi      (any city once downloaded: tally --sync)
-  tally Italy             11 Oct 26 12:38 PM GMT+2 Rome
-  tally 10:00 USA to Japan
+  aequalis 90 min h          1.5 h
+  aequalis 100 km/h mph      62.1371 mph
+  aequalis 1 bar psi         14.5038 psi
+  aequalis 5 l/100km mpg     47.0429 mpg
+  aequalis 1 kWh MJ          3.6 MJ
+  aequalis 100 hp kW         74.57 kW
+  aequalis 12 usd euro       10.73 EUR   (rates synced daily from ExchangeRate-API)
+  aequalis 12 USA Europe     10.73 EUR   (countries: their currency; any case, plurals,
+  aequalis 12usd dhs         44.07 AED    symbols, abbreviations, amount attached)
+  aequalis 12 usd            10.73 EUR   (one currency: to the local one, currency.local)
+  aequalis 9.81 m/s^2 ft/s2  32.185 ft/s2
+  aequalis 100 Mb/s MB/s     12.5 MB/s
+  aequalis sqrt 16           4
+  aequalis sin(30°)          0.5
+  aequalis 30 deg rad        0.5236 rad
+  aequalis 1 ly km           9460730472580.8 km
+  aequalis 150 + 20%         180
+  aequalis 20% of 150        30
+  aequalis Rome Paris        1,107 km    (distance.unit: km, or mi where the device is imperial)
+  aequalis Springfield, Illinois Chicago mi
+                              176 mi      (any city once downloaded: aequalis --sync)
+  aequalis Italy             11 Oct 26 12:38 PM GMT+2 Rome
+  aequalis 10:00 USA to Japan
                               (asks which US time zone: New York, Chicago, …)
-  tally 'log(1000) + ln(e)'
+  aequalis 'log(1000) + ln(e)'
                               4
-  tally now + 3d          13 Oct 26 5:00 PM GMT+2
-  tally 12 Sept 2026      12 Sept 26
-  tally 2026/04/12 date unix
+  aequalis now + 3d          13 Oct 26 5:00 PM GMT+2
+  aequalis 12 Sept 2026      12 Sept 26
+  aequalis 2026/04/12 date unix
                               1775944800 unix
-  tally -v 2026/04/12 date unix
+  aequalis -v 2026/04/12 date unix
                               2026-04-12T00:00+02:00 iso = 1775944800 unix
-  tally 1791644400 unix iso-week
+  aequalis 1791644400 unix iso-week
                               2026-W41-6 iso-week
-  tally 2026-12-25 - now d
+  aequalis 2026-12-25 - now d
                               75.3381 d
 
 When no value is given as an argument, each non-empty line of stdin is one
@@ -168,11 +168,11 @@ Cities: every country's capital and major cities (or a zone name: Europe/Paris),
 the system's time zone database. A city at the end is the target, one before `to`
 the source; a time alone is today (24-hour unless AM/PM). A city misspelt by up to
 2 letters (Tokio) is suggested: asked at a terminal, an error with the fix elsewhere:
-  tally Paris                        the time in Paris now
-  tally 10:00AM Paris                my 10:00 today, in Paris
-  tally 10:00AM New York to Paris    New York's 10:00, in Paris
-  tally Rome to Doha                 the distance: 4,019 km (no time)
-  tally 2026/12/04 10:00 PM Tokyo    any date, in Tokyo
+  aequalis Paris                        the time in Paris now
+  aequalis 10:00AM Paris                my 10:00 today, in Paris
+  aequalis 10:00AM New York to Paris    New York's 10:00, in Paris
+  aequalis Rome to Doha                 the distance: 4,019 km (no time)
+  aequalis 2026/12/04 10:00 PM Tokyo    any date, in Tokyo
 
 Interactive mode (no arguments, in a terminal), Vim style. Input mode (the
 start): type an expression, Enter evaluates, Tab completes units, Up/Down
@@ -192,20 +192,20 @@ Options:
   --json                    One JSON object per request on stdout, for programs (never asks)
   --list                    List all supported units
   --autocompletion SHELL    Print a bash or zsh completion script to stdout. It also
-                            hooks Enter to quote expressions, so `tally (1+2)*3`
+                            hooks Enter to quote expressions, so `aequalis (1+2)*3`
                             works without quotes in an interactive shell
   --quote-line LINE         Print LINE with its expression quoted (used by the hook)
   -h, --help                Show this help
   -V, --version             Show version
 
-Settings (~/.config/tally/settings.json; `tally --settings` shows them, `tally --set
+Settings (~/.config/aequalis/settings.json; `aequalis --settings` shows them, `aequalis --set
 key=value` changes one, the interactive mode's Settings window too; nothing is read
 from the environment):
   offline                   true: no network at all (online data stays as last
                             downloaded); default false
   cities.enabled            distances between any city (the city archive); default true
   cities.refresh            silent (downloaded in the background), notify (a notice
-  rates.refresh             when there is something new) or manual (tally --sync):
+  rates.refresh             when there is something new) or manual (aequalis --sync):
   live.refresh              cities manual, rates (exchange rates) silent, live (the
                             Trivia's live values) manual
   cities.interval           how often each is checked or refreshed: 30d, 24h, 24h
@@ -288,12 +288,12 @@ impl std::fmt::Display for CliError {
 }
 
 impl CliError {
-    /// Where the command line's help says more (`see tally --list`), printed after the message at a
+    /// Where the command line's help says more (`see aequalis --list`), printed after the message at a
     /// terminal only: the message itself is for every UI (`--json`, the widget, the apps).
     pub fn hint(&self) -> Option<&'static str> {
         match self {
-            CliError::Convert(convert::ConvertError::UnknownUnit(_)) => Some("see `tally --list`"),
-            CliError::Usage(msg) if msg == EXPECTED => Some("see `tally --help`"),
+            CliError::Convert(convert::ConvertError::UnknownUnit(_)) => Some("see `aequalis --list`"),
+            CliError::Usage(msg) if msg == EXPECTED => Some("see `aequalis --help`"),
             _ => None,
         }
     }
@@ -406,7 +406,7 @@ pub fn parse_options<'a>(config: &Config, args: &'a [String]) -> Result<Parsed<'
         };
         match flag {
             "-h" | "--help" => return Ok(Parsed::Info(USAGE.to_string().into())),
-            "-V" | "--version" => return Ok(Parsed::Info(format!("tally {}", env!("CARGO_PKG_VERSION")).into())),
+            "-V" | "--version" => return Ok(Parsed::Info(format!("aequalis {}", env!("CARGO_PKG_VERSION")).into())),
             "--list" => return Ok(Parsed::Info(list(config).into())),
             "--trivia" => return Ok(Parsed::Info(trivia::list(config, precision).into())),
             "--about" => return Ok(Parsed::Info(about::text().into())),
@@ -551,7 +551,7 @@ pub fn grouping(input: &str) -> Option<String> {
 }
 
 /// Whether the arguments wait for values on stdin: none, or one or two units, currencies or
-/// formats and nothing else (`F C`, `usd eur`, `unix`): `echo 100 | tally F C`. Anything else is a
+/// formats and nothing else (`F C`, `usd eur`, `unix`): `echo 100 | aequalis F C`. Anything else is a
 /// request of its own, evaluated once.
 fn needs_value(config: &Config, args: &[&str]) -> bool {
     let target = |a: &&str| convert::resolve(config, a).is_ok() || time::is_format(a) || (currency::exact(a).is_some() && time::tz::country(a).is_none());
@@ -633,11 +633,11 @@ mod tests {
     #[test]
     fn info_flags() {
         assert!(cli("--help").unwrap().starts_with("Usage:"));
-        assert_eq!(cli("-V").unwrap(), format!("tally {}", env!("CARGO_PKG_VERSION")));
+        assert_eq!(cli("-V").unwrap(), format!("aequalis {}", env!("CARGO_PKG_VERSION")));
         let list = cli("--list").unwrap();
         assert!(list.contains("Length (base: m)") && list.contains("gal-uk") && list.contains("TiB"));
-        assert!(cli("--autocompletion bash").unwrap().contains("complete -F _tally tally"));
-        assert!(cli("--autocompletion=zsh").unwrap().starts_with("#compdef tally"));
+        assert!(cli("--autocompletion bash").unwrap().contains("complete -F _aequalis aequalis"));
+        assert!(cli("--autocompletion=zsh").unwrap().starts_with("#compdef aequalis"));
     }
 
     #[test]

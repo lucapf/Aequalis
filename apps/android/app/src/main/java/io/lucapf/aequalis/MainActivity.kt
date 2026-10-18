@@ -1,4 +1,4 @@
-package io.lucapf.tally
+package io.lucapf.aequalis
 
 import android.os.Bundle
 import android.content.ClipData
@@ -77,8 +77,8 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.dp
-import io.lucapf.tally.ui.theme.Appearance
-import io.lucapf.tally.ui.theme.TallyTheme
+import io.lucapf.aequalis.ui.theme.Appearance
+import io.lucapf.aequalis.ui.theme.AequalisTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -95,9 +95,9 @@ class MainActivity : ComponentActivity() {
         History.load(applicationContext)
         enableEdgeToEdge()
         setContent {
-            TallyTheme {
+            AequalisTheme {
                 // Transparent: the theme draws the skin's background behind everything.
-                Surface(Modifier.fillMaxSize(), color = Color.Transparent, contentColor = MaterialTheme.colorScheme.onSurface) { TallyApp() }
+                Surface(Modifier.fillMaxSize(), color = Color.Transparent, contentColor = MaterialTheme.colorScheme.onSurface) { AequalisApp() }
             }
         }
     }
@@ -147,7 +147,7 @@ data class Edit(val text: String = "", val cursor: Int = 0) {
 val EditSaver = listSaver<Edit, Any>(save = { listOf(it.text, it.cursor) }, restore = { Edit(it[0] as String, it[1] as Int) })
 
 @Composable
-fun TallyApp() {
+fun AequalisApp() {
     // `rememberSaveable`: the user's work survives Android recreating the screen.
     var edit by rememberSaveable(stateSaver = EditSaver) { mutableStateOf(Edit()) }
     // Enter was pressed on this request: the core then shows its error even in the middle of a word.
@@ -211,7 +211,7 @@ fun TallyApp() {
         Unit
     }
     val copy = { text: String ->
-        clipboard.setPrimaryClip(ClipData.newPlainText("Tally", text))
+        clipboard.setPrimaryClip(ClipData.newPlainText("Aequalis", text))
         // Since Android 13 the system itself shows what was copied.
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
     }
@@ -296,7 +296,7 @@ fun TallyApp() {
         workspace(false, Modifier.weight(1f).statusBarsPadding().padding(horizontal = 16.dp))
         // The keyboard, or a panel in its place.
         when (val open = panel) {
-            null -> TallyKeyboard(mode, onKey)
+            null -> AequalisKeyboard(mode, onKey)
             else -> showPanel(open, Modifier.fillMaxWidth().height(KeyboardHeight), false)
         }
     }
@@ -331,7 +331,7 @@ fun Workspace(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.weight(1f)) {
                     Text(
-                        "Tally",
+                        "Aequalis",
                         style = MaterialTheme.typography.titleLarge,
                         modifier = Modifier
                             .clip(RoundedCornerShape(8.dp))

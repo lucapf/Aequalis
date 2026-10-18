@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Line coverage of the test suite: unit tests and integration tests (and the tally binary the
+"""Line coverage of the test suite: unit tests and integration tests (and the aequalis binary the
 integration tests run), with rustc's instrumentation (`-C instrument-coverage`) and the rustup
 component `llvm-tools` (`rustup component add llvm-tools`).
 
@@ -38,7 +38,7 @@ def main():
     env = dict(os.environ, RUSTFLAGS="-C instrument-coverage", CARGO_TARGET_DIR=out,
                LLVM_PROFILE_FILE=os.path.join(prof, "%p-%m.profraw"))
 
-    # The executables: every test binary, and the tally binary they run.
+    # The executables: every test binary, and the aequalis binary they run.
     built = subprocess.run(["cargo", "test", "--no-run", "--message-format=json"], env=env, capture_output=True, text=True)
     objects = []
     for line in built.stdout.splitlines():
@@ -53,7 +53,7 @@ def main():
         sys.stderr.write(tests.stdout[-3000:] + tests.stderr[-3000:])
         sys.exit("the tests failed: coverage not measured")
 
-    data = os.path.join(out, "tally.profdata")
+    data = os.path.join(out, "aequalis.profdata")
     subprocess.check_call([os.path.join(tools, "llvm-profdata"), "merge", "-sparse", *glob.glob(os.path.join(prof, "*.profraw")), "-o", data])
     args = [os.path.join(tools, "llvm-cov"), "export", "-summary-only", "-instr-profile", data, objects[0]]
     for o in objects[1:]:

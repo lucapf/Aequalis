@@ -1,6 +1,6 @@
 # Code review: speed, memory, clean code, tests
 
-Review of every algorithm in Tally (the `cities` branch: the app with currencies, the city
+Review of every algorithm in Aequalis (the `cities` branch: the app with currencies, the city
 archive and the settings), with three priorities in this order: **fast responses**, **memory
 below 10 MB**, **clean code**; then how complete the test suite is. Everything found was fixed
 on the branch `review`; this report says what was found, what changed, and what is left.
@@ -18,7 +18,7 @@ on the branch `review`; this report says what was found, what changed, and what 
 | Line / function coverage | 94.5% / 94.2% | 95.3% / 94.8% |
 | `cargo clippy --all-targets` (with and without the TUI) | 19 warnings | 0 |
 
-Every run of tally now stays below 10 MB, enforced by a test (`tests/memory.rs`).
+Every run of aequalis now stays below 10 MB, enforced by a test (`tests/memory.rs`).
 
 ## Method
 
@@ -29,7 +29,7 @@ Every run of tally now stays below 10 MB, enforced by a test (`tests/memory.rs`)
 - **The interactive mode:** `cargo test --release -- --ignored keystroke_cost --nocapture`
   types requests key by key into the app and draws the screen after each (40 × 120).
 - **Coverage:** `scripts/coverage.py` builds with rustc's instrumentation
-  (`-C instrument-coverage`, the rustup component `llvm-tools`), runs the whole suite (the tally
+  (`-C instrument-coverage`, the rustup component `llvm-tools`), runs the whole suite (the aequalis
   binary started by the integration tests included) and reports lines and functions per file;
   `--uncovered FILE…` lists the regions no test runs.
 - **Dead code:** the compiler's warnings (`dead_code`, with and without the TUI), a script that
@@ -96,7 +96,7 @@ on disk, never loaded). The exception was installing the archive: its 546k names
 memory (47 MB peak). It now uses an **external merge sort**: names in sorted runs of 32,768
 (about 2 MB) written next to the index, then merged with a heap. Measured on the real archive:
 1.12 s and 46.6 MB in memory, 1.18 s and 6.1 MB with the merge — 5% slower, well within the agreed
-rule (below 10 MB unless more than 2× slower). `tally --sync … --json` reports its peak memory like
+rule (below 10 MB unless more than 2× slower). `aequalis --sync … --json` reports its peak memory like
 any reply, and `tests/memory.rs` checks that representative requests and the archive install stay
 below 10 MB.
 
@@ -191,8 +191,8 @@ below 10 MB.
   waits** (300 ms to check that no background sync starts). Fine for now.
 - **`docs/SPEC.md` is ignored by git** (`.gitignore`): the specification, updated on every change,
   is not in the repository.
-- **On merging `macos-app`:** its Mac app and Raycast "Offline" switches still set `TALLY_MODE`,
-  which Tally no longer reads; they should call `tally --set offline=…`.
+- **On merging `macos-app`:** its Mac app and Raycast "Offline" switches still set `AEQUALIS_MODE`,
+  which Aequalis no longer reads; they should call `aequalis --set offline=…`.
 
 ## Reproduce
 

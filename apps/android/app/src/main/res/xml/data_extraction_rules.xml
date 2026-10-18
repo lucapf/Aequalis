@@ -3,17 +3,17 @@
    What Android backs up (Android 12 and later; before, backup_rules.xml: keep the two the same),
    to the cloud and to a new phone. Only what the user made: the settings, the history and the
    appearance. Not the data (the city archive, the exchange rates, the Trivia's live values, the
-   notices' state in files/tally/): the app ships it and downloads it again. With an <include>,
+   notices' state in files/aequalis/): the app ships it and downloads it again. With an <include>,
    nothing else is backed up.
 -->
 <data-extraction-rules>
     <cloud-backup>
-        <include domain="file" path="tally/settings.json" />
+        <include domain="file" path="aequalis/settings.json" />
         <include domain="file" path="history.txt" />
         <include domain="sharedpref" path="appearance.xml" />
     </cloud-backup>
     <device-transfer>
-        <include domain="file" path="tally/settings.json" />
+        <include domain="file" path="aequalis/settings.json" />
         <include domain="file" path="history.txt" />
         <include domain="sharedpref" path="appearance.xml" />
     </device-transfer>

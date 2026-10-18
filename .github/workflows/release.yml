@@ -1,4 +1,4 @@
-# Every push to master is a release: the version goes up, tally is built for Linux (x86_64 and
+# Every push to master is a release: the version goes up, aequalis is built for Linux (x86_64 and
 # aarch64) and macOS (Apple Silicon), and a GitHub release `v<version>` gets the archives.
 #
 # The version: the latest `v*` tag (none yet: Cargo.toml's) with the patch number up by one. A
@@ -98,13 +98,13 @@ jobs:
       - name: Build
         run: |
           cargo build --release
-          test "$(target/release/tally --version)" = "tally $VERSION"
-          target/release/tally 10 km mi
+          test "$(target/release/aequalis --version)" = "aequalis $VERSION"
+          target/release/aequalis 10 km mi
       - name: Package
         run: |
-          name=tally-$VERSION-${{ matrix.arch }}-linux
+          name=aequalis-$VERSION-${{ matrix.arch }}-linux
           mkdir -p "dist/$name"
-          cp target/release/tally LICENSE README.md docs/Accepted_Syntax.md "dist/$name/"
+          cp target/release/aequalis LICENSE README.md docs/Accepted_Syntax.md "dist/$name/"
           cp -r omarchy-widget "dist/$name/"
           tar -C dist -czf "dist/$name.tar.gz" "$name"
           (cd dist && sha256sum "$name.tar.gz" > "$name.tar.gz.sha256")
@@ -133,14 +133,14 @@ jobs:
       - name: Build
         run: |
           cargo build --release
-          file target/release/tally
-          test "$(target/release/tally --version)" = "tally $VERSION"
-          target/release/tally 10 km mi
+          file target/release/aequalis
+          test "$(target/release/aequalis --version)" = "aequalis $VERSION"
+          target/release/aequalis 10 km mi
       - name: Package
         run: |
-          name=tally-$VERSION-aarch64-macos
+          name=aequalis-$VERSION-aarch64-macos
           mkdir -p "dist/$name"
-          cp target/release/tally LICENSE README.md docs/Accepted_Syntax.md "dist/$name/"
+          cp target/release/aequalis LICENSE README.md docs/Accepted_Syntax.md "dist/$name/"
           tar -C dist -czf "dist/$name.tar.gz" "$name"
           (cd dist && shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256")
       - uses: actions/upload-artifact@v4
@@ -166,5 +166,5 @@ jobs:
             gh release upload "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber
           else
             gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-              --title "Tally $TAG" --generate-notes
+              --title "Aequalis $TAG" --generate-notes
           fi

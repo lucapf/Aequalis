@@ -22,7 +22,7 @@ fuzz/fuzz.py run --hours 8 --workers 6 # overnight (8 cores: leave 2 free)
 - The fuzz build (`[profile.fuzz]` in `Cargo.toml`) checks every integer overflow: a silent wrong
   answer in the release build is a crash here, so it gets found.
 
-What it does: each worker loads `target/fuzz/libtally.so` and, in one configuration (time zone,
+What it does: each worker loads `target/fuzz/libaequalis.so` and, in one configuration (time zone,
 zone files missing or damaged, Android's zone bundle, number format, imperial, city archive,
 settings), types requests key by key: the answer and the suggestions for every prefix. It also
 changes settings, reads the panels' lists, and syncs with damaged downloads.
@@ -46,7 +46,7 @@ Findings are in `fuzz/findings/<kind>/<key>/` (not in git):
 
 | Kind | Means | Priority |
 |---|---|---|
-| `crash` | the engine panicked: **in the app, Tally closes**. Key: the source location | fix first |
+| `crash` | the engine panicked: **in the app, Aequalis closes**. Key: the source location | fix first |
 | `hang` | a call over 2 s, seen on two reads in a row. Key: the function and its input. The report says whether the worker was busy (CPU time ≈ wall time: a loop, a slow path) or waiting (disk, a lock, an overloaded machine), with its stack (`eu-stack`) | fix |
 | `contract` | a reply the app can't read (bad JSON, a missing key, a suggestion's `start` out of range): the Kotlin side would crash | fix |
 | `length` | the 512-character limit not respected | fix |
@@ -68,8 +68,8 @@ fuzz/fuzz.py minimize fuzz/findings/crash/<key>   # shrink it again
 fuzz/fuzz.py replay                               # every fixed finding, in every configuration
 ```
 
-To try an input by hand: `echo 'GMT+2 €' | tally --json` (the CLI shares the engine), or
-`tally_eval` through `fuzz/worker.py --replay` (see `fuzz.py`'s `replay_calls`).
+To try an input by hand: `echo 'GMT+2 €' | aequalis --json` (the CLI shares the engine), or
+`aequalis_eval` through `fuzz/worker.py --replay` (see `fuzz.py`'s `replay_calls`).
 
 ## From finding to fix
 

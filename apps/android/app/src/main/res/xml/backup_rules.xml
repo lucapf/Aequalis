@@ -3,11 +3,11 @@
    What Android backs up (Auto Backup, Android 6 to 11; Android 12 and later read
    data_extraction_rules.xml: keep the two the same). Only what the user made: the settings,
    the history and the appearance. Not the data (the city archive, the exchange rates, the
-   Trivia's live values, the notices' state in files/tally/): the app ships it and downloads it
+   Trivia's live values, the notices' state in files/aequalis/): the app ships it and downloads it
    again. With an <include>, nothing else is backed up.
 -->
 <full-backup-content>
-    <include domain="file" path="tally/settings.json" />
+    <include domain="file" path="aequalis/settings.json" />
     <include domain="file" path="history.txt" />
     <include domain="sharedpref" path="appearance.xml" />
 </full-backup-content>

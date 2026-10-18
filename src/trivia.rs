@@ -636,7 +636,7 @@ mod tests {
             assert!(e.short.chars().count() <= 36, "{}: a short description", e.name);
             let tip = matches!(e.source, Source::Tip(_));
             assert!(tip || value(&config, e, None, 1_791_676_800).is_ok(), "{}", e.name);
-            // Every unit is one tally knows.
+            // Every unit is one aequalis knows.
             if let Some(unit) = &e.unit {
                 assert!(convert::resolve(&config, unit).is_ok(), "{}: {unit}", e.name);
             }

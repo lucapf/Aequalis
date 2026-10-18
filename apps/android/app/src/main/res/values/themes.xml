@@ -3,7 +3,7 @@
     <!-- The window Android shows as soon as the app is launched, before its first frame: in the
          app's background colour (light here, dark in values-night), so the start shows no white
          screen. Material 3's own background, the classic skin's and the phone's before Android 12. -->
-    <style name="Theme.Tally" parent="android:Theme.Material.Light.NoActionBar">
+    <style name="Theme.Aequalis" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:windowBackground">@color/background</item>
     </style>
 </resources>

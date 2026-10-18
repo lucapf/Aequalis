@@ -1,4 +1,4 @@
-package io.lucapf.tally
+package io.lucapf.aequalis
 
 import org.junit.Test
 

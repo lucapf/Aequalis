@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Measures tally: how long requests take and how much memory they use (docs/REVIEW.md).
+"""Measures aequalis: how long requests take and how much memory they use (docs/REVIEW.md).
 
-    scripts/bench.py [--bin target/release/tally] [--runs 40] [--archive cities.json] [--json out.json]
+    scripts/bench.py [--bin target/release/aequalis] [--runs 40] [--archive cities.json] [--json out.json]
 
 Each request runs in a fresh process, `--runs` times; the median wall time is reported, and the
 process's peak memory (VmHWM: from `--json` for requests, else watched in /proc). With `--archive` (the JSON written by
-scripts/build-cities.py), the city archive is installed from it (`tally --sync` from a file://
+scripts/build-cities.py), the city archive is installed from it (`aequalis --sync` from a file://
 address, the other sources behind a proxy nothing answers; timed and measured) and requests
 between any cities are measured too.
 Every run uses its own config directory: offline, distances in km, nothing refreshed by itself.
@@ -47,15 +47,15 @@ ARCHIVE_REQUESTS = [
 
 
 def config(settings):
-    d = tempfile.mkdtemp(prefix="tally-bench-")
-    os.makedirs(os.path.join(d, "tally"))
-    with open(os.path.join(d, "tally", "settings.json"), "w") as f:
+    d = tempfile.mkdtemp(prefix="aequalis-bench-")
+    os.makedirs(os.path.join(d, "aequalis"))
+    with open(os.path.join(d, "aequalis", "settings.json"), "w") as f:
         json.dump(settings, f)
     return d
 
 
 def peak_kb(binary, args, env):
-    """The process's peak memory (VmHWM): from `--json` for a request and for `--sync` (tally reads
+    """The process's peak memory (VmHWM): from `--json` for a request and for `--sync` (aequalis reads
     its own), else by watching /proc while it runs (once read 17.6 MB for a 6.1 MB `--sync`)."""
     if not args[0].startswith("--") or args[0] == "--sync":
         out = subprocess.run([binary, "--json"] + args, env=env, capture_output=True, text=True, stdin=subprocess.DEVNULL).stdout
@@ -87,7 +87,7 @@ def measure(binary, args, env, runs):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--bin", default="target/release/tally")
+    p.add_argument("--bin", default="target/release/aequalis")
     p.add_argument("--runs", type=int, default=40)
     p.add_argument("--archive")
     p.add_argument("--json")
@@ -104,7 +104,7 @@ def main():
         print(f"| `{' '.join(args)}` | {ms:.1f} ms | {kb / 1024:.1f} MB |")
 
     if a.archive:
-        serve = tempfile.mkdtemp(prefix="tally-bench-archive-")
+        serve = tempfile.mkdtemp(prefix="aequalis-bench-archive-")
         shutil.copyfile(a.archive, os.path.join(serve, "cities.json"))
         with open(os.path.join(serve, "cities.version"), "w") as f:
             f.write("0 bench\n")

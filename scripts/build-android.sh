@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds tally's core for the Android app: libtally.so (the C interface and the JNI bridge,
+# Builds aequalis's core for the Android app: libaequalis.so (the C interface and the JNI bridge,
 # src/ffi.rs and src/jni.rs) for the emulator (x86_64) and for phones (arm64, and the 32-bit ones such as the Redmi 9A), into
 # apps/android/app/src/main/jniLibs/<abi>/, where Gradle packs it into the app. Needs the NDK
 # (Android Studio: SDK Manager › SDK Tools › NDK) and the Rust targets:
@@ -32,8 +32,8 @@ for triple in x86_64-linux-android:x86_64-linux-android:x86_64 \
     env "$linker_variable=$bin/$clang$api-clang" \
         cargo rustc --release --lib --no-default-features --features ffi --target "$target" --crate-type cdylib
     mkdir -p "apps/android/app/src/main/jniLibs/$abi"
-    cp "target/$target/release/libtally.so" "apps/android/app/src/main/jniLibs/$abi/"
-    echo "apps/android/app/src/main/jniLibs/$abi/libtally.so"
+    cp "target/$target/release/libaequalis.so" "apps/android/app/src/main/jniLibs/$abi/"
+    echo "apps/android/app/src/main/jniLibs/$abi/libaequalis.so"
 done
 
 # The online data, as valid now (a download that fails keeps the copy there, if any).
@@ -45,7 +45,7 @@ if ! fresh "$assets/rates.json" 720; then
         && mv "$assets/rates.json.new" "$assets/rates.json" || echo "rates: not downloaded (offline?)" >&2
 fi
 if ! fresh "$assets/cities.json" 43200; then
-    release=https://github.com/lucapf/tally/releases/download/cities
+    release=https://github.com/lucapf/aequalis/releases/download/cities
     # The plain archive; while the release still has only the compressed one, that one unpacked.
     { curl -sfL --max-time 600 "$release/cities.json" -o "$assets/cities.json.new" \
         || curl -sfL --max-time 600 "$release/cities.json.gz" | gzip -dc > "$assets/cities.json.new"; } \

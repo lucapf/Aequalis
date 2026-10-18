@@ -1,4 +1,4 @@
-//! Interactive mode: `tally` with no arguments in a terminal.
+//! Interactive mode: `aequalis` with no arguments in a terminal.
 //!
 //! Sections, top to bottom: the top bar (Search, Measures, Currencies, Trivia, Settings), the
 //! history of expressions and results, the expression bar, and a status line. Two modes, Vim style:
@@ -774,7 +774,7 @@ pub fn run(config: &Config, opts: &Options) -> ExitCode {
     let guard = match term::enter() {
         Ok(guard) => guard,
         Err(msg) => {
-            eprintln!("tally: error: {msg}");
+            eprintln!("aequalis: error: {msg}");
             return ExitCode::from(1);
         }
     };

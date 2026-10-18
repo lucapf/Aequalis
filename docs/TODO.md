@@ -56,13 +56,13 @@ Tick an item when it is done, and note the commit.
 - [x] while writing math expression, in the preview keep the grouping via brackets as the TUI
 - 
 - [x] the about function is missing (Settings › About)
-- [x] add in the about the link to install Tally on mac and Linux
+- [x] add in the about the link to install Aequalis on mac and Linux
 - [x] add share feature to share the mac, Linux and Android version (when available) installation link (github repo / official play store app)
       (Android: `PLAY_STORE` in AboutScreen.kt, once published)
 - [ ] add localization
 - [x] Icons instead of text characters, with names (#8): ⌫ ⏎ ⚙ ← ✕ ⌨, the panels' keys and titles,
       the unit classes and the Trivia sections (Material Icons, as paths in `Icons.kt`).
-- [x] A tap on "Tally": the memory the app uses (Android's figures by kind, the Rust core's own as
+- [x] A tap on "Aequalis": the memory the app uses (Android's figures by kind, the Rust core's own as
       its allocator counts it, `src/alloc.rs`), the phone's free memory.
 - [ ] Settings for people: titles, groups, choices for intervals, a top app bar (#9).
 - [x] Search in the Currencies panel (#10): by code, name or symbol, with the phone's keyboard.

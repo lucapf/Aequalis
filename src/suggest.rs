@@ -179,7 +179,7 @@ fn words(config: &Config, before: &str, typing: bool) -> Option<Suggestions> {
     let countries = crate::time::tz::countries().iter().map(|c| (c.name.clone(), false));
     let mut names: Vec<String> = Vec::new();
     for (name, keyword) in keywords.chain(places).chain(countries) {
-        // A place whose name is something else to tally (`Bar`, a unit) is not offered (asked only
+        // A place whose name is something else to aequalis (`Bar`, a unit) is not offered (asked only
         // of the names that fit: it looks the name up as a unit, a date word and a currency).
         let fits = crate::time::tz::key(&name).starts_with(&typed) && !names.contains(&name);
         if fits && (keyword || !crate::time::reserved(config, &name)) {

@@ -1,4 +1,4 @@
-//! Memory: every run of tally stays below 10 MB (its peak, `peak_kb` in the `--json` reply):
+//! Memory: every run of aequalis stays below 10 MB (its peak, `peak_kb` in the `--json` reply):
 //! requests of every kind, and installing the city archive (an external merge sort keeps its
 //! index out of memory). docs/REVIEW.md has the measurements on the real archive.
 
@@ -31,7 +31,7 @@ fn requests_stay_below_10_mb() {
         "12 dollar euro",
     ] {
         let args: Vec<&str> = std::iter::once("--json").chain(request.split(' ')).collect();
-        let reply = common::out(&common::tally(&dir, &args));
+        let reply = common::out(&common::aequalis(&dir, &args));
         let kb = peak_kb(&reply);
         assert!(kb > 0 && kb < LIMIT_KB, "{request}: {kb} KB");
     }
@@ -40,7 +40,7 @@ fn requests_stay_below_10_mb() {
 #[test]
 fn installing_the_city_archive_stays_below_10_mb() {
     let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/cities-sample.json");
-    let serve = std::env::temp_dir().join(format!("tally-memory-archive-{}", std::process::id()));
+    let serve = std::env::temp_dir().join(format!("aequalis-memory-archive-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&serve);
     std::fs::create_dir_all(&serve).unwrap();
     std::fs::copy(&fixture, serve.join("cities.json")).unwrap();
@@ -50,7 +50,7 @@ fn installing_the_city_archive_stays_below_10_mb() {
         "memory-archive",
         &[("offline", "false"), ("cities.refresh", "manual"), ("rates.refresh", "manual"), ("live.refresh", "manual"), ("cities.url", &url)],
     );
-    let reply = common::out(&common::tally(&dir, &["--json", "--sync"]));
+    let reply = common::out(&common::aequalis(&dir, &["--json", "--sync"]));
     assert!(reply.starts_with(r#"{"ok":true,"result":"9 cities\n"#), "{reply}");
     let kb = peak_kb(&reply);
     assert!(kb > 0 && kb < LIMIT_KB, "{kb} KB");

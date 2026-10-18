@@ -2,7 +2,7 @@
 //!
 //! ```text
 //! {"ok":true,"result":"6.2137 mi","notes":[],"warnings":[],"peak_kb":1024}
-//! {"ok":false,"exit":1,"error":"unknown unit `foo` (see `tally --list`)","peak_kb":1024}
+//! {"ok":false,"exit":1,"error":"unknown unit `foo` (see `aequalis --list`)","peak_kb":1024}
 //! {"ok":false,"exit":2,"error":"…","ambiguous":{"text":"12/04/2026","choices":[{"pattern":"MM/DD/YYYY","date":"2026-12-04","request":"12/04/2026 MM/DD/YYYY unix"},…]},"peak_kb":1024}
 //! ```
 //! Nothing is asked and nothing goes to stderr: an ambiguous date is an error carrying its choices.

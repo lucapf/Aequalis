@@ -1,4 +1,4 @@
-package io.lucapf.tally
+package io.lucapf.aequalis
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -9,12 +9,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
-import io.lucapf.tally.ui.theme.Appearance
-import io.lucapf.tally.ui.theme.DarkMode
-import io.lucapf.tally.ui.theme.Skin
-import io.lucapf.tally.ui.theme.backdrop
-import io.lucapf.tally.ui.theme.colorScheme
-import io.lucapf.tally.ui.theme.isDark
+import io.lucapf.aequalis.ui.theme.Appearance
+import io.lucapf.aequalis.ui.theme.DarkMode
+import io.lucapf.aequalis.ui.theme.Skin
+import io.lucapf.aequalis.ui.theme.backdrop
+import io.lucapf.aequalis.ui.theme.colorScheme
+import io.lucapf.aequalis.ui.theme.isDark
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row

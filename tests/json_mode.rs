@@ -4,7 +4,7 @@
 use std::io::Write;
 use std::process::{Command, Stdio};
 
-const BIN: &str = env!("CARGO_BIN_EXE_tally");
+const BIN: &str = env!("CARGO_BIN_EXE_aequalis");
 
 fn json(args: &str) -> (String, String, i32) {
     let out = Command::new(BIN)
@@ -75,8 +75,8 @@ fn one_line_per_piped_request() {
 }
 
 #[test]
-fn peak_memory_is_tally_s_own() {
-    // Started by a large process (the Omarchy shell is ~360 MiB), the reply reports tally's peak,
+fn peak_memory_is_aequalis_s_own() {
+    // Started by a large process (the Omarchy shell is ~360 MiB), the reply reports aequalis's peak,
     // not its parent's (`getrusage`'s `ru_maxrss` survives `exec` on Linux).
     let big = vec![1u8; 200 << 20];
     let out = Command::new(BIN).arg("-v").args(["--json", "10", "km", "mi"]).stdin(Stdio::null()).output().unwrap();

@@ -11,8 +11,8 @@
 use std::io::Write;
 use std::process::{Command, Stdio};
 
-const BIN: &str = env!("CARGO_BIN_EXE_tally");
-const TOO_LONG: &str = "tally: error: the request is too long: at most 512 characters";
+const BIN: &str = env!("CARGO_BIN_EXE_aequalis");
+const TOO_LONG: &str = "aequalis: error: the request is too long: at most 512 characters";
 
 fn run(args: &[&str], stdin: Option<&str>) -> (String, String, i32) {
     let mut child = Command::new(BIN)

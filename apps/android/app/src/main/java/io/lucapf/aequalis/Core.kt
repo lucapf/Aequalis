@@ -1,4 +1,4 @@
-package io.lucapf.tally
+package io.lucapf.aequalis
 
 import android.content.Context
 import android.icu.util.LocaleData
@@ -86,17 +86,17 @@ data class Reply(
 data class About(val name: String, val tagline: String, val version: String, val facts: List<Pair<String, String>>, val sources: List<Pair<String, String>>)
 
 /**
- * The bridge to tally's Rust core: libtally.so (built by scripts/build-android.sh), whose
- * functions src/jni.rs exports. Text crosses as UTF-8 bytes; replies are JSON, as `tally --json`.
+ * The bridge to aequalis's Rust core: libaequalis.so (built by scripts/build-android.sh), whose
+ * functions src/jni.rs exports. Text crosses as UTF-8 bytes; replies are JSON, as `aequalis --json`.
  */
 object Core {
     init {
-        // Loads lib/<abi>/libtally.so from the app: the x86_64 one on the emulator, the arm64 or the
+        // Loads lib/<abi>/libaequalis.so from the app: the x86_64 one on the emulator, the arm64 or the
         // 32-bit ARM one on phones.
-        System.loadLibrary("tally")
+        System.loadLibrary("aequalis")
     }
 
-    // Implemented in Rust (src/jni.rs): `Java_io_lucapf_tally_Core_init`, `…_eval`, `…_suggest`,
+    // Implemented in Rust (src/jni.rs): `Java_io_lucapf_aequalis_Core_init`, `…_eval`, `…_suggest`,
     // `…_lists`, `…_set`, `…_seed`.
     private external fun init(config: ByteArray): ByteArray
     private external fun eval(request: ByteArray, submitted: Boolean): ByteArray
@@ -118,7 +118,7 @@ object Core {
 
     /**
      * Starts the core in a thread of its own, so that the first frame doesn't wait for it: loading
-     * libtally.so and asking Android about the device (about 10 ms on a Redmi 9A, more when the
+     * libaequalis.so and asking Android about the device (about 10 ms on a Redmi 9A, more when the
      * phone is busy), while the first request comes later. Then, at a low priority so as not to slow
      * the screen, the data shipped with the app (seconds, after an install). Once per process: the
      * activity can start several times (a rotation, a theme change).
@@ -146,7 +146,7 @@ object Core {
                 .put("imperial", imperial())
             zoneDatabase()?.let { config.put("zoneinfo", it) }
             val reply = JSONObject(init(config.toString().encodeToByteArray()).decodeToString())
-            check(reply.optBoolean("ok")) { "tally: ${reply.optString("error")}" }
+            check(reply.optBoolean("ok")) { "aequalis: ${reply.optString("error")}" }
             maxInput = reply.optInt("max_input", maxInput)
         } finally {
             // Even when it fails (the app then stops, as before), nothing waits forever.
@@ -162,16 +162,16 @@ object Core {
         val assets = context.assets
         val shipped = assets.list("").orEmpty()
         val rates = if ("rates.json" in shipped) assets.open("rates.json").use { it.readBytes() } else ByteArray(0)
-        // The core's own file (files/tally/cities.json, src/files.rs) says the archive is installed:
+        // The core's own file (files/aequalis/cities.json, src/files.rs) says the archive is installed:
         // no copy needed.
         val copy = File(context.cacheDir, "cities.json")
-        val cities = if ("cities.json" in shipped && !File(context.filesDir, "tally/cities.json").exists()) {
+        val cities = if ("cities.json" in shipped && !File(context.filesDir, "aequalis/cities.json").exists()) {
             assets.open("cities.json").use { input -> copy.outputStream().use { input.copyTo(it) } }
             copy.absolutePath
         } else ""
         try {
             val reply = JSONObject(seed(rates, cities.encodeToByteArray()).decodeToString())
-            if (!reply.optBoolean("ok")) android.util.Log.w("tally", "shipped data: ${reply.optString("error")}")
+            if (!reply.optBoolean("ok")) android.util.Log.w("aequalis", "shipped data: ${reply.optString("error")}")
         } finally {
             copy.delete()
         }
@@ -259,7 +259,7 @@ object Core {
         })
     }
 
-    /** About Tally: the version, the online data, the sources. */
+    /** About Aequalis: the version, the online data, the sources. */
     fun about(): About = list("about").let { a ->
         // `[[label, text], …]`
         val pairs = { key: String ->

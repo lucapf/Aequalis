@@ -1,4 +1,4 @@
-"""One fuzzing process with one configuration: loads the fuzz build of the engine (`libtally.so`)
+"""One fuzzing process with one configuration: loads the fuzz build of the engine (`libaequalis.so`)
 with ctypes and calls it as the Android app does. Before every call it writes the call into the
 black box (a file mapped in memory), so when the engine takes the process down the supervisor
 (`fuzz.py`) knows exactly what did it. Findings and figures go to stdout, one JSON per line.
@@ -79,13 +79,13 @@ class Engine:
         self.lib = ctypes.CDLL(lib)
         self.box = box
         L = self.lib
-        for name, args in [("tally_init", [ctypes.c_char_p]), ("tally_eval", [ctypes.c_char_p]), ("tally_suggest", [ctypes.c_char_p, ctypes.c_uint32]),
-                           ("tally_set", [ctypes.c_char_p, ctypes.c_char_p]), ("tally_sync", [ctypes.c_bool]), ("tally_seed", [ctypes.c_char_p, ctypes.c_char_p]),
-                           ("tally_settings", []), ("tally_trivia", []), ("tally_measures", []), ("tally_currencies", [])]:
+        for name, args in [("aequalis_init", [ctypes.c_char_p]), ("aequalis_eval", [ctypes.c_char_p]), ("aequalis_suggest", [ctypes.c_char_p, ctypes.c_uint32]),
+                           ("aequalis_set", [ctypes.c_char_p, ctypes.c_char_p]), ("aequalis_sync", [ctypes.c_bool]), ("aequalis_seed", [ctypes.c_char_p, ctypes.c_char_p]),
+                           ("aequalis_settings", []), ("aequalis_trivia", []), ("aequalis_measures", []), ("aequalis_currencies", [])]:
             getattr(L, name).argtypes = args
             getattr(L, name).restype = ctypes.c_void_p
-        L.tally_free.argtypes = [ctypes.c_void_p]
-        L.tally_set_fetcher.argtypes = [FETCH]
+        L.aequalis_free.argtypes = [ctypes.c_void_p]
+        L.aequalis_set_fetcher.argtypes = [FETCH]
         self.calls = 0
         self.slowest = {}
 
@@ -100,34 +100,34 @@ class Engine:
         self.calls += 1
         text = ctypes.string_at(p).decode("utf-8", "replace") if p else None
         if p:
-            self.lib.tally_free(p)
+            self.lib.aequalis_free(p)
         return text, elapsed
 
     def init(self, config):
         text = json.dumps(config).encode()
-        return self._call("init", text, self.lib.tally_init, text)
+        return self._call("init", text, self.lib.aequalis_init, text)
 
     def eval(self, request):
         b = request.encode()
-        return self._call("eval", b, self.lib.tally_eval, b)
+        return self._call("eval", b, self.lib.aequalis_eval, b)
 
     def suggest(self, before):
         b = before.encode()
-        return self._call("suggest", b, self.lib.tally_suggest, b, 3)
+        return self._call("suggest", b, self.lib.aequalis_suggest, b, 3)
 
     def set(self, key, value):
         label = json.dumps([key, value]).encode()
-        return self._call("set", label, self.lib.tally_set, key.encode(), None if value is None else value.encode())
+        return self._call("set", label, self.lib.aequalis_set, key.encode(), None if value is None else value.encode())
 
     def list(self, which):
-        return self._call("list", which.encode(), getattr(self.lib, f"tally_{which}"))
+        return self._call("list", which.encode(), getattr(self.lib, f"aequalis_{which}"))
 
     def sync(self):
-        return self._call("sync", b"", self.lib.tally_sync, False)
+        return self._call("sync", b"", self.lib.aequalis_sync, False)
 
     def seed(self, rates, cities):
         label = json.dumps([len(rates or b""), cities]).encode()
-        return self._call("seed", label, self.lib.tally_seed, rates, cities.encode() if cities else None)
+        return self._call("seed", label, self.lib.aequalis_seed, rates, cities.encode() if cities else None)
 
 
 # ---------------------------------------------------------------- the device the engine is told about
@@ -273,8 +273,8 @@ class Worker:
     def start(self):
         c = self.config
         data = os.path.join(self.work, "data")
-        os.makedirs(os.path.join(data, "tally"), exist_ok=True)
-        with open(os.path.join(data, "tally", "settings.json"), "w") as f:
+        os.makedirs(os.path.join(data, "aequalis"), exist_ok=True)
+        with open(os.path.join(data, "aequalis", "settings.json"), "w") as f:
             json.dump(c.get("settings", {}), f)
         init = {"dir": data, "zone": c["zone"], "zoneinfo": make_zoneinfo(c.get("zoneinfo", "system"), self.work, self.r),
                 "decimal": c.get("decimal", "."), "thousands": c.get("thousands", ""), "grouping": c.get("grouping", [3]),
@@ -285,7 +285,7 @@ class Worker:
             with open(path, "rb") as f:
                 samples[key] = f.read()
         self.fetcher = Fetcher(self.r, samples)
-        self.engine.lib.tally_set_fetcher(self.fetcher.callback)
+        self.engine.lib.aequalis_set_fetcher(self.fetcher.callback)
         kind = c.get("data", "none")
         if kind != "none":
             cities = self.vocab["archive_file"] if kind == "shipped" and self.vocab.get("archive_file") else self.vocab["samples"]["cities"]
@@ -353,7 +353,7 @@ class Worker:
         text, expected, tree = self.gen.calculation()
         doc, _ = self.eval(text)
         if self.gen.overflowed and isinstance(doc, dict) and doc.get("ok"):
-            # A step past the largest double, yet an answer (`10^800` → infinity, `1/∞` → 0): Tally
+            # A step past the largest double, yet an answer (`10^800` → infinity, `1/∞` → 0): Aequalis
             # computes as IEEE does; whether it should say "out of range" instead is a choice.
             self.report("semantics", "intermediate-overflow", f"{text!r} → {doc.get('result')!r}", "eval", text)
         if self.plain:

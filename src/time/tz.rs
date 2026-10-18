@@ -280,7 +280,7 @@ fn day_of(year: i64, day: RuleDay) -> i64 {
 
 static APP_ZONEINFO: OnceLock<String> = OnceLock::new();
 
-/// The zone database given by the app embedding tally: a folder of zone files, or Android's
+/// The zone database given by the app embedding aequalis: a folder of zone files, or Android's
 /// single file (`/apex/com.android.tzdata/etc/tz/tzdata`); set once, before any zone is loaded.
 #[cfg_attr(not(feature = "ffi"), allow(dead_code))]
 pub fn set_zoneinfo(path: &str) {

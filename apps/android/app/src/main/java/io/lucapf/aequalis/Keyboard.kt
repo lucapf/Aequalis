@@ -1,4 +1,4 @@
-package io.lucapf.tally
+package io.lucapf.aequalis
 
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -79,14 +79,14 @@ enum class Panel {
 enum class Mode { Text, Basic, Scientific }
 
 /**
- * Tally's own keyboard, in one of its `mode`s. Letters: as on a phone, with ⇧ for the capitals
+ * Aequalis's own keyboard, in one of its `mode`s. Letters: as on a phone, with ⇧ for the capitals
  * (what is written is matched in any case, but for the units whose case matters, `MB` and `Mb`,
  * also offered by the suggestions and the Measures), with the digits and the operators above
  * them. The calculator: the digits and operators in a grid, and in scientific mode the functions
  * and constants beside them.
  */
 @Composable
-fun TallyKeyboard(mode: Mode, onKey: (Key) -> Unit, modifier: Modifier = Modifier) {
+fun AequalisKeyboard(mode: Mode, onKey: (Key) -> Unit, modifier: Modifier = Modifier) {
     Surface(color = MaterialTheme.colorScheme.surfaceContainer, modifier = modifier) {
         Column(
             Modifier.fillMaxWidth().navigationBarsPadding().height(KeyboardHeight).padding(4.dp),
@@ -115,7 +115,7 @@ private fun switches(mode: Mode): List<Pair<String, Mode>> = when (mode) {
     Mode.Scientific -> listOf("ABC" to Mode.Text, "Basic" to Mode.Basic)
 }
 
-/** The operators as people write them, written as Tally reads them: × is *, ÷ is /, − is -. */
+/** The operators as people write them, written as Aequalis reads them: × is *, ÷ is /, − is -. */
 private val OPERATORS = listOf("+" to "+", "−" to "-", "×" to "*", "÷" to "/", "^" to "^", "(" to "(", ")" to ")", "%" to "%", "." to ".", ":" to ":")
 
 @Composable

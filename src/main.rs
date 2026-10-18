@@ -1,11 +1,11 @@
-//! tally: an ultra lightweight command-line unit converter.
+//! aequalis: an ultra lightweight command-line unit converter.
 
 use std::io::{IsTerminal, Read};
 use std::process::ExitCode;
-use tally::config::Config;
+use aequalis::config::Config;
 #[cfg(feature = "tui")]
-use tally::tui;
-use tally::{convert, convert_request, json, notify, online, parse_options, run, settings, time, CliError, Output, Parsed};
+use aequalis::tui;
+use aequalis::{convert, convert_request, json, notify, online, parse_options, run, settings, time, CliError, Output, Parsed};
 
 fn main() -> ExitCode {
     let config = Config::shared();
@@ -18,7 +18,7 @@ fn main() -> ExitCode {
             None => all.get(i + 1).cloned(),
         };
         let Some(seconds) = value.as_deref().and_then(|v| v.parse::<i64>().ok()) else {
-            eprintln!("tally: error: --now requires Unix seconds (--now 1791800000)");
+            eprintln!("aequalis: error: --now requires Unix seconds (--now 1791800000)");
             return ExitCode::from(2);
         };
         time::set_now(seconds);
@@ -43,7 +43,7 @@ fn main() -> ExitCode {
             None => args.get(i + 1).cloned(),
         };
         let Some(spec) = spec else {
-            eprintln!("tally: error: --set requires key=value (or key, for its default; see tally --settings)");
+            eprintln!("aequalis: error: --set requires key=value (or key, for its default; see aequalis --settings)");
             return ExitCode::from(2);
         };
         let (key, value) = match spec.split_once('=') {
@@ -56,7 +56,7 @@ fn main() -> ExitCode {
                 ExitCode::SUCCESS
             }
             Err(e) => {
-                eprintln!("tally: error: {e}");
+                eprintln!("aequalis: error: {e}");
                 ExitCode::from(2)
             }
         };
@@ -73,13 +73,13 @@ fn main() -> ExitCode {
                 ExitCode::SUCCESS
             }
             Err(e) => {
-                eprintln!("tally: error: {e}");
+                eprintln!("aequalis: error: {e}");
                 ExitCode::from(2)
             }
         };
     }
     if let Some(e) = settings::error() {
-        eprintln!("tally: error: {e} (fix it with tally --set, or edit the file)");
+        eprintln!("aequalis: error: {e} (fix it with aequalis --set, or edit the file)");
         return ExitCode::from(2);
     }
     // `--sync`: download all the online data now; `--sync --auto`: the background sync, what
@@ -87,7 +87,7 @@ fn main() -> ExitCode {
     if let Some(i) = args.iter().position(|a| a == "--sync") {
         let auto = args.iter().any(|a| a == "--auto");
         if let Some(extra) = args[i + 1..].iter().find(|a| !a.starts_with("--")) {
-            eprintln!("tally: error: `--sync` downloads everything: no `{extra}` after it");
+            eprintln!("aequalis: error: `--sync` downloads everything: no `{extra}` after it");
             return ExitCode::from(2);
         }
         // A group that failed is reported (stderr; `--json`: its warnings) and makes the exit code 1,
@@ -105,7 +105,7 @@ fn main() -> ExitCode {
                     println!("{line}");
                 }
                 for line in &report.failed {
-                    eprintln!("tally: {line}");
+                    eprintln!("aequalis: {line}");
                 }
                 code(&report)
             }
@@ -114,7 +114,7 @@ fn main() -> ExitCode {
                 ExitCode::from(1)
             }
             (Err(e), false) => {
-                eprintln!("tally: {e}");
+                eprintln!("aequalis: {e}");
                 ExitCode::from(1)
             }
         };
@@ -160,17 +160,17 @@ fn main() -> ExitCode {
         match result {
             Ok(out) => {
                 for w in &out.warnings {
-                    eprintln!("tally: warning: {w}");
+                    eprintln!("aequalis: warning: {w}");
                 }
                 for n in &out.notes {
-                    eprintln!("tally: note: {n}");
+                    eprintln!("aequalis: note: {n}");
                 }
                 println!("{}", out.stdout);
             }
             Err(err) => {
                 match err.hint() {
-                    Some(hint) => eprintln!("tally: error: {err} ({hint})"),
-                    None => eprintln!("tally: error: {err}"),
+                    Some(hint) => eprintln!("aequalis: error: {err} ({hint})"),
+                    None => eprintln!("aequalis: error: {err}"),
                 }
                 code = code.max(err.exit_code());
             }
@@ -185,7 +185,7 @@ fn main() -> ExitCode {
         if !notices.is_empty() && now - state.shown_at >= 86_400 {
             // The notices say what; here, how: the command that downloads.
             for n in &notices {
-                eprintln!("tally: note: {n}: tally --sync");
+                eprintln!("aequalis: note: {n}: aequalis --sync");
             }
             state.shown_at = now;
             notify::save(&state);
@@ -199,7 +199,7 @@ fn main() -> ExitCode {
 fn ask(a: &time::Ambiguity) -> Option<&time::Choice> {
     let question = match a.kind {
         time::AmbiguityKind::City => {
-            eprintln!("tally: {}. Did you mean:", a.note);
+            eprintln!("aequalis: {}. Did you mean:", a.note);
             if a.note.ends_with("is not a city") {
                 "Which city?"
             } else {
@@ -207,19 +207,19 @@ fn ask(a: &time::Ambiguity) -> Option<&time::Choice> {
             }
         }
         time::AmbiguityKind::Country => {
-            eprintln!("tally: `{}` has several time zones:", a.text);
+            eprintln!("aequalis: `{}` has several time zones:", a.text);
             "Which one?"
         }
         time::AmbiguityKind::Date => {
-            eprintln!("tally: `{}` is ambiguous:", a.text);
+            eprintln!("aequalis: `{}` is ambiguous:", a.text);
             "Which one?"
         }
         time::AmbiguityKind::Currency => {
-            eprintln!("tally: {}. Did you mean:", a.note);
+            eprintln!("aequalis: {}. Did you mean:", a.note);
             "Which currency?"
         }
         time::AmbiguityKind::Place => {
-            eprintln!("tally: {}. Did you mean:", a.note);
+            eprintln!("aequalis: {}. Did you mean:", a.note);
             "Which one?"
         }
     };

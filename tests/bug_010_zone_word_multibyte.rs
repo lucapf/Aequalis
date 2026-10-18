@@ -1,14 +1,14 @@
-//! Bug 010: `gmt+1 sin(30°)`, `utc+5 °C`, `GMT+2 €` crashed tally (a panic; in the Android app,
+//! Bug 010: `gmt+1 sin(30°)`, `utc+5 °C`, `GMT+2 €` crashed aequalis (a panic; in the Android app,
 //! the app closed). Found by the fuzzer (`fuzz/`), minimized to `GMT+؋*`.
 //!
-//! When no stage reads a request, tally checks whether a place is being typed, and asks whether
+//! When no stage reads a request, aequalis checks whether a place is being typed, and asks whether
 //! all its words are a reserved word; `gmt_zone`, written for one word (`GMT+0530`), took the last
 //! two *bytes* after the sign as the minutes, and cut inside a character of two or more bytes
 //! (`°`, `€`). Fixed: only ASCII text is cut there; anything else is no zone.
 
 use std::process::Command;
 
-const BIN: &str = env!("CARGO_BIN_EXE_tally");
+const BIN: &str = env!("CARGO_BIN_EXE_aequalis");
 
 fn run(args: &str) -> (String, String, i32) {
     let out = Command::new(BIN).args(args.split_whitespace()).env("TZ", "Europe/Rome").env("LC_ALL", "C").output().unwrap();
@@ -21,7 +21,7 @@ fn reported() {
     for request in ["gmt+1 sin(30°)", "utc+5 °C", "GMT+2 €", "GMT+؋*", "UTC-1 🙂🙂", "GMT+12€"] {
         let (_, err, code) = run(request);
         assert_eq!(code, 2, "{request}: {err}");
-        assert!(err.starts_with("tally: error: "), "{request}: {err}");
+        assert!(err.starts_with("aequalis: error: "), "{request}: {err}");
     }
     // Crashed too, and is a request: the time in São Paulo.
     let (out, err, code) = run("GMT+2 São Paulo");

@@ -1,4 +1,4 @@
-package io.lucapf.tally.ui.theme
+package io.lucapf.aequalis.ui.theme
 
 import android.content.Context
 import android.os.Build

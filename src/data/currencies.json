@@ -1,5 +1,5 @@
 {
-  "about": "Currencies, for conversions (`12 usd euro`, `12 USA Europe`). `code`: ISO 4217, as the exchange rates name it (open.er-api.com). `name`: written in full (`US dollar`, plural with s). `words`: what it is called alone (`dollar`, `yen`), plural with s or listed; several currencies may share one (`dollar`): Tally then asks which. `symbols` and `abbreviations`: other ways to write it (`$`, `Dhs`). Case and accents do not matter. The most used currencies come first: when a name is shared, they are offered first.",
+  "about": "Currencies, for conversions (`12 usd euro`, `12 USA Europe`). `code`: ISO 4217, as the exchange rates name it (open.er-api.com). `name`: written in full (`US dollar`, plural with s). `words`: what it is called alone (`dollar`, `yen`), plural with s or listed; several currencies may share one (`dollar`): Aequalis then asks which. `symbols` and `abbreviations`: other ways to write it (`$`, `Dhs`). Case and accents do not matter. The most used currencies come first: when a name is shared, they are offered first.",
   "currencies": [
     {"code": "USD", "name": "US dollar", "words": ["dollar", "United States dollar", "American dollar", "greenback"], "symbols": ["US$"]},
     {"code": "EUR", "name": "euro", "words": ["euro"], "symbols": ["€"]},

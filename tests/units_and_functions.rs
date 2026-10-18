@@ -5,19 +5,19 @@
 
 use std::process::{Command, Output, Stdio};
 
-fn tally(args: &[&str]) -> Output {
+fn aequalis(args: &[&str]) -> Output {
     // The plain number format, whatever the machine's locale.
-    Command::new(env!("CARGO_BIN_EXE_tally")).args(args).env("LC_ALL", "C").stdin(Stdio::null()).output().expect("run tally")
+    Command::new(env!("CARGO_BIN_EXE_aequalis")).args(args).env("LC_ALL", "C").stdin(Stdio::null()).output().expect("run aequalis")
 }
 
 fn out(args: &[&str]) -> String {
-    let out = tally(args);
+    let out = aequalis(args);
     assert!(out.status.success(), "{args:?} failed: {}", String::from_utf8_lossy(&out.stderr));
     String::from_utf8(out.stdout).unwrap().trim_end().to_string()
 }
 
 fn err(args: &[&str]) -> (i32, String) {
-    let out = tally(args);
+    let out = aequalis(args);
     (out.status.code().unwrap(), String::from_utf8(out.stderr).unwrap().trim_end().to_string())
 }
 
@@ -43,7 +43,7 @@ fn compound_units() {
     assert_eq!(out(&["100", "Mb/s", "MB/s"]), "12.5 MB/s");
     assert_eq!(out(&["20", "km/l", "mi/gal"]), "47.0429 mpg");
     // Piped, like any request.
-    let mut child = Command::new(env!("CARGO_BIN_EXE_tally")).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_aequalis")).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
     use std::io::Write;
     child.stdin.take().unwrap().write_all(b"100 km/h mph\n").unwrap();
     assert_eq!(String::from_utf8(child.wait_with_output().unwrap().stdout).unwrap(), "62.1371 mph\n");
@@ -51,10 +51,10 @@ fn compound_units() {
 
 #[test]
 fn unit_errors() {
-    assert_eq!(err(&["5", "foo/h", "mph"]), (1, "tally: error: unknown unit `foo` (see `tally --list`)".into()));
-    assert_eq!(err(&["10", "C/s", "K/s"]), (1, "tally: error: `C` can't be part of a compound unit".into()));
+    assert_eq!(err(&["5", "foo/h", "mph"]), (1, "aequalis: error: unknown unit `foo` (see `aequalis --list`)".into()));
+    assert_eq!(err(&["10", "C/s", "K/s"]), (1, "aequalis: error: `C` can't be part of a compound unit".into()));
     assert_eq!(err(&["1", "ha", "l/100km"]).0, 1);
-    assert_eq!(err(&["0", "mpg", "l/100km"]), (1, "tally: error: division by zero".into()));
+    assert_eq!(err(&["0", "mpg", "l/100km"]), (1, "aequalis: error: division by zero".into()));
 }
 
 #[test]
@@ -76,14 +76,14 @@ fn functions_and_constants() {
     // With units.
     assert_eq!(out(&["sqrt(2)", "km", "mi"]), "0.8788 mi");
     // The JSON mode the widget uses.
-    let json = String::from_utf8(tally(&["--json", "sqrt(16)"]).stdout).unwrap();
+    let json = String::from_utf8(aequalis(&["--json", "sqrt(16)"]).stdout).unwrap();
     assert!(json.starts_with(r#"{"ok":true,"result":"4","#), "{json}");
 }
 
 #[test]
 fn function_errors() {
-    assert_eq!(err(&["sqrt(-1)"]), (1, "tally: error: `sqrt` of a negative number (-1)".into()));
-    assert_eq!(err(&["log(0)"]), (1, "tally: error: `log` of a number that is not positive (0)".into()));
+    assert_eq!(err(&["sqrt(-1)"]), (1, "aequalis: error: `sqrt` of a negative number (-1)".into()));
+    assert_eq!(err(&["log(0)"]), (1, "aequalis: error: `log` of a number that is not positive (0)".into()));
 }
 
 #[test]
@@ -110,7 +110,7 @@ fn distances_use_the_desktop_thousands_separator() {
         return;
     }
     let run = |locale: &str, args: &[&str]| {
-        let out = Command::new(env!("CARGO_BIN_EXE_tally")).args(args).env("LC_ALL", locale).stdin(Stdio::null()).output().unwrap();
+        let out = Command::new(env!("CARGO_BIN_EXE_aequalis")).args(args).env("LC_ALL", locale).stdin(Stdio::null()).output().unwrap();
         String::from_utf8(out.stdout).unwrap().trim_end().to_string()
     };
     assert_eq!(run("en_US.UTF-8", &["Rome", "to", "Doha"]), "4,019 km");

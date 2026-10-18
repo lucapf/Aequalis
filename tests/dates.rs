@@ -3,7 +3,7 @@
 
 use std::process::Command;
 
-const BIN: &str = env!("CARGO_BIN_EXE_tally");
+const BIN: &str = env!("CARGO_BIN_EXE_aequalis");
 
 fn run(tz: &str, args: &str) -> (Result<String, String>, i32) {
     let out = Command::new(BIN).arg("-v").args(args.split_whitespace()).env("TZ", tz).env("LC_ALL", "C").output().unwrap();
@@ -53,7 +53,7 @@ fn reported_guess_shows_both_sides_and_how_it_was_read() {
     // (`12/04/26` has three: see tests/ambiguous_dates.rs).
     let (out, err) = run_both("Europe/Rome", "04/13/26 3:20PM unix");
     assert_eq!(out, "2026-04-13T15:20+02:00 iso = 1776086400 unix");
-    assert_eq!(err, "tally: note: read `04/13/26 3:20PM` as MM/DD/YY-12h (the locale's order)");
+    assert_eq!(err, "aequalis: note: read `04/13/26 3:20PM` as MM/DD/YY-12h (the locale's order)");
     // Only one valid order: that one, said so.
     let (out, err) = run_both("Europe/Rome", "25/12/2026 18:00 iso");
     assert_eq!(out, "2026-12-25T18:00+01:00 iso");
@@ -360,5 +360,5 @@ fn now_can_be_frozen() {
     assert_eq!(value(utc("--now 1791800000 today iso-date")), "2026-10-12");
     assert_eq!(value(utc("--now 1791800000 now + 1d unix")), "1791886400");
     let (out, code) = run("UTC", "--now soon now unix");
-    assert_eq!((out.unwrap_err(), code), ("tally: error: --now requires Unix seconds (--now 1791800000)".to_string(), 2));
+    assert_eq!((out.unwrap_err(), code), ("aequalis: error: --now requires Unix seconds (--now 1791800000)".to_string(), 2));
 }

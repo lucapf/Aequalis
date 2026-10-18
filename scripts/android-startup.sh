@@ -1,5 +1,5 @@
 #!/bin/sh
-# Measures how long Tally takes to start on a device, as Android counts it: from the launch to the
+# Measures how long Aequalis takes to start on a device, as Android counts it: from the launch to the
 # app's first frame (`am start -W`, TotalTime, in milliseconds).
 #   cold: the app's process killed first, as after a reboot or when Android needed the memory;
 #   hot:  from the home screen, the app still in memory.
@@ -10,7 +10,7 @@ set -eu
 serial=${1:?usage: scripts/android-startup.sh <serial> [runs]}
 runs=${2:-10}
 adb="${ANDROID_HOME:-$HOME/Android/Sdk}/platform-tools/adb"
-app=io.lucapf.tally/.MainActivity
+app=io.lucapf.aequalis/.MainActivity
 device() { "$adb" -s "$serial" shell "$@" | tr -d '\r'; }
 
 # One launch's TotalTime; `-S`: the process killed first.
@@ -33,11 +33,11 @@ summary() {
 
 # What is measured: the device, and the build (debug or release, how Android compiled it).
 echo "$(device getprop ro.product.manufacturer) $(device getprop ro.product.model), Android $(device getprop ro.build.version.release)"
-case $(device dumpsys package io.lucapf.tally | grep -c DEBUGGABLE) in
+case $(device dumpsys package io.lucapf.aequalis | grep -c DEBUGGABLE) in
     0) echo "build: release" ;;
     *) echo "build: debug" ;;
 esac
-device dumpsys package dexopt | grep -A2 '\[io.lucapf.tally\]' | grep -o 'status=[^]]*' | head -1 | sed 's/^/compiled: /'
+device dumpsys package dexopt | grep -A2 '\[io.lucapf.aequalis\]' | grep -o 'status=[^]]*' | head -1 | sed 's/^/compiled: /'
 
 times=""
 for _ in $(seq "$runs"); do

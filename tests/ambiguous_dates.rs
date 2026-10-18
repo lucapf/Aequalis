@@ -5,7 +5,7 @@
 use std::io::Write;
 use std::process::{Command, Stdio};
 
-const BIN: &str = env!("CARGO_BIN_EXE_tally");
+const BIN: &str = env!("CARGO_BIN_EXE_aequalis");
 
 fn run(args: &str) -> (String, String, i32) {
     let out = Command::new(BIN).arg("-v").args(args.split_whitespace()).env("TZ", "Europe/Rome").env("LC_ALL", "C").stdin(Stdio::null()).output().unwrap();
@@ -19,7 +19,7 @@ fn reported_example_without_a_terminal() {
     assert_eq!((out.as_str(), code), ("", 2));
     assert_eq!(
         err,
-        "tally: error: `12/04/2026` is ambiguous: MM/DD/YYYY (2026-12-04) or DD/MM/YYYY (2026-04-12); \
+        "aequalis: error: `12/04/2026` is ambiguous: MM/DD/YYYY (2026-12-04) or DD/MM/YYYY (2026-04-12); \
          write the pattern: `12/04/2026 MM/DD/YYYY unix`"
     );
     // The suggested request works, and so does the other reading.

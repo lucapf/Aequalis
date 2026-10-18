@@ -1,4 +1,4 @@
-package io.lucapf.tally.ui.theme
+package io.lucapf.aequalis.ui.theme
 
 import android.app.Activity
 import androidx.compose.foundation.background
@@ -21,10 +21,10 @@ fun isDark(): Boolean = when (Appearance.mode) {
     DarkMode.Dark -> true
 }
 
-/** Tally's theme: the skin and the mode chosen (`Appearance`), the skin's background behind
+/** Aequalis's theme: the skin and the mode chosen (`Appearance`), the skin's background behind
  *  everything, and the status bar's icons dark on a light screen, light on a dark one. */
 @Composable
-fun TallyTheme(content: @Composable () -> Unit) {
+fun AequalisTheme(content: @Composable () -> Unit) {
     val dark = isDark()
     val scheme = colorScheme(LocalContext.current, Appearance.skin, dark)
     val view = LocalView.current

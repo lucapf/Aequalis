@@ -1,4 +1,4 @@
-package io.lucapf.tally
+package io.lucapf.aequalis
 
 import android.app.ActivityManager
 import android.content.Context
@@ -82,7 +82,7 @@ fun bytes(n: Long): String = when {
 }
 
 /**
- * The memory the app uses, under its name (a tap on "Tally" shows it, another or a tap here hides
+ * The memory the app uses, under its name (a tap on "Aequalis" shows it, another or a tap here hides
  * it): the total, a bar of its kinds with their sizes, the Rust core's share, the phone's free
  * memory. Counted again every 2 seconds while it's shown.
  */

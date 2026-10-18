@@ -4,13 +4,13 @@ plugins {
 }
 
 android {
-    namespace = "io.lucapf.tally"
+    namespace = "io.lucapf.aequalis"
     compileSdk {
         version = release(37)
     }
 
     defaultConfig {
-        applicationId = "io.lucapf.tally"
+        applicationId = "io.lucapf.aequalis"
         minSdk = 26
         targetSdk = 37
         versionCode = 1
@@ -27,7 +27,7 @@ android {
             // app's data kept. The Play Store will need an upload key of its own.
             signingConfig = signingConfigs.getByName("debug")
             // R8 on the whole app. Its default rules keep the names of the native methods, which the
-            // Rust core's functions are found by (`Java_io_lucapf_tally_Core_init`, src/jni.rs).
+            // Rust core's functions are found by (`Java_io_lucapf_aequalis_Core_init`, src/jni.rs).
             // Not `packageScope` (androidx, kotlin): it moved a class out of kotlin.collections, away
             // from its parent class, and the app stopped at start (IllegalAccessError).
             optimization {

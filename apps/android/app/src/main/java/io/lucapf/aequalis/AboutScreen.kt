@@ -1,4 +1,4 @@
-package io.lucapf.tally
+package io.lucapf.aequalis
 
 import android.content.Intent
 import android.net.Uri
@@ -31,25 +31,25 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-/** Where Tally is installed from, for each system: (system, address). Android: the Play Store's
+/** Where Aequalis is installed from, for each system: (system, address). Android: the Play Store's
  *  page, once the app is published there. */
 private val INSTALL = listOf(
-    "Mac" to "https://github.com/lucapf/tally/blob/master/docs/install_mac.md",
-    "Linux" to "https://github.com/lucapf/tally/releases/latest",
-    "Source code" to "https://github.com/lucapf/tally",
+    "Mac" to "https://github.com/lucapf/aequalis/blob/master/docs/install_mac.md",
+    "Linux" to "https://github.com/lucapf/aequalis/releases/latest",
+    "Source code" to "https://github.com/lucapf/aequalis",
 )
 
 /** The Play Store's page of the app: null until it is published there. */
 private val PLAY_STORE: String? = null
 
-/** What Share sends: the install links, to give Tally to someone. */
+/** What Share sends: the install links, to give Aequalis to someone. */
 private fun installText(tagline: String): String {
     val links = (INSTALL + listOfNotNull(PLAY_STORE?.let { "Android" to it })).joinToString("\n") { (system, link) -> "$system: $link" }
-    return "Tally, $tagline.\n$links"
+    return "Aequalis, $tagline.\n$links"
 }
 
-/** About Tally: the version, the online data and its sources (with their credits), how to
- *  install Tally on the other systems, and Share for those links. */
+/** About Aequalis: the version, the online data and its sources (with their credits), how to
+ *  install Aequalis on the other systems, and Share for those links. */
 @Composable
 fun AboutScreen(close: () -> Unit, modifier: Modifier = Modifier) {
     BackHandler(onBack = close)
@@ -71,7 +71,7 @@ fun AboutScreen(close: () -> Unit, modifier: Modifier = Modifier) {
             }
             items(a.facts) { (label, text) -> Fact(label, text) }
             item { HorizontalDivider() }
-            item { Text("Install Tally", style = MaterialTheme.typography.titleMedium) }
+            item { Text("Install Aequalis", style = MaterialTheme.typography.titleMedium) }
             items(INSTALL) { (system, link) -> Fact(system, link, onClick = { open(link) }) }
             item {
                 Button(onClick = {

@@ -8,7 +8,7 @@
 
 use std::process::Command;
 
-const BIN: &str = env!("CARGO_BIN_EXE_tally");
+const BIN: &str = env!("CARGO_BIN_EXE_aequalis");
 
 #[test]
 fn reported_case_on_the_command_line() {

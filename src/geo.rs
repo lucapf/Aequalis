@@ -271,7 +271,7 @@ enum Side {
     Misspelt(String, Vec<crate::cities::City>),
 }
 
-/// What `text` is as a place. Words that are something else to tally (units, currencies,
+/// What `text` is as a place. Words that are something else to aequalis (units, currencies,
 /// formats, months, keywords) are not places, unless qualified (`Bar, Montenegro`).
 fn side(config: &Config, text: &str, store: Option<&crate::cities::Store>, misspelt: bool) -> Option<Side> {
     let text = text.trim();

@@ -37,7 +37,7 @@ mode works), a keyboard that scales with the font size, and haptics. **The four 
 |---|---|---|
 | 8 | The gear, ←, ⌨ and ✕ are text characters, not icons. Their look depends on the font (the gear rendered as an emoji), and they have no accessible names. | Material Symbols as vector drawables in `res/drawable` (no library needed), each with a `contentDescription`. |
 | 9 | Settings shows the internal keys (`cities.refresh`, `rates.interval`) and free text for durations (`30d`, `24h`). | Titles for people ("City archive: update"), groups (Downloads, Units, Formats), choices instead of free text for intervals (1 day, 1 week, 30 days), and a Material top app bar. |
-| 10 | The Currencies panel is a list of 167 items with no search. | A search field at the top, typed with Tally's keyboard, and the most used or recently used currencies first. |
+| 10 | The Currencies panel is a list of 167 items with no search. | A search field at the top, typed with Aequalis's keyboard, and the most used or recently used currencies first. |
 | 11 | Results, hints and errors aren't announced to screen readers. | `Modifier.semantics { liveRegion = LiveRegionMode.Polite }` on the result area. |
 | 12 | Error and hint differ mostly by colour (red / grey). | An icon or label too ("Not finished:", "Error:"), so the meaning doesn't depend on colour alone (WCAG 1.4.1). |
 | 13 | Letter keys are 36.7 dp wide (10 per row on a 411 dp screen; their height is 49.7 dp). | That's normal for keyboards (Gboard is similar), but below Material's 48 dp target. Keep 4 dp gaps, and make the panel buttons and toolbar keys at least 48 dp. |

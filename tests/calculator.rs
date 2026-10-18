@@ -3,13 +3,13 @@
 
 use std::process::{Command, Output};
 
-fn tally(args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_tally")).arg("-v").args(args).output().expect("run tally")
+fn aequalis(args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_aequalis")).arg("-v").args(args).output().expect("run aequalis")
 }
 
 /// (stdout, stderr) of a successful run.
 fn run(args: &[&str]) -> (String, String) {
-    let out = tally(args);
+    let out = aequalis(args);
     assert!(out.status.success(), "{args:?} failed: {}", String::from_utf8_lossy(&out.stderr));
     (String::from_utf8(out.stdout).unwrap(), String::from_utf8(out.stderr).unwrap())
 }
@@ -24,7 +24,7 @@ fn power() {
 fn brackets() {
     let (out, err) = run(&["(100+20)/120"]);
     assert_eq!(out, "1\n");
-    assert_eq!(err, "tally: note: evaluated as (100 + 20) / 120\n");
+    assert_eq!(err, "aequalis: note: evaluated as (100 + 20) / 120\n");
     assert_eq!(run(&["[100+20]/120"]).0, "1\n");
     assert_eq!(run(&["{100+20}/120"]).0, "1\n");
 }
@@ -39,7 +39,7 @@ fn default_precision() {
 fn spaced_expression_with_units() {
     let (out, err) = run(&["100", "+", "20", "+", "50", "/", "10", "sqft", "m2"]);
     assert_eq!(out, "11.6129 m2\n");
-    assert_eq!(err, "tally: note: evaluated as (100 + 20) + (50 / 10)\n");
+    assert_eq!(err, "aequalis: note: evaluated as (100 + 20) + (50 / 10)\n");
 }
 
 #[test]
@@ -51,9 +51,9 @@ fn silent_hides_the_grouping_note() {
 
 #[test]
 fn errors() {
-    assert_eq!(tally(&["1/0"]).status.code(), Some(1));
-    assert_eq!(tally(&["(1+2"]).status.code(), Some(2));
-    assert_eq!(tally(&["1+2", "km"]).status.code(), Some(2));
+    assert_eq!(aequalis(&["1/0"]).status.code(), Some(1));
+    assert_eq!(aequalis(&["(1+2"]).status.code(), Some(2));
+    assert_eq!(aequalis(&["1+2", "km"]).status.code(), Some(2));
 }
 
 /// The shell-safe spellings reach the program unchanged when typed without quotes in bash.
@@ -62,7 +62,7 @@ fn shell_safe_spellings_unquoted_in_bash() {
     if Command::new("bash").arg("--version").output().is_err() {
         return;
     }
-    let bin = env!("CARGO_BIN_EXE_tally");
+    let bin = env!("CARGO_BIN_EXE_aequalis");
     let out = Command::new("bash")
         .arg("-c")
         .arg(format!("'{bin}' 10^2 && '{bin}' [100+20]/120 && '{bin}' {{100+20}}/120 && '{bin}' 3 x 4"))

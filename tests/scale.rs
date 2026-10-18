@@ -6,7 +6,7 @@ fn run(scale: Option<&str>, args: &str) -> (String, String, i32) {
     let settings: Vec<(&str, &str)> = scale.map(|s| vec![("precision", s)]).unwrap_or_default();
     let dir = common::config(&format!("scale-{}", scale.unwrap_or("none").trim()), &settings);
     let words: Vec<&str> = args.split_whitespace().collect();
-    let out = common::tally(&dir, &words);
+    let out = common::aequalis(&dir, &words);
     (common::out(&out), common::err(&out), out.status.code().unwrap_or(-1))
 }
 
@@ -34,6 +34,6 @@ fn invalid_values() {
     for bad in ["abc", "-1", "16", "2.5"] {
         let (_, err, code) = run(Some(bad), "1/3");
         assert_eq!(code, 2, "{bad}");
-        assert!(err.starts_with("tally: error: settings (") && err.contains(&format!("`precision` must be an integer from 0 to 15 (it is `{bad}`)")), "{err}");
+        assert!(err.starts_with("aequalis: error: settings (") && err.contains(&format!("`precision` must be an integer from 0 to 15 (it is `{bad}`)")), "{err}");
     }
 }

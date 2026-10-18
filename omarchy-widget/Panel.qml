@@ -4,35 +4,35 @@ import Quickshell.Wayland
 import qs.Commons
 import qs.Ui
 
-// Tally bar widget: a bar button opening a popup with one input field. As you type, the
-// request is evaluated by the tally CLI as typed (`tally --json --as-typed "…"`), as the
+// Aequalis bar widget: a bar button opening a popup with one input field. As you type, the
+// request is evaluated by the aequalis CLI as typed (`aequalis --json --as-typed "…"`), as the
 // Android app does: units (`10 km mi`), the calculator (`12+12/3`), dates (`2026/12/04 - 12d`,
 // `now unix`). Enter copies the value and keeps the request in Recent; an ambiguous date
-// (`12/04/2026 unix`) shows one button per reading. What shows, tally's reply says (`show`,
+// (`12/04/2026 unix`) shows one button per reading. What shows, aequalis's reply says (`show`,
 // `message`, `copy`, `choices`): while a word is being typed (no space after it yet, no Enter)
 // errors and questions wait, only a result shows.
 //
 // Settings (this widget's entry in ~/.config/omarchy/shell.json):
-//   "command": the tally binary, when it is not on the shell's PATH (default "tally").
-// The TUI button opens the full interactive mode (`tally` with no arguments) in a new terminal,
+//   "command": the aequalis binary, when it is not on the shell's PATH (default "aequalis").
+// The TUI button opens the full interactive mode (`aequalis` with no arguments) in a new terminal,
 // which gets the focus; it is disabled while that terminal is open. Clicking the title shows
 // About: the logo, the tagline, the memory footprint (the last request's peak, the open TUI, the
-// binary), the version and the last online sync (`tally --about`). The header shows online
-// or offline (`tally --online`), forced by the offline setting (`tally --set offline=true`).
+// binary), the version and the last online sync (`aequalis --about`). The header shows online
+// or offline (`aequalis --online`), forced by the offline setting (`aequalis --set offline=true`).
 // Notices (a new city archive, out-of-date data, from `--json`) come with a Download button.
 Panel {
   id: root
-  moduleName: "lucapf.tally"
+  moduleName: "lucapf.aequalis"
   // One IPC target, ours (below): the base's open/close plus `set`, like the built-in clock.
   manageIpc: false
 
-  readonly property string command: setting("command", "tally")
+  readonly property string command: setting("command", "aequalis")
 
   property string query: ""
   // The parsed `--json` object for `query` (null: nothing typed yet).
   property var reply: null
-  // Enter was pressed on this query: tally then shows its error even in the middle of a word
-  // (what shows, the reply's `show`, tally decides: `--as-typed`).
+  // Enter was pressed on this query: aequalis then shows its error even in the middle of a word
+  // (what shows, the reply's `show`, aequalis decides: `--as-typed`).
   property bool submitted: false
   // The command could not be run (not installed, or not on PATH).
   property bool missing: false
@@ -41,7 +41,7 @@ Panel {
   property string copied: ""
 
   // The TUI's terminal window, found by its app id among the open windows (null: not open).
-  readonly property string tuiAppId: "org.omarchy.tally"
+  readonly property string tuiAppId: "org.omarchy.aequalis"
   readonly property var tuiWindow: {
     var windows = ToplevelManager.toplevels.values
     for (var i = 0; i < windows.length; i++) {
@@ -53,24 +53,24 @@ Panel {
   // Set when the TUI was just launched: its window gets the focus once it appears.
   property bool focusTui: false
 
-  // Clicking the title shows tally's memory footprint: the last request's peak (from its `--json`
+  // Clicking the title shows aequalis's memory footprint: the last request's peak (from its `--json`
   // reply), the open TUI's resident memory, and the binary's size.
   property bool showMemory: false
-  // From `tally --about` (when About is shown): the logo, the version, the last online sync.
+  // From `aequalis --about` (when About is shown): the logo, the version, the last online sync.
   property string aboutArt: ""
   property string aboutVersion: ""
   property string aboutSync: ""
   // However About is opened (a click, IPC), read it again.
   onShowMemoryChanged: if (root.showMemory) root.refreshAbout()
 
-  // Online or offline (`tally --online`): "checking", "online", "offline" or "offline (forced)"
+  // Online or offline (`aequalis --online`): "checking", "online", "offline" or "offline (forced)"
   // (the offline setting). Checked when the popup opens and every 30 s.
   property string netStatus: "checking"
-  // Notices from `tally --online --json` (the city archive not downloaded, out-of-date data), each
+  // Notices from `aequalis --online --json` (the city archive not downloaded, out-of-date data), each
   // with a Download button; refreshed with the online state and after a download.
   property var notices: []
-  // The Settings section (the gear): every setting from `tally --settings --json`, changed with
-  // `tally --set`; the message is what the last change or download said.
+  // The Settings section (the gear): every setting from `aequalis --settings --json`, changed with
+  // `aequalis --set`; the message is what the last change or download said.
   property bool showSettings: false
   property var settingsList: []
   property string settingsMessage: ""
@@ -164,7 +164,7 @@ Panel {
     return s.options[(i + 1) % s.options.length]
   }
 
-  // `tally --sync` (everything) in the background; the notices follow when it ends.
+  // `aequalis --sync` (everything) in the background; the notices follow when it ends.
   function download() {
     if (syncProc.running) return
     root.settingsMessage = "Downloading everything…"
@@ -211,7 +211,7 @@ Panel {
   }
 
   Process { id: copyProc }
-  // A download asked for from a notice or the Settings (`tally --sync`).
+  // A download asked for from a notice or the Settings (`aequalis --sync`).
   Process {
     id: syncProc
     stdout: StdioCollector {
@@ -244,12 +244,12 @@ Panel {
     }
     stderr: StdioCollector {
       waitForEnd: true
-      onStreamFinished: if (String(text || "").trim() !== "") root.settingsMessage = String(text).trim().replace(/^tally: error: /, "")
+      onStreamFinished: if (String(text || "").trim() !== "") root.settingsMessage = String(text).trim().replace(/^aequalis: error: /, "")
     }
     onExited: { root.refreshSettings(); if (!netProc.running) netProc.running = true }
   }
 
-  // The binary's size, and the resident memory of the TUI: the `tally` process with no arguments.
+  // The binary's size, and the resident memory of the TUI: the `aequalis` process with no arguments.
   Process {
     id: memProc
     command: ["sh", "-c",
@@ -302,7 +302,7 @@ Panel {
     onTriggered: root.refreshMemory()
   }
 
-  // `tally --about`: the logo (the lines before the first blank one), then `Label: value` lines.
+  // `aequalis --about`: the logo (the lines before the first blank one), then `Label: value` lines.
   Process {
     id: aboutProc
     command: [root.command, "--about"]
@@ -332,11 +332,11 @@ Panel {
   }
 
   // From scripts and key bindings:
-  //   omarchy-shell lucapf.tally toggle
-  //   omarchy-shell lucapf.tally set "10 km mi"      (open with a request filled in)
-  //   omarchy-shell lucapf.tally set "$(wl-paste)"
+  //   omarchy-shell lucapf.aequalis toggle
+  //   omarchy-shell lucapf.aequalis set "10 km mi"      (open with a request filled in)
+  //   omarchy-shell lucapf.aequalis set "$(wl-paste)"
   IpcHandler {
-    target: "lucapf.tally"
+    target: "lucapf.aequalis"
     function open(): void { root.open() }
     function close(): void { root.close() }
     function show(): void { root.open() }
@@ -356,7 +356,7 @@ Panel {
     function settings(): void { root.showSettings = !root.showSettings }
   }
 
-  // Wait for a short pause in typing before running tally.
+  // Wait for a short pause in typing before running aequalis.
   Timer {
     id: debounce
     interval: 120
@@ -369,7 +369,7 @@ Panel {
     anchors.fill: parent
     bar: root.bar
     text: ""  // Nerd Font: calculator
-    tooltipText: "Tally"
+    tooltipText: "Aequalis"
     onPressed: function(b) { root.toggle() }
   }
 
@@ -399,7 +399,7 @@ Panel {
           id: title
           anchors.left: parent.left
           anchors.verticalCenter: parent.verticalCenter
-          text: "Tally"
+          text: "Aequalis"
           color: titleMouse.containsMouse ? Color.accent : Color.foreground
           font.family: Style.font.family
           font.pixelSize: Style.font.subtitle
@@ -438,7 +438,7 @@ Panel {
 
             PanelToolTip {
               visible: netMouse.containsMouse
-              text: root.netStatus === "offline (forced)" ? "The offline setting (tally --set offline=false)" : "The last download of the online data"
+              text: root.netStatus === "offline (forced)" ? "The offline setting (aequalis --set offline=false)" : "The last download of the online data"
             }
           }
 
@@ -459,7 +459,7 @@ Panel {
             fontSize: Style.font.caption
             enabled: !root.tuiOpen
             opacity: enabled ? 1 : 0.4
-            tooltipText: root.tuiOpen ? "The tally TUI is already open" : "Open the tally TUI in a new terminal"
+            tooltipText: root.tuiOpen ? "The aequalis TUI is already open" : "Open the aequalis TUI in a new terminal"
             onClicked: root.openTui()
           }
         }
@@ -489,7 +489,7 @@ Panel {
           font.family: Style.font.family
           font.pixelSize: Style.font.body
           font.bold: true
-          text: "Tally — Ultralight calculator and converter made for humans"
+          text: "Aequalis — Ultralight calculator and converter made for humans"
         }
 
         Text {
@@ -637,7 +637,7 @@ Panel {
           font.family: Style.font.family
           font.pixelSize: root.reply && root.reply.show === "result" ? Style.font.subtitle : Style.font.body
           text: root.missing
-            ? "`" + root.command + "` not found: install tally (see docs/omarchy-widget.md)"
+            ? "`" + root.command + "` not found: install aequalis (see docs/omarchy-widget.md)"
             : !root.reply || root.reply.show === "none" ? ""
             : root.reply.show === "result" ? "= " + root.reply.result
             : root.reply.message || ""
@@ -743,7 +743,7 @@ Panel {
       }
 
       Text {
-        text: "Enter or Copy copies · Esc closes · click Tally for About"
+        text: "Enter or Copy copies · Esc closes · click Aequalis for About"
         color: Color.muted
         font.family: Style.font.family
         font.pixelSize: Style.font.caption

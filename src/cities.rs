@@ -3,8 +3,8 @@
 //!
 //! The repository publishes `cities.json` (built monthly from GeoNames by
 //! `scripts/build-cities.py`, CC BY 4.0; plain JSON, so any downloader can fetch it as it is) with
-//! its `cities.version`. Tally downloads it when the settings say so (`cities.refresh`,
-//! `tally --sync`) and turns it once into two files, searched without loading them:
+//! its `cities.version`. Aequalis downloads it when the settings say so (`cities.refresh`,
+//! `aequalis --sync`) and turns it once into two files, searched without loading them:
 //!
 //! - `cities.tsv`: one city per line: id, name, lat, lon, population, country code, country,
 //!   region, updated, aliases (`|`-separated), capital (`1` or `0`);
@@ -24,10 +24,10 @@ use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
 
 /// Where the archive comes from (also a setting, `cities.url`, for mirrors and tests).
-pub const URL: &str = "https://github.com/lucapf/tally/releases/download/cities/cities.json";
+pub const URL: &str = "https://github.com/lucapf/aequalis/releases/download/cities/cities.json";
 /// Where it came from when it was published compressed: a settings file that still holds this
 /// address gets `URL` instead (`settings.rs`).
-pub const LEGACY_URL: &str = "https://github.com/lucapf/tally/releases/download/cities/cities.json.gz";
+pub const LEGACY_URL: &str = "https://github.com/lucapf/aequalis/releases/download/cities/cities.json.gz";
 /// The data's origin, for About and the notes.
 pub const SOURCE: &str = "GeoNames (https://www.geonames.org), CC BY 4.0";
 /// At most this many cities offered to choose from.
@@ -497,7 +497,7 @@ fn convert_in_runs(json: &Path, dir: &Path, run: usize) -> Result<(u64, i64), St
     let mut input = BufReader::new(File::open(json).map_err(err)?);
     // Gzip (`1f 8b`): the archive as it was once published, or a mirror that still has it.
     if input.fill_buf().map_err(err)?.starts_with(&[0x1f, 0x8b]) {
-        return Err("the city archive is compressed (gzip): Tally reads the plain `cities.json` (the cities.url setting)".into());
+        return Err("the city archive is compressed (gzip): Aequalis reads the plain `cities.json` (the cities.url setting)".into());
     }
     let mut tsv = BufWriter::new(File::create(dir.join("cities.tsv")).map_err(err)?);
     let mut keys: Vec<(String, u64)> = Vec::with_capacity(run);
@@ -667,7 +667,7 @@ pub mod tests {
 
     /// The sample installed in a fresh directory.
     pub fn sample(name: &str) -> (PathBuf, Store) {
-        let base = std::env::temp_dir().join(format!("tally-cities-{}-{name}", std::process::id()));
+        let base = std::env::temp_dir().join(format!("aequalis-cities-{}-{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         std::fs::create_dir_all(&base).unwrap();
         let json = base.join("sample.json");
@@ -847,7 +847,7 @@ pub mod tests {
     /// The index is the same however many runs it was sorted in (the merge of runs).
     #[test]
     fn sorted_in_runs() {
-        let base = std::env::temp_dir().join(format!("tally-cities-runs-{}", std::process::id()));
+        let base = std::env::temp_dir().join(format!("aequalis-cities-runs-{}", std::process::id()));
         let json = base.join("sample.json");
         std::fs::create_dir_all(&base).unwrap();
         std::fs::write(&json, SAMPLE).unwrap();
@@ -875,7 +875,7 @@ pub mod tests {
         let new = meta_in(&base).unwrap();
         assert_eq!((new.version.as_str(), new.count, new.built_at), ("1791999999 def", 9, 1_791_877_958));
         assert!(!base.join(&old.dir).exists() && base.join(&new.dir).join("cities.idx").exists());
-        assert_eq!(version_url(URL), "https://github.com/lucapf/tally/releases/download/cities/cities.version");
+        assert_eq!(version_url(URL), "https://github.com/lucapf/aequalis/releases/download/cities/cities.version");
     }
 
     /// A download cut short (fewer cities than its header says) or a compressed archive is
@@ -915,7 +915,7 @@ pub mod tests {
     #[ignore]
     fn real_archive() {
         let json = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/cities-real.json");
-        let base = std::env::temp_dir().join(format!("tally-cities-real-{}", std::process::id()));
+        let base = std::env::temp_dir().join(format!("aequalis-cities-real-{}", std::process::id()));
         let started = std::time::Instant::now();
         let count = install(&base, &json, "real", 1).unwrap();
         println!("converted {count} cities in {:?}", started.elapsed());

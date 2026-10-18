@@ -1,4 +1,4 @@
-//! Bug 011: `USA` (any country with several time zones) crashed tally when the zone files can't
+//! Bug 011: `USA` (any country with several time zones) crashed aequalis when the zone files can't
 //! be read (a Linux system or container without them, a wrong `TZDIR`). Found reading the code,
 //! confirmed by the fuzzer (`fuzz/`, the configuration without zone files: `Indonesia`).
 //!
@@ -9,7 +9,7 @@
 
 use std::process::Command;
 
-const BIN: &str = env!("CARGO_BIN_EXE_tally");
+const BIN: &str = env!("CARGO_BIN_EXE_aequalis");
 
 fn run(tzdir: Option<&std::path::Path>, args: &str) -> (String, i32) {
     let mut c = Command::new(BIN);
@@ -23,7 +23,7 @@ fn run(tzdir: Option<&std::path::Path>, args: &str) -> (String, i32) {
 
 #[test]
 fn no_zone_files() {
-    let empty = std::env::temp_dir().join(format!("tally-bug-011-{}", std::process::id()));
+    let empty = std::env::temp_dir().join(format!("aequalis-bug-011-{}", std::process::id()));
     std::fs::create_dir_all(&empty).unwrap();
     for request in ["USA", "now USA", "10:00 USA to Japan", "Indonesia", "now Russia"] {
         let (err, code) = run(Some(&empty), request);

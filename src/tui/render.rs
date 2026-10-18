@@ -1001,7 +1001,7 @@ fn settings_window(canvas: &mut Canvas, rows: usize, view: &super::settings::Vie
     canvas.cells[sep][left + 1..left + width - 1].fill(('─', Style::Dim));
     let about = KEYS
         .get(view.selected)
-        .map_or("the city archive, the exchange rates, the live values (tally --sync)".to_string(), |k| format!("{} (default: {})", k.about, k.default));
+        .map_or("the city archive, the exchange rates, the live values (aequalis --sync)".to_string(), |k| format!("{} (default: {})", k.about, k.default));
     canvas.put_within(sep + 1, left + 2, right, &about, Style::Dim);
     if let Some(msg) = &view.message {
         canvas.put_within(sep + 2, left + 2, right, msg, Style::Green);
@@ -1090,7 +1090,7 @@ fn help(canvas: &mut Canvas, rows: usize, scroll: usize) {
         canvas.put_within(row, left + 26, right, what, Style::Dim);
     }
     let bottom = top + height - 1;
-    // tally's memory, on the bottom border, always shown: now (where known) and the peak.
+    // aequalis's memory, on the bottom border, always shown: now (where known) and the peak.
     let memory = match crate::json::current_kb() {
         Some(now) => format!(" Memory: {} now · peak {} ", crate::json::size(now), crate::json::size(crate::json::peak_kb())),
         None => format!(" Memory: peak {} ", crate::json::size(crate::json::peak_kb())),
@@ -1536,7 +1536,7 @@ mod tests {
         let text = lines.join("\n");
         assert!(cursor.is_none());
         assert!(text.contains("┌─ About ─") && text.contains("|_   _|_ _| | |_  _"), "{text}");
-        assert!(text.contains("Tally — Ultralight calculator and converter made for humans"), "{text}");
+        assert!(text.contains("Aequalis — Ultralight calculator and converter made for humans"), "{text}");
         assert!(text.contains("Memory: ") && text.contains("Last online sync: ") && text.contains("Version: "), "{text}");
         assert!(lines[23].starts_with(" ABOUT "), "{}", lines[23]);
         let (lines, _) = screen("\x1bA\x1b", 24, 80);

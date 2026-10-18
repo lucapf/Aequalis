@@ -1,5 +1,5 @@
 //! The `offline` setting (no network at all), `--online`, the refresh policies and the online
-//! data (`~/.config/tally/online.json`, `currencies.json`), through the binary. Each test has its
+//! data (`~/.config/aequalis/online.json`, `currencies.json`), through the binary. Each test has its
 //! own config directory with prepared files, so no test syncs for real (the data is fresh, the
 //! policy is manual, or the mode is offline).
 
@@ -21,14 +21,14 @@ fn rates(t: u64, ok: bool) -> String {
 /// A config directory for one test: `online.json` holding `live` (none if empty) and fresh
 /// exchange rates (`rates`, none if empty).
 fn config(name: &str, live: &str, rates: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("tally-network-{}-{name}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("aequalis-network-{}-{name}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(dir.join("tally")).unwrap();
+    std::fs::create_dir_all(dir.join("aequalis")).unwrap();
     if !live.is_empty() {
-        std::fs::write(dir.join("tally/online.json"), live).unwrap();
+        std::fs::write(dir.join("aequalis/online.json"), live).unwrap();
     }
     if !rates.is_empty() {
-        std::fs::write(dir.join("tally/currencies.json"), rates).unwrap();
+        std::fs::write(dir.join("aequalis/currencies.json"), rates).unwrap();
     }
     dir
 }
@@ -42,16 +42,16 @@ fn fresh(ok: bool) -> String {
 }
 
 /// The binary, with `settings` written first (`offline` false unless given).
-fn tally(settings: &[(&str, &str)], dir: &PathBuf, args: &[&str]) -> Output {
+fn aequalis(settings: &[(&str, &str)], dir: &PathBuf, args: &[&str]) -> Output {
     let mut all = settings.to_vec();
     if !all.iter().any(|(k, _)| *k == "offline") {
         all.push(("offline", "false"));
     }
     let body: Vec<String> = all.iter().map(|(k, v)| format!("\"{k}\": \"{v}\"")).collect();
-    std::fs::write(dir.join("tally/settings.json"), format!("{{{}}}", body.join(", "))).unwrap();
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_tally"));
+    std::fs::write(dir.join("aequalis/settings.json"), format!("{{{}}}", body.join(", "))).unwrap();
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_aequalis"));
     cmd.args(args).env("LC_ALL", "C").env("XDG_CONFIG_HOME", dir).stdin(Stdio::null());
-    cmd.output().expect("run tally")
+    cmd.output().expect("run aequalis")
 }
 
 const OFFLINE: &[(&str, &str)] = &[("offline", "true")];
@@ -63,14 +63,14 @@ fn text(out: &Output) -> String {
 #[test]
 fn invalid_settings_are_usage_errors() {
     let dir = config("invalid", &fresh(true), &rates(now(), true));
-    let out = tally(&[("offline", "sometimes")], &dir, &["1", "km", "m"]);
+    let out = aequalis(&[("offline", "sometimes")], &dir, &["1", "km", "m"]);
     assert_eq!(out.status.code(), Some(2));
     let err = String::from_utf8_lossy(&out.stderr).to_string();
     assert!(err.contains("`offline` must be true or false (it is `sometimes`)"), "{err}");
     // Any case: conversions work as usual.
-    assert_eq!(text(&tally(&[("offline", "TRUE")], &dir, &["1", "km", "m"])), "1000 m");
+    assert_eq!(text(&aequalis(&[("offline", "TRUE")], &dir, &["1", "km", "m"])), "1000 m");
     // An interval too.
-    let out = tally(&[("rates.interval", "soon")], &dir, &["1", "km", "m"]);
+    let out = aequalis(&[("rates.interval", "soon")], &dir, &["1", "km", "m"]);
     assert_eq!(out.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&out.stderr).contains("`rates.interval` must be a duration"));
 }
@@ -78,37 +78,37 @@ fn invalid_settings_are_usage_errors() {
 #[test]
 fn forced_offline() {
     let dir = config("forced", "", "");
-    assert_eq!(text(&tally(OFFLINE, &dir, &["--online"])), "offline (forced)");
-    let json = text(&tally(OFFLINE, &dir, &["--json", "--online"]));
+    assert_eq!(text(&aequalis(OFFLINE, &dir, &["--online"])), "offline (forced)");
+    let json = text(&aequalis(OFFLINE, &dir, &["--json", "--online"]));
     assert!(json.starts_with(r#"{"ok":true,"result":"offline (forced)""#), "{json}");
     // The trivia: no network, estimates at once; no sync started (no lock, no file).
     let started = Instant::now();
-    let out = text(&tally(OFFLINE, &dir, &["--trivia"]));
+    let out = text(&aequalis(OFFLINE, &dir, &["--trivia"]));
     assert!(started.elapsed().as_secs() < 3, "no download: {:?}", started.elapsed());
     assert!(out.contains("Voyager 1 = ") && out.contains("(estimated, not synced yet)"), "{out}");
-    assert!(!dir.join("tally/online.lock").exists() && !dir.join("tally/online.json").exists());
-    assert_eq!(String::from_utf8_lossy(&tally(OFFLINE, &dir, &["--sync"]).stderr).trim_end(), "tally: the offline setting is on: no sync");
+    assert!(!dir.join("aequalis/online.lock").exists() && !dir.join("aequalis/online.json").exists());
+    assert_eq!(String::from_utf8_lossy(&aequalis(OFFLINE, &dir, &["--sync"]).stderr).trim_end(), "aequalis: the offline setting is on: no sync");
 }
 
 #[test]
 fn fresh_data_is_used_offline() {
     // Online, but the data is fresh (and the live values are manual): nothing is synced.
     let dir = config("fresh", &fresh(true), &rates(now(), true));
-    let before = std::fs::read_to_string(dir.join("tally/online.json")).unwrap();
-    let out = text(&tally(&[], &dir, &["--trivia"]));
+    let before = std::fs::read_to_string(dir.join("aequalis/online.json")).unwrap();
+    let out = text(&aequalis(&[], &dir, &["--trivia"]));
     assert!(out.contains("Starlink = 12345 (synced ") && out.contains(" from CelesTrak)"), "{out}");
     assert!(out.contains("Voyager 1 = ") && out.contains(" from JPL Horizons)"), "{out}");
     std::thread::sleep(std::time::Duration::from_millis(300));
-    assert!(!dir.join("tally/online.lock").exists(), "no sync started");
-    assert_eq!(std::fs::read_to_string(dir.join("tally/online.json")).unwrap(), before, "the file is untouched");
-    assert_eq!(text(&tally(&[], &dir, &["--online"])), "online");
+    assert!(!dir.join("aequalis/online.lock").exists(), "no sync started");
+    assert_eq!(std::fs::read_to_string(dir.join("aequalis/online.json")).unwrap(), before, "the file is untouched");
+    assert_eq!(text(&aequalis(&[], &dir, &["--online"])), "online");
     // The last try (the newest of the files) reached no source, and was just made: offline, no
     // retry yet.
     let t = now();
     let failed =
         format!(r#"{{"format":1,"synced_at":{old},"attempted_at":{t},"ok":false,"values":{{"Starlink":{{"value":12345,"at":{old}}}}}}}"#, old = t - 100);
     let dir = config("failed", &failed, &rates(t - 1000, true));
-    assert_eq!(text(&tally(&[], &dir, &["--online"])), "offline");
+    assert_eq!(text(&aequalis(&[], &dir, &["--online"])), "offline");
 }
 
 #[test]
@@ -118,18 +118,18 @@ fn notices_under_the_notify_policy() {
     let old = now() - 3 * 86_400;
     let dir = config("notify", &fresh(true), &rates(old, true));
     let notify = [("rates.refresh", "notify"), ("cities.enabled", "false")];
-    let out = tally(&notify, &dir, &["1", "km", "m"]);
+    let out = aequalis(&notify, &dir, &["1", "km", "m"]);
     assert_eq!(text(&out), "1000 m");
     // In a script (stderr not a terminal): nothing on stderr; in --json, always.
     assert!(String::from_utf8_lossy(&out.stderr).is_empty());
-    let json = text(&tally(&notify, &dir, &["--json", "1", "km", "m"]));
+    let json = text(&aequalis(&notify, &dir, &["--json", "1", "km", "m"]));
     assert!(json.contains(r#""notices":["the exchange rates are out of date"]"#), "{json}");
     std::thread::sleep(std::time::Duration::from_millis(300));
-    assert!(!dir.join("tally/online.lock").exists(), "nothing downloaded");
+    assert!(!dir.join("aequalis/online.lock").exists(), "nothing downloaded");
     // Manual: nothing said.
-    assert!(!text(&tally(&[("rates.refresh", "manual"), ("cities.enabled", "false")], &dir, &["--json", "1", "km", "m"])).contains("notices"));
+    assert!(!text(&aequalis(&[("rates.refresh", "manual"), ("cities.enabled", "false")], &dir, &["--json", "1", "km", "m"])).contains("notices"));
     // The city archive never downloaded: said whatever the policy, with the online state too
     // (the widget shows it).
-    let json = text(&tally(&[("rates.refresh", "manual")], &dir, &["--json", "--online"]));
+    let json = text(&aequalis(&[("rates.refresh", "manual")], &dir, &["--json", "--online"]));
     assert!(json.contains(r#""notices":["the city archive is not downloaded yet"]"#), "{json}");
 }

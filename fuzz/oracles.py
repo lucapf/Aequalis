@@ -140,7 +140,7 @@ def list_reply(which, reply):
 
 
 def number_of(result):
-    """Tally's plain number (`0.333333333333333`, `1.6022e-19`), or None."""
+    """Aequalis's plain number (`0.333333333333333`, `1.6022e-19`), or None."""
     try:
         return float(result)
     except (TypeError, ValueError):
@@ -156,12 +156,12 @@ def differential(text, expected, scale, doc):
     if expected is None and got is None:
         return []
     if expected is None:
-        return [("differential", "tally-answers-python-fails", f"{text!r} → Tally {doc.get('result')!r}, Python: error")]
+        return [("differential", "aequalis-answers-python-fails", f"{text!r} → Aequalis {doc.get('result')!r}, Python: error")]
     if got is None:
-        return [("differential", "tally-fails-python-answers", f"{text!r} → Tally {doc.get('error') or doc.get('result')!r}, Python {expected!r}")]
+        return [("differential", "aequalis-fails-python-answers", f"{text!r} → Aequalis {doc.get('error') or doc.get('result')!r}, Python {expected!r}")]
     tolerance = 1e-9 * max(1.0, scale if math.isfinite(scale) else abs(expected))
     if abs(got - expected) > tolerance:
-        return [("differential", "values-differ", f"{text!r} → Tally {got!r}, Python {expected!r}")]
+        return [("differential", "values-differ", f"{text!r} → Aequalis {got!r}, Python {expected!r}")]
     return []
 
 

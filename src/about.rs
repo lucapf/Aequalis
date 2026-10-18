@@ -1,15 +1,15 @@
-//! About tally: the name, the tagline, the memory footprint and the last online sync, with the
-//! logo: a tally gate (four strokes crossed by a fifth) and the name. Shown by `tally --about`, the
+//! About aequalis: the name, the tagline, the memory footprint and the last online sync, with the
+//! logo (the name). Shown by `aequalis --about`, the
 //! interactive mode (`A`) and the widget (clicking its title).
 
-/// The logo, 5 lines.
-pub const ART: &str = r"\| | | |    _____     _ _
- |\| | |   |_   _|_ _| | |_  _
- | |\| |     | |/ _` | | | || |
- | | |\|     |_|\__,_|_|_|\_, |
- | | | |\                 |__/";
+/// The logo, 5 lines: the name.
+pub const ART: &str = r"   _                      _ _
+  /_\  ___ __ _ _  _ __ _| (_)___
+ / _ \/ -_) _` | || / _` | | (_-<
+/_/ \_\___\__, |\_,_\__,_|_|_/__/
+             |_|";
 
-pub const NAME: &str = "Tally";
+pub const NAME: &str = "Aequalis";
 pub const TAGLINE: &str = "Ultralight calculator and converter made for humans";
 
 /// The facts below the logo, as (label, text): the version, the memory (`memory`, already
@@ -72,7 +72,7 @@ pub fn memory() -> String {
     parts.join(" · ")
 }
 
-/// `tally --about`: the logo, the name and tagline, then the facts.
+/// `aequalis --about`: the logo, the name and tagline, then the facts.
 pub fn text() -> String {
     let mut out = format!("{ART}\n\n{NAME} — {TAGLINE}\n\n");
     for (label, value) in facts(&memory()) {
@@ -90,7 +90,7 @@ mod tests {
         assert_eq!(ART.lines().count(), 5);
         assert!(ART.lines().all(|l| l.is_ascii() && l.chars().count() <= 34), "{ART}");
         let text = text();
-        assert!(text.contains("Tally — Ultralight calculator and converter made for humans"), "{text}");
+        assert!(text.contains("Aequalis — Ultralight calculator and converter made for humans"), "{text}");
         assert!(text.contains("\nVersion: ") && text.contains("\nMemory: ") && text.contains(" peak "), "{text}");
         assert!(text.contains("\nLast online sync: "), "{text}");
         assert!(text.contains("\nExchange rates: ") && text.contains("ExchangeRate-API (https://www.exchangerate-api.com)"), "{text}");

@@ -1,4 +1,4 @@
-package io.lucapf.tally
+package io.lucapf.aequalis
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background

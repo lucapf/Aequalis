@@ -1,11 +1,11 @@
 //! The online data, in three groups, each with its refresh policy and interval in the settings
 //! (`settings.rs`): the Trivia's live values (`live`: the Voyagers' distances, the satellite counts)
-//! in `~/.config/tally/online.json`, the exchange rates (`rates`, `currency.rs`) in
-//! `currencies.json`, the city archive (`cities`, `cities.rs`). Tally reads only these files: no
-//! request ever waits for the network. Under the `silent` policy, any run of tally starts a sync
-//! in the background (`tally --sync --auto`, a separate process) when a group is out of date,
+//! in `~/.config/aequalis/online.json`, the exchange rates (`rates`, `currency.rs`) in
+//! `currencies.json`, the city archive (`cities`, `cities.rs`). Aequalis reads only these files: no
+//! request ever waits for the network. Under the `silent` policy, any run of aequalis starts a sync
+//! in the background (`aequalis --sync --auto`, a separate process) when a group is out of date,
 //! unless one is running (`online.lock`) or the `offline` setting is on; under `notify` it says so
-//! (`notify.rs`); under `manual` only `tally --sync` (or Settings) downloads.
+//! (`notify.rs`); under `manual` only `aequalis --sync` (or Settings) downloads.
 //!
 //! The sync may be interrupted at any time and the file stays consistent: it is never edited in
 //! place, a new version is written next to it and renamed over it (atomic), after every 10 values
@@ -195,7 +195,7 @@ fn due_when(settings: &crate::settings::Settings, stale: &dyn Fn(Group) -> bool)
         .collect()
 }
 
-/// Starts `tally --sync --auto` in the background when a group has work (and the network may be
+/// Starts `aequalis --sync --auto` in the background when a group has work (and the network may be
 /// used, and no sync is running). Returns the process, for a long-running caller to reap.
 pub fn ensure_fresh() -> Option<std::process::Child> {
     let settings = crate::settings::current();
@@ -264,7 +264,7 @@ pub struct Source {
 /// How a source is fetched: its values by name, `None` when it did not answer.
 pub type Fetch = Box<dyn Fn() -> Option<Vec<(String, f64)>>>;
 
-/// `tally --sync` (`auto`: the background sync, `--auto`): under the lock, by hand every group
+/// `aequalis --sync` (`auto`: the background sync, `--auto`): under the lock, by hand every group
 /// is downloaded again; the background sync does what the policies say (`due`). Returns a line
 /// per group.
 /// What a sync did: a line for each group that managed (`12 exchange rates`) and for each that did
@@ -300,7 +300,7 @@ pub fn sync(auto: bool) -> Result<Report, String> {
                 format!("{n} exchange rate{}", if n == 1 { "" } else { "s" })
             }),
             Group::Cities => {
-                crate::files::dir().ok_or_else(no_home).and_then(|base| sync_cities(&base, &settings, auto, now, &|text| crate::notify::desktop("Tally", text)))
+                crate::files::dir().ok_or_else(no_home).and_then(|base| sync_cities(&base, &settings, auto, now, &|text| crate::notify::desktop("Aequalis", text)))
             }
         };
         match line {
@@ -331,7 +331,7 @@ fn sync_cities(base: &Path, settings: &crate::settings::Settings, auto: bool, no
     let newer = published.as_deref().is_some_and(|v| v != current);
     if auto && settings.refresh("cities") == crate::settings::Refresh::Notify {
         if newer && state.cities_notified != state.cities_available {
-            notify("A new city archive is available: tally --sync");
+            notify("A new city archive is available: aequalis --sync");
             state.cities_notified = state.cities_available.clone();
         }
         crate::notify::save_to(&state_path, &state);
@@ -394,7 +394,7 @@ mod tests {
     use std::rc::Rc;
 
     fn scratch(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("tally-online-{}-{name}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("aequalis-online-{}-{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         dir.join("online.json")
     }

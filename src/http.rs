@@ -1,11 +1,11 @@
-//! Downloads. The command line runs `curl`; an app that embeds tally (the Android app, `ffi.rs`)
+//! Downloads. The command line runs `curl`; an app that embeds aequalis (the Android app, `ffi.rs`)
 //! has no `curl`, so it registers its own `Fetcher` once, at start.
 
 use std::path::Path;
 use std::process::Command;
 use std::sync::OnceLock;
 
-/// Downloads for tally: the body of `url` (`None`: no answer, or with `strict` an HTTP error), or
+/// Downloads for aequalis: the body of `url` (`None`: no answer, or with `strict` an HTTP error), or
 /// `url` saved to the file `to`. At most `seconds`.
 pub trait Fetcher: Send + Sync {
     fn get(&self, url: &str, seconds: u32, strict: bool) -> Option<Vec<u8>>;

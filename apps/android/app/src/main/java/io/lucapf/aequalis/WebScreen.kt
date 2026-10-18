@@ -1,4 +1,4 @@
-package io.lucapf.tally
+package io.lucapf.aequalis
 
 import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
@@ -33,7 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 
 /**
- * A web page inside the app (a Trivia value's Wikipedia page), so reading it doesn't leave Tally:
+ * A web page inside the app (a Trivia value's Wikipedia page), so reading it doesn't leave Aequalis:
  * Android's own WebView, no library. Back goes back through the pages followed, then closes;
  * "Open in browser" hands the page to the default browser.
  */
@@ -46,7 +46,7 @@ fun WebScreen(url: String, close: () -> Unit, modifier: Modifier = Modifier) {
     BackHandler { web?.takeIf { it.canGoBack() }?.goBack() ?: close() }
     Column(modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = close) { Icon(BackIcon, contentDescription = "Back to Tally") }
+            IconButton(onClick = close) { Icon(BackIcon, contentDescription = "Back to Aequalis") }
             Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
             TextButton(onClick = {
                 // The page shown now (a link followed, maybe), in the default browser; none: nothing.

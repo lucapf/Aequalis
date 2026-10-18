@@ -1,6 +1,6 @@
 # The city archive for distances (scripts/build-cities.py, from GeoNames), rebuilt on the 1st of
 # each month, on demand, and when its build changes on master; published as the assets of the
-# release `cities`: cities.json (what Tally downloads, uncompressed) and cities.version (to check
+# release `cities`: cities.json (what Aequalis downloads, uncompressed) and cities.version (to check
 # for a new one cheaply). That release is data, not an app version: it is never marked latest,
 # and nothing is pushed, so no app release starts.
 name: Cities
@@ -50,6 +50,6 @@ jobs:
         run: |
           if ! gh release view cities --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release create cities --repo "$GITHUB_REPOSITORY" --latest=false --title "City archive" \
-              --notes "Cities for Tally's distances, from GeoNames (https://www.geonames.org, CC BY 4.0). Rebuilt monthly by .github/workflows/cities.yml; Tally downloads cities.json."
+              --notes "Cities for Aequalis's distances, from GeoNames (https://www.geonames.org, CC BY 4.0). Rebuilt monthly by .github/workflows/cities.yml; Aequalis downloads cities.json."
           fi
           gh release upload cities dist/cities.json dist/cities.version --repo "$GITHUB_REPOSITORY" --clobber

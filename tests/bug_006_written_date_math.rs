@@ -1,4 +1,4 @@
-//! Bug 006: `tally 2026/12/04 - 12d` failed with "expected <value> <from> <to>…".
+//! Bug 006: `aequalis 2026/12/04 - 12d` failed with "expected <value> <from> <to>…".
 //!
 //! Only ISO dates, `now` and written dates followed by a target format were dates, so a written
 //! date followed by date math went to the calculator (2026 / 12 / 4 - 12, then the unit `d`).
@@ -7,7 +7,7 @@
 
 use std::process::Command;
 
-const BIN: &str = env!("CARGO_BIN_EXE_tally");
+const BIN: &str = env!("CARGO_BIN_EXE_aequalis");
 
 fn run(args: &str) -> (String, String, i32) {
     let out = Command::new(BIN)
@@ -26,7 +26,7 @@ fn run(args: &str) -> (String, String, i32) {
 fn reported_subtracting_days() {
     let (out, err, code) = run("2026/12/04 - 12d");
     assert_eq!((out.as_str(), code), ("2026/11/22 YYYY/MM/DD", 0), "{err}");
-    assert_eq!(err, "tally: note: read `2026/12/04` as YYYY/MM/DD (year first)");
+    assert_eq!(err, "aequalis: note: read `2026/12/04` as YYYY/MM/DD (year first)");
 }
 
 #[test]

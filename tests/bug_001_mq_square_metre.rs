@@ -1,16 +1,16 @@
-//! Bug 001: `tally 100sqft mq` failed with "unknown unit `mq`".
+//! Bug 001: `aequalis 100sqft mq` failed with "unknown unit `mq`".
 //!
 //! `mq` (Italian *metro quadro*) is a common notation for square metres, but it was
 //! not an alias of `m2`. Fixed by adding `mq` (and `mmq`, `cmq`, `kmq`) as aliases.
 
 use std::process::{Command, Output};
 
-fn tally(args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_tally")).args(args).output().expect("run tally")
+fn aequalis(args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_aequalis")).args(args).output().expect("run aequalis")
 }
 
 fn stdout(args: &[&str]) -> String {
-    let out = tally(args);
+    let out = aequalis(args);
     assert!(out.status.success(), "{args:?} failed: {}", String::from_utf8_lossy(&out.stderr));
     String::from_utf8(out.stdout).unwrap()
 }
@@ -50,6 +50,6 @@ fn listed_with_m2() {
 
 #[test]
 fn mq_is_not_a_length() {
-    let out = tally(&["1", "mq", "m"]);
+    let out = aequalis(&["1", "mq", "m"]);
     assert_eq!(out.status.code(), Some(1));
 }

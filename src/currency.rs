@@ -8,7 +8,7 @@
 //! currencies share (`dollar`, `$`, `kr`) or a misspelt one (`dolar`) is asked about.
 //!
 //! The rates come from ExchangeRate-API (open.er-api.com, daily), kept in
-//! `~/.config/tally/currencies.json` with the online data's policies (`online.rs`): synced in the
+//! `~/.config/aequalis/currencies.json` with the online data's policies (`online.rs`): synced in the
 //! background when older than the refresh interval, never during a request.
 
 use crate::config::Config;
@@ -627,7 +627,7 @@ pub fn local_from(setting: Option<&str>, zone: Option<&str>) -> Result<Option<Lo
 
 static APP_ZONE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
-/// The device's time zone as the app embedding tally knows it (`Europe/Rome`: phones have no `TZ`
+/// The device's time zone as the app embedding aequalis knows it (`Europe/Rome`: phones have no `TZ`
 /// or /etc/localtime); set once, before anything is computed.
 pub fn set_local_zone(zone: &str) {
     let _ = APP_ZONE.set(zone.to_string());
@@ -658,7 +658,7 @@ pub fn local_zone() -> Option<String> {
 
 // ---------------------------------------------------------------- the rates
 
-/// `~/.config/tally/currencies.json`.
+/// `~/.config/aequalis/currencies.json`.
 pub fn path() -> Option<PathBuf> {
     crate::files::dir().map(|d| d.join("currencies.json"))
 }
@@ -720,7 +720,7 @@ pub fn parse(body: &str) -> Option<Vec<(String, f64)>> {
     Some(out)
 }
 
-/// `tally --list`: the currencies.
+/// `aequalis --list`: the currencies.
 pub fn list() -> String {
     let mut out = String::from("Currencies (code, name, other ways to write it; countries work too: `12 USA Europe`)\n");
     for c in all() {
@@ -783,7 +783,7 @@ mod tests {
     /// Rates shipped with an app: stored when newer than the ones there, else kept.
     #[test]
     fn shipped_rates() {
-        let dir = std::env::temp_dir().join(format!("tally-shipped-rates-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("aequalis-shipped-rates-{}", std::process::id()));
         let path = dir.join("currencies.json");
         let answer = |day: i64| format!(r#"{{"result":"success","time_last_update_unix":{day},"rates":{{"USD":1,"EUR":0.9,"JPY":150}}}}"#);
         assert_eq!(store_in(&path, &answer(1_000), 5_000), Ok(4), "three rates and their date");
@@ -1030,7 +1030,7 @@ mod tests {
         assert_eq!(local_from(None, Some("Europe/Rome")).unwrap().unwrap().from, "Italy's time zone, Europe/Rome");
     }
 
-    /// No way of writing a currency means something else to tally, except the units listed here
+    /// No way of writing a currency means something else to aequalis, except the units listed here
     /// (decided by the other word: `12 pounds kg`, `12 pounds euro`).
     #[test]
     fn collisions() {

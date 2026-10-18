@@ -1,5 +1,5 @@
-//! Settings: everything an operator configures, in one place — `~/.config/tally/settings.json`
-//! (`$XDG_CONFIG_HOME/tally`), changed with `tally --set key=value`, shown with `tally --settings`,
+//! Settings: everything an operator configures, in one place — `~/.config/aequalis/settings.json`
+//! (`$XDG_CONFIG_HOME/aequalis`), changed with `aequalis --set key=value`, shown with `aequalis --settings`,
 //! or in the interactive mode's Settings window. Nothing is read from the environment.
 //!
 //! ```json
@@ -17,7 +17,7 @@ pub enum Refresh {
     Silent,
     /// Not downloaded: a notice says a newer version is available; the operator downloads it.
     Notify,
-    /// Only when the operator asks (`tally --sync`, Settings).
+    /// Only when the operator asks (`aequalis --sync`, Settings).
     Manual,
 }
 
@@ -287,7 +287,7 @@ pub fn duration(text: &str) -> Option<i64> {
 
 // ---------------------------------------------------------------- the file
 
-/// `~/.config/tally/settings.json`.
+/// `~/.config/aequalis/settings.json`.
 pub fn path() -> Option<PathBuf> {
     crate::files::dir().map(|d| d.join("settings.json"))
 }
@@ -343,7 +343,7 @@ pub fn change_in(path: &Path, key: &str, value: Option<&str>) -> Result<Settings
     Ok(settings)
 }
 
-/// `tally --settings --json`: every setting with its value, default, kind (`bool`, `choice` and its
+/// `aequalis --settings --json`: every setting with its value, default, kind (`bool`, `choice` and its
 /// options, or `text`: typed) and what it does, for the widget's Settings section.
 pub fn json(settings: &Settings) -> String {
     json_where(settings, |_| true)
@@ -373,9 +373,9 @@ pub fn json_where(settings: &Settings, keep: impl Fn(&Key) -> bool) -> String {
     crate::json::Object::new().str("file", &path_text()).list("settings", &items).finish()
 }
 
-/// `tally --settings`: every setting, its value, and what it does.
+/// `aequalis --settings`: every setting, its value, and what it does.
 pub fn text(settings: &Settings) -> String {
-    let mut out = format!("Settings ({}; change with `tally --set key=value`, `tally --set key` for the default)\n", path_text());
+    let mut out = format!("Settings ({}; change with `aequalis --set key=value`, `aequalis --set key` for the default)\n", path_text());
     for k in KEYS {
         let v = settings.get(k.key);
         let mark = if v == k.default { String::new() } else { format!("  (default: {})", k.default) };
@@ -459,7 +459,7 @@ mod tests {
 
     #[test]
     fn saved_atomically() {
-        let dir = std::env::temp_dir().join(format!("tally-settings-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("aequalis-settings-{}", std::process::id()));
         let path = dir.join("settings.json");
         let mut s = Settings::default();
         s.set("live.refresh", Some("silent")).unwrap();

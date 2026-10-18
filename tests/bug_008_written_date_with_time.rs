@@ -1,4 +1,4 @@
-//! Bug 008: `tally 2026/12/04 10:00 PM` and `tally 2026-12-04 10:00 PM` failed ("unexpected `1`",
+//! Bug 008: `aequalis 2026/12/04 10:00 PM` and `aequalis 2026-12-04 10:00 PM` failed ("unexpected `1`",
 //! "unexpected `PM`", "unknown date format `10:00`").
 //!
 //! A written date followed by a time, with no target, was not a date request (the calculator got
@@ -9,7 +9,7 @@
 
 use std::process::Command;
 
-const BIN: &str = env!("CARGO_BIN_EXE_tally");
+const BIN: &str = env!("CARGO_BIN_EXE_aequalis");
 
 fn run(args: &str) -> (String, i32) {
     let out = Command::new(BIN)

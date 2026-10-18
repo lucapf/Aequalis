@@ -3,7 +3,7 @@
 
 use std::process::{Command, Stdio};
 
-const BIN: &str = env!("CARGO_BIN_EXE_tally");
+const BIN: &str = env!("CARGO_BIN_EXE_aequalis");
 
 fn view(args: &[&str]) -> String {
     let out = Command::new(BIN).arg("--json").arg("--as-typed").args(args).env("TZ", "Europe/Rome").env("LC_ALL", "C").stdin(Stdio::null()).output().unwrap();

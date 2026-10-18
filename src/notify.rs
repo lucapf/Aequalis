@@ -3,13 +3,13 @@
 //! interactive mode (the status bar), `--json` (`"notices"`, for the widget and the Mac app), and
 //! once per new city archive as a desktop notification.
 //!
-//! What was checked and shown is kept in `~/.config/tally/state.json`.
+//! What was checked and shown is kept in `~/.config/aequalis/state.json`.
 
 use crate::online::Group;
 use crate::settings::{Refresh, Settings};
 use std::path::PathBuf;
 
-/// What Tally remembers between runs about the notices.
+/// What Aequalis remembers between runs about the notices.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct State {
     /// When the published city archive's version was last checked.
@@ -108,7 +108,7 @@ pub fn desktop(title: &str, body: &str) {
         let escape = |s: &str| s.replace('\\', "\\\\").replace('"', "\\\"");
         quiet(Command::new("osascript").args(["-e", &format!("display notification \"{}\" with title \"{}\"", escape(body), escape(title))]));
     } else {
-        quiet(Command::new("notify-send").args(["--app-name=Tally", title, body]));
+        quiet(Command::new("notify-send").args(["--app-name=Aequalis", title, body]));
     }
 }
 
@@ -118,7 +118,7 @@ mod tests {
 
     #[test]
     fn the_state_is_kept() {
-        let path = std::env::temp_dir().join(format!("tally-notify-{}", std::process::id())).join("state.json");
+        let path = std::env::temp_dir().join(format!("aequalis-notify-{}", std::process::id())).join("state.json");
         assert_eq!(load_from(&path), State::default(), "none yet");
         let state = State { cities_checked_at: 5, cities_available: "2 bbb".into(), cities_notified: "1 \"aaa\"".into(), shown_at: 7 };
         save_to(&path, &state);

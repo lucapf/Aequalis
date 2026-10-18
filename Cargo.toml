@@ -1,13 +1,13 @@
 [package]
-name = "tally"
+name = "aequalis"
 version = "0.1.0"
 edition = "2021"
 description = "Units, calculator, dates, time zones and distances, answered as you type: a tiny dependency-free CLI, TUI and Omarchy widget"
 authors = ["Luca Palanca Falsini"]
 license = "MIT"
 readme = "README.md"
-repository = "https://github.com/lucapf/tally"
-homepage = "https://github.com/lucapf/tally"
+repository = "https://github.com/lucapf/aequalis"
+homepage = "https://github.com/lucapf/aequalis"
 keywords = ["calculator", "units", "converter", "timezone", "cli"]
 categories = ["command-line-utilities", "science", "date-and-time"]
 
@@ -15,9 +15,9 @@ categories = ["command-line-utilities", "science", "date-and-time"]
 
 [features]
 default = ["tui"]
-# Interactive mode (`tally` with no arguments in a terminal). Still no dependencies.
+# Interactive mode (`aequalis` with no arguments in a terminal). Still no dependencies.
 tui = []
-# The C interface for apps that embed tally (the Android app: `src/ffi.rs`, `include/tally.h`).
+# The C interface for apps that embed aequalis (the Android app: `src/ffi.rs`, `include/aequalis.h`).
 ffi = []
 
 [profile.release]

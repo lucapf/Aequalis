@@ -4,7 +4,7 @@
 //! ↑↓ (j k) choose; a yes/no or a choice changes with Enter, Space or ← →; the others (durations,
 //! numbers, formats, the currency, the address) are typed in an edit line, Enter saves, Esc
 //! cancels; `d` puts back the default. The last row downloads all the online data in the
-//! background (`tally --sync`).
+//! background (`aequalis --sync`).
 
 use crate::settings::{self, Kind, Settings, KEYS};
 use std::path::PathBuf;
@@ -146,7 +146,7 @@ mod tests {
 
     /// The window on a settings file of its own (`offline` on: no download starts).
     fn view(name: &str) -> View {
-        let dir = std::env::temp_dir().join(format!("tally-settings-window-{}-{name}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("aequalis-settings-window-{}-{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let file = dir.join("settings.json");
         settings::change_in(&file, "offline", Some("true")).unwrap();

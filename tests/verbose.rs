@@ -5,7 +5,7 @@ mod common;
 
 use std::process::{Command, Stdio};
 
-const BIN: &str = env!("CARGO_BIN_EXE_tally");
+const BIN: &str = env!("CARGO_BIN_EXE_aequalis");
 
 /// (stdout, stderr) of a run.
 fn run(args: &str) -> (String, String) {
@@ -37,12 +37,12 @@ fn dates_show_only_the_result() {
 fn notes_only_with_verbose() {
     // How a date was read, how an expression was grouped.
     assert_eq!(run("2026/12/04 unix").1, "");
-    assert_eq!(run("-v 2026/12/04 unix").1, "tally: note: read `2026/12/04` as YYYY/MM/DD (year first)");
+    assert_eq!(run("-v 2026/12/04 unix").1, "aequalis: note: read `2026/12/04` as YYYY/MM/DD (year first)");
     assert_eq!(run("100 + 20 + 50 / 10"), ("125".into(), "".into()));
-    assert_eq!(run("-v 100 + 20 + 50 / 10"), ("125".into(), "tally: note: evaluated as (100 + 20) + (50 / 10)".into()));
+    assert_eq!(run("-v 100 + 20 + 50 / 10"), ("125".into(), "aequalis: note: evaluated as (100 + 20) + (50 / 10)".into()));
     assert_eq!(run("-v -s 100 + 20 + 50 / 10").1, "", "--silent wins");
     // Warnings are not notes: still shown.
-    assert!(run("1 GB GiB").1.starts_with("tally: warning: mixing decimal"));
+    assert!(run("1 GB GiB").1.starts_with("aequalis: warning: mixing decimal"));
     // In --json too.
     assert!(run("--json 2026/12/04 unix").0.contains("\"result\":\"1796338800 unix\",\"notes\":[]"));
     assert!(run("--json -v 2026/12/04 unix").0.contains("\"notes\":[\"read `2026/12/04` as YYYY/MM/DD (year first)\"]"));

@@ -45,7 +45,7 @@ DURATIONS = ["d", "wd", "h", "min", "s", "ms", "wk", "mo", "yr", "days", "hours"
 
 
 def trig(name, x):
-    """`sin`, `cos`, `tan` with Tally's rule: a result below 1e-14 of the argument is 0."""
+    """`sin`, `cos`, `tan` with Aequalis's rule: a result below 1e-14 of the argument is 0."""
     r = getattr(math, name)(x)
     return 0.0 if abs(r) < 1e-14 * abs(x) else r
 
@@ -233,8 +233,8 @@ class Generator:
     # ---------------------------------------------------------------- the calculator, with its value
 
     def calculation(self):
-        """`(text, value)`: an expression in one of Tally's spellings, and its value as Python
-        computes it (`None`: an error, which Tally must give too)."""
+        """`(text, value)`: an expression in one of Aequalis's spellings, and its value as Python
+        computes it (`None`: an error, which Aequalis must give too)."""
         tree = self._tree(self.r.randint(1, 4))
         text = self._render(tree, 0)
         self.overflowed = False
@@ -298,7 +298,7 @@ class Generator:
         return text
 
     def _eval(self, t):
-        """IEEE doubles, as Tally computes: a value too large is infinity (noted in `overflowed`),
+        """IEEE doubles, as Aequalis computes: a value too large is infinity (noted in `overflowed`),
         not an error; only the final result must be finite."""
         r = self._value(t)
         if math.isinf(r):
@@ -336,7 +336,7 @@ class Generator:
                 return math.copysign(math.inf, x) if name == "sinh" else math.inf
         a, b = self._eval(t[1]), self._eval(t[2])
         if kind in "+-":
-            # Tally's rule (SPEC §3): a sum below 1e-14 of its larger operand is rounding noise, 0.
+            # Aequalis's rule (SPEC §3): a sum below 1e-14 of its larger operand is rounding noise, 0.
             r = a + b if kind == "+" else a - b
             return 0.0 if abs(r) < 1e-14 * max(abs(a), abs(b)) else r
         if kind == "*":
@@ -352,13 +352,13 @@ class Generator:
             odd = b == int(b) and int(b) % 2 == 1
             return -math.inf if a < 0 and odd else math.inf
         except ValueError:
-            # 0 to a negative power: infinity (IEEE), which Tally reports as not finite.
+            # 0 to a negative power: infinity (IEEE), which Aequalis reports as not finite.
             if a == 0:
                 return math.inf
             raise
 
     def scale(self, t):
-        """The largest magnitude met while computing `t`: the tolerance's scale (Tally rounds sums
+        """The largest magnitude met while computing `t`: the tolerance's scale (Aequalis rounds sums
         below 1e-14 of their operands to 0)."""
         try:
             values = [abs(self._eval(t))]

@@ -1,4 +1,4 @@
-//! Bug 005: `tally 2026-12-02/12` failed with "unknown date format `/12`".
+//! Bug 005: `aequalis 2026-12-02/12` failed with "unknown date format `/12`".
 //!
 //! A leading ISO date shape always made a date request, so arithmetic on it was impossible. Fixed:
 //! an ISO shape followed by `/`, `*`, `^`, `x` or `(` is arithmetic (date math only uses `+` and
@@ -7,7 +7,7 @@
 
 use std::process::Command;
 
-const BIN: &str = env!("CARGO_BIN_EXE_tally");
+const BIN: &str = env!("CARGO_BIN_EXE_aequalis");
 
 fn run(args: &str) -> (String, String, i32) {
     let out = Command::new(BIN).arg("-v").args(args.split_whitespace()).env("TZ", "Europe/Rome").env("LC_ALL", "C").output().unwrap();
@@ -19,7 +19,7 @@ fn run(args: &str) -> (String, String, i32) {
 fn reported_division_is_a_number() {
     let (out, err, code) = run("2026-12-02/12");
     assert_eq!((out.as_str(), code), ("2013.8333", 0), "{err}");
-    assert_eq!(err, "tally: note: evaluated as (2026 - 12) - (2 / 12)");
+    assert_eq!(err, "aequalis: note: evaluated as (2026 - 12) - (2 / 12)");
 }
 
 #[test]

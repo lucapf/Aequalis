@@ -1,20 +1,20 @@
-//! The files Tally keeps, all in one folder (`~/.config/tally`, `$XDG_CONFIG_HOME/tally`):
+//! The files Aequalis keeps, all in one folder (`~/.config/aequalis`, `$XDG_CONFIG_HOME/aequalis`):
 //! the settings, the online data, the exchange rates, the city archive, the notices' state.
 //! Each is written atomically: a new file next to it, renamed over it, so a reader (another
-//! tally, an interrupted sync) sees the old version or the new one, never a part.
+//! aequalis, an interrupted sync) sees the old version or the new one, never a part.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
 static APP_DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
 
-/// The folder given by the app embedding tally (`<dir>/tally`: its own storage, there is no
+/// The folder given by the app embedding aequalis (`<dir>/aequalis`: its own storage, there is no
 /// `HOME`); set once, before anything is read. The command line doesn't set it.
 pub fn set_dir(base: &Path) {
-    let _ = APP_DIR.set(base.join("tally"));
+    let _ = APP_DIR.set(base.join("aequalis"));
 }
 
-/// `~/.config/tally` (`$XDG_CONFIG_HOME/tally`), or the app's (`set_dir`).
+/// `~/.config/aequalis` (`$XDG_CONFIG_HOME/aequalis`), or the app's (`set_dir`).
 pub fn dir() -> Option<PathBuf> {
     if let Some(dir) = APP_DIR.get() {
         return Some(dir.clone());
@@ -23,7 +23,7 @@ pub fn dir() -> Option<PathBuf> {
         .filter(|v| !v.is_empty())
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
-    Some(base.join("tally"))
+    Some(base.join("aequalis"))
 }
 
 /// Writes `bytes` to `path` atomically: to `<name>.<pid>.tmp` next to it, synced, then renamed
@@ -46,7 +46,7 @@ mod tests {
 
     #[test]
     fn written_whole_and_replaced() {
-        let dir = std::env::temp_dir().join(format!("tally-files-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("aequalis-files-{}", std::process::id()));
         let path = dir.join("deep").join("data.json");
         write_atomic(&path, b"one").unwrap();
         write_atomic(&path, b"two").unwrap();

@@ -22,5 +22,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Tally"
+rootProject.name = "Aequalis"
 include(":app")

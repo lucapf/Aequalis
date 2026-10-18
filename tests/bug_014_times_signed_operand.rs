@@ -6,7 +6,7 @@
 
 use std::process::Command;
 
-const BIN: &str = env!("CARGO_BIN_EXE_tally");
+const BIN: &str = env!("CARGO_BIN_EXE_aequalis");
 
 fn run(args: &str) -> (String, i32) {
     let out = Command::new(BIN).args(args.split_whitespace()).env("LC_ALL", "C").output().unwrap();

@@ -1,8 +1,8 @@
 //! Bash and zsh completion scripts, generated from the unit tables in `Config`.
 //!
-//! The scripts also install an Enter hook: a typed `tally (10+12-3)/4Km Mi` would be rejected
+//! The scripts also install an Enter hook: a typed `aequalis (10+12-3)/4Km Mi` would be rejected
 //! by the shell (`(` is shell syntax, `*` a glob), so before running it the hook asks
-//! `tally --quote-line` to rewrite it as `tally '(10+12-3)/4Km Mi'`.
+//! `aequalis --quote-line` to rewrite it as `aequalis '(10+12-3)/4Km Mi'`.
 
 use crate::calc;
 use crate::config::Config;
@@ -10,9 +10,9 @@ use crate::config::Config;
 pub const SHELLS: &[&str] = &["bash", "zsh"];
 const FLAGS: &str = "--precision --silent --json --list --autocompletion --help --version";
 
-const BASH: &str = r#"# bash completion for tally
-# Enable with: eval "$(tally --autocompletion bash)"
-_tally() {
+const BASH: &str = r#"# bash completion for aequalis
+# Enable with: eval "$(aequalis --autocompletion bash)"
+_aequalis() {
     local cur prev w i pos=0 expr=0 units=0
     # Words of an arithmetic expression (`100 + 20`, `[1+2]/3`) fill a single value slot.
     local num='^[-+]?[0-9.([{]' op='^([-+*/^x]|\*\*)$'
@@ -38,11 +38,11 @@ _tally() {
         COMPREPLY=( $(compgen -W "@UNITS@" -- "$cur") )
     fi
 }
-complete -F _tally tally
+complete -F _aequalis aequalis
 
-# Enter hook: quote tally expressions, so `tally (1+2)*3 km mi` reaches the program intact.
-_tally_quote_line() {
-    [[ $READLINE_LINE == *tally*[\(\)\*\[\]^]* ]] || return 0
+# Enter hook: quote aequalis expressions, so `aequalis (1+2)*3 km mi` reaches the program intact.
+_aequalis_quote_line() {
+    [[ $READLINE_LINE == *aequalis*[\(\)\*\[\]^]* ]] || return 0
     local quoted
     quoted=$(@BIN@ --quote-line "$READLINE_LINE" 2>/dev/null) || return 0
     READLINE_LINE=$quoted
@@ -50,21 +50,21 @@ _tally_quote_line() {
 }
 # READLINE_LINE needs bash 4+ (macOS ships bash 3.2: completion works, the hook is skipped).
 if [[ $- == *i* ]] && (( BASH_VERSINFO[0] >= 4 )); then
-    for _tally_keymap in emacs vi-insert; do
-        bind -m "$_tally_keymap" -x '"\C-x\C-q\C-q": _tally_quote_line'
-        bind -m "$_tally_keymap" '"\C-x\C-q\C-a": accept-line'
-        bind -m "$_tally_keymap" '"\C-m": "\C-x\C-q\C-q\C-x\C-q\C-a"'
-        bind -m "$_tally_keymap" '"\C-j": "\C-x\C-q\C-q\C-x\C-q\C-a"'
+    for _aequalis_keymap in emacs vi-insert; do
+        bind -m "$_aequalis_keymap" -x '"\C-x\C-q\C-q": _aequalis_quote_line'
+        bind -m "$_aequalis_keymap" '"\C-x\C-q\C-a": accept-line'
+        bind -m "$_aequalis_keymap" '"\C-m": "\C-x\C-q\C-q\C-x\C-q\C-a"'
+        bind -m "$_aequalis_keymap" '"\C-j": "\C-x\C-q\C-q\C-x\C-q\C-a"'
     done
-    unset _tally_keymap
+    unset _aequalis_keymap
 fi
 "#;
 
-const ZSH: &str = r#"#compdef tally
-# zsh completion for tally
-# Enable with: eval "$(tally --autocompletion zsh)"  (after compinit)
-# or save as _tally in a directory on $fpath.
-_tally() {
+const ZSH: &str = r#"#compdef aequalis
+# zsh completion for aequalis
+# Enable with: eval "$(aequalis --autocompletion zsh)"  (after compinit)
+# or save as _aequalis in a directory on $fpath.
+_aequalis() {
     local -a units flags
     local w i pos=0 expr=0 nunits=0
     # Words of an arithmetic expression (`100 + 20`, `[1+2]/3`) fill a single value slot.
@@ -90,19 +90,19 @@ _tally() {
         compadd -- $units
     fi
 }
-# Enter hook: quote tally expressions, so `tally (1+2)*3 km mi` reaches the program intact.
-_tally_accept_line() {
-    if [[ $BUFFER == *tally*[\(\)\*\[\]^]* ]]; then
+# Enter hook: quote aequalis expressions, so `aequalis (1+2)*3 km mi` reaches the program intact.
+_aequalis_accept_line() {
+    if [[ $BUFFER == *aequalis*[\(\)\*\[\]^]* ]]; then
         local quoted
         quoted=$(@BIN@ --quote-line "$BUFFER" 2>/dev/null) && BUFFER=$quoted
     fi
     zle .accept-line
 }
 if [[ ${zsh_eval_context[-1]} == loadautofunc ]]; then
-    _tally "$@"
+    _aequalis "$@"
 else
-    compdef _tally tally
-    [[ -o interactive ]] && zle -N accept-line _tally_accept_line
+    compdef _aequalis aequalis
+    [[ -o interactive ]] && zle -N accept-line _aequalis_accept_line
 fi
 "#;
 
@@ -112,9 +112,9 @@ const SHELL_SPECIAL: &[char] = &['(', ')', '*', '[', ']', '^'];
 /// (variables, pipes, redirections, several commands, comments) that quoting could break.
 const UNTOUCHABLE: &[char] = &['\'', '"', '\\', '$', '`', ';', '&', '|', '<', '>', '#', '\n'];
 
-/// Rewrites a typed `tally ...` line so the shell passes the expression through unchanged:
-/// `tally (10+12-3)/4Km Mi` becomes `tally '(10+12-3)/4Km Mi'`. The expression and its units
-/// become one argument (tally joins its words with spaces anyway); flags stay outside the
+/// Rewrites a typed `aequalis ...` line so the shell passes the expression through unchanged:
+/// `aequalis (10+12-3)/4Km Mi` becomes `aequalis '(10+12-3)/4Km Mi'`. The expression and its units
+/// become one argument (aequalis joins its words with spaces anyway); flags stay outside the
 /// quotes. Returns `None` when there is nothing to quote or the line must not be touched.
 pub fn quote_line(line: &str) -> Option<String> {
     if line.contains(UNTOUCHABLE) {
@@ -124,7 +124,7 @@ pub fn quote_line(line: &str) -> Option<String> {
     let indent = &line[..line.len() - body.len()];
     let words: Vec<&str> = body.split_whitespace().collect();
     let (cmd, args) = words.split_first()?;
-    if *cmd != "tally" && !cmd.ends_with("/tally") {
+    if *cmd != "aequalis" && !cmd.ends_with("/aequalis") {
         return None;
     }
     let is_flag = |w: &str| w.len() > 1 && w.starts_with('-') && !calc::starts_expression(w);
@@ -145,9 +145,9 @@ pub fn quote_line(line: &str) -> Option<String> {
     Some(format!("{indent}{}", all.join(" ")))
 }
 
-/// The running binary as a single-quoted shell word, so the hooks call this exact tally.
+/// The running binary as a single-quoted shell word, so the hooks call this exact aequalis.
 fn self_path() -> String {
-    let path = std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_else(|_| "tally".into());
+    let path = std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_else(|_| "aequalis".into());
     format!("'{}'", path.replace('\'', r"'\''"))
 }
 
@@ -208,36 +208,36 @@ mod tests {
 
     #[test]
     fn quotes_expressions() {
-        assert_eq!(quote("tally (10+12-3)/4Km Mi").unwrap(), "tally '(10+12-3)/4Km Mi'");
-        assert_eq!(quote("./tally (10+12-3)/4Km Mi").unwrap(), "./tally '(10+12-3)/4Km Mi'");
-        assert_eq!(quote("target/release/tally 2 * 3").unwrap(), "target/release/tally '2 * 3'");
-        assert_eq!(quote("tally 10**2").unwrap(), "tally '10**2'");
-        assert_eq!(quote("tally [1+2]/3 km mi").unwrap(), "tally '[1+2]/3 km mi'");
-        assert_eq!(quote("  tally (1+2) km m").unwrap(), "  tally '(1+2) km m'");
-        assert_eq!(quote("tally -(2+3)").unwrap(), "tally '-(2+3)'");
+        assert_eq!(quote("aequalis (10+12-3)/4Km Mi").unwrap(), "aequalis '(10+12-3)/4Km Mi'");
+        assert_eq!(quote("./aequalis (10+12-3)/4Km Mi").unwrap(), "./aequalis '(10+12-3)/4Km Mi'");
+        assert_eq!(quote("target/release/aequalis 2 * 3").unwrap(), "target/release/aequalis '2 * 3'");
+        assert_eq!(quote("aequalis 10**2").unwrap(), "aequalis '10**2'");
+        assert_eq!(quote("aequalis [1+2]/3 km mi").unwrap(), "aequalis '[1+2]/3 km mi'");
+        assert_eq!(quote("  aequalis (1+2) km m").unwrap(), "  aequalis '(1+2) km m'");
+        assert_eq!(quote("aequalis -(2+3)").unwrap(), "aequalis '-(2+3)'");
     }
 
     #[test]
     fn keeps_flags_outside_the_quotes() {
-        assert_eq!(quote("tally (1+2) km m --precision 2").unwrap(), "tally '(1+2) km m' --precision 2");
-        assert_eq!(quote("tally -s --precision 2 (1+2)*3").unwrap(), "tally -s --precision 2 '(1+2)*3'");
-        assert_eq!(quote("tally --precision=1 1/(3) -s").unwrap(), "tally --precision=1 '1/(3)' -s");
+        assert_eq!(quote("aequalis (1+2) km m --precision 2").unwrap(), "aequalis '(1+2) km m' --precision 2");
+        assert_eq!(quote("aequalis -s --precision 2 (1+2)*3").unwrap(), "aequalis -s --precision 2 '(1+2)*3'");
+        assert_eq!(quote("aequalis --precision=1 1/(3) -s").unwrap(), "aequalis --precision=1 '1/(3)' -s");
     }
 
     #[test]
     fn leaves_other_lines_alone() {
         for line in [
-            "tally 10 km mi",         // nothing to quote
-            "tally {1+2}/3 km mi",    // braces are safe unquoted
-            "tally '(1+2)' km m",     // already quoted
-            "tally \\(1+2\\) km m",   // already escaped
-            "tally (1+2) km m | cat", // pipeline
-            "tally $(echo 1) km m",   // command substitution
-            "tally (1) km m; ls *",   // several commands
+            "aequalis 10 km mi",         // nothing to quote
+            "aequalis {1+2}/3 km mi",    // braces are safe unquoted
+            "aequalis '(1+2)' km m",     // already quoted
+            "aequalis \\(1+2\\) km m",   // already escaped
+            "aequalis (1+2) km m | cat", // pipeline
+            "aequalis $(echo 1) km m",   // command substitution
+            "aequalis (1) km m; ls *",   // several commands
             "echo (1+2)",             // another command
-            "tallyx (1+2)",           // another command
-            "ls tally*",              // `tally` is not the command
-            "tally --precision 2",    // no expression
+            "aequalisx (1+2)",           // another command
+            "ls aequalis*",              // `aequalis` is not the command
+            "aequalis --precision 2",    // no expression
             "",
         ] {
             assert_eq!(quote(line), None, "{line}");
@@ -248,8 +248,8 @@ mod tests {
     fn scripts_install_the_enter_hook() {
         let config = Config::default();
         let bash = script(&config, "bash").unwrap();
-        assert!(bash.contains("--quote-line") && bash.contains(r#"bind -m "$_tally_keymap" '"\C-m""#));
+        assert!(bash.contains("--quote-line") && bash.contains(r#"bind -m "$_aequalis_keymap" '"\C-m""#));
         let zsh = script(&config, "zsh").unwrap();
-        assert!(zsh.contains("--quote-line") && zsh.contains("zle -N accept-line _tally_accept_line"));
+        assert!(zsh.contains("--quote-line") && zsh.contains("zle -N accept-line _aequalis_accept_line"));
     }
 }

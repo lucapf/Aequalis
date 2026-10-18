@@ -1,4 +1,4 @@
-//! The Android app's bridge (JNI): the `external fun`s of `io.lucapf.tally.Core`, in Kotlin. Each is
+//! The Android app's bridge (JNI): the `external fun`s of `io.lucapf.aequalis.Core`, in Kotlin. Each is
 //! a thin wrapper over the C interface (`ffi.rs`): UTF-8 bytes in, a JSON reply out, as bytes too
 //! (Java's own string encoding in JNI is "modified UTF-8", which emoji and NUL break; bytes are
 //! exact, and Kotlin decodes them in one call).
@@ -94,10 +94,10 @@ fn error(message: &str) -> String {
     crate::json::Object::new().num("ok", false).str("error", message).finish()
 }
 
-/// `Core.init(config)`, once, first: what the app knows about the device, as `tally_init`'s JSON
+/// `Core.init(config)`, once, first: what the app knows about the device, as `aequalis_init`'s JSON
 /// (`{"dir": …, "zone": …, "zoneinfo": …, "decimal": …, …}`). Returns `{"ok":true,"max_input":512}` or the error.
 #[no_mangle]
-pub extern "system" fn Java_io_lucapf_tally_Core_init(env: Env, _class: Class, config: ByteArray) -> ByteArray {
+pub extern "system" fn Java_io_lucapf_aequalis_Core_init(env: Env, _class: Class, config: ByteArray) -> ByteArray {
     let reply = match unsafe { text(env, config) }.map(|t| crate::ffi::parse_init(&t)) {
         Some(Ok(init)) => {
             crate::ffi::start(&init);
@@ -112,7 +112,7 @@ pub extern "system" fn Java_io_lucapf_tally_Core_init(env: Env, _class: Class, c
 /// `Core.eval(request, submitted)`: the reply as the app shows it (`json::view`): what to show, its
 /// message, the value to copy, the choices of an ambiguous request. `submitted` is a `jboolean`.
 #[no_mangle]
-pub extern "system" fn Java_io_lucapf_tally_Core_eval(env: Env, _class: Class, request: ByteArray, submitted: u8) -> ByteArray {
+pub extern "system" fn Java_io_lucapf_aequalis_Core_eval(env: Env, _class: Class, request: ByteArray, submitted: u8) -> ByteArray {
     // Too long: refused before its bytes are even copied.
     if unsafe { too_many_bytes(env, request) } {
         return unsafe { to_java(env, &crate::ffi::too_long()) };
@@ -127,7 +127,7 @@ pub extern "system" fn Java_io_lucapf_tally_Core_eval(env: Env, _class: Class, r
 /// `Core.suggest(before)`: suggestions for the word being typed at the end of `before` (the text up
 /// to the cursor), from its third character (`ffi::suggest`).
 #[no_mangle]
-pub extern "system" fn Java_io_lucapf_tally_Core_suggest(env: Env, _class: Class, before: ByteArray) -> ByteArray {
+pub extern "system" fn Java_io_lucapf_aequalis_Core_suggest(env: Env, _class: Class, before: ByteArray) -> ByteArray {
     if unsafe { too_many_bytes(env, before) } {
         return unsafe { to_java(env, crate::ffi::NO_SUGGESTIONS) };
     }
@@ -142,7 +142,7 @@ pub extern "system" fn Java_io_lucapf_tally_Core_suggest(env: Env, _class: Class
 /// them: `measures` (the unit classes and their units), `currencies`, `trivia`, `settings`; and
 /// `about`, `memory` (what the core holds, `ffi::memory`).
 #[no_mangle]
-pub extern "system" fn Java_io_lucapf_tally_Core_lists(env: Env, _class: Class, which: ByteArray) -> ByteArray {
+pub extern "system" fn Java_io_lucapf_aequalis_Core_lists(env: Env, _class: Class, which: ByteArray) -> ByteArray {
     let reply = match unsafe { text(env, which) }.as_deref() {
         Some("measures") => crate::ffi::measures(),
         Some("currencies") => crate::ffi::currencies(),
@@ -156,9 +156,9 @@ pub extern "system" fn Java_io_lucapf_tally_Core_lists(env: Env, _class: Class, 
 }
 
 /// `Core.set(key, value)`: changes a setting and saves it (an empty value: its default), as
-/// `tally --set key=value`: `{"ok":true,"key":…,"value":…}` or the error.
+/// `aequalis --set key=value`: `{"ok":true,"key":…,"value":…}` or the error.
 #[no_mangle]
-pub extern "system" fn Java_io_lucapf_tally_Core_set(env: Env, _class: Class, key: ByteArray, value: ByteArray) -> ByteArray {
+pub extern "system" fn Java_io_lucapf_aequalis_Core_set(env: Env, _class: Class, key: ByteArray, value: ByteArray) -> ByteArray {
     let reply = match (unsafe { text(env, key) }, unsafe { text(env, value) }) {
         (Some(key), Some(value)) => crate::ffi::set(&key, Some(value.as_str()).filter(|v| !v.is_empty())),
         _ => error("set: a key and a value"),
@@ -170,7 +170,7 @@ pub extern "system" fn Java_io_lucapf_tally_Core_set(env: Env, _class: Class, ke
 /// answer (empty: none) and the path of the city archive's JSON file (empty: none). Off the main
 /// thread: installing the archive takes a second or two.
 #[no_mangle]
-pub extern "system" fn Java_io_lucapf_tally_Core_seed(env: Env, _class: Class, rates: ByteArray, cities: ByteArray) -> ByteArray {
+pub extern "system" fn Java_io_lucapf_aequalis_Core_seed(env: Env, _class: Class, rates: ByteArray, cities: ByteArray) -> ByteArray {
     let rates = unsafe { text(env, rates) }.filter(|r| !r.is_empty());
     let cities = unsafe { text(env, cities) }.filter(|c| !c.is_empty());
     let reply = crate::ffi::seed(rates.as_deref(), cities.as_deref().map(std::path::Path::new));

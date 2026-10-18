@@ -7,7 +7,7 @@
 //! `cargo test --release --test fuzz -- --ignored` runs it 50 times longer.
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use tally::config::Config;
+use aequalis::config::Config;
 
 /// xorshift64*: the same requests on every run.
 struct Rng(u64);
@@ -128,15 +128,15 @@ fn request(r: &mut Rng, units: &[&'static str]) -> String {
 
 /// Typed key by key: every prefix, as the app asks while typing.
 fn typed(config: &Config, text: &str) {
-    let opts = tally::Options { positional: Vec::new(), precision: 4, silent: false, verbose: false };
+    let opts = aequalis::Options { positional: Vec::new(), precision: 4, silent: false, verbose: false };
     let ends: Vec<usize> = text.char_indices().map(|(i, _)| i).skip(1).chain([text.len()]).collect();
     for end in ends {
         let before = &text[..end];
         let words: Vec<&str> = before.split_whitespace().collect();
         let outcome = catch_unwind(AssertUnwindSafe(|| {
-            let _ = tally::convert_request(config, &opts, &words);
-            let _ = tally::grouping(before);
-            let _ = tally::suggest::suggest(config, before, before.chars().count(), 3);
+            let _ = aequalis::convert_request(config, &opts, &words);
+            let _ = aequalis::grouping(before);
+            let _ = aequalis::suggest::suggest(config, before, before.chars().count(), 3);
         }));
         assert!(outcome.is_ok(), "panicked on {before:?} (typing {text:?})");
     }
@@ -167,7 +167,7 @@ fn the_fuzzers_findings() {
     let corpus = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/fuzz/corpus/regressions.txt")).unwrap();
     let mut n = 0;
     for line in corpus.lines().filter(|l| !l.trim().is_empty() && !l.starts_with('#')) {
-        let doc = tally::json::parse(line).unwrap_or_else(|e| panic!("{line}: {e}"));
+        let doc = aequalis::json::parse(line).unwrap_or_else(|e| panic!("{line}: {e}"));
         typed(Config::shared(), doc.get("input").and_then(|v| v.str()).unwrap());
         n += 1;
     }

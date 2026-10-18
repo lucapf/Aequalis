@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Builds Tally's city archive from GeoNames (geonames.org, CC BY 4.0).
+"""Builds Aequalis's city archive from GeoNames (geonames.org, CC BY 4.0).
 
     scripts/build-cities.py [<output dir>]        (default: dist)
 
@@ -8,14 +8,14 @@ divisions), the capitals below that from cities1000, the region names (admin1Cod
 country names (countryInfo), and writes:
 
     cities.json     {"format":1, "source", "license", "built_at", "count", "cities":[…]}: what
-                    Tally downloads, as it is (no compression: any downloader saves it as a file)
+                    Aequalis downloads, as it is (no compression: any downloader saves it as a file)
     cities.version  "<built_at> <sha256 of cities.json>", to check for a new archive cheaply
 
 Each city: id (GeoNames id), name, aliases (every alternate name, any language, but not the name of
 a more populous city), lat, lon,
 population, country, country_code, region, updated (GeoNames' modification date), and
 `"capital": true` for a country's capital (GeoNames' PPLC). The Google Maps link is not stored:
-Tally builds it from the coordinates. Standard library only.
+Aequalis builds it from the coordinates. Standard library only.
 """
 
 import hashlib

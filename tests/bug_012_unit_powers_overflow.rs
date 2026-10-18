@@ -8,7 +8,7 @@
 
 use std::process::Command;
 
-const BIN: &str = env!("CARGO_BIN_EXE_tally");
+const BIN: &str = env!("CARGO_BIN_EXE_aequalis");
 
 fn run(args: &str) -> (String, String, i32) {
     let out = Command::new(BIN).args(args.split_whitespace()).env("LC_ALL", "C").output().unwrap();
@@ -20,7 +20,7 @@ fn run(args: &str) -> (String, String, i32) {
 fn reported() {
     let (out, err, code) = run("1 m^64*m^64 m^-128");
     assert_eq!((out.as_str(), code), ("", 1));
-    assert_eq!(err, "tally: error: the powers in `m^64*m^64` are too large (at most 127)");
+    assert_eq!(err, "aequalis: error: the powers in `m^64*m^64` are too large (at most 127)");
     for request in ["1 W·square-metre^99 W", "1 m^99*m^99 m", "4 kt^99/oz*kWh*t/s^99 m", "1 m^127*m km", "1 m^-128/m km"] {
         let (_, err, code) = run(request);
         assert_eq!(code, 1, "{request}: {err}");

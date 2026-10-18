@@ -1,4 +1,4 @@
-package io.lucapf.tally
+package io.lucapf.aequalis
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor

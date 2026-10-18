@@ -1,15 +1,15 @@
-//! The C interface for apps that embed tally (the Android app; feature `ffi`, built as a shared
+//! The C interface for apps that embed aequalis (the Android app; feature `ffi`, built as a shared
 //! library). Strings in and out are UTF-8 and NUL-terminated; every string returned is JSON and is
-//! given back with `tally_free`. `include/tally.h` declares them.
+//! given back with `aequalis_free`. `include/aequalis.h` declares them.
 //!
-//! - `tally_init(config)` once, first: the data folder, the time zone, the number format and the
+//! - `aequalis_init(config)` once, first: the data folder, the time zone, the number format and the
 //!   measurement system, which the app knows (an app gets no `HOME`, `TZ` or `LANG` that say
 //!   them).
-//! - `tally_set_fetcher(fetch)`: the app's downloader (the app can't start `curl`).
-//! - `tally_eval(request)`: the reply of `tally --json <request>` (results, errors, choices);
-//!   `tally_view(request, submitted)`: the same, with what a UI shows (`json::view`).
-//! - `tally_settings()`, `tally_set(key, value)`, `tally_sync(auto)`, `tally_trivia()`,
-//!   `tally_measures()`, `tally_currencies()`.
+//! - `aequalis_set_fetcher(fetch)`: the app's downloader (the app can't start `curl`).
+//! - `aequalis_eval(request)`: the reply of `aequalis --json <request>` (results, errors, choices);
+//!   `aequalis_view(request, submitted)`: the same, with what a UI shows (`json::view`).
+//! - `aequalis_settings()`, `aequalis_set(key, value)`, `aequalis_sync(auto)`, `aequalis_trivia()`,
+//!   `aequalis_measures()`, `aequalis_currencies()`.
 
 use crate::config::{Config, System};
 use crate::json::{self, Object};
@@ -64,7 +64,7 @@ pub fn too_long() -> String {
 /// No suggestions: `suggest`'s reply for a text with nothing to offer.
 pub const NO_SUGGESTIONS: &str = r#"{"start":0,"items":[]}"#;
 
-/// A string for the app, given back with `tally_free`.
+/// A string for the app, given back with `aequalis_free`.
 fn give(s: String) -> *mut c_char {
     CString::new(s.replace('\0', "")).map_or(std::ptr::null_mut(), CString::into_raw)
 }
@@ -73,12 +73,12 @@ fn error(message: &str) -> *mut c_char {
     give(Object::new().num("ok", false).str("error", message).finish())
 }
 
-/// Frees a string returned by tally.
+/// Frees a string returned by aequalis.
 ///
 /// # Safety
-/// `s` was returned by a `tally_*` function and is freed once.
+/// `s` was returned by a `aequalis_*` function and is freed once.
 #[no_mangle]
-pub unsafe extern "C" fn tally_free(s: *mut c_char) {
+pub unsafe extern "C" fn aequalis_free(s: *mut c_char) {
     if !s.is_null() {
         drop(unsafe { CString::from_raw(s) });
     }
@@ -87,7 +87,7 @@ pub unsafe extern "C" fn tally_free(s: *mut c_char) {
 /// What the app says about the device, at start.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Init {
-    /// The folder where tally keeps its data (`<dir>/tally/…`): the app's Application Support.
+    /// The folder where aequalis keeps its data (`<dir>/aequalis/…`): the app's Application Support.
     pub dir: String,
     /// The time zone (`Europe/Rome`), and where the zone files are (the system's or a copy).
     pub zone: Option<String>,
@@ -102,9 +102,9 @@ pub struct Init {
 /// `{"dir": "…", "zone": "Europe/Rome", "zoneinfo": "…", "decimal": ",", "thousands": ".",
 /// "grouping": [3], "imperial": false, "now": 1792222391}` (only `dir` is required).
 pub fn parse_init(text: &str) -> Result<Init, String> {
-    let doc = json::parse(text).map_err(|e| format!("tally_init: {e}"))?;
+    let doc = json::parse(text).map_err(|e| format!("aequalis_init: {e}"))?;
     let s = |key: &str| doc.get(key).and_then(|v| v.str()).filter(|v| !v.is_empty()).map(str::to_string);
-    let dir = s("dir").ok_or("tally_init: `dir` is required")?;
+    let dir = s("dir").ok_or("aequalis_init: `dir` is required")?;
     let format = match (s("decimal"), doc.get("thousands").and_then(|v| v.str())) {
         (Some(decimal), Some(thousands)) => Some(crate::numbers::NumberFormat {
             decimal,
@@ -117,14 +117,14 @@ pub fn parse_init(text: &str) -> Result<Init, String> {
     Ok(Init { dir, zone: s("zone"), zoneinfo: s("zoneinfo"), format, imperial: doc.get("imperial").and_then(|v| v.boolean()), now })
 }
 
-/// Starts tally for the app: `config` as in `parse_init`. Call once, before anything else.
+/// Starts aequalis for the app: `config` as in `parse_init`. Call once, before anything else.
 /// Returns `{"ok":true}` or `{"ok":false,"error":…}`.
 ///
 /// # Safety
 /// `config` is a NUL-terminated string.
 #[no_mangle]
-pub unsafe extern "C" fn tally_init(config_json: *const c_char) -> *mut c_char {
-    let Some(text) = (unsafe { text(config_json) }) else { return error("tally_init: no configuration") };
+pub unsafe extern "C" fn aequalis_init(config_json: *const c_char) -> *mut c_char {
+    let Some(text) = (unsafe { text(config_json) }) else { return error("aequalis_init: no configuration") };
     let init = match parse_init(text) {
         Ok(i) => i,
         Err(e) => return error(&e),
@@ -133,13 +133,13 @@ pub unsafe extern "C" fn tally_init(config_json: *const c_char) -> *mut c_char {
     give(started())
 }
 
-/// `tally_init`'s reply: `{"ok":true,"max_input":512}`, the longest request in characters, for an
+/// `aequalis_init`'s reply: `{"ok":true,"max_input":512}`, the longest request in characters, for an
 /// app that cuts a long paste.
 pub fn started() -> String {
     Object::new().num("ok", true).num("max_input", crate::MAX_INPUT).finish()
 }
 
-/// Gives tally what the app knows, once, before anything else: set directly, not through
+/// Gives aequalis what the app knows, once, before anything else: set directly, not through
 /// environment variables (`setenv` races with the app's other threads).
 pub fn start(init: &Init) {
     crate::files::set_dir(Path::new(&init.dir));
@@ -170,7 +170,7 @@ impl crate::http::Fetcher for AppFetcher {
     fn get(&self, url: &str, seconds: u32, strict: bool) -> Option<Vec<u8>> {
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let path = std::env::temp_dir().join(format!("tally-fetch-{}-{n}", std::process::id()));
+        let path = std::env::temp_dir().join(format!("aequalis-fetch-{}-{n}", std::process::id()));
         let body = self.call(url, &path, seconds, strict).then(|| std::fs::read(&path).ok()).flatten();
         let _ = std::fs::remove_file(&path);
         body
@@ -190,18 +190,18 @@ impl AppFetcher {
 
 /// Registers the app's downloader (once).
 #[no_mangle]
-pub extern "C" fn tally_set_fetcher(fetch: Fetch) {
+pub extern "C" fn aequalis_set_fetcher(fetch: Fetch) {
     crate::http::register(Box::new(AppFetcher(fetch)));
 }
 
-/// The reply to a request, as `tally --json <words…>`: `{"ok":true,"result":…}`, an error, or
+/// The reply to a request, as `aequalis --json <words…>`: `{"ok":true,"result":…}`, an error, or
 /// the choices of an ambiguous request; the notices too. Only the request: no command-line
 /// options (`-v`, `--precision`), whose messages would make no sense in an app.
 ///
 /// # Safety
 /// `request` is a NUL-terminated string.
 #[no_mangle]
-pub unsafe extern "C" fn tally_eval(request: *const c_char) -> *mut c_char {
+pub unsafe extern "C" fn aequalis_eval(request: *const c_char) -> *mut c_char {
     match unsafe { request_text(request) } {
         Err(()) => give(too_long()),
         Ok(None) => error("no request"),
@@ -209,7 +209,7 @@ pub unsafe extern "C" fn tally_eval(request: *const c_char) -> *mut c_char {
     }
 }
 
-/// `tally_eval`'s reply, as submitted (Enter pressed): nothing hidden.
+/// `aequalis_eval`'s reply, as submitted (Enter pressed): nothing hidden.
 pub fn eval(request: &str) -> String {
     json::view(request, true)
 }
@@ -221,7 +221,7 @@ pub fn eval(request: &str) -> String {
 /// # Safety
 /// `request` is a NUL-terminated string.
 #[no_mangle]
-pub unsafe extern "C" fn tally_view(request: *const c_char, submitted: bool) -> *mut c_char {
+pub unsafe extern "C" fn aequalis_view(request: *const c_char, submitted: bool) -> *mut c_char {
     match unsafe { request_text(request) } {
         Err(()) => give(too_long()),
         Ok(None) => error("no request"),
@@ -242,7 +242,7 @@ pub fn memory() -> String {
 
 pub fn about() -> String {
     let pair = |(label, text): (&str, String)| format!("[{},{}]", json::string(label), json::string(&text));
-    // The process's memory is the app's, not tally's; the version is the reply's own: left out.
+    // The process's memory is the app's, not aequalis's; the version is the reply's own: left out.
     let facts: Vec<String> = crate::about::facts("").into_iter().filter(|(label, _)| !["Memory", "Version"].contains(label)).map(pair).collect();
     let sources: Vec<String> = [
         ("Cities", crate::cities::SOURCE.to_string()),
@@ -262,10 +262,10 @@ pub fn about() -> String {
         .finish()
 }
 
-/// Every setting: key, value, default, kind, options, what it does (`tally --settings --json`),
+/// Every setting: key, value, default, kind, options, what it does (`aequalis --settings --json`),
 /// but the interactive mode's (`tui.`), which mean nothing in an app.
 #[no_mangle]
-pub extern "C" fn tally_settings() -> *mut c_char {
+pub extern "C" fn aequalis_settings() -> *mut c_char {
     give(settings())
 }
 
@@ -283,7 +283,7 @@ pub fn settings() -> String {
 /// # Safety
 /// `key` is a NUL-terminated string; `value` too, or null.
 #[no_mangle]
-pub unsafe extern "C" fn tally_set(key: *const c_char, value: *const c_char) -> *mut c_char {
+pub unsafe extern "C" fn aequalis_set(key: *const c_char, value: *const c_char) -> *mut c_char {
     let Some(key) = (unsafe { text(key) }) else { return error("no key") };
     give(set(key, unsafe { text(value) }))
 }
@@ -327,7 +327,7 @@ pub fn seed(rates: Option<&str>, cities: Option<&Path>) -> String {
 /// # Safety
 /// `rates` and `cities` are null or NUL-terminated strings.
 #[no_mangle]
-pub unsafe extern "C" fn tally_seed(rates: *const c_char, cities: *const c_char) -> *mut c_char {
+pub unsafe extern "C" fn aequalis_seed(rates: *const c_char, cities: *const c_char) -> *mut c_char {
     let rates = unsafe { text(rates) }.filter(|r| !r.is_empty());
     let cities = unsafe { text(cities) }.filter(|c| !c.is_empty());
     give(seed(rates, cities.map(Path::new)))
@@ -335,9 +335,9 @@ pub unsafe extern "C" fn tally_seed(rates: *const c_char, cities: *const c_char)
 
 /// Downloads the online data, in this thread (call it off the main thread): everything, or with
 /// `auto` what the refresh settings say (at launch, in a background refresh). The reply of
-/// `tally --sync --json`.
+/// `aequalis --sync --json`.
 #[no_mangle]
-pub extern "C" fn tally_sync(auto: bool) -> *mut c_char {
+pub extern "C" fn aequalis_sync(auto: bool) -> *mut c_char {
     // The groups that failed: the reply's warnings, after the others had their turn.
     let result = crate::online::sync(auto)
         .map(|report| crate::Output { stdout: report.done.join("\n"), warnings: report.failed, ..crate::Output::default() })
@@ -349,7 +349,7 @@ pub extern "C" fn tally_sync(auto: bool) -> *mut c_char {
 /// "written","popup":[[label, text]…]}]}]}`; `written` is what goes into the request (a tip: its
 /// example).
 #[no_mangle]
-pub extern "C" fn tally_trivia() -> *mut c_char {
+pub extern "C" fn aequalis_trivia() -> *mut c_char {
     give(trivia())
 }
 
@@ -422,7 +422,7 @@ pub fn trivia_measures(shown: &str, plain: &str) -> Vec<(String, String)> {
 /// The unit classes for the Measures: `{"classes":[{"name","key","systems":[…,…],"units":
 /// [{"symbol","name","system":"metric"|"imperial"|"both"}]}]}`, in the TUI's order.
 #[no_mangle]
-pub extern "C" fn tally_measures() -> *mut c_char {
+pub extern "C" fn aequalis_measures() -> *mut c_char {
     give(measures())
 }
 
@@ -483,7 +483,7 @@ pub fn suggest(before: &str, min: usize) -> String {
 /// # Safety
 /// `before` is a NUL-terminated string.
 #[no_mangle]
-pub unsafe extern "C" fn tally_suggest(before: *const c_char, min: u32) -> *mut c_char {
+pub unsafe extern "C" fn aequalis_suggest(before: *const c_char, min: u32) -> *mut c_char {
     match unsafe { request_text(before) } {
         Err(()) => give(NO_SUGGESTIONS.to_string()),
         Ok(None) => error("no text"),
@@ -495,7 +495,7 @@ pub unsafe extern "C" fn tally_suggest(before: *const c_char, min: u32) -> *mut 
 /// "aliases":[…]}]}`; `countries`: the names of those that use it (`Italy`), `aliases`: their other
 /// names (`USA`), so a search finds a currency by its country, as requests do (`15 Italy UAE`).
 #[no_mangle]
-pub extern "C" fn tally_currencies() -> *mut c_char {
+pub extern "C" fn aequalis_currencies() -> *mut c_char {
     give(currencies())
 }
 
@@ -520,14 +520,14 @@ mod tests {
     fn call(f: impl FnOnce() -> *mut c_char) -> String {
         let p = f();
         let s = unsafe { CStr::from_ptr(p) }.to_str().unwrap().to_string();
-        unsafe { tally_free(p) };
+        unsafe { aequalis_free(p) };
         s
     }
 
     #[test]
     fn requests_answer_as_the_command_line() {
         let request = CString::new("10 km mi").unwrap();
-        let reply = call(|| unsafe { tally_eval(request.as_ptr()) });
+        let reply = call(|| unsafe { aequalis_eval(request.as_ptr()) });
         assert!(reply.starts_with(r#"{"ok":true,"result":"6.2137 mi""#), "{reply}");
         // An ambiguous request: its choices, as `--json`.
         let reply = eval("12/04/2026 unix");
@@ -535,23 +535,23 @@ mod tests {
         assert!(eval("10 foo bar").starts_with(r#"{"ok":false,"exit":"#));
         // The grouping of a calculation, beside its result.
         assert!(eval("12+4/2").contains(r#","grouping":"(12 + (4 / 2))""#), "{}", eval("12+4/2"));
-        // `tally_view`: what to show, a word being typed hiding what is no result.
+        // `aequalis_view`: what to show, a word being typed hiding what is no result.
         let typed = CString::new("10 km").unwrap();
-        assert!(call(|| unsafe { tally_view(typed.as_ptr(), false) }).contains(r#""show":"none""#));
-        assert!(call(|| unsafe { tally_view(typed.as_ptr(), true) }).contains(r#""show":"hint""#));
+        assert!(call(|| unsafe { aequalis_view(typed.as_ptr(), false) }).contains(r#""show":"none""#));
+        assert!(call(|| unsafe { aequalis_view(typed.as_ptr(), true) }).contains(r#""show":"hint""#));
         assert!(started().contains(r#""max_input":512"#));
         assert!(!eval("10 km mi").contains("grouping"));
         let about = json::parse(&about()).unwrap();
-        assert_eq!(about.get("name").and_then(|v| v.str()), Some("Tally"));
+        assert_eq!(about.get("name").and_then(|v| v.str()), Some("Aequalis"));
         assert!(about.get("facts").unwrap().array().iter().all(|f| f.array()[0].str() != Some("Memory")));
         // No command-line options, nor their messages: `--version` is no request, and an unknown
-        // unit says so without `see tally --list`.
-        assert!(!eval("--version").contains("tally "));
+        // unit says so without `see aequalis --list`.
+        assert!(!eval("--version").contains("aequalis "));
         assert!(eval("10 foo m").contains(r#""error":"unknown unit `foo`""#), "{}", eval("10 foo m"));
         let parsed = json::parse(&eval("12+4")).unwrap();
         assert_eq!(parsed.get("result").and_then(|v| v.str()), Some("16"));
         // A null request: an error, not a crash.
-        assert!(call(|| unsafe { tally_eval(std::ptr::null()) }).contains(r#""ok":false"#));
+        assert!(call(|| unsafe { aequalis_eval(std::ptr::null()) }).contains(r#""ok":false"#));
     }
 
     /// A request past 512 characters: refused before anything reads it, with no grouping; no
@@ -569,13 +569,13 @@ mod tests {
         assert_ne!(suggest(&format!("10 {}kil", " ".repeat(500)), 3), NO_SUGGESTIONS, "506 characters: suggestions");
         let c = |s: &str| CString::new(s).unwrap();
         let huge = c(&"Rome ".repeat(100_000));
-        assert_eq!(call(|| unsafe { tally_eval(huge.as_ptr()) }).split(",\"peak_kb\"").next(), too_long().split(",\"peak_kb\"").next());
-        assert_eq!(call(|| unsafe { tally_suggest(huge.as_ptr(), 3) }), NO_SUGGESTIONS);
+        assert_eq!(call(|| unsafe { aequalis_eval(huge.as_ptr()) }).split(",\"peak_kb\"").next(), too_long().split(",\"peak_kb\"").next());
+        assert_eq!(call(|| unsafe { aequalis_suggest(huge.as_ptr(), 3) }), NO_SUGGESTIONS);
         // 512 emoji are 2,048 bytes: read, and answered (as a request of their own, not too long).
         let emoji = c(&"🙂".repeat(512));
-        assert!(!call(|| unsafe { tally_eval(emoji.as_ptr()) }).contains("too long"));
+        assert!(!call(|| unsafe { aequalis_eval(emoji.as_ptr()) }).contains("too long"));
         let emoji = c(&"🙂".repeat(513));
-        assert!(call(|| unsafe { tally_eval(emoji.as_ptr()) }).contains("too long"));
+        assert!(call(|| unsafe { aequalis_eval(emoji.as_ptr()) }).contains("too long"));
     }
 
     /// The app's suggestions: from the third letter (a value's unit from its first), units once
@@ -673,9 +673,9 @@ mod tests {
 
     #[test]
     fn settings_for_the_app() {
-        let settings = call(|| tally_settings());
+        let settings = call(|| aequalis_settings());
         assert!(settings.contains(r#""key":"offline""#), "{settings}");
         let bad = CString::new("no.such.key").unwrap();
-        assert!(call(|| unsafe { tally_set(bad.as_ptr(), std::ptr::null()) }).contains(r#""ok":false"#));
+        assert!(call(|| unsafe { aequalis_set(bad.as_ptr(), std::ptr::null()) }).contains(r#""ok":false"#));
     }
 }

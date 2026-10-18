@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tally's fuzzer: runs the engine (the library alone, as the Android app calls it) for hours on
+"""Aequalis's fuzzer: runs the engine (the library alone, as the Android app calls it) for hours on
 generated requests, in several configurations at once, and keeps what goes wrong under
 `fuzz/findings/`. See `docs/fuzzy.md`.
 
@@ -34,8 +34,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 WORK = os.path.join(HERE, "work")
 FINDINGS = os.path.join(HERE, "findings")
-LIB = os.path.join(ROOT, "target", "fuzz", "libtally.so")
-BIN = os.path.join(ROOT, "target", "fuzz", "tally")
+LIB = os.path.join(ROOT, "target", "fuzz", "libaequalis.so")
+BIN = os.path.join(ROOT, "target", "fuzz", "aequalis")
 WORKER = os.path.join(HERE, "worker.py")
 HANG = 2.0
 
@@ -70,7 +70,7 @@ def config(cid):
 def build():
     cargo = ["cargo", "--quiet"]
     subprocess.check_call(cargo + ["rustc", "--profile", "fuzz", "--lib", "--no-default-features", "--features", "ffi", "--crate-type", "cdylib"], cwd=ROOT)
-    subprocess.check_call(cargo + ["build", "--profile", "fuzz", "--bin", "tally"], cwd=ROOT)
+    subprocess.check_call(cargo + ["build", "--profile", "fuzz", "--bin", "aequalis"], cwd=ROOT)
     os.makedirs(WORK, exist_ok=True)
     env = dict(os.environ, XDG_CONFIG_HOME=os.path.join(ROOT, "tests", "config"))
     listing = subprocess.check_output([BIN, "--list"], text=True, env=env)
@@ -111,7 +111,7 @@ def build():
 
 
 def parse_list(text):
-    """`tally --list`: the categories and their units, then the currencies."""
+    """`aequalis --list`: the categories and their units, then the currencies."""
     units, currencies, part = [], [], "units"
     for line in text.splitlines():
         if line.startswith("Compound units"):
@@ -142,8 +142,8 @@ def seeds():
         path = os.path.join(ROOT, doc)
         if os.path.exists(path):
             for s in re.findall(r"`([^`\n]{2,80})`", open(path).read()):
-                if not s.startswith(("-", "~", "/", "$", "tally --", "cargo")):
-                    found.add(s.removeprefix("tally "))
+                if not s.startswith(("-", "~", "/", "$", "aequalis --", "cargo")):
+                    found.add(s.removeprefix("aequalis "))
     for name in os.listdir(os.path.join(ROOT, "tests")):
         if name.endswith(".rs"):
             for s in re.findall(r'"((?:[^"\\\n]|\\.){2,80})"', open(os.path.join(ROOT, "tests", name)).read()):
@@ -329,7 +329,7 @@ def write_report(a, began, ended, calls, totals, by_config):
     the way to reproduce them."""
     found = findings()
     stamp = lambda t: time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(t))
-    out = ["# Tally fuzz report", ""]
+    out = ["# Aequalis fuzz report", ""]
     verdict = "**No crashes and no hangs.**" if not (found.get("crash") or found.get("hang")) else \
         f"**{len(found.get('crash', []))} distinct crash(es) and {len(found.get('hang', []))} distinct hang(s): see below.**"
     out += [verdict, "", "## Run", ""]
@@ -378,7 +378,7 @@ def write_report(a, began, ended, calls, totals, by_config):
             ]))
             text = r.get("minimal") or r.get("input", "")
             out += ["", "Reproduce (the fuzz build checks every overflow; a release build may not crash):", "", "```sh",
-                    f"printf '%s' {shlex.quote(text)} | target/fuzz/tally",
+                    f"printf '%s' {shlex.quote(text)} | target/fuzz/aequalis",
                     f"python3 fuzz/fuzz.py minimize {rel(folder)}   # with its configuration and seed", "```"]
             panic = r.get("stderr", "").strip()
             if panic:
@@ -430,9 +430,9 @@ def write_report(a, began, ended, calls, totals, by_config):
 
 
 def sandboxed():
-    if os.environ.get("TALLY_FUZZ_SANDBOX") == "1":
+    if os.environ.get("AEQUALIS_FUZZ_SANDBOX") == "1":
         return True
-    env = dict(os.environ, TALLY_FUZZ_SANDBOX="1")
+    env = dict(os.environ, AEQUALIS_FUZZ_SANDBOX="1")
     try:
         os.execvpe("unshare", ["unshare", "-rn", sys.executable, "-I", os.path.abspath(__file__), *sys.argv[1:]], env)
     except OSError as e:

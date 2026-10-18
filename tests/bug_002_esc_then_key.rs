@@ -10,9 +10,9 @@ use std::process::{Command, Stdio};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-const BIN: &str = env!("CARGO_BIN_EXE_tally");
+const BIN: &str = env!("CARGO_BIN_EXE_aequalis");
 
-/// Runs `tally` in a pty via util-linux `script`, sends each item as ONE write, and returns
+/// Runs `aequalis` in a pty via util-linux `script`, sends each item as ONE write, and returns
 /// the output, or `None` when `script` is missing. Fails if the program does not exit by itself.
 fn session(writes: &[&[u8]]) -> Option<String> {
     Command::new("script").arg("--version").output().ok()?;
@@ -43,7 +43,7 @@ fn session(writes: &[&[u8]]) -> Option<String> {
     while child.try_wait().unwrap().is_none() {
         if started.elapsed() > Duration::from_secs(3) {
             child.kill().unwrap();
-            panic!("tally did not quit");
+            panic!("aequalis did not quit");
         }
         sleep(Duration::from_millis(50));
     }

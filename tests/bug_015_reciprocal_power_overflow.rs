@@ -7,7 +7,7 @@
 
 use std::process::Command;
 
-const BIN: &str = env!("CARGO_BIN_EXE_tally");
+const BIN: &str = env!("CARGO_BIN_EXE_aequalis");
 
 fn run(args: &str) -> (String, String, i32) {
     let out = Command::new(BIN).args(args.split_whitespace()).env("LC_ALL", "C").output().unwrap();
@@ -19,7 +19,7 @@ fn run(args: &str) -> (String, String, i32) {
 fn reported() {
     let (out, err, code) = run("1 m^-121 m^-128");
     assert_eq!((out.as_str(), code), ("", 1));
-    assert_eq!(err, "tally: error: cannot convert `m^-121` to `m^-128`: different kinds of unit");
+    assert_eq!(err, "aequalis: error: cannot convert `m^-121` to `m^-128`: different kinds of unit");
     for request in ["1 m^-128 m^-128", "1 m^-128 l/100km", "1 mpg m^-128", "1 m^127 m^-128"] {
         let (_, err, code) = run(request);
         assert_ne!(code, 101, "{request}: {err}");

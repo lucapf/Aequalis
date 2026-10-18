@@ -8,9 +8,9 @@ use std::process::{Command, Stdio};
 use std::thread::sleep;
 use std::time::Duration;
 
-const BIN: &str = env!("CARGO_BIN_EXE_tally");
+const BIN: &str = env!("CARGO_BIN_EXE_aequalis");
 
-/// Runs `tally` with no arguments in a pty, types `keys` (one write per item) and returns
+/// Runs `aequalis` with no arguments in a pty, types `keys` (one write per item) and returns
 /// everything it printed, escapes included.
 fn session(keys: &[&str]) -> Option<String> {
     Command::new("script").arg("--version").output().ok()?;

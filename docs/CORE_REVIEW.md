@@ -21,10 +21,10 @@ the first attempt at this separation.
   live in the TUI and again in the Omarchy widget's QML.
 - **Correctness:** wall times in a DST gap are read 1 hour apart depending on whether the zone is the
   device's or a named one; halves round to even (`2.5` → `2`, `0.5` → `0`); a decimal comma is
-  refused while results can be written with locale separators that Tally can't read back; 50,000
+  refused while results can be written with locale separators that Aequalis can't read back; 50,000
   nested brackets crash the process. Details and fixes in §2.
 - **Done in this pass:** the city archive is published and downloaded as plain `cities.json` (with a
-  completeness check that replaces gzip's checksum); with several cities of a name, Tally still
+  completeness check that replaces gzip's checksum); with several cities of a name, Aequalis still
   asks, with the country's capital first and selected by default; the core is a library
   (`src/lib.rs`); clippy is clean again. See §7.
 
@@ -32,7 +32,7 @@ the first attempt at this separation.
 
 - Read every core module (12,000 lines) and the TUI's logic paths (`tui/mod.rs`, `suggest.rs`,
   `search.rs`, `currencies.rs`, `measures.rs`), the scripts and workflows, and the `ios` branch
-  (`ffi.rs`, `http.rs`, `inflate.rs`, `tally.h`, the Swift engine).
+  (`ffi.rs`, `http.rs`, `inflate.rs`, `aequalis.h`, the Swift engine).
 - Timings: release build, a fresh process per request, median of 15–40 runs, offline, with the real
   city archive (69,801 cities, 545,955 index lines); in process: `cargo test --release -- --ignored
   keystroke_cost`.
@@ -49,19 +49,19 @@ the first attempt at this separation.
 | 2 | High | `convert.rs:212`, `currency.rs:485` | **Halves round to even** (Rust's formatting): `2.5 --precision 0` → `2`, `1.25 --precision 1` → `1.2`, `0.125 --precision 2` → `0.12`, and `0.5 --precision 0` → `0`, which breaks `format_value`'s own rule that a non-zero value never shows as 0. Calculators round halves up. | Round half away from zero on the shortest decimal form (`{}`), so the digits people typed decide (`2.675` → `2.68`). Same function for currencies. **Fixed** 15 Oct (`b69595e`, §9). |
 | 3 | High (mobile) | `calc.rs` number grammar, `geo.rs:394` | **Separators break round trips.** Input only accepts `.` (`2,5 + 1` → a generic usage error), so the Italian keypad on a phone can't be used. Output is sometimes localized: `Rome Tokyo` → `6,136 mi` (en_US), and `6,136 mi km` is refused; an Italian device would show `1.107 km`, and `1.107 km mi` reads it as 1.107 (`0.6879 mi`). | The core returns a plain result (`6136 mi`) plus a display text in the device's format, and reads the locale's decimal separator in input (comma when the locale says so; coordinates `41,9 12,5` need a rule). |
 | 4 | Medium | `geo.rs:394`, `currency.rs:485`, `convert.rs:212` | **Each kind of result is formatted its own way:** distances grouped by the device locale, in the CLI and in `--json` too (`6,136 mi`); money always `{:.2}` (`895156.00 EUR`, `1902.53 JPY`: the yen has no cents), ignoring `--precision`; units plain (`100000000 kb`). | One reply type (§4.4): value, unit, plain text, display text. Currencies get their minor units (ISO 4217) from `currencies.json`. |
-| 5 | Medium | README, `docs/Accepted_Syntax.md`, `docs/install_mac.md` | **The docs say otherwise:** "`Chicago Paris` asks Paris, Texas first (same country as Chicago)", but `cities::rank` (`cities.rs:201`) orders by the *device's* country, so Paris, France comes first. `12 Sept 2026 10:00 PM + 5wd` is documented as `18/09/2026 DD/MM/YYYY` and answers `18/09/2026 10:00:00 PM DD/MM/YYYY-12h`. `TALLY_CURRENCY` is gone (it is `currency.local`). The README's distance example, `Rome to Paris` → `1,107 km`, asks which Rome and which Paris once the archive is installed. The Mac guide installs v0.1.1 (the latest tag is v0.2.4). `docs/SPEC.md` is ignored by git. | Fixed in this pass: the order of the cities (now the capital first, §7), the `10:00 PM` example, `TALLY_CURRENCY`. Left: the Mac guide's version; track `docs/SPEC.md`. |
+| 5 | Medium | README, `docs/Accepted_Syntax.md`, `docs/install_mac.md` | **The docs say otherwise:** "`Chicago Paris` asks Paris, Texas first (same country as Chicago)", but `cities::rank` (`cities.rs:201`) orders by the *device's* country, so Paris, France comes first. `12 Sept 2026 10:00 PM + 5wd` is documented as `18/09/2026 DD/MM/YYYY` and answers `18/09/2026 10:00:00 PM DD/MM/YYYY-12h`. `AEQUALIS_CURRENCY` is gone (it is `currency.local`). The README's distance example, `Rome to Paris` → `1,107 km`, asks which Rome and which Paris once the archive is installed. The Mac guide installs v0.1.1 (the latest tag is v0.2.4). `docs/SPEC.md` is ignored by git. | Fixed in this pass: the order of the cities (now the capital first, §7), the `10:00 PM` example, `AEQUALIS_CURRENCY`. Left: the Mac guide's version; track `docs/SPEC.md`. |
 | 6 | Medium | `calc.rs:324` (recursion) | **Crash on nested input:** 50,000 nested brackets overflow the stack (exit 134). In an app, a paste can do it. | A depth limit (a few hundred) with a usage error. **Fixed** 15 Oct (`e0b1105`, §9). |
 | 7 | Medium | `online.rs:293` | **One failing group stops the sync:** `sync_cities(…)?` returns early, so a failed archive download skips the exchange rates and the live values after it. | Sync each group on its own, and report a line per group (error or count). **Fixed** 15 Oct (`03d33ca`, §9). |
 | 8 | Low | `calc.rs:158`, `lib.rs:424` | `(-2)^0.5` says "result is out of range": NaN is reported as an overflow. | NaN is a domain error ("not a real number"). **Fixed** 15 Oct (`b69595e`, §9). |
 | 9 | Low | `time.rs:2283`, `time.rs:1425` | `names_city` builds a new `Config` on every call, and `starts_with_duration` keeps a second static one; with a country in the request, the unit-name table is rebuilt. | One `Config` for the process (it is constant data). **Fixed** 15 Oct (`b797e47`, §9). |
 | 10 | Low | `numbers.rs:104`, `time/sys.rs:68` | On macOS the number format comes from the region setting (`AppleLocale`) but the date order from `LANG` (read from the code, not run: no Mac here): a Mac set to Italy with `LANG=en_US.UTF-8` gets `1.234,5` and month-first dates. | One locale source per platform (§4.3). |
 | 11 | Low | `time.rs:1172` | Dates for people are English only (`MMMM`, `MMM`, `dddd`), while input reads 6 languages. | Month and weekday names from the locale given by the UI. |
-| 12 | Low | `notify.rs:58`, error texts | Notices and errors name CLI commands (`tally --sync`, `see tally --list`), shown as they are in every UI. | Notices as data (`CitiesNotDownloaded`, `NewCities`, `Stale(group)`); each UI words them. |
+| 12 | Low | `notify.rs:58`, error texts | Notices and errors name CLI commands (`aequalis --sync`, `see aequalis --list`), shown as they are in every UI. | Notices as data (`CitiesNotDownloaded`, `NewCities`, `Stale(group)`); each UI words them. |
 | 13 | Info | `time/tz.rs:960` and others | Time-zone tests return early when the zone database is missing, so they pass on Windows without testing anything. | Fail when the database is missing in CI; a bundled copy makes it moot. |
 | 14 | Info | `.github/workflows/release.yml` | macOS tests run with `continue-on-error`: macOS paths are not verified. | Make them blocking once green. |
 | 15 | Info | `.gitignore` (`*.lock`) | `Cargo.lock` is not committed. | Commit it with the workspace (recommended for binaries). |
 
-**`Rome Paris` with the archive (decided).** Tally keeps asking ("no guessing"), and a country's
+**`Rome Paris` with the archive (decided).** Aequalis keeps asking ("no guessing"), and a country's
 capital is offered first, so it is the choice selected by default, wherever the device is: Rome,
 Italy → Paris, France. Done in this pass (§7); the README says so.
 
@@ -90,7 +90,7 @@ for names, zones cached once loaded, Vincenty with a great-circle fallback. Thre
 1. **macOS: `defaults` on every request** (`geo.rs:175`; **fixed** 15 Oct, `21949c0`: asked for only once a request has two places). `geo::request` works out the default
    unit (`locale::device_system`, `locale.rs:13`: up to 3 `defaults` processes, not cached), the
    number format (`numbers.rs:163`: 1 more) and opens the archive *before* it knows the request is a
-   distance. So `tally 10 km mi` runs `defaults` on a Mac. Not measured here (no Mac). A
+   distance. So `aequalis 10 km mi` runs `defaults` on a Mac. Not measured here (no Mac). A
    process launch costs milliseconds, which is likely the biggest cost there. Fix: compute these
    only for a distance request, and read the locale through CoreFoundation
    (`CFLocaleCopyCurrent`, `CFPreferencesCopyAppValue`). It is a system framework, so there is still
@@ -147,10 +147,10 @@ so every UI shows the same thing.
 | `FileExt::read_at` (Unix) | `cities.rs:23` | Windows (compile) | a small helper: `read_at` on Unix, `seek_read` on Windows |
 | desktop notifications, clipboard tools | `notify.rs`, `tui/clipboard.rs:14` | Windows, apps | UI. The TUI can also copy with OSC 52, an escape sequence most terminals understand, Windows Terminal included |
 
-**The `ios` branch already found most of these** (`http.rs`, `tally_init`). Three issues remain
+**The `ios` branch already found most of these** (`http.rs`, `aequalis_init`). Three issues remain
 there:
 
-- `tally_init` configures the core through `std::env::set_var` (`XDG_CONFIG_HOME`, `TZ`, `TZDIR`).
+- `aequalis_init` configures the core through `std::env::set_var` (`XDG_CONFIG_HOME`, `TZ`, `TZDIR`).
   That races with any other thread reading the environment.
 - `time/sys.rs` is unchanged, so on an iPhone local time is UTC whatever zone the app passes.
 - `inflate.rs` (478 lines) exists only to unpack the gzip archive, and the plain archive makes it
@@ -197,7 +197,7 @@ trick that only works with `curl`.
 
 ### 4.5 Bindings, still without dependencies
 
-- **C interface** (as on the `ios` branch): `tally.h`, UTF-8 JSON strings in and out, `tally_free`.
+- **C interface** (as on the `ios` branch): `aequalis.h`, UTF-8 JSON strings in and out, `aequalis_free`.
   Swift calls it directly.
 - **Android:** JNI functions exported by hand from the same crate. They need three `JNIEnv`
   functions (`GetStringUTFChars`, `ReleaseStringUTFChars`, `NewStringUTF`), declared in a few lines,
@@ -211,17 +211,17 @@ trick that only works with `curl`.
 |---|---|---|
 | Linux | TUI (today) | nothing beyond the split; the CLI crate supplies the defaults (XDG, `/usr/share/zoneinfo`, libc locale, curl) |
 | macOS | TUI (today) | CoreFoundation for the locale instead of `defaults` (§3.1); blocking tests in CI |
-| Windows | TUI (new) | raw console and escape sequences through `kernel32` (`GetConsoleMode`/`SetConsoleMode` with virtual-terminal input and output, `GetConsoleScreenBufferInfo`, UTF-8 code page); `%APPDATA%\tally`; a bundled zone database; the device's zone name (ICU's `ucal_getDefaultTimeZone` in `icu.dll`, Windows 10 1903+, or the CLDR Windows-to-IANA table); `GetLocaleInfoEx` for the locale; `seek_read`; `creation_flags` instead of `process_group`; OSC 52 for the clipboard. `curl.exe` ships with Windows 10 since 1803, and gzip is no longer needed. A `windows-latest` job in the release workflow. |
+| Windows | TUI (new) | raw console and escape sequences through `kernel32` (`GetConsoleMode`/`SetConsoleMode` with virtual-terminal input and output, `GetConsoleScreenBufferInfo`, UTF-8 code page); `%APPDATA%\aequalis`; a bundled zone database; the device's zone name (ICU's `ucal_getDefaultTimeZone` in `icu.dll`, Windows 10 1903+, or the CLDR Windows-to-IANA table); `GetLocaleInfoEx` for the locale; `seek_read`; `creation_flags` instead of `process_group`; OSC 52 for the clipboard. `curl.exe` ships with Windows 10 since 1803, and gzip is no longer needed. A `windows-latest` job in the release workflow. |
 | Android | Kotlin + Compose (new) | `aarch64-linux-android`, `armv7-linux-androideabi`, `x86_64-linux-android` with the NDK linker; the JNI exports; zones from `/apex/com.android.tzdata/etc/tz/tzdata` (one packed file, short to read) or a copy in the app; the locale from Kotlin |
 | iOS | SwiftUI (`ios` branch) | rebase; drop `inflate.rs` and the environment variables; local time by zone name (§4.3) |
 
 ## 6. Repository layout (proposal)
 
 ```text
-tally/
+aequalis/
 ├── Cargo.toml              [workspace] members = ["core", "cli", "ffi"]; one version for all
 ├── Cargo.lock
-├── core/                   tally-core: the library, no dependencies, no network, no processes
+├── core/                   aequalis-core: the library, no dependencies, no network, no processes
 │   ├── data/               countries.json, currencies.json, places.json (+ zones), trivia.json
 │   └── src/
 │       ├── lib.rs          the API (§4.4): Engine, Platform, Reply, Preview, Catalog
@@ -231,17 +231,17 @@ tally/
 │       ├── sync.rs         today online.rs: plan and ingest, no downloads
 │       ├── settings.rs  notices.rs  files.rs  json.rs
 │       └── preview.rs  suggest.rs  search.rs   (from the TUI, §4.2)
-├── cli/                    tally (binary): arguments, --json, completion, the TUI
+├── cli/                    aequalis (binary): arguments, --json, completion, the TUI
 │   └── src/
 │       ├── main.rs  args.rs  completion.rs  reply_json.rs
 │       ├── platform/       unix.rs, macos.rs, windows.rs: paths, zones, locale, curl, memory
 │       └── tui/            editor, keys, picker, render, term (unix.rs, windows.rs), …
-├── ffi/                    tally-ffi (staticlib + cdylib): the C interface and the JNI exports
-│   ├── include/tally.h
+├── ffi/                    aequalis-ffi (staticlib + cdylib): the C interface and the JNI exports
+│   ├── include/aequalis.h
 │   └── src/  lib.rs  c.rs  jni.rs
 ├── apps/
-│   ├── android/            Gradle project (Kotlin + Compose), loads libtally_ffi.so
-│   ├── ios/                XcodeGen project (SwiftUI), TallyCore.xcframework
+│   ├── android/            Gradle project (Kotlin + Compose), loads libaequalis_ffi.so
+│   ├── ios/                XcodeGen project (SwiftUI), AequalisCore.xcframework
 │   ├── omarchy-widget/     moved from the root
 │   └── raycast/            from the macos-app branch, if kept (the untracked raycast/ at the
 │                           root holds only node_modules and a generated raycast-env.d.ts)
@@ -251,13 +251,13 @@ tally/
                             release.yml (+ Windows), cities.yml
 ```
 
-The core's dependency rule can be enforced in CI: `cargo tree -p tally-core --edges normal`
+The core's dependency rule can be enforced in CI: `cargo tree -p aequalis-core --edges normal`
 must list only the crate itself.
 
 ## 7. Changes made in this pass
 
 **The core as a library.** `src/lib.rs` holds every module and the request pipeline;
-`src/main.rs` is only the `tally` command (`main` and the terminal's `ask`). No behavior change;
+`src/main.rs` is only the `aequalis` command (`main` and the terminal's `ask`). No behavior change;
 the release binary is 2 KB larger. *The `ios` branch made the same split*: merging it, its
 `lib.rs`/`main.rs` conflict with these; they hold the same code, so keep master's and add the
 branch's `ffi`, `http` and its `Cargo.toml` feature.
@@ -289,9 +289,9 @@ branch's `ffi`, `http` and its `Cargo.toml` feature.
 - `cities.rs`: `City::capital`, a column of `cities.tsv`; `rank` puts a country's capital first,
   wherever the device is, then the order as before (the exact name in the device's country, that
   country, the exact name elsewhere, the rest; by population). A territory's capital (Hamilton,
-  Bermuda: not a country of `countries.json`, `tz::country_by_code`) does not go first. Tally still
+  Bermuda: not a country of `countries.json`, `tz::country_by_code`) does not go first. Aequalis still
   asks: `Rome Paris` offers Rome, Italy → Paris, France first, also on a device in the US.
-- An archive installed before has no capitals: `tally --sync` once the new archive is published.
+- An archive installed before has no capitals: `aequalis --sync` once the new archive is published.
 - Tests: the sample archive marks Rome and Paris; new `the_capital_first`; the questions on a US
   device expect the capital first.
 - Docs: README, `docs/Accepted_Syntax.md` (and the two wrong lines found there), `docs/SPEC.md`.
@@ -303,11 +303,11 @@ without the TUI is clean; `cargo check` passes for iOS.
 
 - Every push to master is a release (`release.yml`), and a change to `build-cities.py` on master
   runs `cities.yml`. Both start with the push. Until the Cities workflow has published
-  `cities.json`, `tally --sync` can't find it.
+  `cities.json`, `aequalis --sync` can't find it.
 - `gh release upload --clobber` only replaces files of the same name, so the old `cities.json.gz`
   stays in the release, frozen. Installed v0.2.x binaries keep downloading it: they work, but with
   the last compressed archive, and every new `cities.version` looks to them like a new archive
-  (a notice under `notify`, the same file again under `silent` or `tally --sync`). Deleting it
+  (a notice under `notify`, the same file again under `silent` or `aequalis --sync`). Deleting it
   (`gh release delete-asset cities cities.json.gz`) makes their downloads fail instead and finishes
   the switch.
 - The plain archive is about 3 times the download (the sample compresses 2.6×; the real size is
@@ -382,7 +382,7 @@ dominate); installing the archive stays at 6.1 MB.
 | What | Why not now |
 |---|---|
 | A `rustfmt.toml` (`max_width = 160`, `use_small_heuristics = "Max"`): `cargo fmt` would then change 142 places, instead of 1,154 with the defaults | a style choice across every file |
-| A written date alone (`12/04/2026`): the app shows `0.0015` (a division, as the command line does by design: a date needs `date` or a format after it); the TUI says "now the target format" | a choice for every UI: the core could give that hint, then `tally 12/04/2026` would be one too |
+| A written date alone (`12/04/2026`): the app shows `0.0015` (a division, as the command line does by design: a date needs `date` or a format after it); the TUI says "now the target format" | a choice for every UI: the core could give that hint, then `aequalis 12/04/2026` would be one too |
 | The tables built once per process: ~1–1.5 ms of a 2–6 ms request (JSON allocations, ~0.6 ms; the name indexes) | felt only by the widget's process per keystroke, and well below a frame |
 | Two-letter prefixes in the TUI read ~1,000 records (3.5 ms) | the population in `cities.idx` would avoid it: an archive format change |
 | A misspelling scans every index line with its first two letters (`Sanf Fransisco`: 12,000 lines, 5.2 ms) | rare, and off the main thread in the app |

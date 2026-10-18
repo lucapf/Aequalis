@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "id": "lucapf.tally",
-  "name": "Tally",
+  "id": "lucapf.aequalis",
+  "name": "Aequalis",
   "version": "0.1.0",
   "author": "Luca Palanca Falsini",
   "description": "Unit converter, calculator and date tool for humans, answered as you type",
@@ -12,7 +12,7 @@
     "barWidget": "Panel.qml"
   },
   "barWidget": {
-    "displayName": "Tally",
+    "displayName": "Aequalis",
     "description": "One bar icon: type 10 km mi, 12+12/3 or 2026/10/05 + 5wd and copy the answer",
     "category": "Info",
     "allowMultiple": false,

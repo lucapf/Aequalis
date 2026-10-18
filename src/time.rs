@@ -229,7 +229,7 @@ impl Instant {
 
 /// The device's zone, from the zone database, when its name is known: local time through the same
 /// engine as the cities' (the same answer for `02:30` in a DST gap either way), and on phones,
-/// whose C library Tally doesn't read. The app's zone, else `TZ` (a POSIX rule such as `CET-1CEST`
+/// whose C library Aequalis doesn't read. The app's zone, else `TZ` (a POSIX rule such as `CET-1CEST`
 /// is no name: the C library's), else /etc/localtime. `None`: the C library (UTC elsewhere).
 fn local_tz() -> Option<&'static tz::Tz> {
     static LOCAL: std::sync::OnceLock<Option<&'static tz::Tz>> = std::sync::OnceLock::new();
@@ -274,7 +274,7 @@ pub fn fixed_now() -> Option<i64> {
     FIXED_NOW.get().copied()
 }
 
-/// Now: the clock, or the frozen time (`set_now`). Every date of tally comes from here.
+/// Now: the clock, or the frozen time (`set_now`). Every date of aequalis comes from here.
 pub fn now() -> Instant {
     if let Some(&seconds) = FIXED_NOW.get() {
         return Instant { ns: i128::from(seconds) * NS, zone: Zone::Local };
@@ -2161,13 +2161,13 @@ fn reserved_word(config: &Config, text: &str) -> bool {
     convert::find_unit(config, text).is_some() || date_word(text) || crate::currency::exact(text).is_some_and(|_| tz::country(text).is_none())
 }
 
-/// Whether a word is something else than a place to tally: a unit, a currency (not a country), a
+/// Whether a word is something else than a place to aequalis: a unit, a currency (not a country), a
 /// format, a month, a keyword (`geo.rs`: such a word is not a city unless qualified).
 pub fn reserved(config: &Config, text: &str) -> bool {
     convert::find_unit(config, text).is_some() || date_word(text) || crate::currency::exact(text).is_some_and(|_| tz::country(text).is_none())
 }
 
-/// Whether a word means a date or a place to tally: a format, a month, a keyword, a number word, a
+/// Whether a word means a date or a place to aequalis: a format, a month, a keyword, a number word, a
 /// time zone, a city or a country (`currency.rs` checks its names against it).
 #[cfg(test)]
 pub fn date_or_place_word(config: &Config, text: &str) -> bool {

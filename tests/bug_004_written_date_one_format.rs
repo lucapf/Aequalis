@@ -1,4 +1,4 @@
-//! Bug 004: `tally 2026/12/04 unix` failed with "`2026/12/04` is not a unix timestamp".
+//! Bug 004: `aequalis 2026/12/04 unix` failed with "`2026/12/04` is not a unix timestamp".
 //!
 //! A value followed by `unix` (or `iso`) was always taken as a timestamp (or an ISO date) in that
 //! input format, so a written date followed by its *target* format never reached the guessing.
@@ -9,7 +9,7 @@
 
 use std::process::Command;
 
-const BIN: &str = env!("CARGO_BIN_EXE_tally");
+const BIN: &str = env!("CARGO_BIN_EXE_aequalis");
 
 fn run(tz: &str, args: &str) -> (String, String, i32) {
     let out = Command::new(BIN).arg("-v").args(args.split_whitespace()).env("TZ", tz).env("LC_ALL", "C").output().unwrap();
@@ -23,7 +23,7 @@ fn reported_written_date_to_unix() {
     assert_eq!(code, 0, "{err}");
     // 4 December: winter time in Rome, +01:00; midnight there is 2026-12-03T23:00Z.
     assert_eq!(out, "2026-12-04T00:00+01:00 iso = 1796338800 unix");
-    assert_eq!(err, "tally: note: read `2026/12/04` as YYYY/MM/DD (year first)");
+    assert_eq!(err, "aequalis: note: read `2026/12/04` as YYYY/MM/DD (year first)");
 }
 
 #[test]
