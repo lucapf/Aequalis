@@ -1,4 +1,5 @@
-//! The files Aequalis keeps, all in one folder (`~/.config/aequalis`, `$XDG_CONFIG_HOME/aequalis`):
+//! The files Aequalis keeps, all in one folder (`~/.config/aequalis`, `$XDG_CONFIG_HOME/aequalis`,
+//! `%APPDATA%	ally` on Windows):
 //! the settings, the online data, the exchange rates, the city archive, the notices' state.
 //! Each is written atomically: a new file next to it, renamed over it, so a reader (another
 //! aequalis, an interrupted sync) sees the old version or the new one, never a part.
@@ -14,15 +15,18 @@ pub fn set_dir(base: &Path) {
     let _ = APP_DIR.set(base.join("aequalis"));
 }
 
-/// `~/.config/aequalis` (`$XDG_CONFIG_HOME/aequalis`), or the app's (`set_dir`).
+/// `~/.config/aequalis` (`$XDG_CONFIG_HOME/aequalis`; on Windows `%APPDATA%	ally`), or the app's
+/// (`set_dir`).
 pub fn dir() -> Option<PathBuf> {
     if let Some(dir) = APP_DIR.get() {
         return Some(dir.clone());
     }
-    let base = std::env::var_os("XDG_CONFIG_HOME")
-        .filter(|v| !v.is_empty())
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
+    let xdg = std::env::var_os("XDG_CONFIG_HOME").filter(|v| !v.is_empty()).map(PathBuf::from);
+    // Windows: not `HOME`, which only some shells set (the same aequalis would keep two folders).
+    #[cfg(windows)]
+    let base = xdg.or_else(crate::windows::app_data)?;
+    #[cfg(not(windows))]
+    let base = xdg.or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
     Some(base.join("aequalis"))
 }
 

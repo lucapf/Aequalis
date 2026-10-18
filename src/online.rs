@@ -202,7 +202,10 @@ pub fn ensure_fresh() -> Option<std::process::Child> {
     if settings.offline() || lock_held() || due(&settings, crate::time::unix_now()).is_empty() {
         return None;
     }
+    #[cfg(unix)]
     use std::os::unix::process::CommandExt;
+    #[cfg(windows)]
+    use crate::windows::CommandExt;
     use std::process::{Command, Stdio};
     let exe = std::env::current_exe().ok()?;
     Command::new(exe)

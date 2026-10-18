@@ -161,7 +161,18 @@ pub fn set_device(format: NumberFormat) {
     let _ = DEVICE.set(format);
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+/// Windows: the Region settings, unless the environment names a locale (`LC_ALL=C` in the tests),
+/// which then gets the plain format.
+#[cfg(windows)]
+pub fn device_format() -> NumberFormat {
+    let named = ["LC_ALL", "LC_NUMERIC", "LANG"].iter().any(|v| std::env::var_os(v).is_some_and(|v| !v.is_empty()));
+    if named {
+        return NumberFormat::default();
+    }
+    crate::windows::number_format().unwrap_or_default()
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 pub fn device_format() -> NumberFormat {
     NumberFormat::default()
 }

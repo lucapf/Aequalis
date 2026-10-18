@@ -30,6 +30,8 @@ pub mod time;
 pub mod trivia;
 #[cfg(feature = "tui")]
 pub mod tui;
+#[cfg(windows)]
+pub mod windows;
 
 use config::Config;
 

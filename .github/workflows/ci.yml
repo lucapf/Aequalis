@@ -19,3 +19,32 @@ jobs:
         run: cargo test
       - name: Test the C interface (the Android app's)
         run: cargo test --features ffi --lib ffi
+
+  # Windows (MSVC). Windows has no IANA zone database of its own: the tests get one from the
+  # `tzdata` package on PyPI (the same TZif files as /usr/share/zoneinfo), through `TZDIR`.
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+      - name: Toolchain
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+      - name: Zone database
+        run: |
+          python -m pip install --quiet tzdata
+          echo "TZDIR=$(python -c 'import os, tzdata; print(os.path.join(os.path.dirname(tzdata.__file__), "zoneinfo"))')" >> "$GITHUB_ENV"
+      - name: Build
+        run: cargo build --release
+      - name: Build without the interactive mode
+        run: cargo build --release --no-default-features
+      - name: Smoke test
+        run: |
+          target/release/aequalis 10 km mi
+          target/release/aequalis --json 1+1
+          TZ=Europe/Rome target/release/aequalis 10:00AM Paris to New York
+      - name: Test
+        run: cargo test
+      - name: Test the C interface
+        run: cargo test --features ffi --lib ffi

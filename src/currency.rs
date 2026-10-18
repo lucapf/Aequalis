@@ -639,7 +639,7 @@ pub fn app_zone() -> Option<String> {
 }
 
 /// The device's time zone name: the app's, else `TZ`, else where /etc/localtime points
-/// (`…/zoneinfo/Europe/Rome`). Read once.
+/// (`…/zoneinfo/Europe/Rome`; on Windows, its settings' zone). Read once.
 pub fn local_zone() -> Option<String> {
     if let Some(zone) = APP_ZONE.get() {
         return Some(zone.clone());
@@ -650,10 +650,22 @@ pub fn local_zone() -> Option<String> {
         if let Some(tz) = std::env::var("TZ").ok().map(|t| t.trim_start_matches(':').to_string()).filter(|t| t.contains('/')) {
             return Some(after(&tz));
         }
-        let link = std::fs::read_link("/etc/localtime").ok()?;
-        Some(after(&link.to_string_lossy()))
+        system_zone(after)
     })
     .clone()
+}
+
+/// Where /etc/localtime points, through `after` (the part after `zoneinfo/`).
+#[cfg(not(windows))]
+fn system_zone(after: impl Fn(&str) -> String) -> Option<String> {
+    let link = std::fs::read_link("/etc/localtime").ok()?;
+    Some(after(&link.to_string_lossy()))
+}
+
+/// The zone in the Windows settings.
+#[cfg(windows)]
+fn system_zone(_after: impl Fn(&str) -> String) -> Option<String> {
+    crate::windows::local_zone()
 }
 
 // ---------------------------------------------------------------- the rates

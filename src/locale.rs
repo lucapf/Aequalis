@@ -5,6 +5,7 @@
 //!   everything else metric.
 //! - **macOS**: the system setting (`defaults read -g AppleMetricUnits`, then
 //!   `AppleMeasurementUnits`, then `AppleLocale`), and the environment as above if those fail.
+//! - **Windows**: the Region settings (`LOCALE_IMEASURE`), unless the environment names a locale.
 //!
 //! When nothing is known: metric.
 
@@ -19,6 +20,13 @@ pub fn device_system() -> System {
         return system;
     }
     let var = |name| std::env::var(name).ok().filter(|v| !v.is_empty());
+    // Windows: the Region settings, unless the environment names a locale (the tests).
+    #[cfg(windows)]
+    if var("LC_ALL").or_else(|| var("LC_MEASUREMENT")).or_else(|| var("LANG")).is_none() {
+        if let Some(system) = crate::windows::measurement() {
+            return system;
+        }
+    }
     var("LC_ALL").or_else(|| var("LC_MEASUREMENT")).or_else(|| var("LANG")).and_then(|locale| from_locale(&locale)).unwrap_or(System::Metric)
 }
 

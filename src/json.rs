@@ -118,9 +118,17 @@ pub fn peak_kb() -> u64 {
 /// The resident memory of this process now, in KiB (Linux: `VmRSS`); `None` where it is not
 /// known (then the peak is shown instead).
 #[cfg_attr(not(feature = "tui"), allow(dead_code))]
+#[cfg(not(windows))]
 pub fn current_kb() -> Option<u64> {
     let status = std::fs::read_to_string("/proc/self/status").ok()?;
     status.lines().find_map(|l| l.strip_prefix("VmRSS:")?.trim().strip_suffix("kB")?.trim().parse().ok())
+}
+
+/// The working set now, in KiB.
+#[cfg_attr(not(feature = "tui"), allow(dead_code))]
+#[cfg(windows)]
+pub fn current_kb() -> Option<u64> {
+    crate::windows::memory_kb().map(|(_, now)| now)
 }
 
 /// KiB for people: `900 KiB`, `3.4 MiB`.
@@ -132,7 +140,14 @@ pub fn size(kb: u64) -> String {
     }
 }
 
+/// The peak working set, in KiB.
+#[cfg(windows)]
+fn maxrss_kb() -> u64 {
+    crate::windows::memory_kb().map_or(0, |(peak, _)| peak)
+}
+
 /// `getrusage`'s peak resident memory, in KiB.
+#[cfg(not(windows))]
 fn maxrss_kb() -> u64 {
     // `struct rusage`: two `struct timeval` (16 bytes each on 64-bit Linux and macOS), then
     // `ru_maxrss` and 13 more longs.

@@ -287,12 +287,17 @@ pub fn set_zoneinfo(path: &str) {
     let _ = APP_ZONEINFO.set(path.to_string());
 }
 
-/// The zone database: the app's, else `$TZDIR`, else `/usr/share/zoneinfo`.
+/// The zone database: the app's, else `$TZDIR`, else `/usr/share/zoneinfo` (Windows: the
+/// `zoneinfo` folder next to aequalis.exe).
 fn zoneinfo() -> String {
     if let Some(path) = APP_ZONEINFO.get() {
         return path.clone();
     }
-    std::env::var("TZDIR").ok().filter(|d| !d.is_empty()).unwrap_or_else(|| "/usr/share/zoneinfo".into())
+    #[cfg(windows)]
+    let system = crate::windows::zoneinfo().unwrap_or_else(|| "zoneinfo".into());
+    #[cfg(not(windows))]
+    let system = "/usr/share/zoneinfo".to_string();
+    std::env::var("TZDIR").ok().filter(|d| !d.is_empty()).unwrap_or(system)
 }
 
 /// A zone file from Android's `tzdata`: every zone in one file. A 12-byte version

@@ -2,6 +2,9 @@
 //! `aequalis (10+12-3)/4Km Mi`, which bash would otherwise reject because of the `(`.
 //! The hook function is called directly (no terminal, no history file is touched).
 
+// The hook is bash's, for a Unix shell.
+#![cfg(unix)]
+
 use std::process::Command;
 
 const BIN: &str = env!("CARGO_BIN_EXE_aequalis");

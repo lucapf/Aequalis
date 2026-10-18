@@ -120,7 +120,10 @@ fn download(view: &mut View) {
         view.message = Some("the offline setting is on: no download".into());
         return;
     }
+    #[cfg(unix)]
     use std::os::unix::process::CommandExt;
+    #[cfg(windows)]
+    use crate::windows::CommandExt;
     use std::process::{Command, Stdio};
     let started = std::env::current_exe().ok().and_then(|exe| {
         Command::new(exe)
