@@ -6,8 +6,8 @@
 //!
 //! `cargo test --release --test fuzz -- --ignored` runs it 50 times longer.
 
-use std::panic::{catch_unwind, AssertUnwindSafe};
 use aequalis::config::Config;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 
 /// xorshift64*: the same requests on every run.
 struct Rng(u64);

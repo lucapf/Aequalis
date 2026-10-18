@@ -1,11 +1,11 @@
 //! aequalis: an ultra lightweight command-line unit converter.
 
-use std::io::{IsTerminal, Read};
-use std::process::ExitCode;
 use aequalis::config::Config;
 #[cfg(feature = "tui")]
 use aequalis::tui;
 use aequalis::{convert, convert_request, json, notify, online, parse_options, run, settings, time, CliError, Output, Parsed};
+use std::io::{IsTerminal, Read};
+use std::process::ExitCode;
 
 fn main() -> ExitCode {
     let config = Config::shared();

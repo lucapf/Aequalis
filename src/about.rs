@@ -1,13 +1,19 @@
-//! About aequalis: the name, the tagline, the memory footprint and the last online sync, with the
-//! logo (the name). Shown by `aequalis --about`, the
-//! interactive mode (`A`) and the widget (clicking its title).
+//! About aequalis: the logo, the name, the tagline, the memory footprint and the last online sync.
+//! Shown by `aequalis --about`, the interactive mode (`A`) and the widget (clicking its title).
 
-/// The logo, 5 lines: the name.
-pub const ART: &str = r"   _                      _ _
-  /_\  ___ __ _ _  _ __ _| (_)___
- / _ \/ -_) _` | || / _` | | (_-<
-/_/ \_\___\__, |\_,_\__,_|_|_/__/
-             |_|";
+/// The logo, 6 lines: the icon's q (a ring and a stem) in block characters, with the exchange arrows
+/// inside it in plain ASCII (`---->` over `<----`), so that a UI can colour them apart (`is_arrow`).
+pub const ART: &str = r"  ▄▟███▙▄ ▐█▌
+▗█▀    ▝▜█▟█▌
+█▛ ----> ███▌
+▐█▖<----▗███▌
+ ▀█▙▄▄▄▟▛▘▐█▌
+    ▀▀▀   ▐█▘";
+
+/// Whether `c` belongs to the logo's arrows (the only ASCII in the logo besides spaces).
+pub fn is_arrow(c: char) -> bool {
+    matches!(c, '-' | '<' | '>')
+}
 
 pub const NAME: &str = "Aequalis";
 pub const TAGLINE: &str = "Ultralight calculator and converter made for humans";
@@ -87,8 +93,9 @@ mod tests {
 
     #[test]
     fn logo_and_facts() {
-        assert_eq!(ART.lines().count(), 5);
-        assert!(ART.lines().all(|l| l.is_ascii() && l.chars().count() <= 34), "{ART}");
+        assert_eq!(ART.lines().count(), 6);
+        assert!(ART.lines().all(|l| l.chars().count() <= 14), "{ART}");
+        assert_eq!(ART.chars().filter(|&c| is_arrow(c)).count(), 10, "two arrows, each of a head and 4 shaft characters: {ART}");
         let text = text();
         assert!(text.contains("Aequalis — Ultralight calculator and converter made for humans"), "{text}");
         assert!(text.contains("\nVersion: ") && text.contains("\nMemory: ") && text.contains(" peak "), "{text}");

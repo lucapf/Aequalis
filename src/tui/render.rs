@@ -1008,11 +1008,35 @@ fn settings_window(canvas: &mut Canvas, rows: usize, view: &super::settings::Vie
     }
 }
 
+/// `text` cut into runs of characters that `is` holds for and runs of those it does not, each with
+/// which kind it is.
+fn runs(text: &str, is: fn(char) -> bool) -> Vec<(bool, &str)> {
+    let mut out = Vec::new();
+    let mut start = 0;
+    let mut kind = None;
+    for (i, c) in text.char_indices() {
+        match kind {
+            Some(k) if k != is(c) => {
+                out.push((k, &text[start..i]));
+                start = i;
+                kind = Some(is(c));
+            }
+            None => kind = Some(is(c)),
+            _ => {}
+        }
+    }
+    if let Some(k) = kind {
+        out.push((k, &text[start..]));
+    }
+    out
+}
+
 /// `A`: the logo, the name and tagline, the facts (`about.rs`), centred.
 fn about(canvas: &mut Canvas, rows: usize) {
     let facts = crate::about::facts(&crate::about::memory());
     let title = format!("{} — {}", crate::about::NAME, crate::about::TAGLINE);
-    let mut lines: Vec<(String, Style)> = crate::about::ART.lines().map(|l| (l.to_string(), Style::Yellow)).collect();
+    let mut lines: Vec<(String, Style)> = crate::about::ART.lines().map(|l| (l.to_string(), Style::Plain)).collect();
+    let logo_rows = lines.len();
     lines.push((String::new(), Style::Plain));
     lines.push((title.clone(), Style::Bold));
     lines.push((String::new(), Style::Plain));
@@ -1021,7 +1045,15 @@ fn about(canvas: &mut Canvas, rows: usize) {
     let (top, left, width, _) = centred(canvas, rows, width, height, "About");
     let right = left + width - 2;
     for (i, (line, style)) in lines.iter().enumerate() {
-        canvas.put_within(top + 1 + i, left + 2, right, line, *style);
+        if i < logo_rows {
+            // The logo: the q as drawn, its arrows in yellow.
+            let mut col = left + 2;
+            for (arrow, run) in runs(line, crate::about::is_arrow) {
+                col = canvas.put_within(top + 1 + i, col, right, run, if arrow { Style::Yellow } else { *style });
+            }
+        } else {
+            canvas.put_within(top + 1 + i, left + 2, right, line, *style);
+        }
     }
     for (i, (label, value)) in facts.iter().enumerate() {
         let row = top + 1 + lines.len() + i;
@@ -1535,7 +1567,7 @@ mod tests {
         let (lines, cursor) = screen("\x1bA", 24, 80);
         let text = lines.join("\n");
         assert!(cursor.is_none());
-        assert!(text.contains("┌─ About ─") && text.contains("|_   _|_ _| | |_  _"), "{text}");
+        assert!(text.contains("┌─ About ─") && text.contains("█▛ ----> ███▌") && text.contains("▐█▖<----▗███▌"), "{text}");
         assert!(text.contains("Aequalis — Ultralight calculator and converter made for humans"), "{text}");
         assert!(text.contains("Memory: ") && text.contains("Last online sync: ") && text.contains("Version: "), "{text}");
         assert!(lines[23].starts_with(" ABOUT "), "{}", lines[23]);

@@ -45,8 +45,8 @@ Usage:
   aequalis --online        online, offline or offline (forced): the last download of the online data
   aequalis --about         the logo, the version, memory, the online data and their sources
   aequalis --sync          download all the online data now (the city archive, the exchange
-                        rates, the Trivia's live values); otherwise as the refresh
-                        settings say
+                           rates, the Trivia's live values); otherwise as the refresh
+                           settings say
   aequalis --settings      every setting, its value and what it does
   aequalis --set key=value change a setting (`aequalis --set key`: back to its default)
   aequalis --autocompletion <bash|zsh>
@@ -67,7 +67,7 @@ Examples:
   aequalis [100+20]/120      1
   aequalis 1/3               0.3333
   aequalis 100 + 20 + 50 / 10 sqft m2
-                              11.6129 m2  (with -v, stderr: evaluated as (100 + 20) + (50 / 10))
+                                 11.6129 m2  (with -v, stderr: evaluated as (100 + 20) + (50 / 10))
   aequalis 90 min h          1.5 h
   aequalis 100 km/h mph      62.1371 mph
   aequalis 1 bar psi         14.5038 psi
@@ -88,22 +88,22 @@ Examples:
   aequalis 20% of 150        30
   aequalis Rome Paris        1,107 km    (distance.unit: km, or mi where the device is imperial)
   aequalis Springfield, Illinois Chicago mi
-                              176 mi      (any city once downloaded: aequalis --sync)
+                                 176 mi      (any city once downloaded: aequalis --sync)
   aequalis Italy             11 Oct 26 12:38 PM GMT+2 Rome
   aequalis 10:00 USA to Japan
-                              (asks which US time zone: New York, Chicago, …)
+                                 (asks which US time zone: New York, Chicago, …)
   aequalis 'log(1000) + ln(e)'
-                              4
+                                 4
   aequalis now + 3d          13 Oct 26 5:00 PM GMT+2
   aequalis 12 Sept 2026      12 Sept 26
   aequalis 2026/04/12 date unix
-                              1775944800 unix
+                                 1775944800 unix
   aequalis -v 2026/04/12 date unix
-                              2026-04-12T00:00+02:00 iso = 1775944800 unix
+                                 2026-04-12T00:00+02:00 iso = 1775944800 unix
   aequalis 1791644400 unix iso-week
-                              2026-W41-6 iso-week
+                                 2026-W41-6 iso-week
   aequalis 2026-12-25 - now d
-                              75.3381 d
+                                 75.3381 d
 
 When no value is given as an argument, each non-empty line of stdin is one
 request; its words come before the argument words.

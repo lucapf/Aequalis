@@ -234,7 +234,7 @@ mod tests {
             "aequalis (1+2) km m | cat", // pipeline
             "aequalis $(echo 1) km m",   // command substitution
             "aequalis (1) km m; ls *",   // several commands
-            "echo (1+2)",             // another command
+            "echo (1+2)",                // another command
             "aequalisx (1+2)",           // another command
             "ls aequalis*",              // `aequalis` is not the command
             "aequalis --precision 2",    // no expression
