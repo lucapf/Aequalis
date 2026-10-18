@@ -52,11 +52,9 @@ jobs:
           cargo test --no-fail-fast 2>&1 | tee test.log
           status=${PIPESTATUS[0]}
           if [ "$status" != 0 ]; then
-            names=$(grep -E '^test .* FAILED|^error' test.log | head -30 | sed ':a;N;$!ba;s/
-/%0A/g')
+            names=$(grep -E '^test .* FAILED|^error' test.log | head -30 | awk 'BEGIN{ORS="%0A"}{print}')
             echo "::error title=Failed tests::${names}"
-            why=$(grep -A4 -E '^---- .* stdout ----' test.log | head -c 3500 | sed ':a;N;$!ba;s/
-/%0A/g')
+            why=$(grep -A4 -E '^---- .* stdout ----' test.log | head -c 3500 | awk 'BEGIN{ORS="%0A"}{print}')
             [ -n "$why" ] && echo "::error title=Why::${why}"
           fi
           exit $status
