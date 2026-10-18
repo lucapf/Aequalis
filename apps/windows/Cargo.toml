@@ -1,0 +1,12 @@
+[package]
+name = "aequalis-tray"
+# The release workflow sets it, as the root package's.
+version = "0.1.0"
+edition = "2021"
+description = "Aequalis in the Windows notification area: its icon, or Win+Alt+A, opens the input box"
+license = "MIT"
+publish = false
+
+[dependencies]
+# The library only: the interactive mode (`tui`) is the command line's.
+aequalis = { path = "../..", default-features = false }

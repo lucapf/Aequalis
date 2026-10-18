@@ -11,6 +11,10 @@ homepage = "https://github.com/lucapf/aequalis"
 keywords = ["calculator", "units", "converter", "timezone", "cli"]
 categories = ["command-line-utilities", "science", "date-and-time"]
 
+[workspace]
+# The Windows tray app (built on Windows only; `cargo build` here builds the command line).
+members = ["apps/windows"]
+
 [dependencies]
 
 [features]

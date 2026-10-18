@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Aequalis splash</title>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{background:#000;display:grid;place-items:center;overflow:hidden}
+.splash{width:min(100vw,100vh);height:min(100vw,100vh);background:#1F5B45;display:grid;place-items:center}
+svg{width:62%;height:auto;overflow:visible}
+.q-fill{opacity:0;fill:#E8742B;animation:a-fill 1.2s linear both}
+.q-trace{stroke-dashoffset:1;animation:a-draw 1.2s cubic-bezier(.4,0,.9,.65) both}
+.arr1{opacity:0;transform:translateX(-800px);animation:a-arr1 1.2s cubic-bezier(.2,.9,.3,1) both}
+.arr2{opacity:0;transform:translateX(800px);animation:a-arr2 1.2s cubic-bezier(.2,.9,.3,1) both}
+@keyframes a-draw{0%{stroke-dashoffset:1;opacity:1}54%{stroke-dashoffset:0;opacity:1}64%,100%{stroke-dashoffset:0;opacity:0}}
+@keyframes a-fill{0%,42%{opacity:0;fill:#E8742B}58%{opacity:1;fill:#E8742B}85%,100%{opacity:1;fill:#F7F0E6}}
+@keyframes a-arr1{0%,56%{opacity:0;transform:translateX(-800px)}88%{opacity:1;transform:translateX(22px)}100%{opacity:1;transform:translateX(0)}}
+@keyframes a-arr2{0%,62%{opacity:0;transform:translateX(800px)}93%{opacity:1;transform:translateX(-22px)}100%{opacity:1;transform:translateX(0)}}
+@media(prefers-reduced-motion:reduce){
+  .q-trace{display:none}
+  .q-fill{fill:#F7F0E6}
+  .q-fill,.arr1,.arr2{opacity:1!important;transform:none!important;animation:none!important}
+}
+</style>
+</head>
+<body>
+<div class="splash">
+  <svg viewBox="0 0 1024 1024" aria-hidden="true">
+    <path class="q-fill" d="M 468 220 A 260 260 0 0 1 716 402 L 716 220 L 816 220 L 816 750 A 50 50 0 0 1 716 750 L 716 558 A 260 260 0 0 1 468 740 A 260 260 0 0 1 468 220 Z M 468 330 A 150 150 0 0 1 468 630 A 150 150 0 0 1 468 330 Z" fill-rule="evenodd"/>
+    <path class="q-trace" d="M 468 220 A 260 260 0 0 1 716 402 L 716 220 L 816 220 L 816 750 A 50 50 0 0 1 716 750 L 716 558 A 260 260 0 0 1 468 740 A 260 260 0 0 1 468 220 Z" fill="none" stroke="#E8742B" stroke-width="32"
+      stroke-linecap="round" stroke-linejoin="round" pathLength="1" stroke-dasharray="1"/>
+    <path class="arr1" d="M 374 398 L 476 398 L 476 378 Q 476 366 486 372 L 552 414 Q 562 420 552 426 L 486 468 Q 476 474 476 462 L 476 442 L 374 442 A 22 22 0 0 1 374 398 Z" fill="#F2B84B"/>
+    <path class="arr2" d="M 562 518 L 460 518 L 460 498 Q 460 486 450 492 L 384 534 Q 374 540 384 546 L 450 588 Q 460 594 460 582 L 460 562 L 562 562 A 22 22 0 0 0 562 518 Z" fill="#F2B84B"/>
+  </svg>
+</div>
+<script>
+// Click anywhere to replay
+document.body.addEventListener("click", () => {
+  const nodes = document.querySelectorAll(".q-fill, .q-trace, .arr1, .arr2");
+  nodes.forEach(n => { n.style.animation = "none"; void n.offsetWidth; n.style.animation = ""; });
+});
+</script>
+</body>
+</html>

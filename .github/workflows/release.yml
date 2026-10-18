@@ -1,5 +1,6 @@
 # Every push to master is a release: the version goes up, aequalis is built for Linux (x86_64 and
-# aarch64) and macOS (Apple Silicon), and a GitHub release `v<version>` gets the archives.
+# aarch64), macOS (Apple Silicon) and Windows (x86_64: an installer, and a zip), and a GitHub release
+# `v<version>` gets them.
 #
 # The version: the latest `v*` tag (none yet: Cargo.toml's) with the patch number up by one. A
 # commit message starting with `minor` or `major` (any case: `minor: add …`, `Major …`) raises that
@@ -148,9 +149,62 @@ jobs:
           name: macos
           path: dist/*.tar.gz*
 
+  # Windows 10 (1903) and 11, x86_64: the installer (Inno Setup: the tray app and the command line,
+  # for the current user), checked by installing it, and the same programs in a zip.
+  windows:
+    needs: version
+    runs-on: windows-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+      - name: Toolchain
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+      - name: Version
+        run: |
+          sed -i -E "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml apps/windows/Cargo.toml
+      - name: Zone database
+        # For the tests only (TZDIR): the programs use the zones of the Windows registry.
+        run: |
+          python -m pip install --quiet tzdata
+          echo "TZDIR=$(python -c 'import os, tzdata; print(os.path.join(os.path.dirname(tzdata.__file__), "zoneinfo"))')" >> "$GITHUB_ENV"
+      - name: Test
+        run: cargo test --release --workspace
+      - name: Build
+        run: |
+          cargo build --release --workspace
+          test "$(target/release/aequalis --version)" = "aequalis $VERSION"
+          env -u TZDIR target/release/aequalis 10 km mi
+      - name: Installer
+        shell: pwsh
+        run: |
+          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6/ISCC.exe'
+          if (-not (Test-Path $iscc)) { choco install innosetup --no-progress -y | Out-Null }
+          & $iscc /Q "/DVersion=$env:VERSION" installer/windows/aequalis.iss
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          & installer/windows/test-install.ps1 -Setup "dist/aequalis-$env:VERSION-x86_64-windows-setup.exe"
+      - name: Package
+        run: |
+          name=aequalis-$VERSION-x86_64-windows
+          mkdir -p "dist/$name"
+          cp target/release/aequalis.exe target/release/aequalis-tray.exe LICENSE README.md docs/Accepted_Syntax.md "dist/$name/"
+          (cd dist && 7z a -bso0 "$name.zip" "$name" && rm -r "$name")
+          (cd dist && for f in *.exe *.zip; do sha256sum "$f" > "$f.sha256"; done)
+          ls -l dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            dist/*.exe
+            dist/*.zip
+            dist/*.sha256
+
   # The release `v<version>` on the pushed commit (the tag is created with it), with every archive.
   release:
-    needs: [version, linux, macos]
+    needs: [version, linux, macos, windows]
     runs-on: ubuntu-latest
     env:
       TAG: v${{ needs.version.outputs.version }}

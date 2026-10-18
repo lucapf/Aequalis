@@ -1,16 +1,19 @@
-//! The device the program runs on, as this program reads it (part of the `aequalis` command, not of
-//! the library): its time zone, read at start and, in the interactive mode, every hour, and handed to
-//! the library (`time::set_device_zone`), which does not look for it. An app embedding the library
-//! (Android) gives it the same way. On Windows, the zones' rules are the system's too (`windows`).
+//! The device the program runs on, as the programs read it (`aequalis` and `aequalis-tray`, not the
+//! library): its time zone, read at start and, by a long-running program, every hour (`check`), and
+//! handed to the library (`time::set_device_zone`), which does not look for it. An app embedding the
+//! library (Android) gives it the same way. On Windows, the zones' rules are the system's too.
 
 use aequalis::time;
 
+// The same file whichever program includes this one (`#[path]` in aequalis-tray).
 #[cfg(windows)]
-mod windows;
+#[path = "device/windows.rs"]
+pub mod windows;
 
-/// How often a long-running mode reads the device's zone again (it may change: a trip, a setting).
-#[cfg(feature = "tui")]
-const CHECK_EVERY: std::time::Duration = std::time::Duration::from_secs(3600);
+/// How often a long-running program reads the device's zone again (it may change: a trip, a setting).
+// Unused by a build without a long-running mode (`aequalis` without its interactive mode).
+#[allow(dead_code)]
+pub const CHECK_EVERY: std::time::Duration = std::time::Duration::from_secs(3600);
 
 /// At start, before anything else: the zones' rules (Windows: the system's), then the device's zone.
 pub fn start() {
@@ -19,19 +22,9 @@ pub fn start() {
     check();
 }
 
-/// Reads the device's zone again every hour, in the background (the interactive mode, which runs
-/// for hours).
-#[cfg(feature = "tui")]
-pub fn watch() {
-    std::thread::spawn(|| loop {
-        std::thread::sleep(CHECK_EVERY);
-        check();
-    });
-}
-
 /// Hands the device's zone to the library, whose rules it reads again. A zone the library does not
 /// know (a POSIX rule in `TZ`, such as `CET-1CEST`): it keeps the zone it has, else the C library's.
-fn check() {
+pub fn check() {
     if let Some(name) = zone() {
         let _ = time::set_device_zone(&name);
     }

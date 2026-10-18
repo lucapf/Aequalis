@@ -36,7 +36,8 @@ jobs:
           python -m pip install --quiet tzdata
           echo "TZDIR=$(python -c 'import os, tzdata; print(os.path.join(os.path.dirname(tzdata.__file__), "zoneinfo"))')" >> "$GITHUB_ENV"
       - name: Build
-        run: cargo build --release
+        # The command line and the tray app (apps/windows).
+        run: cargo build --release --workspace
       - name: Build without the interactive mode
         run: cargo build --release --no-default-features
       - name: Smoke test
@@ -52,7 +53,7 @@ jobs:
         # without opening the log).
         run: |
           set +e
-          cargo test --no-fail-fast 2>&1 | tee test.log
+          cargo test --workspace --no-fail-fast 2>&1 | tee test.log
           status=${PIPESTATUS[0]}
           if [ "$status" != 0 ]; then
             names=$(grep -E '^test .* FAILED|^error' test.log | head -30 | awk 'BEGIN{ORS="%0A"}{print}')
@@ -63,3 +64,16 @@ jobs:
           exit $status
       - name: Test the C interface
         run: cargo test --features ffi --lib ffi
+      # The installer (Inno Setup), checked as a user meets it: installed, run, uninstalled.
+      - name: Installer
+        shell: pwsh
+        run: |
+          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6/ISCC.exe'
+          if (-not (Test-Path $iscc)) { choco install innosetup --no-progress -y | Out-Null }
+          & $iscc /Q /DVersion=0.0.0 installer/windows/aequalis.iss
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          & installer/windows/test-install.ps1 -Setup dist/aequalis-0.0.0-x86_64-windows-setup.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: dist/*-setup.exe

@@ -131,7 +131,10 @@ fn main() -> ExitCode {
     if let Ok(Parsed::Convert(opts)) = parse_options(config, &args) {
         if !json && opts.positional.is_empty() && std::io::stdin().is_terminal() && std::io::stdout().is_terminal() {
             // It runs for hours: the device's zone is read again every hour.
-            device::watch();
+            std::thread::spawn(|| loop {
+                std::thread::sleep(device::CHECK_EVERY);
+                device::check();
+            });
             return tui::run(config, &opts);
         }
     }

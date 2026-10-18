@@ -12,3 +12,4 @@ docs/omarchy-widget.md
 fuzz/work/
 fuzz/findings/
 __pycache__/
+dist/

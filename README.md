@@ -15,7 +15,7 @@ $ aequalis 10:00AM Paris to New York
 11 Oct 26 4:00 AM GMT-4 New York
 ```
 
-Installation guides [Mac Os](./docs/install_mac.md)
+Installation guides: [Windows](./docs/install_windows.md) · [macOS](./docs/install_mac.md)
 
 ## What Aequalis can do
 
@@ -115,7 +115,9 @@ Examples of info you can find:
 You can run Aequalis in several ways:
 
 - **Aequalis CLI**: the `aequalis` command. When you are already in your shell and for scripts.
-- **Aequalis widget**: for [Omarchy](https://omarchy.org/) only. Quick access from the bar when you need it.
+- **Aequalis widget**: for [Omarchy](https://omarchy.org/). Quick access from the bar when you need it.
+- **Aequalis on Windows**: its icon in the notification area, or **Win+Alt+A**, opens the input box
+  ([install](./docs/install_windows.md)).
 - **Aequalis TUI**: for something more complex, when you prefer to be guided through the options. Open it by:
   - typing `aequalis` in your terminal
   - the TUI button in the widget
