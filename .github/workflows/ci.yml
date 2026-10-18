@@ -44,6 +44,9 @@ jobs:
           target/release/aequalis 10 km mi
           target/release/aequalis --json 1+1
           TZ=Europe/Rome target/release/aequalis 10:00AM Paris to New York
+          # The system's zones (the registry), as on a user's machine: no TZDIR, no TZ.
+          env -u TZDIR -u TZ target/release/aequalis now
+          env -u TZDIR -u TZ target/release/aequalis 2025-07-15T12:00 Rome to Cairo
       - name: Test
         # The failures are also written as annotations of the run (the page of the run shows them
         # without opening the log).

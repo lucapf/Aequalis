@@ -1,6 +1,7 @@
 //! What Windows does differently, through the system DLLs every program already links (no crates):
-//! reading a file by position, a background process, the process's memory, the device's time zone,
-//! number format and measurement system. Each function stands in for its Unix counterpart, and is
+//! reading a file by position, a background process, the process's memory, the device's number
+//! format, date order and measurement system. The device's time zone is the program's to read
+//! (`time::set_device_zone`), as on every system. Each function stands in for its Unix counterpart, and is
 //! used only where `cfg(windows)` says so.
 
 use std::os::raw::c_int;
@@ -43,22 +44,7 @@ struct MemoryCounters {
     rest: [usize; 6],
 }
 
-/// `DYNAMIC_TIME_ZONE_INFORMATION`: only the key name is read.
-#[repr(C)]
-struct ZoneInformation {
-    bias: i32,
-    standard_name: [u16; 32],
-    standard_date: [u16; 8],
-    standard_bias: i32,
-    daylight_name: [u16; 32],
-    daylight_date: [u16; 8],
-    daylight_bias: i32,
-    key_name: [u16; 128],
-    dynamic_daylight_disabled: u8,
-}
-
 // The sizes in the Windows headers: a wrong layout fails the build.
-const _: () = assert!(std::mem::size_of::<ZoneInformation>() == 432);
 #[cfg(target_pointer_width = "64")]
 const _: () = assert!(std::mem::size_of::<MemoryCounters>() == 72);
 
@@ -66,7 +52,6 @@ const _: () = assert!(std::mem::size_of::<MemoryCounters>() == 72);
 extern "system" {
     fn GetCurrentProcess() -> Handle;
     fn K32GetProcessMemoryInfo(process: Handle, counters: *mut MemoryCounters, cb: u32) -> c_int;
-    fn GetDynamicTimeZoneInformation(info: *mut ZoneInformation) -> u32;
     fn GetLocaleInfoEx(locale: *const u16, kind: u32, data: *mut u16, len: c_int) -> c_int;
 }
 
@@ -81,27 +66,6 @@ pub fn memory_kb() -> Option<(u64, u64)> {
         return None;
     }
     Some((counters.peak_working_set as u64 / 1024, counters.working_set as u64 / 1024))
-}
-
-/// The time zone in the Windows settings, by its IANA name (`W. Europe Standard Time` →
-/// `Europe/Berlin`); `None` when Windows names one this table doesn't know.
-pub fn local_zone() -> Option<String> {
-    let mut info = ZoneInformation {
-        bias: 0,
-        standard_name: [0; 32],
-        standard_date: [0; 8],
-        standard_bias: 0,
-        daylight_name: [0; 32],
-        daylight_date: [0; 8],
-        daylight_bias: 0,
-        key_name: [0; 128],
-        dynamic_daylight_disabled: 0,
-    };
-    // SAFETY: `info` is a writable `DYNAMIC_TIME_ZONE_INFORMATION`.
-    if unsafe { GetDynamicTimeZoneInformation(&mut info) } == u32::MAX {
-        return None;
-    }
-    iana_zone(&wide(&info.key_name)).map(str::to_string)
 }
 
 /// The text of a NUL-terminated UTF-16 buffer.
@@ -185,166 +149,10 @@ pub fn measurement() -> Option<crate::config::System> {
     }
 }
 
-/// The zone database next to the program (`<folder of aequalis.exe>\zoneinfo`): Windows has none of
-/// its own in the IANA format, so the release ships it.
-pub fn zoneinfo() -> Option<String> {
-    let exe = std::env::current_exe().ok()?;
-    Some(exe.parent()?.join("zoneinfo").to_string_lossy().into_owned())
-}
-
 /// `%APPDATA%` (`C:\Users\…\AppData\Roaming`), where programs keep their settings.
 pub fn app_data() -> Option<std::path::PathBuf> {
     std::env::var_os("APPDATA").filter(|v| !v.is_empty()).map(std::path::PathBuf::from)
 }
-
-/// The IANA zone of a Windows time zone (CLDR `windowsZones.xml`, the `001` territory of each).
-pub fn iana_zone(windows: &str) -> Option<&'static str> {
-    ZONES.iter().find(|(w, _)| *w == windows).map(|&(_, iana)| iana)
-}
-
-const ZONES: &[(&str, &str)] = &[
-    ("Dateline Standard Time", "Etc/GMT+12"),
-    ("UTC-11", "Etc/GMT+11"),
-    ("Aleutian Standard Time", "America/Adak"),
-    ("Hawaiian Standard Time", "Pacific/Honolulu"),
-    ("Marquesas Standard Time", "Pacific/Marquesas"),
-    ("Alaskan Standard Time", "America/Anchorage"),
-    ("UTC-09", "Etc/GMT+9"),
-    ("Pacific Standard Time (Mexico)", "America/Tijuana"),
-    ("UTC-08", "Etc/GMT+8"),
-    ("Pacific Standard Time", "America/Los_Angeles"),
-    ("US Mountain Standard Time", "America/Phoenix"),
-    ("Mountain Standard Time (Mexico)", "America/Mazatlan"),
-    ("Mountain Standard Time", "America/Denver"),
-    ("Yukon Standard Time", "America/Whitehorse"),
-    ("Central America Standard Time", "America/Guatemala"),
-    ("Central Standard Time", "America/Chicago"),
-    ("Easter Island Standard Time", "Pacific/Easter"),
-    ("Central Standard Time (Mexico)", "America/Mexico_City"),
-    ("Canada Central Standard Time", "America/Regina"),
-    ("SA Pacific Standard Time", "America/Bogota"),
-    ("Eastern Standard Time (Mexico)", "America/Cancun"),
-    ("Eastern Standard Time", "America/New_York"),
-    ("Haiti Standard Time", "America/Port-au-Prince"),
-    ("Cuba Standard Time", "America/Havana"),
-    ("US Eastern Standard Time", "America/Indiana/Indianapolis"),
-    ("Turks And Caicos Standard Time", "America/Grand_Turk"),
-    ("Paraguay Standard Time", "America/Asuncion"),
-    ("Atlantic Standard Time", "America/Halifax"),
-    ("Venezuela Standard Time", "America/Caracas"),
-    ("Central Brazilian Standard Time", "America/Cuiaba"),
-    ("SA Western Standard Time", "America/La_Paz"),
-    ("Pacific SA Standard Time", "America/Santiago"),
-    ("Newfoundland Standard Time", "America/St_Johns"),
-    ("Tocantins Standard Time", "America/Araguaina"),
-    ("E. South America Standard Time", "America/Sao_Paulo"),
-    ("SA Eastern Standard Time", "America/Cayenne"),
-    ("Argentina Standard Time", "America/Argentina/Buenos_Aires"),
-    ("Greenland Standard Time", "America/Nuuk"),
-    ("Montevideo Standard Time", "America/Montevideo"),
-    ("Magallanes Standard Time", "America/Punta_Arenas"),
-    ("Saint Pierre Standard Time", "America/Miquelon"),
-    ("Bahia Standard Time", "America/Bahia"),
-    ("UTC-02", "Etc/GMT+2"),
-    ("Mid-Atlantic Standard Time", "Etc/GMT+2"),
-    ("Azores Standard Time", "Atlantic/Azores"),
-    ("Cape Verde Standard Time", "Atlantic/Cape_Verde"),
-    ("UTC", "Etc/UTC"),
-    ("GMT Standard Time", "Europe/London"),
-    ("Greenwich Standard Time", "Atlantic/Reykjavik"),
-    ("Sao Tome Standard Time", "Africa/Sao_Tome"),
-    ("Morocco Standard Time", "Africa/Casablanca"),
-    ("W. Europe Standard Time", "Europe/Berlin"),
-    ("Central Europe Standard Time", "Europe/Budapest"),
-    ("Romance Standard Time", "Europe/Paris"),
-    ("Central European Standard Time", "Europe/Warsaw"),
-    ("W. Central Africa Standard Time", "Africa/Lagos"),
-    ("Jordan Standard Time", "Asia/Amman"),
-    ("GTB Standard Time", "Europe/Bucharest"),
-    ("Middle East Standard Time", "Asia/Beirut"),
-    ("Egypt Standard Time", "Africa/Cairo"),
-    ("E. Europe Standard Time", "Europe/Chisinau"),
-    ("Syria Standard Time", "Asia/Damascus"),
-    ("West Bank Standard Time", "Asia/Hebron"),
-    ("South Africa Standard Time", "Africa/Johannesburg"),
-    ("FLE Standard Time", "Europe/Kyiv"),
-    ("Israel Standard Time", "Asia/Jerusalem"),
-    ("South Sudan Standard Time", "Africa/Juba"),
-    ("Kaliningrad Standard Time", "Europe/Kaliningrad"),
-    ("Sudan Standard Time", "Africa/Khartoum"),
-    ("Libya Standard Time", "Africa/Tripoli"),
-    ("Namibia Standard Time", "Africa/Windhoek"),
-    ("Arabic Standard Time", "Asia/Baghdad"),
-    ("Turkey Standard Time", "Europe/Istanbul"),
-    ("Arab Standard Time", "Asia/Riyadh"),
-    ("Belarus Standard Time", "Europe/Minsk"),
-    ("Russian Standard Time", "Europe/Moscow"),
-    ("E. Africa Standard Time", "Africa/Nairobi"),
-    ("Volgograd Standard Time", "Europe/Volgograd"),
-    ("Iran Standard Time", "Asia/Tehran"),
-    ("Arabian Standard Time", "Asia/Dubai"),
-    ("Astrakhan Standard Time", "Europe/Astrakhan"),
-    ("Azerbaijan Standard Time", "Asia/Baku"),
-    ("Russia Time Zone 3", "Europe/Samara"),
-    ("Mauritius Standard Time", "Indian/Mauritius"),
-    ("Saratov Standard Time", "Europe/Saratov"),
-    ("Georgian Standard Time", "Asia/Tbilisi"),
-    ("Caucasus Standard Time", "Asia/Yerevan"),
-    ("Afghanistan Standard Time", "Asia/Kabul"),
-    ("West Asia Standard Time", "Asia/Tashkent"),
-    ("Qyzylorda Standard Time", "Asia/Qyzylorda"),
-    ("Ekaterinburg Standard Time", "Asia/Yekaterinburg"),
-    ("Pakistan Standard Time", "Asia/Karachi"),
-    ("India Standard Time", "Asia/Kolkata"),
-    ("Sri Lanka Standard Time", "Asia/Colombo"),
-    ("Nepal Standard Time", "Asia/Kathmandu"),
-    ("Central Asia Standard Time", "Asia/Bishkek"),
-    ("Bangladesh Standard Time", "Asia/Dhaka"),
-    ("Omsk Standard Time", "Asia/Omsk"),
-    ("Myanmar Standard Time", "Asia/Yangon"),
-    ("SE Asia Standard Time", "Asia/Bangkok"),
-    ("Altai Standard Time", "Asia/Barnaul"),
-    ("W. Mongolia Standard Time", "Asia/Hovd"),
-    ("North Asia Standard Time", "Asia/Krasnoyarsk"),
-    ("N. Central Asia Standard Time", "Asia/Novosibirsk"),
-    ("Tomsk Standard Time", "Asia/Tomsk"),
-    ("China Standard Time", "Asia/Shanghai"),
-    ("North Asia East Standard Time", "Asia/Irkutsk"),
-    ("Singapore Standard Time", "Asia/Singapore"),
-    ("W. Australia Standard Time", "Australia/Perth"),
-    ("Taipei Standard Time", "Asia/Taipei"),
-    ("Ulaanbaatar Standard Time", "Asia/Ulaanbaatar"),
-    ("Aus Central W. Standard Time", "Australia/Eucla"),
-    ("Transbaikal Standard Time", "Asia/Chita"),
-    ("Tokyo Standard Time", "Asia/Tokyo"),
-    ("North Korea Standard Time", "Asia/Pyongyang"),
-    ("Korea Standard Time", "Asia/Seoul"),
-    ("Yakutsk Standard Time", "Asia/Yakutsk"),
-    ("Cen. Australia Standard Time", "Australia/Adelaide"),
-    ("AUS Central Standard Time", "Australia/Darwin"),
-    ("E. Australia Standard Time", "Australia/Brisbane"),
-    ("AUS Eastern Standard Time", "Australia/Sydney"),
-    ("West Pacific Standard Time", "Pacific/Port_Moresby"),
-    ("Tasmania Standard Time", "Australia/Hobart"),
-    ("Vladivostok Standard Time", "Asia/Vladivostok"),
-    ("Lord Howe Standard Time", "Australia/Lord_Howe"),
-    ("Bougainville Standard Time", "Pacific/Bougainville"),
-    ("Russia Time Zone 10", "Asia/Srednekolymsk"),
-    ("Magadan Standard Time", "Asia/Magadan"),
-    ("Norfolk Standard Time", "Pacific/Norfolk"),
-    ("Sakhalin Standard Time", "Asia/Sakhalin"),
-    ("Central Pacific Standard Time", "Pacific/Guadalcanal"),
-    ("Russia Time Zone 11", "Asia/Kamchatka"),
-    ("New Zealand Standard Time", "Pacific/Auckland"),
-    ("UTC+12", "Etc/GMT-12"),
-    ("Fiji Standard Time", "Pacific/Fiji"),
-    ("Kamchatka Standard Time", "Asia/Kamchatka"),
-    ("Chatham Islands Standard Time", "Pacific/Chatham"),
-    ("UTC+13", "Etc/GMT-13"),
-    ("Tonga Standard Time", "Pacific/Tongatapu"),
-    ("Samoa Standard Time", "Pacific/Apia"),
-    ("Line Islands Standard Time", "Pacific/Kiritimati"),
-];
 
 #[cfg(test)]
 mod tests {
@@ -365,16 +173,6 @@ mod tests {
         assert_eq!(strftime_of("yyyy-MM-dd"), "%Y-%m-%d");
         assert_eq!(strftime_of("dd.MM.yy"), "%d.%m.%y");
         assert_eq!(strftime_of("ddd d MMM yyyy"), "%a %d %b %Y");
-    }
-
-    #[test]
-    fn zones_named() {
-        assert_eq!(iana_zone("W. Europe Standard Time"), Some("Europe/Berlin"));
-        assert_eq!(iana_zone("Nowhere Standard Time"), None);
-        let mut names: Vec<_> = ZONES.iter().map(|(w, _)| w).collect();
-        names.sort();
-        names.dedup();
-        assert_eq!(names.len(), ZONES.len(), "each Windows zone once");
     }
 
     #[test]

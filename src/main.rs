@@ -7,7 +7,11 @@ use aequalis::{convert, convert_request, json, notify, online, parse_options, ru
 use std::io::{IsTerminal, Read};
 use std::process::ExitCode;
 
+mod device;
+
 fn main() -> ExitCode {
+    // The device's time zone, read here and given to the library (which does not look for it).
+    device::start();
     let config = Config::shared();
     // `--json` changes only how results are printed (and that nothing is asked).
     let mut all: Vec<String> = std::env::args().skip(1).collect();
@@ -126,6 +130,8 @@ fn main() -> ExitCode {
     #[cfg(feature = "tui")]
     if let Ok(Parsed::Convert(opts)) = parse_options(config, &args) {
         if !json && opts.positional.is_empty() && std::io::stdin().is_terminal() && std::io::stdout().is_terminal() {
+            // It runs for hours: the device's zone is read again every hour.
+            device::watch();
             return tui::run(config, &opts);
         }
     }

@@ -143,11 +143,13 @@ pub fn started() -> String {
 /// environment variables (`setenv` races with the app's other threads).
 pub fn start(init: &Init) {
     crate::files::set_dir(Path::new(&init.dir));
-    if let Some(zone) = &init.zone {
-        crate::currency::set_local_zone(zone);
-    }
+    // The database first: setting the zone reads it.
     if let Some(database) = &init.zoneinfo {
         crate::time::tz::set_zoneinfo(database);
+    }
+    if let Some(zone) = &init.zone {
+        // A zone the database does not know: local time is the C library's.
+        let _ = crate::time::set_device_zone(zone);
     }
     if let Some(format) = &init.format {
         crate::numbers::set_device(format.clone());

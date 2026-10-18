@@ -133,8 +133,8 @@ mod imp {
     }
 }
 
-/// Windows: the zone is the core's own (`local_tz`: `TZ`, else the Windows settings), so only the
-/// formats are here. The `local` format is the C locale's (`Sun Apr 12 00:00:00 2026`), as with
+/// Windows: the zone is the core's own (`local_tz`: the device's zone as the program set it, its rules
+/// the system's), so only the formats are here. The `local` format is the C locale's (`Sun Apr 12 00:00:00 2026`), as with
 /// `LC_ALL=C`; the date order is the Region settings', or `%m/%d/%y` when the environment names a locale.
 #[cfg(windows)]
 mod imp {

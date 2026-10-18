@@ -19,6 +19,8 @@
 mod sys;
 pub(crate) mod tz;
 
+pub use tz::{set_source as set_zone_source, Rules as ZoneRules, Source as ZoneSource};
+
 use crate::config::{Config, DATE_WORDS};
 use crate::convert;
 
@@ -227,18 +229,28 @@ impl Instant {
     }
 }
 
-/// The device's zone, from the zone database, when its name is known: local time through the same
-/// engine as the cities' (the same answer for `02:30` in a DST gap either way), and on phones,
-/// whose C library Aequalis doesn't read. The app's zone, else `TZ` (a POSIX rule such as `CET-1CEST`
-/// is no name: the C library's), else /etc/localtime. `None`: the C library (UTC elsewhere).
+static DEVICE_ZONE: std::sync::RwLock<Option<&'static tz::Tz>> = std::sync::RwLock::new(None);
+
+/// Sets the device's time zone (`Europe/Rome`), as the program running aequalis reads it from the
+/// system: aequalis does not look for it itself. A program sets it at start, and a long-running one
+/// again from time to time (the device may change zone); the zone's rules are read again each time.
+/// `Err`: a zone the database does not know, and the zone in use stays.
+pub fn set_device_zone(name: &str) -> Result<(), String> {
+    let zone = tz::reload(name)?;
+    *DEVICE_ZONE.write().unwrap_or_else(|e| e.into_inner()) = Some(zone);
+    Ok(())
+}
+
+/// The device's time zone, by name, as the program set it (`set_device_zone`); `None`: not set.
+pub fn device_zone() -> Option<&'static str> {
+    local_tz().map(|tz| tz.name)
+}
+
+/// The device's zone (`set_device_zone`): local time through the same engine as the cities' (the
+/// same answer for `02:30` in a DST gap either way). `None`: no zone was set, and the C library's
+/// local time is used (UTC where there is none).
 fn local_tz() -> Option<&'static tz::Tz> {
-    static LOCAL: std::sync::OnceLock<Option<&'static tz::Tz>> = std::sync::OnceLock::new();
-    *LOCAL.get_or_init(|| {
-        let name = crate::currency::app_zone()
-            .or_else(|| std::env::var("TZ").ok().filter(|t| !t.is_empty()).map(|t| t.trim_start_matches(':').to_string()))
-            .or_else(crate::currency::local_zone)?;
-        tz::load(&name).ok()
-    })
+    *DEVICE_ZONE.read().unwrap_or_else(|e| e.into_inner())
 }
 
 /// The instant of a wall-clock time in `zone`.

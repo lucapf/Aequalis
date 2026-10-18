@@ -1,6 +1,7 @@
 //! Named time zones, without crates: the system's zone database (TZif files under
 //! `/usr/share/zoneinfo`, or `$TZDIR`; RFC 8536), with the POSIX TZ rule in each file's footer for
-//! times after its last transition. And the cities that name them: every country's capital and
+//! times after its last transition; or the rules of a database the program running aequalis has
+//! (`set_source`: on Windows, the registry). And the cities that name them: every country's capital and
 //! major cities (`Paris`, `New York`, `Tokyo`), or a zone's own name (`Europe/Paris`).
 
 use super::{civil_from_days, days_from_civil, days_in_month, unaccented, weekday};
@@ -55,6 +56,21 @@ impl Tz {
             // A gap: read with the offset before it, which lands after it.
             (None, None) => wall - before,
         }
+    }
+
+    /// A zone from a program's own database (`Source`).
+    fn from_rules(name: &'static str, rules: Rules) -> Option<Tz> {
+        let rule = match rules.rule.as_deref() {
+            Some(text) => Some(Rule::parse(text)?),
+            None => None,
+        };
+        let ascending = rules.transitions.windows(2).all(|w| w[0].0 < w[1].0);
+        ascending.then_some(Tz { name, transitions: rules.transitions, initial: rules.initial, rule })
+    }
+
+    /// Whether `other` has the same offsets as this zone (its rules, whatever its name).
+    fn same_rules(&self, other: &Tz) -> bool {
+        self.transitions == other.transitions && self.initial == other.initial && self.rule == other.rule
     }
 
     /// Parses a TZif file.
@@ -278,6 +294,34 @@ fn day_of(year: i64, day: RuleDay) -> i64 {
 
 // ---------------------------------------------------------------- loading
 
+/// A zone's rules from a program's own database: what a TZif file says, without the file.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Rules {
+    /// The offset (seconds east of UTC) before the first transition.
+    pub initial: i32,
+    /// Transition times (seconds since the epoch, UTC), ascending, each with the offset from then on.
+    pub transitions: Vec<(i64, i32)>,
+    /// After the last transition: a POSIX TZ rule (`<STD>-1<DST>,M3.5.0,M10.5.0/3`); `None`: the last
+    /// offset stays.
+    pub rule: Option<String>,
+}
+
+/// A database of zones by name (`Europe/Paris`), which the program running aequalis has, in place of
+/// the zone files: on Windows, the registry. Called when a zone is first used, and again by
+/// `reload`.
+pub trait Source: Send + Sync {
+    /// The rules of `name`; `None`: not a zone this database knows.
+    fn rules(&self, name: &str) -> Option<Rules>;
+}
+
+static SOURCE: OnceLock<Box<dyn Source>> = OnceLock::new();
+
+/// Takes zones from `source` from now on instead of the zone files (once, before any zone is used;
+/// later calls are ignored).
+pub fn set_source(source: Box<dyn Source>) {
+    let _ = SOURCE.set(source);
+}
+
 static APP_ZONEINFO: OnceLock<String> = OnceLock::new();
 
 /// The zone database given by the app embedding aequalis: a folder of zone files, or Android's
@@ -287,17 +331,12 @@ pub fn set_zoneinfo(path: &str) {
     let _ = APP_ZONEINFO.set(path.to_string());
 }
 
-/// The zone database: the app's, else `$TZDIR`, else `/usr/share/zoneinfo` (Windows: the
-/// `zoneinfo` folder next to aequalis.exe).
+/// The zone files: the app's, else `$TZDIR`, else `/usr/share/zoneinfo`.
 fn zoneinfo() -> String {
     if let Some(path) = APP_ZONEINFO.get() {
         return path.clone();
     }
-    #[cfg(windows)]
-    let system = crate::windows::zoneinfo().unwrap_or_else(|| "zoneinfo".into());
-    #[cfg(not(windows))]
-    let system = "/usr/share/zoneinfo".to_string();
-    std::env::var("TZDIR").ok().filter(|d| !d.is_empty()).unwrap_or(system)
+    std::env::var("TZDIR").ok().filter(|d| !d.is_empty()).unwrap_or_else(|| "/usr/share/zoneinfo".into())
 }
 
 /// A zone file from Android's `tzdata`: every zone in one file. A 12-byte version
@@ -329,9 +368,34 @@ fn zone_data(database: &str, name: &str) -> Option<Vec<u8>> {
     from_bundle(BUNDLE.get_or_init(|| std::fs::read(database).ok()).as_deref()?, name)
 }
 
-/// A zone of the database by its name (`Europe/Paris`), loaded once. `Err`: not installed.
+static CACHE: OnceLock<Mutex<HashMap<String, &'static Tz>>> = OnceLock::new();
+
+/// A zone by its name (`Europe/Paris`), loaded once. `Err`: not a zone of the database.
 pub fn load(name: &str) -> Result<&'static Tz, String> {
-    static CACHE: OnceLock<Mutex<HashMap<String, &'static Tz>>> = OnceLock::new();
+    let mut cache = CACHE.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(tz) = cache.get(name) {
+        return Ok(tz);
+    }
+    let tz: &'static Tz = Box::leak(Box::new(read(name)?));
+    cache.insert(name.to_string(), tz);
+    Ok(tz)
+}
+
+/// A zone read again from the database (a long-running program, after its rules may have been
+/// updated): the zone in use when the rules are the same, else the new one, which takes its place.
+pub fn reload(name: &str) -> Result<&'static Tz, String> {
+    let fresh = read(name)?;
+    let mut cache = CACHE.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(tz) = cache.get(name).filter(|tz| tz.same_rules(&fresh)) {
+        return Ok(tz);
+    }
+    let tz: &'static Tz = Box::leak(Box::new(fresh));
+    cache.insert(name.to_string(), tz);
+    Ok(tz)
+}
+
+/// A zone from the program's database (`set_source`), else from the zone files.
+fn read(name: &str) -> Result<Tz, String> {
     let valid = !name.is_empty()
         && !name.starts_with('/')
         && name.split('/').all(|part| !part.is_empty() && part != ".." && part != ".")
@@ -339,18 +403,15 @@ pub fn load(name: &str) -> Result<&'static Tz, String> {
     if !valid {
         return Err(format!("`{name}` is not a time zone name"));
     }
-    let mut cache = CACHE.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(tz) = cache.get(name) {
-        return Ok(tz);
+    let static_name = || -> &'static str { Box::leak(name.to_string().into_boxed_str()) };
+    if let Some(source) = SOURCE.get() {
+        let rules = source.rules(name).ok_or_else(|| format!("the time zone {name} is not known to this system"))?;
+        return Tz::from_rules(static_name(), rules).ok_or_else(|| format!("the system's rules for {name} are not valid"));
     }
     let database = zoneinfo();
     let path = format!("{database}/{name}");
     let data = zone_data(&database, name).ok_or_else(|| format!("the time zone {name} is not installed ({path})"))?;
-    let static_name: &'static str = Box::leak(name.to_string().into_boxed_str());
-    let tz = Tz::parse(static_name, &data).ok_or_else(|| format!("{path} is not a time zone file"))?;
-    let tz: &'static Tz = Box::leak(Box::new(tz));
-    cache.insert(name.to_string(), tz);
-    Ok(tz)
+    Tz::parse(static_name(), &data).ok_or_else(|| format!("{path} is not a time zone file"))
 }
 
 // ---------------------------------------------------------------- cities
@@ -988,6 +1049,22 @@ pub fn longest_name() -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn zones_from_rules() {
+        // Rome as a program's database could give it: two changes in 2026, then the EU rule.
+        let rules = Rules { initial: 3600, transitions: vec![(1774746000, 7200), (1792890000, 3600)], rule: Some("<STD>-1<DST>,M3.5.0,M10.5.0/3".into()) };
+        let tz = Tz::from_rules("Test/Rome", rules.clone()).unwrap();
+        assert_eq!(tz.offset_at(1774746000 - 1), 3600, "before the change of 29 March 2026");
+        assert_eq!(tz.offset_at(1774746000), 7200);
+        assert_eq!(tz.offset_at(1792890000), 3600, "25 October 2026");
+        assert_eq!(tz.offset_at(1806800000), 7200, "April 2027: the rule");
+        assert!(tz.same_rules(&Tz::from_rules("Other", rules.clone()).unwrap()));
+        let unsorted = Rules { transitions: vec![(2, 0), (1, 0)], ..rules.clone() };
+        assert!(Tz::from_rules("Bad", unsorted).is_none(), "transitions out of order");
+        let bad_rule = Rules { rule: Some("nonsense".into()), ..rules };
+        assert!(Tz::from_rules("Bad", bad_rule).is_none());
+    }
 
     fn secs(y: i64, m: u32, d: u32, h: i64) -> i64 {
         days_from_civil(y, m, d) * 86_400 + h * 3600
