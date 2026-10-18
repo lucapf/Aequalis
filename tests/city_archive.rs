@@ -16,7 +16,7 @@ fn config(name: &str) -> PathBuf {
     std::fs::create_dir_all(&serve).unwrap();
     std::fs::copy(&fixture, serve.join("cities.json")).unwrap();
     std::fs::write(serve.join("cities.version"), "1791877958 sample\n").unwrap();
-    let url = format!("file://{}", serve.join("cities.json").display());
+    let url = common::file_url(&serve.join("cities.json"));
     common::config(
         name,
         &[
@@ -94,7 +94,7 @@ fn the_default_unit_follows_the_device() {
 /// the exchange rates and live values are still synced; the failure is said, and the exit code 1.
 #[test]
 fn a_failed_download_stops_nothing_else() {
-    let url = format!("file://{}/nowhere/cities.json", std::env::temp_dir().display());
+    let url = common::file_url(&std::env::temp_dir().join("nowhere").join("cities.json"));
     let dir = common::config(
         "failed",
         &[("offline", "false"), ("cities.refresh", "manual"), ("rates.refresh", "manual"), ("live.refresh", "manual"), ("cities.url", &url)],

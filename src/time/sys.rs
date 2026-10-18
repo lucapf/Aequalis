@@ -133,7 +133,61 @@ mod imp {
     }
 }
 
-#[cfg(not(all(any(target_os = "linux", target_os = "macos"), target_pointer_width = "64")))]
+/// Windows: the zone is the core's own (`local_tz`: `TZ`, else the Windows settings), so only the
+/// formats are here. The `local` format is the C locale's (`Sun Apr 12 00:00:00 2026`), as with
+/// `LC_ALL=C`; the date order is the Region settings', or `%m/%d/%y` when the environment names a locale.
+#[cfg(windows)]
+mod imp {
+    use super::Civil;
+    use crate::time::{civil_from_days, days_from_civil, from_civil, weekday, Instant, Zone, NS};
+
+    const WEEKDAYS: [&str; 7] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+    pub fn local_offset(_secs: i64) -> Option<i32> {
+        Some(0)
+    }
+
+    pub fn local_to_utc(_c: &Civil) -> Option<i64> {
+        None
+    }
+
+    /// `%a %b %e %H:%M:%S %Y`.
+    pub fn format_local(secs: i64) -> Option<String> {
+        let c = Instant { ns: i128::from(secs) * NS, zone: Zone::Local }.civil();
+        let day = weekday(days_from_civil(c.year, c.month, c.day));
+        Some(format!("{} {} {:2} {:02}:{:02}:{:02} {}", WEEKDAYS[day as usize - 1], MONTHS[c.month as usize - 1], c.day, c.hour, c.minute, c.second, c.year))
+    }
+
+    /// The format of `format_local`: `Sun Apr 12 00:00:00 2026`, read in the device's zone.
+    pub fn parse_local(text: &str) -> Option<i64> {
+        let words: Vec<&str> = text.split_whitespace().collect();
+        let [wday, month, day, time, year] = words[..] else { return None };
+        let weekday_ok = WEEKDAYS.iter().any(|w| w.eq_ignore_ascii_case(wday));
+        let month = MONTHS.iter().position(|m| m.eq_ignore_ascii_case(month))? as u32 + 1;
+        let mut clock = time.split(':').map(|p| p.parse::<u32>().ok());
+        let (hour, minute, second) = (clock.next()??, clock.next()??, clock.next()??);
+        let c = Civil { year: year.parse().ok()?, month, day: day.parse().ok()?, hour, minute, second, nano: 0 };
+        let valid = (1..=31).contains(&c.day)
+            && hour < 24
+            && minute < 60
+            && second < 61
+            && civil_from_days(days_from_civil(c.year, c.month, c.day)) == (c.year, c.month, c.day);
+        (weekday_ok && valid).then_some(())?;
+        let instant = from_civil(&c, Zone::Local).ok()?;
+        i64::try_from(instant.ns.div_euclid(NS)).ok()
+    }
+
+    pub fn date_format() -> Option<String> {
+        let named = ["LC_ALL", "LC_TIME", "LANG"].iter().any(|v| std::env::var_os(v).is_some_and(|v| !v.is_empty()));
+        if named {
+            return Some("%m/%d/%y".into());
+        }
+        crate::windows::date_format()
+    }
+}
+
+#[cfg(not(any(windows, all(any(target_os = "linux", target_os = "macos"), target_pointer_width = "64"))))]
 mod imp {
     use super::Civil;
 

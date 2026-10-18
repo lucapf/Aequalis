@@ -5,6 +5,16 @@
 use std::path::PathBuf;
 use std::process::{Command, Output, Stdio};
 
+/// `file://` and the path of `path`, as curl takes it: on Windows `file:///C:/Users/…`.
+pub fn file_url(path: &std::path::Path) -> String {
+    let path = path.display().to_string().replace('\\', "/");
+    if path.starts_with('/') {
+        format!("file://{path}")
+    } else {
+        format!("file:///{path}")
+    }
+}
+
 /// `$XDG_CONFIG_HOME` for one test: `aequalis/settings.json` with `settings` (and `offline: true`
 /// unless given).
 pub fn config(name: &str, settings: &[(&str, &str)]) -> PathBuf {

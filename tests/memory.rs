@@ -45,7 +45,7 @@ fn installing_the_city_archive_stays_below_10_mb() {
     std::fs::create_dir_all(&serve).unwrap();
     std::fs::copy(&fixture, serve.join("cities.json")).unwrap();
     std::fs::write(serve.join("cities.version"), "1 sample\n").unwrap();
-    let url = format!("file://{}", serve.join("cities.json").display());
+    let url = common::file_url(&serve.join("cities.json"));
     let dir = common::config(
         "memory-archive",
         &[("offline", "false"), ("cities.refresh", "manual"), ("rates.refresh", "manual"), ("live.refresh", "manual"), ("cities.url", &url)],

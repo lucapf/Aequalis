@@ -102,6 +102,8 @@ fn places_without_a_time_are_a_distance() {
     assert!(now.contains(" AM ") || now.contains(" PM "), "{now}");
 }
 
+// glibc's locales (`locale -a`, `LC_ALL=en_US.UTF-8`): Windows reads its Region settings instead.
+#[cfg(unix)]
 #[test]
 fn distances_use_the_desktop_thousands_separator() {
     // Only where the locale is installed (`locale -a`).

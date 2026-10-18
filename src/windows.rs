@@ -143,6 +143,38 @@ fn grouping(windows: &str) -> Vec<u8> {
     sizes
 }
 
+/// The short date of the Region settings (`dd/MM/yyyy`) as a `strftime` format (`%d/%m/%Y`): what
+/// matters to tally is the order of the day, the month and the year.
+pub fn date_format() -> Option<String> {
+    const LOCALE_SSHORTDATE: u32 = 0x1F;
+    Some(strftime_of(&locale_info(LOCALE_SSHORTDATE)?))
+}
+
+/// A Windows date pattern (`d`, `dd`, `ddd`, `dddd`, `M`…`MMMM`, `y`…`yyyy`; the rest is literal) as a
+/// `strftime` format.
+fn strftime_of(pattern: &str) -> String {
+    let mut out = String::new();
+    let chars: Vec<char> = pattern.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        let run = chars[i..].iter().take_while(|&&d| d == c).count();
+        match (c, run) {
+            ('y', 1 | 2) => out.push_str("%y"),
+            ('y', _) => out.push_str("%Y"),
+            ('M', 1 | 2) => out.push_str("%m"),
+            ('M', 3) => out.push_str("%b"),
+            ('M', _) => out.push_str("%B"),
+            ('d', 1 | 2) => out.push_str("%d"),
+            ('d', 3) => out.push_str("%a"),
+            ('d', _) => out.push_str("%A"),
+            _ => out.extend(std::iter::repeat(c).take(run)),
+        }
+        i += run;
+    }
+    out
+}
+
 /// The measurement system in the Region settings (`LOCALE_IMEASURE`: 0 metric, 1 US).
 pub fn measurement() -> Option<crate::config::System> {
     const LOCALE_IMEASURE: u32 = 0x0D;
@@ -324,6 +356,15 @@ mod tests {
         assert_eq!(grouping("3;2;0"), [3, 2], "India");
         assert_eq!(grouping("3"), [3, 127], "one group, then none");
         assert_eq!(grouping(""), Vec::<u8>::new());
+    }
+
+    #[test]
+    fn short_dates_as_strftime() {
+        assert_eq!(strftime_of("dd/MM/yyyy"), "%d/%m/%Y");
+        assert_eq!(strftime_of("M/d/yyyy"), "%m/%d/%Y");
+        assert_eq!(strftime_of("yyyy-MM-dd"), "%Y-%m-%d");
+        assert_eq!(strftime_of("dd.MM.yy"), "%d.%m.%y");
+        assert_eq!(strftime_of("ddd d MMM yyyy"), "%a %d %b %Y");
     }
 
     #[test]

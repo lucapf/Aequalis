@@ -57,6 +57,7 @@ fn errors() {
 }
 
 /// The shell-safe spellings reach the program unchanged when typed without quotes in bash.
+#[cfg(unix)]
 #[test]
 fn shell_safe_spellings_unquoted_in_bash() {
     if Command::new("bash").arg("--version").output().is_err() {

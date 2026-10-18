@@ -202,10 +202,10 @@ pub fn ensure_fresh() -> Option<std::process::Child> {
     if settings.offline() || lock_held() || due(&settings, crate::time::unix_now()).is_empty() {
         return None;
     }
-    #[cfg(unix)]
-    use std::os::unix::process::CommandExt;
     #[cfg(windows)]
     use crate::windows::CommandExt;
+    #[cfg(unix)]
+    use std::os::unix::process::CommandExt;
     use std::process::{Command, Stdio};
     let exe = std::env::current_exe().ok()?;
     Command::new(exe)
@@ -445,7 +445,8 @@ mod tests {
         std::fs::write(&json, crate::cities::tests::SAMPLE).unwrap();
         std::fs::write(served.join("cities.version"), "1791877958 sample\n").unwrap();
         let mut settings = Settings::default();
-        settings.set("cities.url", Some(&format!("file://{}", json.display()))).unwrap();
+        let path = json.display().to_string().replace('\\', "/");
+        settings.set("cities.url", Some(&format!("file://{}{path}", if path.starts_with('/') { "" } else { "/" }))).unwrap();
         settings.set("cities.refresh", Some("notify")).unwrap();
         let shown = RefCell::new(Vec::new());
         let notify = |text: &str| shown.borrow_mut().push(text.to_string());

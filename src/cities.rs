@@ -18,12 +18,12 @@
 
 use crate::geo::Point;
 use crate::time::tz;
+#[cfg(windows)]
+use crate::windows::FileExt;
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Seek, SeekFrom, Write};
 #[cfg(unix)]
 use std::os::unix::fs::FileExt;
-#[cfg(windows)]
-use crate::windows::FileExt;
 use std::path::{Path, PathBuf};
 
 /// Where the archive comes from (also a setting, `cities.url`, for mirrors and tests).
