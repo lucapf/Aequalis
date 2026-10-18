@@ -77,11 +77,6 @@ extern "system" {
     fn GetProcAddress(module: *mut c_void, name: *const c_char) -> *mut c_void;
 }
 
-#[link(name = "advapi32")]
-extern "system" {
-    fn EnumDynamicTimeZoneInformation(index: u32, info: *mut DynamicZoneInfo) -> u32;
-}
-
 // ---------------------------------------------------------------- the system's rules
 
 /// Takes the zones' rules from the registry, unless `TZDIR` names a zone database (the tests, or
@@ -157,14 +152,17 @@ fn push(transitions: &mut Vec<(i64, i32)>, at: i64, offset: i32) {
 }
 
 /// A registry zone by its key name (`W. Europe Standard Time`).
+/// The key name is all `GetTimeZoneInformationForYear` reads (an unknown one: it fails), so the
+/// registry's zones are never listed: listing them loads each one's display names, about 1 ms a zone.
 fn registry_zone(key: &str) -> Option<DynamicZoneInfo> {
-    (0..)
-        .map_while(|index| {
-            let mut zone = DynamicZoneInfo::empty();
-            // SAFETY: `zone` is a writable DYNAMIC_TIME_ZONE_INFORMATION; 0 is ERROR_SUCCESS.
-            (unsafe { EnumDynamicTimeZoneInformation(index, &mut zone) } == 0).then_some(zone)
-        })
-        .find(|zone| text(&zone.key_name) == key)
+    let mut zone = DynamicZoneInfo::empty();
+    let name: Vec<u16> = key.encode_utf16().collect();
+    // Room for the terminating NUL.
+    if name.len() >= zone.key_name.len() {
+        return None;
+    }
+    zone.key_name[..name.len()].copy_from_slice(&name);
+    Some(zone)
 }
 
 /// A zone's rule in one year: its standard offset and, if any, its DST with when it starts and ends.

@@ -6,9 +6,10 @@
 
 use std::process::Command;
 
-/// The request's answer, with the zone database the system's (no `TZDIR`).
+/// The request's answer (`-v`: both sides), with the zone database the system's (no `TZDIR`).
 fn run(request: &str) -> String {
     let out = Command::new(env!("CARGO_BIN_EXE_aequalis"))
+        .arg("-v")
         .args(request.split_whitespace())
         .env_remove("TZDIR")
         .env("TZ", "Europe/Rome")
