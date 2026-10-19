@@ -396,6 +396,8 @@ mod tests {
         assert_eq!((s.interval("cities"), s.interval("rates")), (30 * 86_400, 86_400));
         assert_eq!((s.currency(), s.distance_unit(), s.precision()), (None, DistanceUnit::Auto, 4));
         assert_eq!((s.format_date(), s.format_datetime()), ("DD MMM YY", "DD MMM YY h:mm AM tz"));
+        // Every accessor reads a key by name (`get` panics on a wrong one): each is called here.
+        assert_eq!((s.interval("live"), s.keyboard()), (86_400, true));
     }
 
     #[test]
