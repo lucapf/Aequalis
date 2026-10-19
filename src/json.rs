@@ -117,7 +117,6 @@ pub fn peak_kb() -> u64 {
 
 /// The resident memory of this process now, in KiB (Linux: `VmRSS`); `None` where it is not
 /// known (then the peak is shown instead).
-#[cfg_attr(not(feature = "tui"), allow(dead_code))]
 #[cfg(not(windows))]
 pub fn current_kb() -> Option<u64> {
     let status = std::fs::read_to_string("/proc/self/status").ok()?;
@@ -125,14 +124,12 @@ pub fn current_kb() -> Option<u64> {
 }
 
 /// The working set now, in KiB.
-#[cfg_attr(not(feature = "tui"), allow(dead_code))]
 #[cfg(windows)]
 pub fn current_kb() -> Option<u64> {
     crate::windows::memory_kb().map(|(_, now)| now)
 }
 
 /// KiB for people: `900 KiB`, `3.4 MiB`.
-#[cfg_attr(not(feature = "tui"), allow(dead_code))]
 pub fn size(kb: u64) -> String {
     match kb {
         0..=1023 => format!("{kb} KiB"),

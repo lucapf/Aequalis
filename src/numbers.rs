@@ -42,7 +42,6 @@ impl NumberFormat {
     }
 
     /// Reformats the leading number of a result such as `1073.7418 MB`.
-    #[cfg_attr(not(feature = "tui"), allow(dead_code))]
     pub fn apply_to_result(&self, result: &str) -> String {
         match result.split_once(' ') {
             Some((number, unit)) => format!("{} {unit}", self.apply(number)),

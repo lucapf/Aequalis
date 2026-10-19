@@ -121,14 +121,12 @@ Results that would round to 0, or have more than 15 significant digits, are
 shown in scientific notation (1 eV J → 1.6022e-19 J).
 
 Distances on the Earth: [distance] <place> [to] <place> [length unit]: two places,
-then the unit (default: the distance.unit setting). A place: a city (with the city
-archive, any city of 5,000 inhabitants or more, by any of its names: `Springfield,
-Illinois` tells one apart; several with that name are asked about), a country, or
-coordinates (41.9,12.5).
-or just <place> to <place> [unit] when no time is written (Rome to Doha; with a
-time, 10:00 Rome to Doha or now Rome to Doha, it is the time there),
-along the WGS84 ellipsoid; a place is a capital, a major city or coordinates
-(41.9,12.5 or 41.9N 12.5E).
+then the unit (default: the distance.unit setting), along the WGS84 ellipsoid. A
+place: a capital or major city, a country, coordinates (41.9,12.5 or 41.9N 12.5E),
+or, with the city archive, any city of 5,000 inhabitants or more, by any of its
+names (`Springfield, Illinois` tells one apart; several with that name are asked
+about). Without `distance`, only when no time is written (Rome to Doha; with a
+time, 10:00 Rome to Doha or now Rome to Doha, it is the time there).
 
 Countries work like cities in time requests (Italy, 10:00 Japan to Brazil); a
 country with several time zones (USA, Russia, Canada, …) asks which one, each
@@ -178,9 +176,8 @@ Interactive mode (no arguments, in a terminal), Vim style. Input mode (the
 start): type an expression, Enter evaluates, Tab completes units, Up/Down
 recall the history, Esc switches to command mode. Command mode: M lists the
 unit classes, a class its units (h j k l or arrows move, Tab switches tab,
-Enter writes the unit, Esc goes back), N writes `now`, C shows the keyboard
-(clicked with the mouse), I (or i) returns to input mode, E shows all the
-shortcuts, q quits.
+Enter writes the unit, Esc goes back), N writes `now`, C shows or hides the
+keypad, I (or i) returns to input mode, E shows all the shortcuts, q quits.
 
 Options:
   --precision N             Decimal places, 0-15 (default: the precision setting, 4); trailing
@@ -466,32 +463,22 @@ pub fn convert_request(config: &Config, opts: &Options, tokens: &[&str]) -> Resu
                 formatted: false,
                 rates_age: Some(c.age),
             }),
-            Err(currency::Error::Usage(msg)) => Err(CliError::Usage(msg)),
-            Err(currency::Error::Ambiguous(a)) => Err(CliError::Ambiguous(a)),
-            Err(currency::Error::NoRates(msg)) => Err(CliError::Convert(convert::ConvertError::Domain(msg))),
-            Err(currency::Error::Incomplete(msg)) => Err(CliError::Incomplete(msg)),
+            Err(e) => Err(e.into()),
         };
     }
+    // A date or a distance: formatted for people, its notes shown with `-v`.
+    let formatted = |(stdout, notes): (String, Vec<String>)| Output { stdout, notes: if opts.verbose && !opts.silent { notes } else { Vec::new() }, formatted: true, ..Output::default() };
     // Distances on the Earth: `distance Rome to Paris km`.
     if let Some(result) = geo::request(config, &input, opts.precision) {
-        let notes = |notes: Vec<String>| if opts.verbose && !opts.silent { notes } else { Vec::new() };
-        return result.map(|(stdout, n)| Output { stdout, notes: notes(n), formatted: true, ..Output::default() }).map_err(|e| match e {
-            geo::Error::Usage(msg) => CliError::Usage(msg),
-            geo::Error::Ambiguous(a) => CliError::Ambiguous(a),
-            geo::Error::Incomplete(msg) => CliError::Incomplete(msg),
-        });
+        return result.map(formatted).map_err(CliError::from);
     }
     // Dates: `now + 3d`, `2026-10-10T15:00Z unix`, `1791644400 unix iso-week`. Not a lone number
     // expression (`1-10-10`, `2026-12-02`): that is arithmetic, whatever its shape.
     let arithmetic = time::is_number_expression(&input) && calc::parse_prefix(&input).is_ok_and(|(_, rest)| rest.trim().is_empty());
-    if let Some(result) = Some(()).filter(|_| !arithmetic).and_then(|_| time::request(config, &input, opts.precision, opts.verbose)) {
-        let notes = |notes: Vec<String>| if opts.verbose && !opts.silent { notes } else { Vec::new() };
-        return result.map(|(stdout, n)| Output { stdout, notes: notes(n), formatted: true, ..Output::default() }).map_err(|e| match e {
-            time::TimeError::Usage(msg) => CliError::Usage(msg),
-            time::TimeError::Range => CliError::Convert(convert::ConvertError::NotFinite),
-            time::TimeError::Ambiguous(a) => CliError::Ambiguous(a),
-            time::TimeError::Incomplete(msg) => CliError::Incomplete(msg),
-        });
+    if !arithmetic {
+        if let Some(result) = time::request(config, &input, opts.precision, opts.verbose) {
+            return result.map(formatted).map_err(CliError::from);
+        }
     }
     // A written date with no format yet (`12/04/2026`): a date on its way, not
     // the division it reads as (`12/04/2026 num` asks for that).
@@ -514,10 +501,11 @@ pub fn convert_request(config: &Config, opts: &Options, tokens: &[&str]) -> Resu
     let words: Vec<&str> = rest.split_whitespace().collect();
     // `to`, `in` or `->` between the units (`1000 ly to yd`); a last `in` is the inch (`10 ft in`).
     let waiting = |w: &str| currency::connector(w) && !w.eq_ignore_ascii_case("in");
+    // No unit, or the `num` target (`2026-12-02 num`): the number.
+    if matches!(words[..], [] | [_]) && words.iter().all(|w| config::is_number_word(w)) {
+        return Ok(Output { stdout: convert::format_value(value, opts.precision), notes, ..Output::default() });
+    }
     let (from, to) = match words[..] {
-        // No unit, or the `num` target (`2026-12-02 num`): the number.
-        [] => return Ok(Output { stdout: convert::format_value(value, opts.precision), notes, ..Output::default() }),
-        [to] if config::is_number_word(to) => return Ok(Output { stdout: convert::format_value(value, opts.precision), notes, ..Output::default() }),
         // A unit so far (`10 km`, `10 km to`): the target comes next; for a compound one (`m/s^2`) no
         // kind's units to list.
         [from] | [from, _] if words.len() == 1 || waiting(words[1]) => {
@@ -567,6 +555,38 @@ fn next_unit(category: &config::Category, from: &config::Unit) -> String {
     let shown: Vec<&str> = others(false).chain(others(true)).take(3).map(|u| u.symbol).collect();
     let more = if category.units.len() - 1 > shown.len() { "…" } else { "" };
     format!("now the {} unit to convert to: {}{more}", category.name.to_lowercase(), shown.join(", "))
+}
+
+impl From<currency::Error> for CliError {
+    fn from(e: currency::Error) -> Self {
+        match e {
+            currency::Error::Usage(msg) => CliError::Usage(msg),
+            currency::Error::Ambiguous(a) => CliError::Ambiguous(a),
+            currency::Error::NoRates(msg) => CliError::Convert(convert::ConvertError::Domain(msg)),
+            currency::Error::Incomplete(msg) => CliError::Incomplete(msg),
+        }
+    }
+}
+
+impl From<geo::Error> for CliError {
+    fn from(e: geo::Error) -> Self {
+        match e {
+            geo::Error::Usage(msg) => CliError::Usage(msg),
+            geo::Error::Ambiguous(a) => CliError::Ambiguous(a),
+            geo::Error::Incomplete(msg) => CliError::Incomplete(msg),
+        }
+    }
+}
+
+impl From<time::TimeError> for CliError {
+    fn from(e: time::TimeError) -> Self {
+        match e {
+            time::TimeError::Usage(msg) => CliError::Usage(msg),
+            time::TimeError::Range => CliError::Convert(convert::ConvertError::NotFinite),
+            time::TimeError::Ambiguous(a) => CliError::Ambiguous(a),
+            time::TimeError::Incomplete(msg) => CliError::Incomplete(msg),
+        }
+    }
 }
 
 fn calc_error(err: calc::CalcError) -> CliError {

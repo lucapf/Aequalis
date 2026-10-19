@@ -92,9 +92,9 @@ pub const KEYS: &[Key] = &[
     // Only the interactive mode's: the app (`ffi::settings`) doesn't list the `tui.` keys.
     Key {
         key: "tui.keyboard",
-        default: "false",
+        default: "true",
         kind: Kind::Bool,
-        about: "the interactive mode's keyboard on screen, clicked with the mouse (C shows / hides it)",
+        about: "the interactive mode starts with its keypad on screen (C shows / hides it)",
     },
 ];
 
@@ -177,7 +177,7 @@ impl Settings {
         self.get("format.datetime")
     }
 
-    /// The interactive mode starts with its keyboard on screen.
+    /// The interactive mode starts with its keypad on screen.
     pub fn keyboard(&self) -> bool {
         self.get("tui.keyboard") == "true"
     }

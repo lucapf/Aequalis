@@ -2,7 +2,40 @@
 //! and the Earth distance), one per row. ↑↓ (j k) choose, a class's letter jumps to it, Enter
 //! opens its units (the picker); Esc in the units comes back here.
 
-use aequalis::config::Config;
+use aequalis::config::{Category, Config};
+
+/// Each unit class's letter in this list (upper case, each its own) and its unit buttons per row
+/// in the unit keys, by the class's name: every class of `Config` has one (test
+/// `every_class_once_with_its_own_letter`).
+const CLASSES: [(&str, char, usize); 13] = [
+    (aequalis::config::TIME, 'T', 5),
+    (aequalis::config::BITS, 'B', 5),
+    ("Length", 'L', 4),
+    ("Area", 'A', 5),
+    ("Volume", 'V', 5),
+    ("Angle", 'G', 4),
+    ("Mass", 'M', 4),
+    ("Temperature", 'K', 4),
+    ("Speed", 'S', 4),
+    ("Pressure", 'P', 4),
+    ("Fuel economy", 'F', 4),
+    ("Energy", 'E', 5),
+    ("Power", 'W', 4),
+];
+
+fn class(category: &Category) -> (char, usize) {
+    CLASSES.iter().find(|(name, ..)| *name == category.name).map_or(('?', 4), |&(_, key, columns)| (key, columns))
+}
+
+/// The class's letter in this list.
+pub fn key(category: &Category) -> char {
+    class(category).0
+}
+
+/// The class's unit buttons per row in the unit keys.
+pub fn columns(category: &Category) -> usize {
+    class(category).1
+}
 
 /// A row: a category (index into `Config::categories`), or the Earth distance.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -27,7 +60,7 @@ pub fn items(config: &Config) -> Vec<Item> {
 /// A row's name and letter.
 pub fn label(config: &Config, item: Item) -> (&'static str, char) {
     match item {
-        Item::Category(i) => (config.categories[i].name, config.categories[i].key),
+        Item::Category(i) => (config.categories[i].name, key(&config.categories[i])),
         Item::EarthDistance => (EARTH_DISTANCE, EARTH_DISTANCE_KEY),
     }
 }
@@ -75,6 +108,11 @@ mod tests {
         keys.sort();
         keys.dedup();
         assert_eq!(keys.len(), items.len(), "the letters differ");
+        // Every class in the table, an upper-case letter and 4 or 5 buttons per row each.
+        for c in &config.categories {
+            let (key, columns) = class(c);
+            assert!(key.is_ascii_uppercase() && (4..=5).contains(&columns), "{}: not in CLASSES", c.name);
+        }
         assert_eq!(by_key(&config, 'k').map(|i| label(&config, i).0), Some("Temperature"));
         assert_eq!(by_key(&config, 'd'), Some(Item::EarthDistance));
     }

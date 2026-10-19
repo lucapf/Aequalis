@@ -586,7 +586,6 @@ impl Pattern {
 
 /// What a date format is, for the TUI's card: `DD/MM/YY-12h-tz` → "day/month/2-digit year, 12-hour
 /// clock, with the zone".
-#[cfg_attr(not(feature = "tui"), allow(dead_code))]
 pub fn describe_format(word: &str) -> String {
     let fixed = match word {
         "iso" => "ISO 8601, in the local zone with its offset",
@@ -1471,7 +1470,6 @@ fn starts_with_duration(text: &str) -> bool {
 
 /// Whether `text` is a date value on its own: `now`, an ISO date, a date request, or a written
 /// date (`12/04/26 3:20PM`). Used to tell an input format from an output one.
-#[cfg_attr(not(feature = "tui"), allow(dead_code))]
 pub fn is_date_value(text: &str) -> bool {
     is_date_request(text) || read_date(text, None, Order::of_locale()).is_some()
 }

@@ -82,9 +82,9 @@ impl Picker {
         &config.categories[self.category]
     }
 
-    /// Unit buttons per row: the category's `columns`.
+    /// Unit buttons per row: the class's (`measures::columns`).
     pub fn columns(&self, config: &Config) -> usize {
-        self.category(config).columns
+        super::measures::columns(self.category(config))
     }
 
     /// The units of the tab shown, in table order.
@@ -226,6 +226,18 @@ fn place(line: &str, cursor: usize, unit: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Imperial volume: the US units on the first row of the unit keys, the UK ones below, each
+    /// under its US counterpart (`cup` has none, so it ends the US row).
+    #[test]
+    fn imperial_volume_us_above_uk() {
+        let config = Config::default();
+        let volume = config.categories.iter().find(|c| c.name == "Volume").unwrap();
+        let imperial: Vec<_> = volume.units.iter().filter(|u| u.system == System::Imperial).map(|u| u.symbol).collect();
+        let (us, uk) = imperial.split_at(super::super::measures::columns(volume));
+        assert_eq!(us, ["floz-us", "pt-us", "qt-us", "gal-us", "cup"]);
+        assert_eq!(uk, ["floz-uk", "pt-uk", "qt-uk", "gal-uk"]);
+    }
 
     fn picker(category: &str, tab: System) -> (Config, Picker) {
         let config = Config::default();

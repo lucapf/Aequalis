@@ -129,7 +129,15 @@ type Evaluated = Rc<Result<aequalis::Output, aequalis::CliError>>;
 
 const SCROLL_STEP: usize = 5;
 
-/// An entry of the top bar (`Config::menu`): its key and name.
+/// The top bar's entries, in order: name and shortcut.
+pub const SEARCH: (&str, char) = ("Search", '/');
+pub const MEASURES: (&str, char) = ("Measures", 'M');
+pub const CURRENCIES: (&str, char) = ("Currencies", 'U');
+pub const TRIVIA: (&str, char) = ("Trivia", 'R');
+pub const SETTINGS: (&str, char) = ("⚙ Settings", 'O');
+const MENU: [(&str, char); 5] = [SEARCH, MEASURES, CURRENCIES, TRIVIA, SETTINGS];
+
+/// An entry of the top bar (`MENU`): its key and name.
 pub struct Shortcut {
     pub key: char,
     pub name: &'static str,
@@ -138,7 +146,6 @@ pub struct Shortcut {
 impl Shortcut {
     /// What it opens.
     pub fn open(&self) -> Overlay {
-        use aequalis::config::{CURRENCIES, MEASURES, SEARCH, SETTINGS};
         match self.name {
             n if n == SEARCH.0 => Overlay::Search(search::Search::default()),
             n if n == MEASURES.0 => Overlay::Measures(measures::View::default()),
@@ -149,15 +156,9 @@ impl Shortcut {
     }
 }
 
-/// The top bar's entries, in the order of `Config::menu`, with their shortcut.
-pub fn shortcuts(config: &Config) -> Vec<Shortcut> {
-    use aequalis::config::{CURRENCIES, MEASURES, SEARCH, SETTINGS, TRIVIA};
-    config
-        .menu
-        .iter()
-        .filter_map(|&name| [SEARCH, MEASURES, CURRENCIES, TRIVIA, SETTINGS].into_iter().find(|e| e.0 == name))
-        .map(|(name, key)| Shortcut { key, name })
-        .collect()
+/// The top bar's entries, in order, with their shortcut.
+pub fn shortcuts(_config: &Config) -> Vec<Shortcut> {
+    MENU.iter().map(|&(name, key)| Shortcut { key, name }).collect()
 }
 
 impl<'a> App<'a> {
@@ -799,6 +800,8 @@ pub fn run(config: &Config, opts: &Options) -> ExitCode {
     }
     app.system = aequalis::locale::device_system();
     app.numbers = numbers::device_format();
+    // The keypad as the `tui.keyboard` setting says (C shows / hides it).
+    app.keypad = aequalis::settings::current().keyboard();
     let (mut stdin, mut stdout) = (std::io::stdin(), std::io::stdout());
     let (mut pending, mut buf) = (Vec::new(), [0u8; 256]);
     let (mut drawn, mut dirty, mut clear, mut hangups) = (None, true, true, 0);
@@ -872,11 +875,11 @@ mod tests {
         app.handle(Key::Esc);
         app.handle(Key::Char(c));
         match &app.overlay {
-            Some(Overlay::Measures(_)) => Some(aequalis::config::MEASURES.0.to_string()),
-            Some(Overlay::Currencies(_)) => Some(aequalis::config::CURRENCIES.0.to_string()),
-            Some(Overlay::Trivia(_)) => Some(aequalis::config::TRIVIA.0.to_string()),
-            Some(Overlay::Search(_)) => Some(aequalis::config::SEARCH.0.to_string()),
-            Some(Overlay::Settings(_)) => Some(aequalis::config::SETTINGS.0.to_string()),
+            Some(Overlay::Measures(_)) => Some(MEASURES.0.to_string()),
+            Some(Overlay::Currencies(_)) => Some(CURRENCIES.0.to_string()),
+            Some(Overlay::Trivia(_)) => Some(TRIVIA.0.to_string()),
+            Some(Overlay::Search(_)) => Some(SEARCH.0.to_string()),
+            Some(Overlay::Settings(_)) => Some(SETTINGS.0.to_string()),
             _ => None,
         }
     }
@@ -1118,7 +1121,7 @@ mod tests {
         app.handle(Key::Esc);
         app.handle(Key::Char('U'));
         app.handle(Key::Esc);
-        assert_eq!(shortcuts(&config)[app.menu].name, aequalis::config::CURRENCIES.0);
+        assert_eq!(shortcuts(&config)[app.menu].name, CURRENCIES.0);
         app.handle(Key::Enter);
         assert!(matches!(app.overlay, Some(Overlay::Currencies(_))));
     }

@@ -66,7 +66,12 @@ impl City {
 
     /// The name that tells it apart: `Springfield, Illinois, United States`.
     pub fn qualified(&self) -> String {
-        [self.name.as_str(), self.region.as_str(), self.country.as_str()].iter().filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join(", ")
+        self.qualified_as(&self.name)
+    }
+
+    /// `qualified`, with the city called `called` (an alias): `Roma, Lazio, Italy`.
+    fn qualified_as(&self, called: &str) -> String {
+        [called, self.region.as_str(), self.country.as_str()].iter().filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join(", ")
     }
 
     /// What the person calls it: its name, or the alias they typed or started typing (`Milano`
@@ -360,7 +365,6 @@ impl Store {
     /// How to offer `city` for what was `typed` (Tab): its short label (`City::label`), and what
     /// is written, as short as still finds it alone: `Milano`, `Alexandria, Egypt`,
     /// `Springfield, Illinois, United States`.
-    #[cfg_attr(not(feature = "tui"), allow(dead_code))]
     pub fn offer(&self, city: &City, typed: &str) -> (String, String) {
         let called = city.called(typed);
         let same = self.find(&called);
@@ -368,9 +372,7 @@ impl Store {
         let written = match (same.len(), twin) {
             (0 | 1, _) => called.clone(),
             (_, false) => format!("{called}, {}", city.country),
-            (_, true) => {
-                [called.as_str(), city.region.as_str(), city.country.as_str()].iter().filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join(", ")
-            }
+            (_, true) => city.qualified_as(&called),
         };
         (city.label(&called, twin), written)
     }
@@ -380,7 +382,6 @@ impl Store {
     /// Diego, once called New San Diego; `roma` in Italy still Rome first), then the others; each
     /// group in the order of `rank` (`local`: the device's country). Ranked from each line's first
     /// fields (`Brief`); the whole city is read only for those offered.
-    #[cfg_attr(not(feature = "tui"), allow(dead_code))]
     pub fn starting_with(&self, prefix: &str, limit: usize, local: Option<&str>) -> Vec<City> {
         let target = tz::key(prefix);
         if target.chars().count() < 2 {

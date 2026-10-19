@@ -1029,18 +1029,7 @@ pub(crate) fn levenshtein_within(a: &str, b: &str, limit: usize) -> Option<usize
 }
 
 pub(crate) fn levenshtein(a: &str, b: &str) -> usize {
-    let b: Vec<char> = b.chars().collect();
-    let mut row: Vec<usize> = (0..=b.len()).collect();
-    for (i, ca) in a.chars().enumerate() {
-        let mut diagonal = row[0];
-        row[0] = i + 1;
-        for (j, &cb) in b.iter().enumerate() {
-            let above = row[j + 1];
-            row[j + 1] = (above + 1).min(row[j] + 1).min(diagonal + usize::from(ca != cb));
-            diagonal = above;
-        }
-    }
-    row[b.len()]
+    levenshtein_within(a, b, usize::MAX).unwrap_or(usize::MAX)
 }
 
 /// The cities whose names are nearest a misspelt one, within 2 letters (`Tokio`: Tokyo), case,

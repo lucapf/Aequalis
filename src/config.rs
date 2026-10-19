@@ -10,8 +10,7 @@ use std::sync::OnceLock;
 pub struct Unit {
     pub symbol: &'static str,
     /// The full name, shown in the interactive mode: `kilometre`, `megabyte (10⁶ bytes)`.
-    #[cfg_attr(not(feature = "tui"), allow(dead_code))]
-    pub name: &'static str,
+        pub name: &'static str,
     pub aliases: &'static [&'static str],
     pub factor: f64,
     pub offset: f64,
@@ -20,8 +19,7 @@ pub struct Unit {
     /// Only set for data units; used to warn about incoherent conversions.
     pub data: Option<DataKind>,
     /// Which tab of the interactive unit keys shows it.
-    #[cfg_attr(not(feature = "tui"), allow(dead_code))]
-    pub system: System,
+        pub system: System,
 }
 
 /// The two groups a category's units are split into. For most categories these are the metric
@@ -62,9 +60,6 @@ pub type Dims = [i8; 5];
 
 pub struct Category {
     pub name: &'static str,
-    /// Its key in the interactive mode's Measures list (upper case; unique among the categories).
-    #[cfg_attr(not(feature = "tui"), allow(dead_code))]
-    pub key: char,
     pub base: &'static str,
     /// The dimensions of the base unit, and the base unit in SI units (`l` = 0.001 m³), so that
     /// compound units (`mi/h`, `m/s^2`) can be converted to and from the category's units.
@@ -75,22 +70,9 @@ pub struct Category {
     /// Data units distinguish `b` (bit) from `B` (byte), so they are matched exactly.
     pub case_sensitive: bool,
     /// The names of the two systems, shown as tabs: `[metric, imperial]`.
-    #[cfg_attr(not(feature = "tui"), allow(dead_code))]
-    pub systems: [&'static str; 2],
-    /// Unit buttons per row in the interactive unit keys.
-    #[cfg_attr(not(feature = "tui"), allow(dead_code))]
-    pub columns: usize,
+        pub systems: [&'static str; 2],
     pub units: Vec<Unit>,
 }
-
-/// The interactive mode's unit search: a `Config::menu` name and its shortcut, the first.
-pub const SEARCH: (&str, char) = ("Search", '/');
-
-/// The interactive mode's measures (`tui/measures.rs`): every unit class, then its units.
-pub const MEASURES: (&str, char) = ("Measures", 'M');
-
-/// The interactive mode's currencies (`tui/currencies.rs`): every currency, to write its code.
-pub const CURRENCIES: (&str, char) = ("Currencies", 'U');
 
 /// The category of durations, whose second tab lists the date formats.
 pub const TIME: &str = "Date & Time";
@@ -98,24 +80,13 @@ pub const TIME: &str = "Date & Time";
 /// The category of digital information: bits and bytes, decimal and binary.
 pub const BITS: &str = "Bits & Bytes";
 
-/// The interactive mode's Trivia (`trivia.rs`): a `Config::menu` name and its shortcut.
-pub const TRIVIA: (&str, char) = ("Trivia", 'R');
-
-/// The interactive mode's Settings window (`tui/settings.rs`): a `Config::menu` name and its key.
-pub const SETTINGS: (&str, char) = ("⚙ Settings", 'O');
-
 pub struct Config {
     pub categories: Vec<Category>,
-    /// The interactive mode's top bar, in order (`SEARCH`, `MEASURES`, …).
-    #[cfg_attr(not(feature = "tui"), allow(dead_code))]
-    pub menu: Vec<&'static str>,
     /// The decimal places when no precision is given (the `precision` setting's default).
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub default_precision: usize,
+        pub default_precision: usize,
     pub max_precision: usize,
     /// Entries kept in the interactive mode's history (the oldest are dropped).
-    #[cfg_attr(not(feature = "tui"), allow(dead_code))]
-    pub max_history: usize,
+        pub max_history: usize,
     /// Every unit by name (`Config::unit_names`), built on first use.
     unit_names: OnceLock<UnitNames>,
 }
@@ -223,13 +194,9 @@ impl Default for Config {
             max_precision: 15,
             max_history: 500,
             unit_names: OnceLock::new(),
-            // The interactive mode's top bar, in this order.
-            menu: vec![SEARCH.0, MEASURES.0, CURRENCIES.0, TRIVIA.0, SETTINGS.0],
             categories: vec![
                 Category {
                     name: TIME,
-                    key: 'T',
-                    columns: 5,
                     base: "s",
                     dims: [0, 0, 1, 0, 0],
                     si: 1.0,
@@ -251,8 +218,6 @@ impl Default for Config {
                 },
                 Category {
                     name: BITS,
-                    key: 'B',
-                    columns: 5,
                     base: "b",
                     dims: [0, 0, 0, 0, 1],
                     si: 1.0,
@@ -282,8 +247,6 @@ impl Default for Config {
                 },
                 Category {
                     name: "Length",
-                    key: 'L',
-                    columns: 4,
                     base: "m",
                     dims: [1, 0, 0, 0, 0],
                     si: 1.0,
@@ -311,8 +274,6 @@ impl Default for Config {
                 },
                 Category {
                     name: "Area",
-                    key: 'A',
-                    columns: 5,
                     base: "m2",
                     dims: [2, 0, 0, 0, 0],
                     si: 1.0,
@@ -349,8 +310,6 @@ impl Default for Config {
                 },
                 Category {
                     name: "Volume",
-                    key: 'V',
-                    columns: 5,
                     base: "l",
                     dims: [3, 0, 0, 0, 0],
                     si: 0.001,
@@ -375,8 +334,6 @@ impl Default for Config {
                 },
                 Category {
                     name: "Angle",
-                    key: 'G',
-                    columns: 4,
                     base: "rad",
                     // Dimensionless: a ratio of lengths.
                     dims: [0, 0, 0, 0, 0],
@@ -396,8 +353,6 @@ impl Default for Config {
                 },
                 Category {
                     name: "Mass",
-                    key: 'M',
-                    columns: 4,
                     base: "kg",
                     dims: [0, 1, 0, 0, 0],
                     si: 1.0,
@@ -416,8 +371,6 @@ impl Default for Config {
                 },
                 Category {
                     name: "Temperature",
-                    key: 'K',
-                    columns: 4,
                     base: "K",
                     dims: [0, 0, 0, 1, 0],
                     si: 1.0,
@@ -450,8 +403,6 @@ impl Default for Config {
                 },
                 Category {
                     name: "Speed",
-                    key: 'S',
-                    columns: 4,
                     base: "m/s",
                     dims: [1, 0, -1, 0, 0],
                     si: 1.0,
@@ -468,8 +419,6 @@ impl Default for Config {
                 },
                 Category {
                     name: "Pressure",
-                    key: 'P',
-                    columns: 4,
                     base: "Pa",
                     dims: [-1, 1, -2, 0, 0],
                     si: 1.0,
@@ -492,8 +441,6 @@ impl Default for Config {
                 },
                 Category {
                     name: "Fuel economy",
-                    key: 'F',
-                    columns: 4,
                     base: "km/l",
                     // Length per volume: 1 km/l = 1000 m / 0.001 m³.
                     dims: [-2, 0, 0, 0, 0],
@@ -510,8 +457,6 @@ impl Default for Config {
                 },
                 Category {
                     name: "Energy",
-                    key: 'E',
-                    columns: 5,
                     base: "J",
                     dims: [2, 1, -2, 0, 0],
                     si: 1.0,
@@ -536,8 +481,6 @@ impl Default for Config {
                 },
                 Category {
                     name: "Power",
-                    key: 'W',
-                    columns: 4,
                     base: "W",
                     dims: [2, 1, -3, 0, 0],
                     si: 1.0,
@@ -606,21 +549,7 @@ mod tests {
                 assert!(formats_tab || cat.units.iter().any(|u| u.system == tab), "{} has no {tab:?} unit", cat.name);
             }
             assert_eq!(cat.case_sensitive, cat.systems == ["Decimal", "Binary"], "{}", cat.name);
-            assert!(cat.key.is_ascii_uppercase(), "{}", cat.name);
-            assert!((4..=5).contains(&cat.columns), "{}", cat.name);
         }
-    }
-
-    /// Imperial volume: the US units on the first row of the unit keys, the UK ones below, each
-    /// under its US counterpart (`cup` has none, so it ends the US row).
-    #[test]
-    fn imperial_volume_us_above_uk() {
-        let config = Config::default();
-        let volume = config.categories.iter().find(|c| c.name == "Volume").unwrap();
-        let imperial: Vec<_> = volume.units.iter().filter(|u| u.system == System::Imperial).map(|u| u.symbol).collect();
-        let (us, uk) = imperial.split_at(volume.columns);
-        assert_eq!(us, ["floz-us", "pt-us", "qt-us", "gal-us", "cup"]);
-        assert_eq!(uk, ["floz-uk", "pt-uk", "qt-uk", "gal-uk"]);
     }
 
     #[test]

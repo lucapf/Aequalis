@@ -199,7 +199,6 @@ impl Expr {
     }
 
     /// Like `grouped`, with the outermost operation in brackets too: `(12 + (12 / 3))`.
-    #[cfg_attr(not(feature = "tui"), allow(dead_code))]
     pub fn bracketed(&self) -> String {
         self.group(false)
     }

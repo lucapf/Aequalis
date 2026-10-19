@@ -91,11 +91,16 @@ pub fn place(text: &str) -> Result<Place, String> {
             return Ok(p);
         }
     }
+    Err(unknown(text))
+}
+
+/// Why `text` is no place, with the built-in names it may be (`Rmoe`: Rome).
+fn unknown(text: &str) -> String {
     let near = crate::time::tz::near_names(text);
-    Err(match near[..] {
-        [] => format!("`{text}` is not a known place: write a capital, a major city or coordinates (41.9,12.5)"),
+    match near[..] {
+        [] => format!("`{text}` is not a known place: write a city, a country or coordinates (41.9,12.5)"),
         _ => format!("`{text}` is not a known place: did you mean {}?", near.join(" or ")),
-    })
+    }
 }
 
 /// WGS84: the semi-major axis (m) and the flattening.
@@ -321,13 +326,6 @@ fn side(config: &Config, text: &str, store: Option<&crate::cities::Store>, missp
 /// (`London Paris`, `New York Los Angeles`). `None`: not two places; `Some(Err)`: written with `to`
 /// (or after `distance`) but a side is not a place (the error says which).
 fn two_places(config: &Config, words: &[&str], store: Option<&crate::cities::Store>, asked: bool) -> Option<Result<(Side, Side), String>> {
-    let unknown = |text: &str| {
-        let near = crate::time::tz::near_names(text);
-        match near[..] {
-            [] => format!("`{text}` is not a known place: write a city, a country or coordinates (41.9,12.5)"),
-            _ => format!("`{text}` is not a known place: did you mean {}?", near.join(" or ")),
-        }
-    };
     if let Some(to) = words.iter().position(|w| w.eq_ignore_ascii_case("to")) {
         let (from, target) = (words[..to].join(" "), words[to + 1..].join(" "));
         if from.is_empty() || target.is_empty() {

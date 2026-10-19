@@ -74,7 +74,6 @@ pub fn entries() -> &'static [Entry] {
     ENTRIES.get_or_init(|| parse(TRIVIA).expect("src/data/trivia.json is valid"))
 }
 
-#[cfg_attr(not(feature = "tui"), allow(dead_code))]
 pub fn sections() -> Vec<&'static str> {
     let mut names: Vec<&str> = Vec::new();
     for e in entries() {
@@ -331,7 +330,6 @@ fn orbital_speed(r: f64, a: f64) -> f64 {
 
 /// The value as written into an expression: its first unit, plain digits, the entry's decimals
 /// (else 10): `57909050 km`, `3.1415926536`.
-#[cfg_attr(not(feature = "tui"), allow(dead_code))]
 pub fn written(config: &Config, entry: &Entry, value: f64) -> String {
     let unit = entry.show.first().map(String::as_str).or(entry.unit.as_deref());
     let n = convert::format_value(unit.map_or(value, |u| in_unit(config, entry, value, u)), entry.decimals.unwrap_or(10));

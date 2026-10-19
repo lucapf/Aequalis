@@ -16,10 +16,6 @@ use crate::json::{self, Object};
 use std::ffi::{c_char, CStr, CString};
 use std::path::Path;
 
-fn config() -> &'static Config {
-    Config::shared()
-}
-
 /// A string from the app (`None`: null or not UTF-8).
 ///
 /// # Safety
@@ -357,7 +353,7 @@ pub extern "C" fn aequalis_trivia() -> *mut c_char {
 
 pub fn trivia() -> String {
     use crate::trivia::{self, Source};
-    let config = config();
+    let config = Config::shared();
     let precision = crate::settings::current().precision();
     let (now, online) = (crate::time::unix_now(), crate::online::load());
     let number = |n: String| crate::numbers::device().apply(&n);
@@ -421,7 +417,7 @@ pub fn trivia_measures(shown: &str, plain: &str) -> Vec<(String, String)> {
     shown.split(" - ").zip(plain.split(" - ")).filter_map(|(s, p)| Some((head(s)?, head(p)?))).collect()
 }
 
-/// The unit classes for the Measures: `{"classes":[{"name","key","systems":[…,…],"units":
+/// The unit classes for the Measures: `{"classes":[{"name","systems":[…,…],"units":
 /// [{"symbol","name","system":"metric"|"imperial"|"both"}]}]}`, in the TUI's order.
 #[no_mangle]
 pub extern "C" fn aequalis_measures() -> *mut c_char {
@@ -429,7 +425,7 @@ pub extern "C" fn aequalis_measures() -> *mut c_char {
 }
 
 pub fn measures() -> String {
-    let classes: Vec<String> = config()
+    let classes: Vec<String> = Config::shared()
         .categories
         .iter()
         .map(|c| {
@@ -446,7 +442,7 @@ pub fn measures() -> String {
                 })
                 .collect();
             let systems: Vec<String> = c.systems.iter().map(|s| s.to_string()).collect();
-            Object::new().str("name", c.name).str("key", &c.key.to_string()).strs("systems", &systems).list("units", &units).finish()
+            Object::new().str("name", c.name).strs("systems", &systems).list("units", &units).finish()
         })
         .collect();
     Object::new().list("classes", &classes).finish()
@@ -461,12 +457,12 @@ pub fn suggest(before: &str, min: usize) -> String {
     if crate::check_length(before).is_err() {
         return NO_SUGGESTIONS.to_string();
     }
-    let found = crate::suggest::suggest(config(), before, before.chars().count(), min);
+    let found = crate::suggest::suggest(Config::shared(), before, before.chars().count(), min);
     let mut items: Vec<(String, String)> = Vec::new();
     if let Some(s) = &found {
         for (i, name) in s.names.iter().enumerate() {
             let label = s.labels.get(i).cloned().unwrap_or_else(|| name.clone());
-            let item = match (s.kind, crate::convert::find_unit(config(), name)) {
+            let item = match (s.kind, crate::convert::find_unit(Config::shared(), name)) {
                 // `megabyte (10⁶ bytes)`: the name, not the note.
                 (Kind::Units, Some((_, unit))) => (unit.symbol.to_string(), format!("{} - {}", unit.symbol, unit.name.split(" (").next().unwrap_or(unit.name))),
                 _ => (name.clone(), label),
@@ -668,7 +664,7 @@ mod tests {
         let measures = json::parse(&measures()).unwrap();
         let classes = measures.get("classes").unwrap().array();
         assert_eq!(classes[0].get("name").and_then(|v| v.str()), Some(crate::config::TIME));
-        assert!(classes.iter().any(|c| c.get("key").and_then(|v| v.str()) == Some("K")));
+        assert!(classes.iter().any(|c| c.get("name").and_then(|v| v.str()) == Some("Temperature")));
         assert!(currencies().contains(r#"{"code":"EUR","name":"euro","symbols":["€"],"countries":["#));
     }
 

@@ -287,11 +287,11 @@ fn top_bar(app: &App, canvas: &mut Canvas, height: usize) {
     let list = shortcuts(app.config);
     // What is open, else the highlighted shortcut (← → / h l; the first at the start).
     let active = match &app.overlay {
-        Some(Overlay::Measures(_) | Overlay::Picker(_)) => list.iter().position(|s| s.name == aequalis::config::MEASURES.0),
-        Some(Overlay::Currencies(_)) => list.iter().position(|s| s.name == aequalis::config::CURRENCIES.0),
-        Some(Overlay::Trivia(_)) => list.iter().position(|s| s.name == aequalis::config::TRIVIA.0),
-        Some(Overlay::Search(_)) => list.iter().position(|s| s.name == aequalis::config::SEARCH.0),
-        Some(Overlay::Settings(_)) => list.iter().position(|s| s.name == aequalis::config::SETTINGS.0),
+        Some(Overlay::Measures(_) | Overlay::Picker(_)) => list.iter().position(|s| s.name == super::MEASURES.0),
+        Some(Overlay::Currencies(_)) => list.iter().position(|s| s.name == super::CURRENCIES.0),
+        Some(Overlay::Trivia(_)) => list.iter().position(|s| s.name == super::TRIVIA.0),
+        Some(Overlay::Search(_)) => list.iter().position(|s| s.name == super::SEARCH.0),
+        Some(Overlay::Settings(_)) => list.iter().position(|s| s.name == super::SETTINGS.0),
         _ => Some(app.menu.min(list.len().saturating_sub(1))),
     };
     let (shown, before, after) = visible_shortcuts(app.config, right - 2, active);
@@ -526,7 +526,7 @@ fn unit_keys(app: &App, p: &Picker, canvas: &mut Canvas, rows: usize, head: usiz
     let items = p.items(app.config);
     let button = category.units.iter().map(|u| u.symbol.chars().count()).max().unwrap_or(1) + 2;
     let title = format!("{} units", p.title(app.config));
-    let columns = category.columns;
+    let columns = super::measures::columns(category);
     // Wide enough for the buttons, the title and the tabs.
     let tabs = p.tabs(app.config);
     let tabs_len: usize = tabs.iter().map(|(n, _)| n.chars().count() + 3).sum();
@@ -646,7 +646,7 @@ fn trivia(app: &App, v: &super::trivia::View, canvas: &mut Canvas, rows: usize, 
     let top = (head + 1).min(rows - 5 - height);
     let left = canvas.cols - 2 - width;
     let right = left + width - 1;
-    canvas.boxed(top, left, height, width, aequalis::config::TRIVIA.0);
+    canvas.boxed(top, left, height, width, super::TRIVIA.0);
     let mut col = left + 2;
     for (i, name) in aequalis::trivia::sections().iter().enumerate() {
         col = canvas.put_within(top + 1, col, right, &format!(" {name} "), if i == v.section { Style::Lit } else { Style::Dim });
@@ -814,7 +814,7 @@ fn measures(app: &App, v: &super::measures::View, canvas: &mut Canvas, rows: usi
     let top = (head + 1).min(rows - 5 - height);
     let left = canvas.cols - 2 - width;
     let right = left + width - 1;
-    canvas.boxed(top, left, height, width, aequalis::config::MEASURES.0);
+    canvas.boxed(top, left, height, width, super::MEASURES.0);
     let names = items.iter().map(|&i| label(app.config, i).0.chars().count()).max().unwrap_or(0);
     let visible = height - 2;
     let offset = v.selected.saturating_sub(visible.saturating_sub(1));
@@ -855,7 +855,7 @@ fn currencies(v: &super::currencies::View, canvas: &mut Canvas, rows: usize, hea
     let top = (head + 1).min(rows - 5 - height);
     let left = canvas.cols - 2 - width;
     let right = left + width - 1;
-    canvas.boxed(top, left, height, width, aequalis::config::CURRENCIES.0);
+    canvas.boxed(top, left, height, width, super::CURRENCIES.0);
     let col = canvas.put_within(top + 1, left + 2, right, "/ ", Style::Yellow);
     let col = canvas.put_within(top + 1, col, right, &v.query, Style::Bold);
     canvas.put_within(top + 1, col, right, "▏", Style::Yellow);
@@ -969,7 +969,7 @@ fn settings_window(canvas: &mut Canvas, rows: usize, view: &super::settings::Vie
     let current = &view.settings;
     let key_width = KEYS.iter().map(|k| k.key.len()).max().unwrap_or(0);
     let lines = super::settings::rows() + 5;
-    let (top, left, width, height) = centred(canvas, rows, 78, lines, aequalis::config::SETTINGS.0);
+    let (top, left, width, height) = centred(canvas, rows, 78, lines, super::SETTINGS.0);
     let right = left + width - 2;
     let visible = height.saturating_sub(5);
     let offset = view.selected.saturating_sub(visible.saturating_sub(1));
@@ -1502,7 +1502,7 @@ mod tests {
     fn unit_keys_fit_every_category() {
         let config = Config::default();
         for category in &config.categories {
-            let key = category.key;
+            let key = crate::tui::measures::key(category);
             for (rows, cols) in [(12, 40), (24, 80)] {
                 // Both tabs.
                 let screens: Vec<Vec<String>> = (0..2).map(|t| screen(&format!("\x1bM{key}{}", "\t".repeat(t)), rows, cols).0).collect();
