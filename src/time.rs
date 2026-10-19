@@ -143,18 +143,18 @@ fn usage<T>(msg: impl Into<String>) -> Result<T, TimeError> {
 }
 
 mod calendar;
-mod iso;
-mod written;
 mod format;
+mod iso;
 mod math;
 mod request;
+mod written;
 
 pub use calendar::*;
-pub use iso::*;
-pub use written::*;
 pub use format::*;
+pub use iso::*;
 use math::*;
 pub use request::*;
+pub use written::*;
 
 #[cfg(test)]
 mod tests {

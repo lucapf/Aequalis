@@ -285,14 +285,16 @@ fn matching(config: &Config, only: Option<&Category>, prefix: &str) -> Vec<&'sta
     // A category whose case matters, written in a case one of its units has (`k`, `Gb`): that case
     // only (`kB` and `kb`, not `KiB`). Written in a case none has (`gb`, `GiB` aside), or a category
     // where case doesn't matter: any case (`GB`, `Gb`, to choose the right one).
-    let exact_case = |cat: &Category| cat.case_sensitive && cat.units.iter().any(|u| std::iter::once(&u.symbol).chain(u.aliases.iter()).any(|n| n.starts_with(prefix)));
+    let exact_case =
+        |cat: &Category| cat.case_sensitive && cat.units.iter().any(|u| std::iter::once(&u.symbol).chain(u.aliases.iter()).any(|n| n.starts_with(prefix)));
     // Each category with how its names are compared, decided once.
     let categories: Vec<(&Category, bool)> = config.categories.iter().filter(|c| only.is_none_or(|o| o.name == c.name)).map(|c| (c, exact_case(c))).collect();
     let fits = |exact: bool, name: &str| match exact {
         true => name.starts_with(prefix),
         false => starts_with_any_case(name, prefix),
     };
-    let mut names: Vec<&'static str> = categories.iter().flat_map(|&(c, exact)| c.units.iter().filter(move |u| fits(exact, u.symbol)).map(|u| u.symbol)).collect();
+    let mut names: Vec<&'static str> =
+        categories.iter().flat_map(|&(c, exact)| c.units.iter().filter(move |u| fits(exact, u.symbol)).map(|u| u.symbol)).collect();
     // With no prefix (the target slot), the symbols are enough.
     if !prefix.is_empty() {
         for &(c, exact) in &categories {

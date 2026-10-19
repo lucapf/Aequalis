@@ -10,7 +10,7 @@ use std::sync::OnceLock;
 pub struct Unit {
     pub symbol: &'static str,
     /// The full name, shown in the interactive mode: `kilometre`, `megabyte (10⁶ bytes)`.
-        pub name: &'static str,
+    pub name: &'static str,
     pub aliases: &'static [&'static str],
     pub factor: f64,
     pub offset: f64,
@@ -19,7 +19,7 @@ pub struct Unit {
     /// Only set for data units; used to warn about incoherent conversions.
     pub data: Option<DataKind>,
     /// Which tab of the interactive unit keys shows it.
-        pub system: System,
+    pub system: System,
 }
 
 /// The two groups a category's units are split into. For most categories these are the metric
@@ -70,7 +70,7 @@ pub struct Category {
     /// Data units distinguish `b` (bit) from `B` (byte), so they are matched exactly.
     pub case_sensitive: bool,
     /// The names of the two systems, shown as tabs: `[metric, imperial]`.
-        pub systems: [&'static str; 2],
+    pub systems: [&'static str; 2],
     pub units: Vec<Unit>,
 }
 
@@ -83,10 +83,10 @@ pub const BITS: &str = "Bits & Bytes";
 pub struct Config {
     pub categories: Vec<Category>,
     /// The decimal places when no precision is given (the `precision` setting's default).
-        pub default_precision: usize,
+    pub default_precision: usize,
     pub max_precision: usize,
     /// Entries kept in the interactive mode's history (the oldest are dropped).
-        pub max_history: usize,
+    pub max_history: usize,
     /// Every unit by name (`Config::unit_names`), built on first use.
     unit_names: OnceLock<UnitNames>,
 }

@@ -667,7 +667,15 @@ pub(super) fn evaluate(config: &Config, p: &mut Parser, precision: usize) -> Res
 /// minute, unless the request wrote seconds.
 /// `alone`: the city alone (now there). Not `verbose`: the time there for people (`11 Oct 26 16:00
 /// GMT+2 Paris`).
-pub(super) fn city_result(cities: &Cities, date: Instant, difference: bool, target: &str, alone: bool, verbose: bool, seconds: bool) -> Result<String, TimeError> {
+pub(super) fn city_result(
+    cities: &Cities,
+    date: Instant,
+    difference: bool,
+    target: &str,
+    alone: bool,
+    verbose: bool,
+    seconds: bool,
+) -> Result<String, TimeError> {
     let to = cities.target;
     if difference {
         return usage(format!("a difference of dates is a duration: it has no time in {}", to.name));

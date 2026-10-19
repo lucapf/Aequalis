@@ -182,7 +182,8 @@ pub(super) const MONTH_NAMES: [&[&str]; 12] = [
 /// Abbreviations that are not a prefix of a name: German `Mrz` (März).
 pub(super) const MONTH_ABBREVIATIONS: [(&str, u32); 1] = [("mrz", 3)];
 
-pub(super) const ENGLISH_MONTHS: [&str; 12] = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+pub(super) const ENGLISH_MONTHS: [&str; 12] =
+    ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
 /// Lowercase, without accents: `Févr` → `fevr`, `März` → `marz`, `Março` → `marco`.
 pub(super) fn fold(word: &str) -> String {

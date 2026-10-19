@@ -469,7 +469,12 @@ pub fn convert_request(config: &Config, opts: &Options, tokens: &[&str]) -> Resu
         };
     }
     // A date or a distance: formatted for people, its notes shown with `-v`.
-    let formatted = |(stdout, notes): (String, Vec<String>)| Output { stdout, notes: if opts.verbose && !opts.silent { notes } else { Vec::new() }, formatted: true, ..Output::default() };
+    let formatted = |(stdout, notes): (String, Vec<String>)| Output {
+        stdout,
+        notes: if opts.verbose && !opts.silent { notes } else { Vec::new() },
+        formatted: true,
+        ..Output::default()
+    };
     // Distances on the Earth: `distance Rome to Paris km`.
     if let Some(result) = geo::request(config, &input, opts.precision) {
         return result.map(formatted).map_err(CliError::from);

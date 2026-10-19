@@ -724,7 +724,13 @@ mod tests {
         assert_eq!(v1[3], ("Light from the Earth now".to_string(), "23 h 54 min".to_string()));
         assert_eq!(v1[4], ("Light from the Sun now".to_string(), "about 23 h 54 min (±8 min: the Earth's side of its orbit)".to_string()));
         assert_eq!(v1[5], ("Launched".to_string(), "1977-09-05 12:56 UTC".to_string()));
-        let live = popup(&config, get("Voyager 1"), &facts(&config, get("Voyager 1"), Some(crate::online::Stored { value: 172.5, at: 1_791_676_800 }), 1_791_676_800), 4, &|n| n);
+        let live = popup(
+            &config,
+            get("Voyager 1"),
+            &facts(&config, get("Voyager 1"), Some(crate::online::Stored { value: 172.5, at: 1_791_676_800 }), 1_791_676_800),
+            4,
+            &|n| n,
+        );
         assert!(live[1].1.contains(" - 172.5 au - 2.7277e-3 ly (synced ") && live[1].1.ends_with(" from JPL Horizons)"), "{:?}", live[1]);
         // A planet: from the Sun and from the Earth, the next dates.
         let mars = popup_of("Mars");
