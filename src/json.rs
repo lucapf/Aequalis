@@ -271,6 +271,30 @@ impl Reader<'_> {
         }
     }
 
+    /// The character of a `\u` escape (the reader is after `\u`), and of a second one after it
+    /// when the first is half of a surrogate pair (`\ud83d\ude00`: JSON writes a character past
+    /// U+FFFF so).
+    fn escaped_char(&mut self) -> Option<char> {
+        let high = self.hex4()?;
+        if !(0xD800..0xDC00).contains(&high) {
+            return char::from_u32(high);
+        }
+        if self.s.get(self.pos..self.pos + 2) != Some(b"\\u") {
+            return None;
+        }
+        self.pos += 2;
+        let low = self.hex4().filter(|l| (0xDC00..0xE000).contains(l))?;
+        char::from_u32(0x10000 + ((high - 0xD800) << 10) + (low - 0xDC00))
+    }
+
+    /// Four hex digits, read.
+    fn hex4(&mut self) -> Option<u32> {
+        let hex = std::str::from_utf8(self.s.get(self.pos..self.pos + 4)?).ok()?;
+        let unit = u32::from_str_radix(hex, 16).ok()?;
+        self.pos += 4;
+        Some(unit)
+    }
+
     fn string(&mut self) -> Result<String, String> {
         if self.s.get(self.pos) != Some(&b'"') {
             return Err(self.error("a string expected"));
@@ -294,10 +318,8 @@ impl Reader<'_> {
                         Some(b'b') => out.push(8),
                         Some(b'f') => out.push(12),
                         Some(b'u') => {
-                            let hex = std::str::from_utf8(self.s.get(self.pos..self.pos + 4).unwrap_or(b"")).unwrap_or("");
-                            let c = u32::from_str_radix(hex, 16).ok().and_then(char::from_u32).ok_or_else(|| self.error("bad \\u escape"))?;
-                            self.pos += 4;
-                            out.extend_from_slice(c.to_string().as_bytes());
+                            let c = self.escaped_char().ok_or_else(|| self.error("bad \\u escape"))?;
+                            out.extend_from_slice(c.encode_utf8(&mut [0; 4]).as_bytes());
                         }
                         Some(c) => out.push(c),
                         None => return Err(self.error("unterminated string")),
@@ -334,6 +356,9 @@ mod tests {
         assert_eq!(v.get("t"), Some(&Value::Bool(true)));
         assert_eq!(v.get("n"), Some(&Value::Null));
         assert_eq!(v.members().len(), 6);
+        // A character past U+FFFF, written as a surrogate pair; half a pair is an error.
+        assert_eq!(parse(r#""\ud83d\ude00 \u00e9""#).unwrap().str(), Some("😀 é"));
+        assert!(parse(r#""\ud83d""#).is_err() && parse(r#""\ude00""#).is_err());
         // Round trip with the writer.
         assert_eq!(parse(&string("tab\there")).unwrap().str(), Some("tab\there"));
     }
