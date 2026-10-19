@@ -165,7 +165,7 @@ fn words(config: &Config, before: &str, typing: bool) -> Option<Suggestions> {
         }
     }
     // The archive's cities, for a distance (written as short as still finds them).
-    if let Some(found) = cities(config, before, crate::cities::store().as_ref(), crate::geo::local_country().as_deref()) {
+    if let Some(found) = cities(config, before, crate::cities::store().as_deref(), crate::geo::local_country().as_deref()) {
         return Some(found);
     }
     // Without the archive: the built-in capitals and major cities, the countries, the first words.

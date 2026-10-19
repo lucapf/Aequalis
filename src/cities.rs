@@ -25,6 +25,7 @@ use std::io::{BufRead, BufReader, BufWriter, Seek, SeekFrom, Write};
 #[cfg(unix)]
 use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 /// Where the archive comes from (also a setting, `cities.url`, for mirrors and tests).
 pub const URL: &str = "https://github.com/lucapf/aequalis/releases/download/cities/cities.json";
@@ -189,13 +190,15 @@ pub fn meta() -> Option<Meta> {
     meta_in(&crate::files::dir()?)
 }
 
-/// The archive to search: downloaded, and the feature on.
-pub fn store() -> Option<Store> {
+/// The archive to search: downloaded, and the feature on. Kept open while the meta file stays the
+/// same (a request asks several times, the interactive mode and the apps on every key).
+pub fn store() -> Option<Arc<Store>> {
+    static OPEN: crate::files::Cached<Store> = crate::files::Cached::new();
     if !crate::settings::current().cities_enabled() {
         return None;
     }
     let base = crate::files::dir()?;
-    Store::open(&base, &meta_in(&base)?)
+    OPEN.get(&base.join("cities.json"), || Store::open(&base, &meta_in(&base)?))
 }
 
 /// The archive's files, open.
@@ -621,9 +624,8 @@ pub fn download(base: &Path, url: &str, now: i64) -> Result<u64, String> {
 }
 
 /// Converts a downloaded archive and switches to it (the meta file renamed over the old one), then
-/// removes the previous one.
+/// removes the older ones.
 pub fn install(base: &Path, json: &Path, version: &str, now: i64) -> Result<u64, String> {
-    let previous = meta_in(base);
     let name = format!("cities-{now}-{}", std::process::id());
     let dir = base.join(&name);
     // A conversion that fails leaves nothing behind: the archive in use stays as it is.
@@ -644,8 +646,14 @@ pub fn install(base: &Path, json: &Path, version: &str, now: i64) -> Result<u64,
         .str("source", SOURCE)
         .finish();
     crate::files::write_atomic(&base.join("cities.json"), format!("{meta}\n").as_bytes()).map_err(|e| e.to_string())?;
-    if let Some(old) = previous.filter(|p| p.dir != name && !p.dir.is_empty()) {
-        let _ = std::fs::remove_dir_all(base.join(old.dir));
+    // Every older archive: the previous one, and any a program still had open last time (on Windows
+    // its folder stays until the files are closed; `store` closes them once the meta file changes).
+    let older = std::fs::read_dir(base).into_iter().flatten().flatten().filter(|e| {
+        let n = e.file_name().to_string_lossy().into_owned();
+        n.starts_with("cities-") && n != name && e.path().is_dir()
+    });
+    for old in older {
+        let _ = std::fs::remove_dir_all(old.path());
     }
     Ok(count)
 }

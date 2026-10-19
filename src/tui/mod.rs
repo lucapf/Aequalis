@@ -105,9 +105,9 @@ pub struct App<'a> {
     /// The spacecraft's distances in the Trivia, retrieved when it first opens if `fetch_live`
     /// (only in a real session: never in the tests).
     /// The online data (`online.rs`), reloaded when its file changes; `online_stamp` is the file's
-    /// modification time when read.
+    /// stamp when read (`files::stamp`).
     online: aequalis::online::Data,
-    online_stamp: Option<std::time::SystemTime>,
+    online_stamp: Option<aequalis::files::Stamp>,
     /// The background sync started from here (to reap), and when expiry was last checked.
     sync: Option<std::process::Child>,
     sync_checked: Option<Instant>,
@@ -204,7 +204,7 @@ impl<'a> App<'a> {
     /// for a redraw.
     pub fn refresh_online(&mut self) -> bool {
         let Some(path) = aequalis::online::path() else { return false };
-        let stamp = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
+        let stamp = aequalis::files::stamp(&path);
         if stamp == self.online_stamp {
             return false;
         }

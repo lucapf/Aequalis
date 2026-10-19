@@ -17,7 +17,7 @@ use crate::time::tz;
 use crate::time::{Ambiguity, AmbiguityKind, Choice};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock};
 
 /// A currency, as `src/data/currencies.json` describes it.
 #[derive(Debug)]
@@ -648,18 +648,8 @@ pub fn path() -> Option<PathBuf> {
 /// The stored rates; empty when there is no file. Read again only when the file changes (a
 /// background sync): a long-running interactive mode sees new rates, a request reads them once.
 pub fn load() -> Arc<Data> {
-    static CACHE: Mutex<Option<(std::time::SystemTime, Arc<Data>)>> = Mutex::new(None);
-    let Some(path) = path() else { return Arc::default() };
-    let Ok(modified) = std::fs::metadata(&path).and_then(|m| m.modified()) else { return Arc::default() };
-    let mut cache = CACHE.lock().unwrap_or_else(|e| e.into_inner());
-    match &*cache {
-        Some((at, data)) if *at == modified => Arc::clone(data),
-        _ => {
-            let data = Arc::new(crate::online::load_from(&path));
-            *cache = Some((modified, Arc::clone(&data)));
-            data
-        }
-    }
+    static RATES: crate::files::Cached<Data> = crate::files::Cached::new();
+    path().and_then(|path| RATES.get(&path, || Some(crate::online::load_from(&path)))).unwrap_or_default()
 }
 
 /// Its name in the file: `USD/EUR`, how many of it one US dollar buys.

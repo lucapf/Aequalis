@@ -190,7 +190,7 @@ pub fn request(config: &Config, input: &str, precision: usize) -> Option<Result<
         },
         local: local_country(),
     };
-    request_in(config, input, precision, &device, crate::cities::store().as_ref())
+    request_in(config, input, precision, &device, crate::cities::store().as_deref())
 }
 
 /// How this device writes a distance: its number format, the length unit when the request names
@@ -238,7 +238,7 @@ pub fn request_in(
 /// would say the request is wrong. For the requests nothing else reads (`Rome` alone is the time
 /// in Rome: the caller asks last).
 pub fn being_typed(config: &Config, input: &str) -> Option<String> {
-    next_place(config, input, crate::cities::store().as_ref())
+    next_place(config, input, crate::cities::store().as_deref())
 }
 
 fn next_place(config: &Config, input: &str, store: Option<&crate::cities::Store>) -> Option<String> {
