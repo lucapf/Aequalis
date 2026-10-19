@@ -1,13 +1,13 @@
 //! aequalis: an ultra lightweight command-line unit converter.
 
 use aequalis::config::Config;
-#[cfg(feature = "tui")]
-use aequalis::tui;
 use aequalis::{convert, convert_request, json, notify, online, parse_options, run, settings, time, CliError, Output, Parsed};
 use std::io::{IsTerminal, Read};
 use std::process::ExitCode;
 
 mod device;
+#[cfg(feature = "tui")]
+mod tui;
 
 fn main() -> ExitCode {
     // The device's time zone, read here and given to the library (which does not look for it).

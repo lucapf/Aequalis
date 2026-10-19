@@ -2,7 +2,7 @@
 //! and the Earth distance), one per row. ↑↓ (j k) choose, a class's letter jumps to it, Enter
 //! opens its units (the picker); Esc in the units comes back here.
 
-use crate::config::Config;
+use aequalis::config::Config;
 
 /// A row: a category (index into `Config::categories`), or the Earth distance.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -70,7 +70,7 @@ mod tests {
         let items = items(&config);
         assert_eq!(items.len(), config.categories.len() + 1);
         let names: Vec<&str> = items.iter().map(|&i| label(&config, i).0).collect();
-        assert_eq!(&names[..4], [crate::config::TIME, crate::config::BITS, "Length", EARTH_DISTANCE]);
+        assert_eq!(&names[..4], [aequalis::config::TIME, aequalis::config::BITS, "Length", EARTH_DISTANCE]);
         let mut keys: Vec<char> = items.iter().map(|&i| label(&config, i).1).collect();
         keys.sort();
         keys.dedup();

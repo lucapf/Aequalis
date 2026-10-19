@@ -1,6 +1,6 @@
 //! `/` in command mode: search every unit by symbol, alias or name, across the categories.
 
-use crate::config::{Category, Config, Unit};
+use aequalis::config::{Category, Config, Unit};
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Search {

@@ -2,8 +2,8 @@
 //! tabs (metric / imperial, decimal / binary for bits and bytes, durations / formats for dates);
 //! and placing the chosen unit into the expression as its source or target unit.
 
-use crate::calc;
-use crate::config::{Category, Config, System, Unit};
+use aequalis::calc;
+use aequalis::config::{Category, Config, System, Unit};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Direction {
@@ -39,8 +39,8 @@ pub fn format_rows() -> Vec<FormatRow> {
         row("Unix/local", &[("s", "unix"), ("ms", "unix-ms"), ("µs", "unix-us"), ("ns", "unix-ns"), ("local", "local")]),
     ];
     let labels = ["date", "24h", "24h tz", "12h", "12h tz"];
-    for (name, _) in crate::time::PATTERNS {
-        let cells = crate::time::VARIANTS.iter().zip(labels).map(|((suffix, ..), label)| (label, format!("{name}{suffix}"))).collect();
+    for (name, _) in aequalis::time::PATTERNS {
+        let cells = aequalis::time::VARIANTS.iter().zip(labels).map(|((suffix, ..), label)| (label, format!("{name}{suffix}"))).collect();
         rows.push(FormatRow { label: name, cells });
     }
     rows
@@ -112,7 +112,7 @@ impl Picker {
 
     /// Whether the tab shown is Time's Formats tab (formats instead of units).
     pub fn shows_formats(&self, config: &Config) -> bool {
-        self.category(config).name == crate::config::TIME && self.tab == System::Imperial
+        self.category(config).name == aequalis::config::TIME && self.tab == System::Imperial
     }
 
     /// The format word selected on the Formats tab.
@@ -172,7 +172,7 @@ pub fn place_format(line: &str, word: &str) -> String {
         return format!("now {word}");
     }
     match line.rsplit_once(' ') {
-        Some((head, last)) if crate::time::is_format(last) && crate::time::is_date_value(head) => format!("{head} {word}"),
+        Some((head, last)) if aequalis::time::is_format(last) && aequalis::time::is_date_value(head) => format!("{head} {word}"),
         _ => format!("{line} {word}"),
     }
 }
@@ -193,7 +193,7 @@ pub fn place_unit(line: &str, cursor: usize, unit: &str) -> String {
 /// Whether the expression has its source and target units: it is complete.
 pub fn has_target(line: &str) -> bool {
     // A date request is complete too: `2026/12/24 - 12 d` (the unit was the duration's; bug 007).
-    calc::parse_prefix(line).is_ok_and(|(_, rest)| rest.split_whitespace().count() >= 2) || crate::time::is_date_request(line)
+    calc::parse_prefix(line).is_ok_and(|(_, rest)| rest.split_whitespace().count() >= 2) || aequalis::time::is_date_request(line)
 }
 
 fn place(line: &str, cursor: usize, unit: &str) -> String {
@@ -252,9 +252,9 @@ mod tests {
         assert_eq!(symbols_in("Speed", Imperial), ["mph", "ft/s", "kn"]);
         // Data: decimal and binary; b and B in both.
         // Bytes first, then bits.
-        assert_eq!(symbols_in(crate::config::BITS, Metric), ["B", "kB", "MB", "GB", "TB", "b", "kb", "Mb", "Gb", "Tb"]);
-        assert_eq!(symbols_in(crate::config::BITS, Imperial), ["B", "KiB", "MiB", "GiB", "TiB", "b", "Kib", "Mib", "Gib", "Tib"]);
-        let (config, p) = picker(crate::config::BITS, Imperial);
+        assert_eq!(symbols_in(aequalis::config::BITS, Metric), ["B", "kB", "MB", "GB", "TB", "b", "kb", "Mb", "Gb", "Tb"]);
+        assert_eq!(symbols_in(aequalis::config::BITS, Imperial), ["B", "KiB", "MiB", "GiB", "TiB", "b", "Kib", "Mib", "Gib", "Tib"]);
+        let (config, p) = picker(aequalis::config::BITS, Imperial);
         assert_eq!((p.tab, p.category(&config).systems), (Imperial, ["Decimal", "Binary"]));
     }
 
@@ -264,12 +264,12 @@ mod tests {
         let index = |name: &str| config.categories.iter().position(|c| c.name == name).unwrap();
         assert_eq!(Picker::new(&config, index("Length"), System::Imperial).tab, System::Imperial);
         assert_eq!(Picker::new(&config, index("Length"), System::Metric).tab, System::Metric);
-        assert_eq!(Picker::new(&config, index(crate::config::BITS), System::Imperial).tab, System::Metric, "decimal");
+        assert_eq!(Picker::new(&config, index(aequalis::config::BITS), System::Imperial).tab, System::Metric, "decimal");
     }
 
     #[test]
     fn tabs_are_circular() {
-        let (_, mut p) = picker(crate::config::BITS, System::Metric);
+        let (_, mut p) = picker(aequalis::config::BITS, System::Metric);
         p.switch_tab();
         assert_eq!(p.tab, System::Imperial);
         p.switch_tab();
@@ -291,7 +291,7 @@ mod tests {
     fn steps_are_circular() {
         use Direction::*;
         // Data, Decimal: B kB MB GB TB / b kb Mb Gb Tb (5 per row).
-        let (config, mut p) = picker(crate::config::BITS, System::Metric);
+        let (config, mut p) = picker(aequalis::config::BITS, System::Metric);
         let at = |p: &mut Picker, d| {
             p.step(&config, d);
             p.items(&config)[p.selected].symbol
@@ -347,9 +347,9 @@ mod tests {
             ["DD/MM/YY", "DD/MM/YY-24h", "DD/MM/YY-24h-tz", "DD/MM/YY-12h", "DD/MM/YY-12h-tz"]
         );
         // Every cell is a format the CLI knows.
-        assert!(rows.iter().flat_map(|r| &r.cells).all(|(_, w)| crate::time::is_format(w)));
+        assert!(rows.iter().flat_map(|r| &r.cells).all(|(_, w)| aequalis::time::is_format(w)));
         assert_eq!(rows.iter().map(|r| r.cells.len()).sum::<usize>(), 7 + 5 + 30);
-        let (config, mut p) = picker(crate::config::TIME, System::Metric);
+        let (config, mut p) = picker(aequalis::config::TIME, System::Metric);
         assert!(!p.shows_formats(&config));
         p.switch_tab();
         assert!(p.shows_formats(&config));

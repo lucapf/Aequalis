@@ -1,6 +1,6 @@
 //! aequalis: an ultra lightweight unit converter, calculator, date and distance tool. The library
-//! is everything but the terminal: the requests (`convert_request`), the command line's options
-//! (`run`) and the interactive mode (`tui`); `main.rs` is the `aequalis` command around it.
+//! is everything but the terminal: the requests (`convert_request`) and the command line's options
+//! (`run`); `main.rs` is the `aequalis` command around it, with the interactive mode (`tui`).
 
 pub mod about;
 pub mod alloc;
@@ -28,8 +28,6 @@ pub mod settings;
 pub mod suggest;
 pub mod time;
 pub mod trivia;
-#[cfg(feature = "tui")]
-pub mod tui;
 #[cfg(windows)]
 pub mod windows;
 

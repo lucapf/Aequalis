@@ -25,9 +25,9 @@ mod settings;
 mod term;
 mod trivia;
 
-use crate::config::{Config, System};
-use crate::numbers;
-use crate::{convert_request, Options};
+use aequalis::config::{Config, System};
+use aequalis::numbers;
+use aequalis::{convert_request, Options};
 use editor::{Entry, History, Line};
 use keys::Key;
 use picker::{Direction, Picker};
@@ -61,7 +61,7 @@ pub enum Overlay {
     /// The help, scrolled down by this many lines.
     Help(usize),
     /// An ambiguous date (`12/04/2026`): which reading is meant; `selected` into its choices.
-    Choice(crate::time::Ambiguity, usize),
+    Choice(aequalis::time::Ambiguity, usize),
     /// The Trivia (`R`).
     Trivia(trivia::View),
     /// `/`: searching the units.
@@ -106,7 +106,7 @@ pub struct App<'a> {
     /// (only in a real session: never in the tests).
     /// The online data (`online.rs`), reloaded when its file changes; `online_stamp` is the file's
     /// modification time when read.
-    online: crate::online::Data,
+    online: aequalis::online::Data,
     online_stamp: Option<std::time::SystemTime>,
     /// The background sync started from here (to reap), and when expiry was last checked.
     sync: Option<std::process::Child>,
@@ -125,7 +125,7 @@ pub struct App<'a> {
 }
 
 /// A request's result, shared by its uses.
-type Evaluated = Rc<Result<crate::Output, crate::CliError>>;
+type Evaluated = Rc<Result<aequalis::Output, aequalis::CliError>>;
 
 const SCROLL_STEP: usize = 5;
 
@@ -138,7 +138,7 @@ pub struct Shortcut {
 impl Shortcut {
     /// What it opens.
     pub fn open(&self) -> Overlay {
-        use crate::config::{CURRENCIES, MEASURES, SEARCH, SETTINGS};
+        use aequalis::config::{CURRENCIES, MEASURES, SEARCH, SETTINGS};
         match self.name {
             n if n == SEARCH.0 => Overlay::Search(search::Search::default()),
             n if n == MEASURES.0 => Overlay::Measures(measures::View::default()),
@@ -151,7 +151,7 @@ impl Shortcut {
 
 /// The top bar's entries, in the order of `Config::menu`, with their shortcut.
 pub fn shortcuts(config: &Config) -> Vec<Shortcut> {
-    use crate::config::{CURRENCIES, MEASURES, SEARCH, SETTINGS, TRIVIA};
+    use aequalis::config::{CURRENCIES, MEASURES, SEARCH, SETTINGS, TRIVIA};
     config
         .menu
         .iter()
@@ -162,6 +162,11 @@ pub fn shortcuts(config: &Config) -> Vec<Shortcut> {
 
 impl<'a> App<'a> {
     pub fn new(config: &'a Config, opts: &'a Options<'a>) -> Self {
+        // The tests link the library as the program does, without its `cfg(test)` plain format:
+        // they must not depend on the machine's locale either (first call wins: every test makes
+        // an App before formatting a number).
+        #[cfg(test)]
+        numbers::set_device(numbers::NumberFormat::default());
         App {
             config,
             opts,
@@ -178,11 +183,11 @@ impl<'a> App<'a> {
             pressed: None,
             redraw: false,
             quit: false,
-            online: crate::online::Data::default(),
+            online: aequalis::online::Data::default(),
             online_stamp: None,
             sync: None,
             sync_checked: None,
-            forced_offline: crate::network::mode() == crate::network::Mode::Offline,
+            forced_offline: aequalis::network::mode() == aequalis::network::Mode::Offline,
             menu: 0,
             copied: None,
             system_clipboard: false,
@@ -191,20 +196,20 @@ impl<'a> App<'a> {
     }
 
     /// Online or offline: the last sync's result (`network::status_of`).
-    pub fn network_status(&self) -> crate::network::Status {
-        crate::network::status_of(&self.online, self.forced_offline)
+    pub fn network_status(&self) -> aequalis::network::Status {
+        aequalis::network::status_of(&self.online, self.forced_offline)
     }
 
     /// Reloads the online data when its file changed (the background sync wrote it): `true` then,
     /// for a redraw.
     pub fn refresh_online(&mut self) -> bool {
-        let Some(path) = crate::online::path() else { return false };
+        let Some(path) = aequalis::online::path() else { return false };
         let stamp = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
         if stamp == self.online_stamp {
             return false;
         }
         self.online_stamp = stamp;
-        self.online = crate::online::load_from(&path);
+        self.online = aequalis::online::load_from(&path);
         true
     }
 
@@ -219,7 +224,7 @@ impl<'a> App<'a> {
                 return;
             }
         }
-        self.sync = crate::online::ensure_fresh();
+        self.sync = aequalis::online::ensure_fresh();
     }
 
     /// Opens what a shortcut opens; the Trivia starts retrieving the spacecraft's distances.
@@ -267,7 +272,7 @@ impl<'a> App<'a> {
     /// The currencies' keys: typing edits the query, ↑ ↓ choose, Enter writes the code.
     fn currencies_key(&mut self, key: Key) {
         let Some(Overlay::Currencies(v)) = &mut self.overlay else { return };
-        let found = currencies::matches(&v.query).len();
+        let found = aequalis::currency::search(&v.query).len();
         match key {
             Key::Esc => self.overlay = None,
             Key::Char(c) => {
@@ -281,7 +286,7 @@ impl<'a> App<'a> {
             Key::Down | Key::Tab if found > 0 => v.selected = (v.selected + 1) % found,
             Key::Up | Key::BackTab if found > 0 => v.selected = (v.selected + found - 1) % found,
             Key::Enter => {
-                if let Some(c) = currencies::matches(&v.query).get(v.selected) {
+                if let Some(c) = aequalis::currency::search(&v.query).get(v.selected) {
                     let line = picker::place_unit(&self.line.text(), self.line.cursor(), &c.code);
                     self.line.set(&line);
                     self.overlay = None;
@@ -329,15 +334,15 @@ impl<'a> App<'a> {
         let Some(Overlay::Trivia(v)) = &self.overlay else { return };
         let Some(entry) = v.entry() else { return };
         // A tip: its example request.
-        if let crate::trivia::Source::Tip(example) = &entry.source {
+        if let aequalis::trivia::Source::Tip(example) = &entry.source {
             self.line.set(example);
             self.overlay = None;
             self.mode = Mode::Input;
             return;
         }
-        let now = crate::time::unix_now();
-        if let Ok((value, _)) = crate::trivia::value(self.config, entry, self.online.get(&entry.name), now) {
-            self.line.set(&format!("{} ", crate::trivia::written(self.config, entry, value)));
+        let now = aequalis::time::unix_now();
+        if let Ok((value, _)) = aequalis::trivia::value(self.config, entry, self.online.get(&entry.name), now) {
+            self.line.set(&format!("{} ", aequalis::trivia::written(self.config, entry, value)));
             self.overlay = None;
             self.mode = Mode::Input;
         }
@@ -401,7 +406,7 @@ impl<'a> App<'a> {
                     self.overlay = None;
                 }
                 // The offline setting may have changed: the indicator follows.
-                self.forced_offline = crate::network::mode() == crate::network::Mode::Offline;
+                self.forced_offline = aequalis::network::mode() == aequalis::network::Mode::Offline;
             }
             Some(Overlay::About) => {
                 if matches!(key, Key::Esc | Key::Enter | Key::Char('a' | 'A' | 'q')) {
@@ -637,7 +642,7 @@ impl<'a> App<'a> {
                 c
             }
             None => {
-                let Some(s) = crate::suggest::suggest(self.config, &self.line.text(), self.line.cursor(), 0) else {
+                let Some(s) = aequalis::suggest::suggest(self.config, &self.line.text(), self.line.cursor(), 0) else {
                     return;
                 };
                 let index = if forward { 0 } else { s.names.len() - 1 };
@@ -679,7 +684,7 @@ impl<'a> App<'a> {
         }
         let (result, status) = match &*self.evaluated(&input) {
             // An ambiguous request: ask which reading is meant (the popup), nothing is added yet.
-            Err(crate::CliError::Ambiguous(a)) => {
+            Err(aequalis::CliError::Ambiguous(a)) => {
                 self.overlay = Some(Overlay::Choice(a.clone(), 0));
                 return;
             }
@@ -707,20 +712,20 @@ impl<'a> App<'a> {
         }
         // A written date with no format yet (`12/04/26 3:20PM`): say what comes next, with the keys
         // that write one (alone, the core reads `12/04/2026` as a division).
-        if !crate::time::is_date_request(&input) && crate::time::is_date_value(&input) {
+        if !aequalis::time::is_date_request(&input) && aequalis::time::is_date_value(&input) {
             return Some(Err("now the target format (T, then Tab: Formats)".into()));
         }
         let preview = match &*self.evaluated(&input) {
             // An ambiguous request: Enter asks which reading is meant.
-            Err(crate::CliError::Ambiguous(a)) => {
+            Err(aequalis::CliError::Ambiguous(a)) => {
                 let patterns: Vec<&str> = a.choices.iter().map(|c| c.pattern.as_str()).collect();
                 Err(match a.kind {
-                    crate::time::AmbiguityKind::City => format!("did you mean {}? · Enter to choose", patterns.join(" or ")),
-                    crate::time::AmbiguityKind::Country => format!("several time zones: {} · Enter to choose", patterns.join(", ")),
-                    crate::time::AmbiguityKind::Currency | crate::time::AmbiguityKind::Place => {
+                    aequalis::time::AmbiguityKind::City => format!("did you mean {}? · Enter to choose", patterns.join(" or ")),
+                    aequalis::time::AmbiguityKind::Country => format!("several time zones: {} · Enter to choose", patterns.join(", ")),
+                    aequalis::time::AmbiguityKind::Currency | aequalis::time::AmbiguityKind::Place => {
                         format!("{}: {}? · Enter to choose", a.note, patterns.join(" or "))
                     }
-                    crate::time::AmbiguityKind::Date => format!("ambiguous: {} · Enter to choose", patterns.join(" or ")),
+                    aequalis::time::AmbiguityKind::Date => format!("ambiguous: {} · Enter to choose", patterns.join(" or ")),
                 })
             }
             // Dates and distances come formatted; other numbers get the device's separators here.
@@ -745,13 +750,13 @@ impl<'a> App<'a> {
     /// How the expression in the bar is grouped, with every operation in brackets
     /// (`12+12/3` → `(12 + (12 / 3))`); `None` without operations.
     fn grouping(&self) -> Option<String> {
-        crate::grouping(&self.line.text())
+        aequalis::grouping(&self.line.text())
     }
 
     /// The suggestions to show (input mode only): their labels (cities: `Milano - Italy`, else
     /// what Tab writes), which one Tab selected, and whether they are cities (shown apart, `·`).
     fn suggestions(&self) -> Option<(Vec<String>, Option<usize>, bool)> {
-        if self.mode != Mode::Input || crate::time::is_date_request(&self.line.text()) {
+        if self.mode != Mode::Input || aequalis::time::is_date_request(&self.line.text()) {
             return None;
         }
         let shown = |names: &[String], labels: &[String]| (if labels.is_empty() { names } else { labels }.to_vec(), !labels.is_empty());
@@ -759,7 +764,7 @@ impl<'a> App<'a> {
             let (list, cities) = shown(&c.names, &c.labels);
             return Some((list, Some(c.index), cities));
         }
-        crate::suggest::suggest(self.config, &self.line.text(), self.line.cursor(), 0).map(|s| {
+        aequalis::suggest::suggest(self.config, &self.line.text(), self.line.cursor(), 0).map(|s| {
             let (list, cities) = shown(&s.names, &s.labels);
             (list, None, cities)
         })
@@ -788,11 +793,11 @@ pub fn run(config: &Config, opts: &Options) -> ExitCode {
     app.system_clipboard = true;
     app.refresh_online();
     // Notices (the `notify` refresh policies): in the status bar at the start.
-    let notices = crate::notify::current();
+    let notices = aequalis::notify::current();
     if !notices.is_empty() {
         app.status = Some((StatusKind::Note, notices.join(" · ")));
     }
-    app.system = crate::locale::device_system();
+    app.system = aequalis::locale::device_system();
     app.numbers = numbers::device_format();
     let (mut stdin, mut stdout) = (std::io::stdin(), std::io::stdout());
     let (mut pending, mut buf) = (Vec::new(), [0u8; 256]);
@@ -867,11 +872,11 @@ mod tests {
         app.handle(Key::Esc);
         app.handle(Key::Char(c));
         match &app.overlay {
-            Some(Overlay::Measures(_)) => Some(crate::config::MEASURES.0.to_string()),
-            Some(Overlay::Currencies(_)) => Some(crate::config::CURRENCIES.0.to_string()),
-            Some(Overlay::Trivia(_)) => Some(crate::config::TRIVIA.0.to_string()),
-            Some(Overlay::Search(_)) => Some(crate::config::SEARCH.0.to_string()),
-            Some(Overlay::Settings(_)) => Some(crate::config::SETTINGS.0.to_string()),
+            Some(Overlay::Measures(_)) => Some(aequalis::config::MEASURES.0.to_string()),
+            Some(Overlay::Currencies(_)) => Some(aequalis::config::CURRENCIES.0.to_string()),
+            Some(Overlay::Trivia(_)) => Some(aequalis::config::TRIVIA.0.to_string()),
+            Some(Overlay::Search(_)) => Some(aequalis::config::SEARCH.0.to_string()),
+            Some(Overlay::Settings(_)) => Some(aequalis::config::SETTINGS.0.to_string()),
             _ => None,
         }
     }
@@ -1035,7 +1040,7 @@ mod tests {
             _ => panic!("no unit keys"),
         };
         // Data, Decimal: B kB MB GB TB / b kb Mb Gb Tb.
-        assert_eq!(state(&app), (crate::config::BITS, System::Metric, "B"));
+        assert_eq!(state(&app), (aequalis::config::BITS, System::Metric, "B"));
         // h / l: left / right, circular.
         typed(&mut app, "ll");
         assert_eq!(state(&app).2, "MB");
@@ -1063,9 +1068,9 @@ mod tests {
         typed(&mut app, "s");
         assert_eq!(state(&app).0, "Speed");
         typed(&mut app, "t");
-        assert_eq!((state(&app).0, state(&app).1), (crate::config::TIME, System::Metric), "Date & Time opens on the durations");
+        assert_eq!((state(&app).0, state(&app).1), (aequalis::config::TIME, System::Metric), "Date & Time opens on the durations");
         typed(&mut app, "x");
-        assert_eq!(state(&app).0, crate::config::TIME, "other letters do nothing");
+        assert_eq!(state(&app).0, aequalis::config::TIME, "other letters do nothing");
         // Esc: back to the Measures, on the class shown.
         app.handle(Key::Esc);
         assert!(matches!(&app.overlay, Some(Overlay::Measures(v)) if v.item(&config) == measures::Item::Category(0)));
@@ -1088,7 +1093,7 @@ mod tests {
         assert!(matches!(&app.overlay, Some(Overlay::Measures(v)) if v.selected == 2));
         app.handle(Key::Up);
         app.handle(Key::Enter);
-        assert!(matches!(&app.overlay, Some(Overlay::Picker(p)) if p.title(&config) == crate::config::BITS));
+        assert!(matches!(&app.overlay, Some(Overlay::Picker(p)) if p.title(&config) == aequalis::config::BITS));
     }
 
     #[test]
@@ -1113,7 +1118,7 @@ mod tests {
         app.handle(Key::Esc);
         app.handle(Key::Char('U'));
         app.handle(Key::Esc);
-        assert_eq!(shortcuts(&config)[app.menu].name, crate::config::CURRENCIES.0);
+        assert_eq!(shortcuts(&config)[app.menu].name, aequalis::config::CURRENCIES.0);
         app.handle(Key::Enter);
         assert!(matches!(app.overlay, Some(Overlay::Currencies(_))));
     }
@@ -1482,7 +1487,7 @@ mod tests {
         assert_eq!(entry.input, "12/04/2026 DD/MM/YYYY unix", "the pattern is written in");
         // Midnight of 12 April in the local zone, whatever it is (Rome here, UTC on CI): the same
         // as the unambiguous ISO date.
-        let iso = crate::time::request(&config, "2026-04-12T00:00 unix", 4, false).unwrap().unwrap().0;
+        let iso = aequalis::time::request(&config, "2026-04-12T00:00 unix", 4, false).unwrap().unwrap().0;
         assert_eq!(entry.result, Ok(iso), "only the result (no --verbose)");
         // Esc: back to the expression, unchanged.
         typed(&mut app, "12/04/2026 unix");

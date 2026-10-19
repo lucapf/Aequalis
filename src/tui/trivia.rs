@@ -2,7 +2,7 @@
 //! the selected one's description below. Enter opens its popup. The live values come from the
 //! online data (`online.rs`).
 
-use crate::trivia::{self, Entry};
+use aequalis::trivia::{self, Entry};
 
 /// The section shown and the entry selected in it; and its popup (Enter), scrolled down by
 /// `Some(lines)`.

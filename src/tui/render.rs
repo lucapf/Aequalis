@@ -18,7 +18,7 @@
 
 use super::picker::{format_rows, Picker};
 use super::{shortcuts, App, Mode, Overlay, StatusKind};
-use crate::config::System;
+use aequalis::config::System;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Style {
@@ -214,7 +214,7 @@ pub fn render(app: &App, rows: usize, cols: usize) -> Frame {
 /// The shortcuts shown in the top bar (`room` columns): all of them when they fit, else the
 /// window of them that starts at the first one, or scrolled so that `active` (the shortcut of the
 /// unit keys shown) is the last; and whether shortcuts are hidden before / after it.
-fn visible_shortcuts(config: &crate::config::Config, room: usize, active: Option<usize>) -> (std::ops::Range<usize>, bool, bool) {
+fn visible_shortcuts(config: &aequalis::config::Config, room: usize, active: Option<usize>) -> (std::ops::Range<usize>, bool, bool) {
     // ` K `, ` Name ` and a space between them.
     let widths: Vec<usize> = shortcuts(config).iter().map(|s| s.name.chars().count() + 6).collect();
     if widths.iter().sum::<usize>() <= room {
@@ -243,7 +243,7 @@ fn top_bar(app: &App, canvas: &mut Canvas, height: usize) {
     let right = cols - 2;
     // Online or offline, at the right of the top border, in both modes.
     let indicator = |canvas: &mut Canvas| {
-        use crate::network::Status;
+        use aequalis::network::Status;
         let status = app.network_status();
         let (dot, style) = match status {
             Status::Online => ("●", Style::Green),
@@ -287,11 +287,11 @@ fn top_bar(app: &App, canvas: &mut Canvas, height: usize) {
     let list = shortcuts(app.config);
     // What is open, else the highlighted shortcut (← → / h l; the first at the start).
     let active = match &app.overlay {
-        Some(Overlay::Measures(_) | Overlay::Picker(_)) => list.iter().position(|s| s.name == crate::config::MEASURES.0),
-        Some(Overlay::Currencies(_)) => list.iter().position(|s| s.name == crate::config::CURRENCIES.0),
-        Some(Overlay::Trivia(_)) => list.iter().position(|s| s.name == crate::config::TRIVIA.0),
-        Some(Overlay::Search(_)) => list.iter().position(|s| s.name == crate::config::SEARCH.0),
-        Some(Overlay::Settings(_)) => list.iter().position(|s| s.name == crate::config::SETTINGS.0),
+        Some(Overlay::Measures(_) | Overlay::Picker(_)) => list.iter().position(|s| s.name == aequalis::config::MEASURES.0),
+        Some(Overlay::Currencies(_)) => list.iter().position(|s| s.name == aequalis::config::CURRENCIES.0),
+        Some(Overlay::Trivia(_)) => list.iter().position(|s| s.name == aequalis::config::TRIVIA.0),
+        Some(Overlay::Search(_)) => list.iter().position(|s| s.name == aequalis::config::SEARCH.0),
+        Some(Overlay::Settings(_)) => list.iter().position(|s| s.name == aequalis::config::SETTINGS.0),
         _ => Some(app.menu.min(list.len().saturating_sub(1))),
     };
     let (shown, before, after) = visible_shortcuts(app.config, right - 2, active);
@@ -531,7 +531,7 @@ fn unit_keys(app: &App, p: &Picker, canvas: &mut Canvas, rows: usize, head: usiz
     let tabs = p.tabs(app.config);
     let tabs_len: usize = tabs.iter().map(|(n, _)| n.chars().count() + 3).sum();
     // Time's second tab is the table of date formats.
-    let formats = (category.name == crate::config::TIME).then(format_rows);
+    let formats = (category.name == aequalis::config::TIME).then(format_rows);
     let table_width = 2 + FORMAT_LABEL + 1 + 5 * (FORMAT_CELL + 1) + 1;
     let width =
         (columns * (button + 1) + 1).max(title.chars().count() + 6).max(tabs_len + 4).max(if formats.is_some() { table_width } else { 0 }).min(canvas.cols - 3);
@@ -646,9 +646,9 @@ fn trivia(app: &App, v: &super::trivia::View, canvas: &mut Canvas, rows: usize, 
     let top = (head + 1).min(rows - 5 - height);
     let left = canvas.cols - 2 - width;
     let right = left + width - 1;
-    canvas.boxed(top, left, height, width, crate::config::TRIVIA.0);
+    canvas.boxed(top, left, height, width, aequalis::config::TRIVIA.0);
     let mut col = left + 2;
-    for (i, name) in crate::trivia::sections().iter().enumerate() {
+    for (i, name) in aequalis::trivia::sections().iter().enumerate() {
         col = canvas.put_within(top + 1, col, right, &format!(" {name} "), if i == v.section { Style::Lit } else { Style::Dim });
         col = canvas.put_within(top + 1, col, right, " ", Style::Plain);
     }
@@ -662,20 +662,20 @@ fn trivia(app: &App, v: &super::trivia::View, canvas: &mut Canvas, rows: usize, 
     let footer = if height >= 13 { 4 } else { 0 };
     let visible = height - 4 - if footer > 0 { footer + 1 } else { 0 };
     let entries = v.entries();
-    let now = crate::time::unix_now();
+    let now = aequalis::time::unix_now();
     // A live value: from the online data (synced when, from where), or its estimate.
-    let live = |e: &crate::trivia::Entry| {
+    let live = |e: &aequalis::trivia::Entry| {
         let synced = app.online.get(&e.name);
-        let origin = crate::trivia::value(app.config, e, synced, now).map(|(_, o)| o).unwrap_or(crate::trivia::Origin::Fixed);
-        (synced, crate::trivia::origin_text(e, origin).unwrap_or_default())
+        let origin = aequalis::trivia::value(app.config, e, synced, now).map(|(_, o)| o).unwrap_or(aequalis::trivia::Origin::Fixed);
+        (synced, aequalis::trivia::origin_text(e, origin).unwrap_or_default())
     };
     // Columns: the name, the value (in the device's number format), the short description.
     let values: Vec<String> = entries
         .iter()
         .map(|e| match &e.source {
-            crate::trivia::Source::Tip(example) => example.clone(),
-            _ => crate::trivia::value(app.config, e, live(e).0, now)
-                .map(|(x, _)| crate::trivia::shown(app.config, e, x, app.opts.precision, &|n| app.numbers.apply(&n)))
+            aequalis::trivia::Source::Tip(example) => example.clone(),
+            _ => aequalis::trivia::value(app.config, e, live(e).0, now)
+                .map(|(x, _)| aequalis::trivia::shown(app.config, e, x, app.opts.precision, &|n| app.numbers.apply(&n)))
                 .unwrap_or_else(|err| err),
         })
         .collect();
@@ -692,7 +692,7 @@ fn trivia(app: &App, v: &super::trivia::View, canvas: &mut Canvas, rows: usize, 
         let col = canvas.put_within(row, left + 1, right, &text, if selected { Style::Lit } else { Style::Plain });
         // The short description, cut with … when the window is too narrow.
         let room = right.saturating_sub(col + 1);
-        let full = crate::trivia::short(e, crate::time::unix_now());
+        let full = aequalis::trivia::short(e, aequalis::time::unix_now());
         let short: String = match full.chars().count() > room {
             true => full.chars().take(room.saturating_sub(1)).chain(['…']).collect(),
             false => full,
@@ -709,10 +709,10 @@ fn trivia(app: &App, v: &super::trivia::View, canvas: &mut Canvas, rows: usize, 
             canvas.put_within(base + i, left + 2, right, line, Style::Plain);
         }
         let source = match &e.source {
-            crate::trivia::Source::Spacecraft { .. } | crate::trivia::Source::Satellites { .. } => live(e).1,
-            crate::trivia::Source::Between(..) => "computed from the coordinates".to_string(),
-            crate::trivia::Source::Tip(_) => "Enter writes the example".to_string(),
-            crate::trivia::Source::Value(_) => String::new(),
+            aequalis::trivia::Source::Spacecraft { .. } | aequalis::trivia::Source::Satellites { .. } => live(e).1,
+            aequalis::trivia::Source::Between(..) => "computed from the coordinates".to_string(),
+            aequalis::trivia::Source::Tip(_) => "Enter writes the example".to_string(),
+            aequalis::trivia::Source::Value(_) => String::new(),
         };
         let launched = e.launched.as_ref().map(|l| format!("Launched {l}")).unwrap_or_default();
         let info = [launched, source].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" · ");
@@ -735,13 +735,13 @@ fn trivia(app: &App, v: &super::trivia::View, canvas: &mut Canvas, rows: usize, 
 /// Scrolled down by `scroll` lines.
 fn trivia_popup(app: &App, v: &super::trivia::View, canvas: &mut Canvas, rows: usize, scroll: usize) {
     let Some(entry) = v.entry() else { return };
-    let now = crate::time::unix_now();
+    let now = aequalis::time::unix_now();
     let live = app.online.get(&entry.name);
     let width = 76.min(canvas.cols - 4);
     let text_width = width - 4;
     // Each line: its pieces and their styles.
     let mut lines: Vec<Vec<(String, Style)>> = wrap(&entry.description, text_width).into_iter().map(|l| vec![(l, Style::Plain)]).collect();
-    let facts = crate::trivia::popup(app.config, entry, live, now, app.opts.precision, &|n| app.numbers.apply(&n));
+    let facts = aequalis::trivia::popup(app.config, entry, live, now, app.opts.precision, &|n| app.numbers.apply(&n));
     for (i, (label, text)) in facts.iter().enumerate() {
         // A blank line after the description, and around the link.
         if i == 0 || (i == 1 && facts[0].0 == "Wikipedia") {
@@ -814,7 +814,7 @@ fn measures(app: &App, v: &super::measures::View, canvas: &mut Canvas, rows: usi
     let top = (head + 1).min(rows - 5 - height);
     let left = canvas.cols - 2 - width;
     let right = left + width - 1;
-    canvas.boxed(top, left, height, width, crate::config::MEASURES.0);
+    canvas.boxed(top, left, height, width, aequalis::config::MEASURES.0);
     let names = items.iter().map(|&i| label(app.config, i).0.chars().count()).max().unwrap_or(0);
     let visible = height - 2;
     let offset = v.selected.saturating_sub(visible.saturating_sub(1));
@@ -849,13 +849,13 @@ fn measures(app: &App, v: &super::measures::View, canvas: &mut Canvas, rows: usi
 
 /// The Currencies: the search line, then the currencies matching it (code, symbol, name).
 fn currencies(v: &super::currencies::View, canvas: &mut Canvas, rows: usize, head: usize) {
-    let found = super::currencies::matches(&v.query);
+    let found = aequalis::currency::search(&v.query);
     let width = 60.min(canvas.cols - 3);
     let height = (found.len().max(1) + 4).min((rows - 7 - head).max(6)).min(rows - 5);
     let top = (head + 1).min(rows - 5 - height);
     let left = canvas.cols - 2 - width;
     let right = left + width - 1;
-    canvas.boxed(top, left, height, width, crate::config::CURRENCIES.0);
+    canvas.boxed(top, left, height, width, aequalis::config::CURRENCIES.0);
     let col = canvas.put_within(top + 1, left + 2, right, "/ ", Style::Yellow);
     let col = canvas.put_within(top + 1, col, right, &v.query, Style::Bold);
     canvas.put_within(top + 1, col, right, "▏", Style::Yellow);
@@ -883,15 +883,15 @@ const FORMAT_CELL: usize = 9;
 /// The card of a date format: its name, what it is, and the current time in it.
 fn format_card_lines(word: &str) -> [String; 3] {
     // Whole seconds: an example, not a clock.
-    let now = crate::time::now();
-    let now = crate::time::Instant { ns: now.ns - now.ns.rem_euclid(1_000_000_000), ..now };
-    let example = crate::time::format(&now, word).unwrap_or_else(|_| "not available here".into());
-    [word.to_string(), crate::time::describe_format(word), format!("now: {example}")]
+    let now = aequalis::time::now();
+    let now = aequalis::time::Instant { ns: now.ns - now.ns.rem_euclid(1_000_000_000), ..now };
+    let example = aequalis::time::format(&now, word).unwrap_or_else(|_| "not available here".into());
+    [word.to_string(), aequalis::time::describe_format(word), format!("now: {example}")]
 }
 
 /// What the card under the selected unit says: full name, aliases, value in the base unit.
-fn unit_card_lines(app: &App, category: &crate::config::Category, unit: &crate::config::Unit) -> [String; 3] {
-    let number = |v: f64| app.numbers.apply(&crate::convert::format_value(v, 10));
+fn unit_card_lines(app: &App, category: &aequalis::config::Category, unit: &aequalis::config::Unit) -> [String; 3] {
+    let number = |v: f64| app.numbers.apply(&aequalis::convert::format_value(v, 10));
     let aliases = match unit.aliases {
         [] => "aliases: none".to_string(),
         list => format!("aliases: {}", list.join(", ")),
@@ -943,12 +943,12 @@ fn card(
 }
 
 /// The readings of an ambiguous date, to choose from: `1  DD/MM/YYYY  2026-04-12`.
-fn choice(canvas: &mut Canvas, rows: usize, a: &crate::time::Ambiguity, selected: usize) {
+fn choice(canvas: &mut Canvas, rows: usize, a: &aequalis::time::Ambiguity, selected: usize) {
     let title = match a.kind {
-        crate::time::AmbiguityKind::City => format!("{}: which one?", a.note),
-        crate::time::AmbiguityKind::Country => format!("`{}` has several time zones: which one?", a.text),
-        crate::time::AmbiguityKind::Date => format!("`{}` is ambiguous: which date?", a.text),
-        crate::time::AmbiguityKind::Currency | crate::time::AmbiguityKind::Place => format!("{}: which one?", a.note),
+        aequalis::time::AmbiguityKind::City => format!("{}: which one?", a.note),
+        aequalis::time::AmbiguityKind::Country => format!("`{}` has several time zones: which one?", a.text),
+        aequalis::time::AmbiguityKind::Date => format!("`{}` is ambiguous: which date?", a.text),
+        aequalis::time::AmbiguityKind::Currency | aequalis::time::AmbiguityKind::Place => format!("{}: which one?", a.note),
     };
     // The patterns in a column as wide as the longest (at least 12), the dates after them.
     let column = a.choices.iter().map(|c| c.pattern.chars().count()).max().unwrap_or(0).max(12);
@@ -965,11 +965,11 @@ fn choice(canvas: &mut Canvas, rows: usize, a: &crate::time::Ambiguity, selected
 
 /// `O`: the settings, their values (changed ones bold), what the chosen one does, the download.
 fn settings_window(canvas: &mut Canvas, rows: usize, view: &super::settings::View) {
-    use crate::settings::KEYS;
+    use aequalis::settings::KEYS;
     let current = &view.settings;
     let key_width = KEYS.iter().map(|k| k.key.len()).max().unwrap_or(0);
     let lines = super::settings::rows() + 5;
-    let (top, left, width, height) = centred(canvas, rows, 78, lines, crate::config::SETTINGS.0);
+    let (top, left, width, height) = centred(canvas, rows, 78, lines, aequalis::config::SETTINGS.0);
     let right = left + width - 2;
     let visible = height.saturating_sub(5);
     let offset = view.selected.saturating_sub(visible.saturating_sub(1));
@@ -984,8 +984,8 @@ fn settings_window(canvas: &mut Canvas, rows: usize, view: &super::settings::Vie
                 format!(" {:<key_width$}  {value}", k.key)
             }
             // Whether the city archive is there, how big and recent.
-            None => match crate::cities::meta() {
-                Some(m) => format!(" {}  (city archive: {} cities of {})", super::settings::DOWNLOAD, m.count, crate::time::human_day(m.built_at)),
+            None => match aequalis::cities::meta() {
+                Some(m) => format!(" {}  (city archive: {} cities of {})", super::settings::DOWNLOAD, m.count, aequalis::time::human_day(m.built_at)),
                 None => format!(" {}  (city archive: not downloaded)", super::settings::DOWNLOAD),
             },
         };
@@ -1033,9 +1033,9 @@ fn runs(text: &str, is: fn(char) -> bool) -> Vec<(bool, &str)> {
 
 /// `A`: the logo, the name and tagline, the facts (`about.rs`), centred.
 fn about(canvas: &mut Canvas, rows: usize) {
-    let facts = crate::about::facts(&crate::about::memory());
-    let title = format!("{} — {}", crate::about::NAME, crate::about::TAGLINE);
-    let mut lines: Vec<(String, Style)> = crate::about::ART.lines().map(|l| (l.to_string(), Style::Plain)).collect();
+    let facts = aequalis::about::facts(&aequalis::about::memory());
+    let title = format!("{} — {}", aequalis::about::NAME, aequalis::about::TAGLINE);
+    let mut lines: Vec<(String, Style)> = aequalis::about::ART.lines().map(|l| (l.to_string(), Style::Plain)).collect();
     let logo_rows = lines.len();
     lines.push((String::new(), Style::Plain));
     lines.push((title.clone(), Style::Bold));
@@ -1048,7 +1048,7 @@ fn about(canvas: &mut Canvas, rows: usize) {
         if i < logo_rows {
             // The logo: the q as drawn, its arrows in yellow.
             let mut col = left + 2;
-            for (arrow, run) in runs(line, crate::about::is_arrow) {
+            for (arrow, run) in runs(line, aequalis::about::is_arrow) {
                 col = canvas.put_within(top + 1 + i, col, right, run, if arrow { Style::Yellow } else { *style });
             }
         } else {
@@ -1123,9 +1123,9 @@ fn help(canvas: &mut Canvas, rows: usize, scroll: usize) {
     }
     let bottom = top + height - 1;
     // aequalis's memory, on the bottom border, always shown: now (where known) and the peak.
-    let memory = match crate::json::current_kb() {
-        Some(now) => format!(" Memory: {} now · peak {} ", crate::json::size(now), crate::json::size(crate::json::peak_kb())),
-        None => format!(" Memory: peak {} ", crate::json::size(crate::json::peak_kb())),
+    let memory = match aequalis::json::current_kb() {
+        Some(now) => format!(" Memory: {} now · peak {} ", aequalis::json::size(now), aequalis::json::size(aequalis::json::peak_kb())),
+        None => format!(" Memory: peak {} ", aequalis::json::size(aequalis::json::peak_kb())),
     };
     canvas.put_within(bottom, left + 2, right.saturating_sub(9), &memory, Style::Dim);
     if scroll > 0 {
@@ -1140,8 +1140,8 @@ fn help(canvas: &mut Canvas, rows: usize, scroll: usize) {
 mod tests {
     use super::super::keys::{self, Key};
     use super::*;
-    use crate::config::Config;
-    use crate::Options;
+    use aequalis::config::Config;
+    use aequalis::Options;
 
     fn plain(s: &str) -> String {
         let mut out = String::new();
@@ -1411,7 +1411,7 @@ mod tests {
             unit_card_lines(&app, cat, unit)
         };
         assert_eq!(card("Length", "m"), ["metre", "aliases: meter, meters, metre, metres", "base unit of Length"]);
-        assert_eq!(card(crate::config::BITS, "MB"), ["megabyte (10⁶ bytes)", "aliases: none", "1 MB = 8000000 b"]);
+        assert_eq!(card(aequalis::config::BITS, "MB"), ["megabyte (10⁶ bytes)", "aliases: none", "1 MB = 8000000 b"]);
         assert_eq!(card("Temperature", "C"), ["degree Celsius", "aliases: °C, celsius", "0 C = 273.15 K"]);
         assert_eq!(card("Volume", "floz-uk")[1..], ["aliases: none".to_string(), "1 floz-uk = 0.0284130625 l".to_string()]);
         assert_eq!(card("Mass", "lb")[2], "1 lb = 0.45359237 kg");
@@ -1534,8 +1534,8 @@ mod tests {
 
     #[test]
     fn online_indicator() {
-        use crate::network::Status;
-        use crate::online::Data;
+        use aequalis::network::Status;
+        use aequalis::online::Data;
         let config = Config::default();
         let opts = Options { positional: Vec::new(), precision: 4, silent: false, verbose: false };
         // The status comes from the last sync (no probing); forced by the offline setting.

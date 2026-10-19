@@ -6,7 +6,7 @@
 //! cancels; `d` puts back the default. The last row downloads all the online data in the
 //! background (`aequalis --sync`).
 
-use crate::settings::{self, Kind, Settings, KEYS};
+use aequalis::settings::{self, Kind, Settings, KEYS};
 use std::path::PathBuf;
 
 /// The window's state.
@@ -121,14 +121,14 @@ fn download(view: &mut View) {
         return;
     }
     #[cfg(windows)]
-    use crate::windows::CommandExt;
+    use aequalis::windows::CommandExt;
     #[cfg(unix)]
     use std::os::unix::process::CommandExt;
     use std::process::{Command, Stdio};
     let started = std::env::current_exe().ok().and_then(|exe| {
         Command::new(exe)
             .arg("--sync")
-            .args(crate::time::fixed_now().map(|t| format!("--now={t}")))
+            .args(aequalis::time::fixed_now().map(|t| format!("--now={t}")))
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
