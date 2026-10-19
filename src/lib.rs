@@ -444,16 +444,6 @@ pub fn parse_options<'a>(config: &Config, args: &'a [String]) -> Result<Parsed<'
 /// The value is an expression (`100 + 20 sqft m2`, `[1+2]km mi`); a plain number is the simplest one.
 pub fn convert_request(config: &Config, opts: &Options, tokens: &[&str]) -> Result<Output, CliError> {
     check_words(tokens)?;
-    match request(config, opts, tokens) {
-        // What comes next (`now the place to go to…`, `now the currency to convert to…`): a request
-        // on its way, not a wrong one.
-        Err(CliError::Usage(msg)) if msg.starts_with("now the ") => Err(CliError::Incomplete(msg)),
-        other => other,
-    }
-}
-
-/// `convert_request`, before what comes next is told from a mistake.
-fn request(config: &Config, opts: &Options, tokens: &[&str]) -> Result<Output, CliError> {
     let input = tokens.join(" ");
     if input.trim().is_empty() {
         return usage(EXPECTED);
@@ -479,6 +469,7 @@ fn request(config: &Config, opts: &Options, tokens: &[&str]) -> Result<Output, C
             Err(currency::Error::Usage(msg)) => Err(CliError::Usage(msg)),
             Err(currency::Error::Ambiguous(a)) => Err(CliError::Ambiguous(a)),
             Err(currency::Error::NoRates(msg)) => Err(CliError::Convert(convert::ConvertError::Domain(msg))),
+            Err(currency::Error::Incomplete(msg)) => Err(CliError::Incomplete(msg)),
         };
     }
     // Distances on the Earth: `distance Rome to Paris km`.
@@ -487,6 +478,7 @@ fn request(config: &Config, opts: &Options, tokens: &[&str]) -> Result<Output, C
         return result.map(|(stdout, n)| Output { stdout, notes: notes(n), formatted: true, ..Output::default() }).map_err(|e| match e {
             geo::Error::Usage(msg) => CliError::Usage(msg),
             geo::Error::Ambiguous(a) => CliError::Ambiguous(a),
+            geo::Error::Incomplete(msg) => CliError::Incomplete(msg),
         });
     }
     // Dates: `now + 3d`, `2026-10-10T15:00Z unix`, `1791644400 unix iso-week`. Not a lone number
@@ -498,6 +490,7 @@ fn request(config: &Config, opts: &Options, tokens: &[&str]) -> Result<Output, C
             time::TimeError::Usage(msg) => CliError::Usage(msg),
             time::TimeError::Range => CliError::Convert(convert::ConvertError::NotFinite),
             time::TimeError::Ambiguous(a) => CliError::Ambiguous(a),
+            time::TimeError::Incomplete(msg) => CliError::Incomplete(msg),
         });
     }
     // A written date with no format yet (`12/04/2026`): a date on its way, not
@@ -507,7 +500,7 @@ fn request(config: &Config, opts: &Options, tokens: &[&str]) -> Result<Output, C
     }
     // Not a number: one place so far (`Rieti`, `Rieti to`) is a distance on its way.
     let (expr, rest) = calc::parse_prefix(&input).map_err(|e| match geo::being_typed(config, &input) {
-        Some(next) => CliError::Usage(next),
+        Some(next) => CliError::Incomplete(next),
         None => calc_error(e),
     })?;
     let value = expr.eval().map_err(calc_error)?;

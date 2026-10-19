@@ -64,6 +64,8 @@ pub enum TimeError {
     Range,
     /// A written date that reads as more than one date (`12/04/2026`): the operator chooses.
     Ambiguous(Ambiguity),
+    /// Not finished yet: what comes next (`10:00 Paris to`: the city to convert to).
+    Incomplete(String),
 }
 
 /// The readings of an ambiguous written date, the locale's first; or the cities a misspelt one
@@ -1570,7 +1572,7 @@ struct Cities {
 /// before it the source, with or without `to` (`10:00AM New York to Paris`, `10:00AM New York
 /// Paris`). `Ok(None)`: no city. A city elsewhere, or
 /// a zone that is not installed, is an error.
-fn take_cities(input: &str) -> Result<(String, Option<Cities>), String> {
+fn take_cities(input: &str) -> Result<(String, Option<Cities>), TimeError> {
     let words: Vec<&str> = input.split_whitespace().collect();
     // The cities found: (first word, word count, city).
     let mut found = Vec::new();
@@ -1580,7 +1582,7 @@ fn take_cities(input: &str) -> Result<(String, Option<Cities>), String> {
         let hit = (1..=longest).rev().find_map(|n| tz::city(&words[i..i + n].join(" ")).map(|c| (n, c)));
         match hit {
             Some((n, city)) => {
-                found.push((i, n, city?));
+                found.push((i, n, city.map_err(TimeError::Usage)?));
                 i += n;
             }
             None => i += 1,
@@ -1590,18 +1592,18 @@ fn take_cities(input: &str) -> Result<(String, Option<Cities>), String> {
     // Being typed: `10:00AM New York to`.
     if t_at + t_len + 1 == words.len() && ["to", "->"].contains(&words[t_at + t_len]) {
         let other = if target.name == "Paris" { "Rome" } else { "Paris" };
-        return Err(format!("now the city to convert to: `{} to {other}`", target.name));
+        return Err(TimeError::Incomplete(format!("now the city to convert to: `{} to {other}`", target.name)));
     }
     let misplaced = || format!("put the city at the end (`10:00 Paris`), or `<city> [to] <city>`: `{}`", words[found[0].0]);
     if t_at + t_len != words.len() {
-        return Err(misplaced());
+        return usage(misplaced());
     }
     let (source, start) = match found[..found.len() - 1] {
         [] => (None, t_at),
         [(s_at, s_len, source)] if s_at + s_len + 1 == t_at && ["to", "->"].contains(&words[t_at - 1]) => (Some(source), s_at),
         // `to` is optional: the source right before the target.
         [(s_at, s_len, source)] if s_at + s_len == t_at => (Some(source), s_at),
-        _ => return Err(misplaced()),
+        _ => return usage(misplaced()),
     };
     // `to` with no city before it: `10:00 to Paris` is `10:00 Paris`.
     let start = if source.is_none() && start > 0 && ["to", "->"].contains(&words[start - 1]) { start - 1 } else { start };
@@ -1970,7 +1972,7 @@ fn exact_request(config: &Config, input: &str, precision: usize, verbose: bool) 
     // Cities: `Paris` (now there), `10:00AM Paris`, `10:00AM New York to Paris`.
     let (rest, cities) = match take_cities(&rest) {
         Ok(found) => found,
-        Err(msg) => return Some(Err(TimeError::Usage(msg))),
+        Err(e) => return Some(Err(e)),
     };
     let source = cities.as_ref().and_then(|c| c.source);
     if let (Some(source), Some((word, _))) = (source, &zone_word) {

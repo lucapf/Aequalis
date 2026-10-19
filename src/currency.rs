@@ -384,6 +384,8 @@ pub enum Error {
     Ambiguous(Ambiguity),
     /// Written right, but there is no rate to use: a runtime error.
     NoRates(String),
+    /// Not finished yet: the currency to convert to comes next (`12 usd` with no local currency).
+    Incomplete(String),
 }
 
 /// The local currency: the `currency.local` setting, else the currency of the device time zone's country; with
@@ -495,7 +497,7 @@ fn convert(amount: &str, money: &[Piece], ctx: &Context) -> Result<Converted, Er
         }
         (None, _) => {
             let other = if from == "EUR" { "USD" } else { "EUR" };
-            return Err(Error::Usage(format!("now the currency to convert to: `{amount} {from} {other}`")));
+            return Err(Error::Incomplete(format!("now the currency to convert to: `{amount} {from} {other}`")));
         }
     };
     let value: f64 = amount.parse().ok().or_else(|| crate::calc::parse_prefix(amount).ok().and_then(|(e, _)| e.eval().ok())).unwrap_or(0.0);
@@ -902,8 +904,8 @@ mod tests {
         assert_eq!(c.notes[0], "to the local currency, euro (EUR): Italy's time zone, Europe/Rome");
         assert_eq!(ok("12 USA"), "10.73 EUR");
         // Already local, or no local currency: which one to?
-        assert_eq!(with("12 eur", Some("EUR")).unwrap(), Err(Error::Usage("now the currency to convert to: `12 EUR USD`".into())));
-        assert_eq!(with("12 usd", None).unwrap(), Err(Error::Usage("now the currency to convert to: `12 USD EUR`".into())));
+        assert_eq!(with("12 eur", Some("EUR")).unwrap(), Err(Error::Incomplete("now the currency to convert to: `12 EUR USD`".into())));
+        assert_eq!(with("12 usd", None).unwrap(), Err(Error::Incomplete("now the currency to convert to: `12 USD EUR`".into())));
     }
 
     /// Countries written for currencies: the currencies used, with codes and symbols, to check.
@@ -993,7 +995,7 @@ mod tests {
         // To the local currency, and the hint for the one to convert to: the calculation as written.
         assert_eq!(ok("12+3 usd"), ok("15 usd"));
         match with("12+3 eur", Some("EUR")) {
-            Some(Err(Error::Usage(hint))) => assert_eq!(hint, "now the currency to convert to: `12+3 EUR USD`"),
+            Some(Err(Error::Incomplete(hint))) => assert_eq!(hint, "now the currency to convert to: `12+3 EUR USD`"),
             other => panic!("{other:?}"),
         }
         // A question's requests keep it too.

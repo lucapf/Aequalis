@@ -167,6 +167,8 @@ pub enum Error {
     Usage(String),
     /// Several cities with that name, or a misspelt one: which one?
     Ambiguous(crate::time::Ambiguity),
+    /// One place so far (`distance Rieti`): the place to go to comes next.
+    Incomplete(String),
 }
 
 /// A distance request: `[distance] <place> [to] <place> [<length unit>]`: two places, and the
@@ -220,7 +222,7 @@ pub fn request_in(
         let rest = input.trim_start()["distance".len()..].trim();
         // Being typed: one place so far (`distance Rieti`): what comes next.
         return Some(match between(config, rest, precision, device, store, true) {
-            Err(Error::Usage(usage)) => Err(Error::Usage(next_place(config, input, store).unwrap_or(usage))),
+            Err(Error::Usage(usage)) => Err(next_place(config, input, store).map_or(Error::Usage(usage), Error::Incomplete)),
             other => other,
         });
     }
@@ -537,7 +539,7 @@ mod tests {
         let plain = NumberFormat::default();
         let r = |s: &str| {
             request_in(&config, s, 1, &|| Device { format: plain.clone(), unit: "km", local: None }, None).unwrap().map(|(out, _)| out).map_err(|e| match e {
-                Error::Usage(m) => m,
+                Error::Usage(m) | Error::Incomplete(m) => m,
                 Error::Ambiguous(a) => a.message(),
             })
         };
