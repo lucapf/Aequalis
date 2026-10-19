@@ -166,9 +166,7 @@ pub fn value(config: &Config, entry: &Entry, synced: Option<crate::online::Store
     // distance from the Sun) is a line of the popup.
     if let Some(planet) = &entry.planet {
         let distances = if planet == "Earth" { crate::planets::from_sun(planet, now as f64) } else { crate::planets::from_earth(planet, now as f64) };
-        let au = distances.ok_or(format!("{planet}: not a planet"))?.now;
-        let (v, _) = convert::convert(config, au, "au", entry.unit.as_deref().unwrap_or("au")).map_err(|e| e.to_string())?;
-        return Ok((v, Origin::Fixed));
+        return planet_value(config, entry, distances);
     }
     match &entry.source {
         Source::Value(v) => Ok((*v, Origin::Fixed)),
@@ -194,6 +192,33 @@ pub fn value(config: &Config, entry: &Entry, synced: Option<crate::online::Store
             Ok((v, origin))
         }
     }
+}
+
+/// A planet's value: its distance now from the Earth (the Earth's: from the Sun), in its unit.
+fn planet_value(config: &Config, entry: &Entry, distances: Option<crate::planets::Distances>) -> Result<(f64, Origin), String> {
+    let planet = entry.planet.as_deref().unwrap_or_default();
+    let au = distances.ok_or(format!("{planet}: not a planet"))?.now;
+    let (v, _) = convert::convert(config, au, "au", entry.unit.as_deref().unwrap_or("au")).map_err(|e| e.to_string())?;
+    Ok((v, Origin::Fixed))
+}
+
+/// What an entry's popup tells, worked out once: its value and, for a planet, its distances from
+/// the Sun and from the Earth. `popup` writes it, with or without the device's separators.
+pub struct Facts {
+    pub value: Result<(f64, Origin), String>,
+    sun: Option<crate::planets::Distances>,
+    earth: Option<crate::planets::Distances>,
+}
+
+/// The facts of `entry` at `now` (`synced`: its value in the online data, as for `value`).
+pub fn facts(config: &Config, entry: &Entry, synced: Option<crate::online::Stored>, now: i64) -> Facts {
+    let Some(planet) = &entry.planet else {
+        return Facts { value: value(config, entry, synced, now), sun: None, earth: None };
+    };
+    let t = now as f64;
+    let (sun, earth) = (crate::planets::from_sun(planet, t), crate::planets::from_earth(planet, t));
+    let value = planet_value(config, entry, if planet == "Earth" { sun } else { earth });
+    Facts { value, sun, earth }
 }
 
 /// The few words of an entry's row (its `short`); a spacecraft's with its years of travel, counted
@@ -345,14 +370,7 @@ pub fn written(config: &Config, entry: &Entry, value: f64) -> String {
 /// there); a spacecraft's launch; for a planet, its distances from the Sun and from the Earth:
 /// now, mean, the next minimum and maximum with their dates, and its orbital speed. Kilometres
 /// are whole, through `number` (the device's separators).
-pub fn popup(
-    config: &Config,
-    entry: &Entry,
-    synced: Option<crate::online::Stored>,
-    now: i64,
-    precision: usize,
-    number: &dyn Fn(String) -> String,
-) -> Vec<(String, String)> {
+pub fn popup(config: &Config, entry: &Entry, facts: &Facts, precision: usize, number: &dyn Fn(String) -> String) -> Vec<(String, String)> {
     let mut lines = Vec::new();
     if let Some(link) = &entry.wikipedia {
         lines.push(("Wikipedia".to_string(), link.clone()));
@@ -360,7 +378,7 @@ pub fn popup(
     match &entry.source {
         Source::Tip(example) => lines.push(("Example".to_string(), example.clone())),
         _ => {
-            if let Ok((v, origin)) = value(config, entry, synced, now) {
+            if let Ok((v, origin)) = facts.value {
                 let how = origin_text(entry, origin).map(|t| format!(" ({t})")).unwrap_or_default();
                 let shown = parts(config, entry, v, precision, number).join(" - ");
                 lines.push((entry.value_label.clone().unwrap_or_else(|| "Value".to_string()), format!("{shown}{how}")));
@@ -371,7 +389,7 @@ pub fn popup(
         lines.push(("Speed".to_string(), format!("{}, away from the Sun", speed_text(estimate.km_per_s, number))));
         // Its distance is the Earth's (JPL Horizons, centred on the Earth): the light from the Earth
         // is exact (the signal's delay); from the Sun within 1 au of it, about 8 min 19 s either way.
-        if let Ok((v, _)) = value(config, entry, synced, now) {
+        if let Ok((v, _)) = facts.value {
             let km = in_unit(config, entry, v, "km");
             lines.push(("Light from the Earth now".to_string(), light_time(km)));
             lines.push(("Light from the Sun now".to_string(), format!("about {} (±8 min: the Earth's side of its orbit)", light_time(km))));
@@ -384,9 +402,8 @@ pub fn popup(
     if let Some(planet) = &entry.planet {
         let km = |au: f64| distance_in_units(config, entry, au * crate::planets::AU_KM, precision, number);
         let when = |r: crate::planets::Reached| r.at.map(|t| format!(", next on {}", crate::time::day_for_people(t))).unwrap_or_default();
-        let t = now as f64;
         // The value's line is the distance now (from the Earth; the Earth's from the Sun): not twice.
-        if let Some(d) = crate::planets::from_sun(planet, t) {
+        if let Some(d) = facts.sun {
             // The file's figure (the orbit's semi-major axis at J2000), as before it moved here.
             let mean = if let Source::Value(au) = entry.source { au } else { d.mean };
             lines.push(("Mean distance from the Sun".to_string(), km(mean)));
@@ -401,7 +418,7 @@ pub fn popup(
             lines.push(("Fastest (perihelion)".to_string(), speed_text(orbital_speed(d.min.au, d.mean), number)));
             lines.push(("Slowest (aphelion)".to_string(), speed_text(orbital_speed(d.max.au, d.mean), number)));
         }
-        if let Some(d) = crate::planets::from_earth(planet, t) {
+        if let Some(d) = facts.earth {
             lines.push(("Light from the Earth now".to_string(), light_time(d.now * crate::planets::AU_KM)));
             lines.push(("Mean distance from the Earth".to_string(), km(d.mean)));
             lines.push(("Closest to the Earth".to_string(), format!("{}{}", km(d.min.au), when(d.min))));
@@ -583,16 +600,18 @@ pub fn list(config: &Config, precision: usize) -> String {
             out.push_str(&format!("  {}: {example}\n    {}\n", e.name, e.description));
             continue;
         }
-        let value = match value(config, e, live, now) {
+        let number = |n: String| crate::numbers::device().apply(&n);
+        let facts = facts(config, e, live, now);
+        let value = match &facts.value {
             Ok((v, origin)) => {
-                let how = origin_text(e, origin).map(|t| format!(" ({t})")).unwrap_or_default();
-                format!("{}{how}", shown(config, e, v, precision, &|n| crate::numbers::device().apply(&n)))
+                let how = origin_text(e, *origin).map(|t| format!(" ({t})")).unwrap_or_default();
+                format!("{}{how}", shown(config, e, *v, precision, &number))
             }
             Err(err) => format!("error: {err}"),
         };
         out.push_str(&format!("  {} = {value} · {}\n    {}\n", e.name, short(e, now), e.description));
         // The popup's other lines: details, launch, a planet's distances.
-        for (label, text) in popup(config, e, live, now, precision, &|n| crate::numbers::device().apply(&n)).into_iter().filter(|(l, _)| l != "Value") {
+        for (label, text) in popup(config, e, &facts, precision, &number).into_iter().filter(|(l, _)| l != "Value") {
             out.push_str(&format!("    {}: {text}\n", label.trim()));
         }
     }
@@ -690,7 +709,7 @@ mod tests {
     fn popups() {
         let config = Config::default();
         let get = |name: &str| entries().iter().find(|e| e.name == name).unwrap();
-        let popup_of = |name: &str| popup(&config, get(name), None, 1_791_676_800, 4, &|n| n);
+        let popup_of = |name: &str| popup(&config, get(name), &facts(&config, get(name), None, 1_791_676_800), 4, &|n| n);
         // Math: the mathematician and the definition.
         let pi = popup_of("π (pi)");
         assert_eq!(pi[0], ("Value".to_string(), "3.1415926536".to_string()));
@@ -705,7 +724,7 @@ mod tests {
         assert_eq!(v1[3], ("Light from the Earth now".to_string(), "23 h 54 min".to_string()));
         assert_eq!(v1[4], ("Light from the Sun now".to_string(), "about 23 h 54 min (±8 min: the Earth's side of its orbit)".to_string()));
         assert_eq!(v1[5], ("Launched".to_string(), "1977-09-05 12:56 UTC".to_string()));
-        let live = popup(&config, get("Voyager 1"), Some(crate::online::Stored { value: 172.5, at: 1_791_676_800 }), 1_791_676_800, 4, &|n| n);
+        let live = popup(&config, get("Voyager 1"), &facts(&config, get("Voyager 1"), Some(crate::online::Stored { value: 172.5, at: 1_791_676_800 }), 1_791_676_800), 4, &|n| n);
         assert!(live[1].1.contains(" - 172.5 au - 2.7277e-3 ly (synced ") && live[1].1.ends_with(" from JPL Horizons)"), "{:?}", live[1]);
         // A planet: from the Sun and from the Earth, the next dates.
         let mars = popup_of("Mars");
@@ -752,7 +771,7 @@ mod tests {
         }
         // Every entry has a popup.
         for e in entries() {
-            assert!(!popup(&config, e, None, 1_791_676_800, 4, &|n| n).is_empty(), "{}", e.name);
+            assert!(!popup(&config, e, &facts(&config, e, None, 1_791_676_800), 4, &|n| n).is_empty(), "{}", e.name);
         }
     }
 

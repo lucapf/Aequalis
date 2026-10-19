@@ -741,7 +741,8 @@ fn trivia_popup(app: &App, v: &super::trivia::View, canvas: &mut Canvas, rows: u
     let text_width = width - 4;
     // Each line: its pieces and their styles.
     let mut lines: Vec<Vec<(String, Style)>> = wrap(&entry.description, text_width).into_iter().map(|l| vec![(l, Style::Plain)]).collect();
-    let facts = aequalis::trivia::popup(app.config, entry, live, now, app.opts.precision, &|n| app.numbers.apply(&n));
+    let facts = aequalis::trivia::facts(app.config, entry, live, now);
+    let facts = aequalis::trivia::popup(app.config, entry, &facts, app.opts.precision, &|n| app.numbers.apply(&n));
     for (i, (label, text)) in facts.iter().enumerate() {
         // A blank line after the description, and around the link.
         if i == 0 || (i == 1 && facts[0].0 == "Wikipedia") {

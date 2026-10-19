@@ -365,18 +365,19 @@ pub fn trivia() -> String {
                 .iter()
                 .filter(|e| e.section == section)
                 .map(|e| {
-                    let live = online.get(&e.name);
-                    let (value, written) = match (&e.source, trivia::value(config, e, live, now)) {
+                    let facts = trivia::facts(config, e, online.get(&e.name), now);
+                    let (value, written) = match (&e.source, &facts.value) {
                         (Source::Tip(example), _) => (example.clone(), example.clone()),
                         (_, Ok((v, origin))) => {
-                            let how = trivia::origin_text(e, origin).map(|t| format!(" ({t})")).unwrap_or_default();
-                            (format!("{}{how}", trivia::shown(config, e, v, precision, &number)), format!("{} ", trivia::written(config, e, v)))
+                            let how = trivia::origin_text(e, *origin).map(|t| format!(" ({t})")).unwrap_or_default();
+                            (format!("{}{how}", trivia::shown(config, e, *v, precision, &number)), format!("{} ", trivia::written(config, e, *v)))
                         }
                         (_, Err(err)) => (format!("error: {err}"), String::new()),
                     };
-                    // Each line twice: for people (the device's separators) and plain, to write a measure.
-                    let plain = trivia::popup(config, e, live, now, precision, &|n| n);
-                    let popup: Vec<String> = trivia::popup(config, e, live, now, precision, &number)
+                    // Each line twice, from the same facts: for people (the device's separators) and
+                    // plain, to write a measure.
+                    let plain = trivia::popup(config, e, &facts, precision, &|n| n);
+                    let popup: Vec<String> = trivia::popup(config, e, &facts, precision, &number)
                         .iter()
                         .zip(&plain)
                         .map(|((label, text), (_, written))| {
