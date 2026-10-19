@@ -13,6 +13,8 @@ use std::sync::{Mutex, OnceLock};
 pub struct Tz {
     /// The zone's name: `Europe/Paris`.
     pub name: &'static str,
+    /// Its name as a city, for people: the last part, with spaces (`America/New_York` → `New York`).
+    pub city: &'static str,
     /// Transition times (seconds since the epoch, UTC), ascending, and the offset (seconds east of
     /// UTC) from each one on.
     transitions: Vec<(i64, i32)>,
@@ -65,7 +67,7 @@ impl Tz {
             None => None,
         };
         let ascending = rules.transitions.windows(2).all(|w| w[0].0 < w[1].0);
-        ascending.then_some(Tz { name, transitions: rules.transitions, initial: rules.initial, rule })
+        ascending.then_some(Tz { name, city: city_part(name), transitions: rules.transitions, initial: rules.initial, rule })
     }
 
     /// Whether `other` has the same offsets as this zone (its rules, whatever its name).
@@ -123,7 +125,17 @@ impl Tz {
                 Rule::parse(text)
             })
             .flatten();
-        Some(Tz { name, transitions, initial: offset_of(0)?, rule })
+        Some(Tz { name, city: city_part(name), transitions, initial: offset_of(0)?, rule })
+    }
+}
+
+/// A zone name's last part, as a city is written (`America/New_York` → `New York`): a part of the
+/// name itself, or (with `_` in it) a copy made once, when the zone is loaded.
+fn city_part(name: &'static str) -> &'static str {
+    let last = name.rsplit('/').next().unwrap_or(name);
+    match last.contains('_') {
+        true => Box::leak(last.replace('_', " ").into_boxed_str()),
+        false => last,
     }
 }
 
@@ -951,8 +963,7 @@ pub fn city(name: &str) -> Option<Result<City, String>> {
     // A zone name: `Region/City`, shown as its last part (`New_York` → `New York`).
     if name.contains('/') && name.starts_with(|c: char| c.is_ascii_uppercase()) {
         let tz = load(name).ok()?;
-        let shown = tz.name.rsplit('/').next().unwrap().replace('_', " ");
-        return Some(Ok(City { name: Box::leak(shown.into_boxed_str()), tz }));
+        return Some(Ok(City { name: tz.city, tz }));
     }
     None
 }
@@ -1133,6 +1144,10 @@ mod tests {
         assert_eq!(name("PORT-AU-PRINCE"), Some(Ok(("Port-au-Prince", "America/Port-au-Prince"))));
         assert_eq!(name("Europe/Rome"), Some(Ok(("Rome", "Europe/Rome"))));
         assert_eq!(name("America/New_York"), Some(Ok(("New York", "America/New_York"))));
+        // A zone's city name is made once, when it loads: asking again copies nothing (a request
+        // typed key by key asked again on each key, and kept every copy).
+        let again = |s: &str| city(s).unwrap().unwrap().name.as_ptr();
+        assert_eq!(again("America/New_York"), again("America/New_York"));
         assert_eq!(name("Atlantis"), None);
         assert_eq!(name("km"), None);
         // Every city's zone is installed (or its older name).
