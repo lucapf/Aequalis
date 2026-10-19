@@ -45,9 +45,11 @@ fn num_forces_a_number() {
 
 #[test]
 fn dates_unchanged() {
-    assert_eq!(run("2026-12-02").0, "2026-12-02T00:00+01:00 iso = 2026-12-02 iso-date");
+    assert_eq!(run("2026-12-02 iso").0, "2026-12-02T00:00+01:00 iso");
     assert_eq!(run("2026-12-02 unix").0, "2026-12-02T00:00+01:00 iso = 1796166000 unix");
     assert_eq!(run("2026-12-02 + 1d").0, "2026-12-03 iso-date");
-    assert_eq!(run("2026-12-02-2026-12-01").0, "1d", "minus is still a date difference");
+    assert_eq!(run("2026-12-02-2026-12-01 d").0, "1 d", "with a unit, minus is a date difference");
+    assert_eq!(run("2026-12-02").0, "2012", "alone, a number expression");
+    assert_eq!(run("2026-12-02-2026-12-01").0, "-27", "alone, a number expression");
     assert_eq!(run("2026/12/04 unix").0, "2026-12-04T00:00+01:00 iso = 1796338800 unix");
 }

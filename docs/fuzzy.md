@@ -7,12 +7,12 @@ fuzz test in every `cargo test` (`tests/fuzz.rs`).
 ## Run it
 
 ```sh
-fuzz/fuzz.py build                     # the fuzz build of the engine and its vocabulary
 fuzz/fuzz.py run --minutes 10          # a quick check
 fuzz/fuzz.py run --hours 8 --workers 6 # overnight (8 cores: leave 2 free)
 ```
 
-- `build` again after changing the Rust code or the data files.
+- `run`, `minimize` and `replay` always make a new fuzz build of the engine and its vocabulary
+  first (`fuzz/fuzz.py build` does only that).
 - `run` puts itself in a network namespace (`unshare -rn`): the engine reaches no network, its
   downloads come from the fuzzer. Ctrl-C stops it cleanly, with the summary.
 - `--seed N` repeats a run; `--rotate M` minutes before a worker moves to the next configuration
@@ -77,7 +77,7 @@ To try an input by hand: `echo 'GMT+2 €' | aequalis --json` (the CLI shares th
 2. Fix, and add a regression suite `tests/bug_NNN_<name>.rs` (the next number, `docs/SPEC.md` §9).
 3. Add the input to `fuzz/corpus/regressions.txt` (one JSON per line: `input`, optional
    `config`): `cargo test` and `fuzz.py replay` run it forever.
-4. `fuzz/fuzz.py build`, then run again.
+4. Run again (it builds the fixed code).
 
 The engine is solid enough when a night (8 h, 6 workers) ends with no crash, hang, contract or
 choices finding.

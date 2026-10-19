@@ -4,6 +4,7 @@ generated requests, in several configurations at once, and keeps what goes wrong
 `fuzz/findings/`. See `docs/fuzzy.md`.
 
     fuzz/fuzz.py build                       the fuzz build of the engine, and the vocabulary
+                                             (`run`, `minimize` and `replay` build first too)
     fuzz/fuzz.py run [--hours H | --minutes M] [--workers N] [--seed S]
                                              starts clean (no findings, no work files), and
                                              writes fuzz/findings/report.md at the end
@@ -433,6 +434,8 @@ def sandboxed():
     if os.environ.get("AEQUALIS_FUZZ_SANDBOX") == "1":
         return True
     env = dict(os.environ, AEQUALIS_FUZZ_SANDBOX="1")
+    # What was printed so far (the build's line) is lost with the process otherwise.
+    sys.stdout.flush()
     try:
         os.execvpe("unshare", ["unshare", "-rn", sys.executable, "-I", os.path.abspath(__file__), *sys.argv[1:]], env)
     except OSError as e:
@@ -473,8 +476,6 @@ class Slot:
 def run(a):
     if not a.no_sandbox:
         sandboxed()
-    if not os.path.exists(LIB) or not os.path.exists(os.path.join(WORK, "vocab.json")):
-        sys.exit("fuzz: run `fuzz/fuzz.py build` first")
     clean()
     seconds = a.hours * 3600 + a.minutes * 60
     began = time.time()
@@ -749,9 +750,10 @@ def main():
     m.add_argument("findings", nargs="*")
     sub.add_parser("replay")
     a = p.parse_args()
-    if a.command == "build":
+    # Always on the code as it is now: a new build first (once: not again in `run`'s sandbox).
+    if os.environ.get("AEQUALIS_FUZZ_SANDBOX") != "1":
         build()
-    elif a.command == "run":
+    if a.command == "run":
         if not (a.hours or a.minutes):
             a.minutes = 10
         run(a)

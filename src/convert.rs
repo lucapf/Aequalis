@@ -15,6 +15,11 @@ pub enum ConvertError {
     /// A unit that can't be multiplied or divided: `C` and `F` (an offset scale), `l/100km`
     /// (a reciprocal one).
     NotInCompound(String),
+    /// A unit and a currency (`3 d to USD`, `42 USD to ly`): never converted into each other.
+    UnitAndCurrency {
+        from: String,
+        to: String,
+    },
     NotFinite,
     DivisionByZero,
     /// A function outside its domain: `sqrt(-1)`.
@@ -29,8 +34,11 @@ impl fmt::Display for ConvertError {
                 write!(f, "cannot convert `{from}` to `{to}`: different kinds of unit")
             }
             ConvertError::NotInCompound(u) => write!(f, "`{u}` can't be part of a compound unit"),
+            ConvertError::UnitAndCurrency { from, to } => {
+                write!(f, "cannot convert `{from}` to `{to}`: a unit and a currency don't mix")
+            }
             ConvertError::NotFinite => write!(f, "result is out of range"),
-            ConvertError::DivisionByZero => write!(f, "division by zero"),
+            ConvertError::DivisionByZero => f.write_str("undefined"),
             ConvertError::Domain(msg) => f.write_str(msg),
         }
     }
@@ -178,8 +186,14 @@ fn split_power(name: &str) -> Option<(&str, &str)> {
 /// Converts `value` from one unit to another (named or compound) of the same dimensions; or of
 /// the reciprocal ones when a side is a fuel economy unit (`mpg` ↔ `l/100km`).
 pub fn convert<'a>(config: &'a Config, value: f64, from: &str, to: &str) -> Result<(f64, Resolved<'a>), ConvertError> {
-    let a = resolve(config, from)?;
-    let b = resolve(config, to)?;
+    let currency = |text: &str| crate::currency::exact(text).is_some();
+    let (a, b) = match (resolve(config, from), resolve(config, to)) {
+        (Ok(a), Ok(b)) => (a, b),
+        // A currency where a unit was expected, with a unit on the other side.
+        (Ok(_), Err(_)) if currency(to) => return Err(ConvertError::UnitAndCurrency { from: from.to_string(), to: to.to_string() }),
+        (Err(_), Ok(_)) if currency(from) => return Err(ConvertError::UnitAndCurrency { from: from.to_string(), to: to.to_string() }),
+        (a, b) => (a?, b?),
+    };
     let si = value * a.factor + a.offset;
     let categories_differ = matches!((a.category, b.category), (Some(x), Some(y)) if x != y);
     let result = if a.dims == b.dims && !categories_differ {
@@ -433,6 +447,18 @@ mod tests {
         assert_eq!(find_unit(&config, "FEET").unwrap().1.symbol, "ft");
         assert_eq!(find_unit(&config, "M").unwrap().1.symbol, "m");
         assert_eq!(find_unit(&config, "°C").unwrap().1.symbol, "C");
+    }
+
+    #[test]
+    fn units_and_currencies_dont_mix() {
+        let config = Config::default();
+        let mixed = |from: &str, to: &str| ConvertError::UnitAndCurrency { from: from.into(), to: to.into() };
+        assert_eq!(convert(&config, 3.0, "d", "USD").unwrap_err(), mixed("d", "USD"));
+        assert_eq!(convert(&config, 42.0, "USD", "ly").unwrap_err(), mixed("USD", "ly"));
+        assert_eq!(convert(&config, 1.0, "euro", "km/h").unwrap_err(), mixed("euro", "km/h"));
+        assert_eq!(mixed("d", "USD").to_string(), "cannot convert `d` to `USD`: a unit and a currency don't mix");
+        // Neither a unit: still unknown.
+        assert_eq!(convert(&config, 1.0, "foo", "USD").unwrap_err(), ConvertError::UnknownUnit("foo".into()));
     }
 
     #[test]

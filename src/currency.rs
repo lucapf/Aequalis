@@ -300,7 +300,7 @@ fn split_attached(word: &str) -> Vec<String> {
 #[derive(Debug, Clone)]
 enum Piece {
     Amount(String),
-    /// `to`, `in`.
+    /// `to`, `in`, `->`.
     Connector,
     /// A currency or country, as written, and what it may be (one or more codes); `country`: the
     /// country (or Europe) it was written as, if so.
@@ -319,6 +319,11 @@ enum Piece {
     Other,
 }
 
+/// A word between what is converted and what it is converted to: `to`, `in`, `->`.
+pub(crate) fn connector(word: &str) -> bool {
+    ["to", "in", "->"].iter().any(|c| word.eq_ignore_ascii_case(c))
+}
+
 fn pieces(config: &Config, input: &str) -> Vec<Piece> {
     let words: Vec<String> = input.split_whitespace().flat_map(split_attached).collect();
     let longest = tz::longest_country().max(5);
@@ -331,7 +336,7 @@ fn pieces(config: &Config, input: &str) -> Vec<Piece> {
             i += 1;
             continue;
         }
-        if w.eq_ignore_ascii_case("to") || w.eq_ignore_ascii_case("in") {
+        if connector(w) {
             out.push(Piece::Connector);
             i += 1;
             continue;
@@ -339,7 +344,7 @@ fn pieces(config: &Config, input: &str) -> Vec<Piece> {
         let span = (1..=longest.min(words.len() - i)).rev().find_map(|n| {
             let text = words[i..i + n].join(" ");
             // A span stops at an amount or a connector.
-            if words[i..i + n].iter().skip(1).any(|w| amount(w).is_some() || w.eq_ignore_ascii_case("to") || w.eq_ignore_ascii_case("in")) {
+            if words[i..i + n].iter().skip(1).any(|w| amount(w).is_some() || connector(w)) {
                 return None;
             }
             exact(&text).map(|codes| (n, text, codes))
@@ -841,6 +846,7 @@ mod tests {
         assert_eq!(ok("12 China Euro"), "1.51 EUR");
         assert_eq!(ok("12 us dollars to euros"), "10.73 EUR");
         assert_eq!(ok("12 United Arab Emirates in Japan"), "518.23 JPY");
+        assert_eq!(ok("12 usd -> eur"), "10.73 EUR");
         // Attached, symbols first or after (`$` alone is any dollar: asked).
         assert_eq!(ask("$12 €").choices[0].request, "12 USD €");
         assert_eq!(ok("US$12 €"), "10.73 EUR");

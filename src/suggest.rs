@@ -47,7 +47,7 @@ pub fn suggest(config: &Config, line: &str, cursor: usize, min: usize) -> Option
     let value = calc::parse_prefix(&before).ok();
     let min = match value {
         // The target slot (`10 cm `, `12 EUR `): the source says the kind, its units are few.
-        Some((_, rest)) if !typing && rest.split_whitespace().count() == 1 => 0,
+        Some((_, rest)) if !typing && rest.split_whitespace().filter(|w| !crate::currency::connector(w)).count() == 1 => 0,
         Some(_) => min.min(1),
         None => min,
     };
@@ -63,9 +63,9 @@ pub fn suggest(config: &Config, line: &str, cursor: usize, min: usize) -> Option
 }
 
 /// After a value: its unit, or after the unit the target unit of the same kind; for an amount, a
-/// currency, then the target currency (`to` or `in` between allowed).
+/// currency, then the target currency (`to`, `in` or `->` between allowed).
 fn after_a_value(config: &Config, before: &str, rest: &str, typing: bool) -> Option<Suggestions> {
-    let words: Vec<&str> = rest.split_whitespace().filter(|w| !["to", "in"].contains(&w.to_ascii_lowercase().as_str())).collect();
+    let words: Vec<&str> = rest.split_whitespace().filter(|w| !crate::currency::connector(w)).collect();
     let (done, prefix) = match words.split_last() {
         Some((last, done)) if typing => (done, *last),
         _ => (&words[..], ""),
@@ -373,6 +373,9 @@ mod tests {
         assert_eq!(&at("12 dol")[..3], ["USD", "CAD", "AUD"]);
         assert_eq!(at("12 usd eur"), ["EUR"]);
         assert_eq!(at("12 usd to eur"), ["EUR"]);
+        assert_eq!(at("12 usd -> eur"), ["EUR"]);
+        assert_eq!(at("10 cm to "), at("10 cm "));
+        assert_eq!(at("10 cm -> "), at("10 cm "));
         assert_eq!(at("Par"), ["Paris", "Paramaribo", "Paraguay"]);
         assert_eq!(at("Rome to Tok"), ["Tokyo"]);
         assert_eq!(at("now uni"), ["unix", "unix-ms", "unix-us", "unix-ns"]);

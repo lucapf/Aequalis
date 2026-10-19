@@ -108,7 +108,7 @@ fn grouping(windows: &str) -> Vec<u8> {
 }
 
 /// The short date of the Region settings (`dd/MM/yyyy`) as a `strftime` format (`%d/%m/%Y`): what
-/// matters to tally is the order of the day, the month and the year.
+/// matters to aequalis is the order of the day, the month and the year.
 pub fn date_format() -> Option<String> {
     const LOCALE_SSHORTDATE: u32 = 0x1F;
     Some(strftime_of(&locale_info(LOCALE_SSHORTDATE)?))

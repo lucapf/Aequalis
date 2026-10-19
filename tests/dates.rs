@@ -173,7 +173,7 @@ fn now_and_today() {
 
 #[test]
 fn errors() {
-    assert_eq!(run("UTC", "2026-10-10 + 3").1, 2, "a duration needs a unit");
+    assert_eq!(run("UTC", "2026-10-10 + 3 iso").1, 2, "a duration needs a unit");
     assert_eq!(run("UTC", "2026-10-10 + 3 km").1, 2);
     assert_eq!(run("UTC", "2026-10-10 bogus").1, 2);
     assert_eq!(run("UTC", "2026-10-10 + 1.5mo").1, 2, "calendar steps need whole numbers");

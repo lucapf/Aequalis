@@ -132,6 +132,7 @@ pub enum Expr {
 #[derive(Debug, PartialEq)]
 pub enum CalcError {
     Syntax(String),
+    /// A zero denominator (`1/0`, `0^-1`): the evaluation stops there, the result is undefined.
     DivisionByZero,
     /// A function outside its domain: `sqrt(-1)`, `log(0)`.
     Domain(String),
@@ -162,7 +163,15 @@ impl Expr {
                     Op::Sub => snap(l - r, l.abs().max(r.abs())),
                     Op::Mul => l * r,
                     Op::Div if r == 0.0 => return Err(CalcError::DivisionByZero),
+                    // `0^-1` is `1/0`.
+                    Op::Pow if l == 0.0 && r < 0.0 => return Err(CalcError::DivisionByZero),
+                    // A denominator too large to store (`7 / 770^563`): zero.
+                    Op::Div if r.is_infinite() && l.is_finite() => 0.0,
                     Op::Div => l / r,
+                    // `(-3^1000)^0.5`: the base is too large to store, so its sign says nothing about the root.
+                    Op::Pow if l == f64::NEG_INFINITY && r.is_finite() && r.fract() != 0.0 => {
+                        return Err(CalcError::Domain("a number too large to store, raised to a fractional power".into()))
+                    }
                     // `(-2)^0.5`: no real number (not a result too large).
                     Op::Pow if l < 0.0 && r.is_finite() && r.fract() != 0.0 => {
                         return Err(CalcError::Domain(format!("a negative number to a fractional power ({l})^{r}: not a real number")))
@@ -615,6 +624,16 @@ mod tests {
         let err = |s| parse_prefix(s).and_then(|(e, _)| e.eval()).unwrap_err();
         assert_eq!(err("1/0"), CalcError::DivisionByZero);
         assert_eq!(err("1/(2-2)"), CalcError::DivisionByZero);
+        assert_eq!(err("0^-1"), CalcError::DivisionByZero);
+        assert_eq!(err("0^-0.5"), CalcError::DivisionByZero);
+        // Stops at the zero denominator, whatever follows.
+        assert_eq!(err("1/0 * 0"), CalcError::DivisionByZero);
+        assert_eq!(err("1/0 - 1/0"), CalcError::DivisionByZero);
+        // A denominator too large to store: zero (not -0); a numerator too, no answer.
+        let eval = |s| parse_prefix(s).and_then(|(e, _)| e.eval()).unwrap();
+        assert_eq!(eval("7 / [770^563 / -3]").to_bits(), 0.0f64.to_bits());
+        assert_eq!(eval("7/770^563 + 2"), 2.0);
+        assert!(eval("770^563/770^563").is_nan());
         assert!(matches!(err("(1+2"), CalcError::Syntax(m) if m.contains("missing `)`")));
         assert!(matches!(err("1+2)"), CalcError::Syntax(m) if m.contains("unexpected `)`")));
         assert!(matches!(err("1+"), CalcError::Syntax(m) if m.contains("incomplete")));

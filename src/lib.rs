@@ -393,8 +393,9 @@ pub fn parse_options<'a>(config: &Config, args: &'a [String]) -> Result<Parsed<'
     let mut it = args.iter();
     while let Some(arg) = it.next() {
         let arg = arg.as_str();
-        // Negative values (`-40`, `-40C`, `-.5`, `-(1+2)`) and a lone `-` are values, not flags.
-        if !arg.starts_with('-') || arg.len() == 1 || calc::starts_expression(arg) {
+        // Negative values (`-40`, `-40C`, `-.5`, `-(1+2)`), a lone `-` and the `->` connector are
+        // values, not flags.
+        if !arg.starts_with('-') || arg.len() == 1 || arg == "->" || calc::starts_expression(arg) {
             positional.push(arg);
             continue;
         }
@@ -440,7 +441,8 @@ pub fn parse_options<'a>(config: &Config, args: &'a [String]) -> Result<Parsed<'
     Ok(Parsed::Convert(Options { positional, precision, silent, verbose }))
 }
 
-/// Converts one request: `<value> <from> <to>`, `<value><from> <to>`, or `<value>` alone (a calculation).
+/// Converts one request: `<value> <from> <to>`, `<value><from> <to>`, or `<value>` alone (a calculation);
+/// `to`, `in` or `->` may stand between the units (`1000 ly to yd`).
 /// The value is an expression (`100 + 20 sqft m2`, `[1+2]km mi`); a plain number is the simplest one.
 pub fn convert_request(config: &Config, opts: &Options, tokens: &[&str]) -> Result<Output, CliError> {
     check_words(tokens)?;
@@ -489,8 +491,10 @@ fn request(config: &Config, opts: &Options, tokens: &[&str]) -> Result<Output, C
             geo::Error::Ambiguous(a) => CliError::Ambiguous(a),
         });
     }
-    // Dates: `now + 3d`, `2026-10-10T15:00Z unix`, `1791644400 unix iso-week`.
-    if let Some(result) = time::request(config, &input, opts.precision, opts.verbose) {
+    // Dates: `now + 3d`, `2026-10-10T15:00Z unix`, `1791644400 unix iso-week`. Not a lone number
+    // expression (`1-10-10`, `2026-12-02`): that is arithmetic, whatever its shape.
+    let arithmetic = time::is_number_expression(&input) && calc::parse_prefix(&input).is_ok_and(|(_, rest)| rest.trim().is_empty());
+    if let Some(result) = Some(()).filter(|_| !arithmetic).and_then(|_| time::request(config, &input, opts.precision, opts.verbose)) {
         let notes = |notes: Vec<String>| if opts.verbose && !opts.silent { notes } else { Vec::new() };
         return result.map(|(stdout, n)| Output { stdout, notes: notes(n), formatted: true, ..Output::default() }).map_err(|e| match e {
             time::TimeError::Usage(msg) => CliError::Usage(msg),
@@ -500,7 +504,7 @@ fn request(config: &Config, opts: &Options, tokens: &[&str]) -> Result<Output, C
     }
     // A written date with no format yet (`12/04/2026`): a date on its way, not
     // the division it reads as (`12/04/2026 num` asks for that).
-    if time::is_date_value(&input) {
+    if !arithmetic && time::is_date_value(&input) {
         return Err(CliError::Incomplete("now the format to convert to: iso, unix, local…".into()));
     }
     // Not a number: one place so far (`Rieti`, `Rieti to`) is a distance on its way.
@@ -516,20 +520,24 @@ fn request(config: &Config, opts: &Options, tokens: &[&str]) -> Result<Output, C
         true => Vec::new(),
         false => vec![format!("evaluated as {}", expr.grouped())],
     };
-    let (from, to) = match rest.split_whitespace().collect::<Vec<_>>()[..] {
+    let words: Vec<&str> = rest.split_whitespace().collect();
+    // `to`, `in` or `->` between the units (`1000 ly to yd`); a last `in` is the inch (`10 ft in`).
+    let waiting = |w: &str| currency::connector(w) && !w.eq_ignore_ascii_case("in");
+    let (from, to) = match words[..] {
         // No unit, or the `num` target (`2026-12-02 num`): the number.
         [] => return Ok(Output { stdout: convert::format_value(value, opts.precision), notes, ..Output::default() }),
         [to] if config::is_number_word(to) => return Ok(Output { stdout: convert::format_value(value, opts.precision), notes, ..Output::default() }),
-        [from, to] => (from, to),
-        // A unit so far (`10 km`): the target comes next; for a compound one (`m/s^2`) no kind's units
-        // to list.
-        [from] => {
+        // A unit so far (`10 km`, `10 km to`): the target comes next; for a compound one (`m/s^2`) no
+        // kind's units to list.
+        [from] | [from, _] if words.len() == 1 || waiting(words[1]) => {
             return Err(match convert::find_unit(config, from) {
                 Some((category, unit)) => CliError::Incomplete(next_unit(category, unit)),
                 None if convert::resolve(config, from).is_ok() => CliError::Incomplete("now the unit to convert to".into()),
                 None => CliError::Usage(EXPECTED.into()),
             })
         }
+        [from, to] => (from, to),
+        [from, c, to] if currency::connector(c) => (from, to),
         _ => return usage(EXPECTED),
     };
     let (result, target) = convert::convert(config, value, from, to).map_err(CliError::Convert)?;
@@ -806,9 +814,9 @@ mod tests {
         assert_eq!(cli("10 km").unwrap_err(), CliError::Incomplete("now the length unit to convert to: in, ft, yd…".into()));
         assert_eq!(cli("100 m/s^2").unwrap_err(), CliError::Incomplete("now the unit to convert to".into()));
         assert_eq!(cli("10 foo").unwrap_err(), CliError::Usage(EXPECTED.into()));
-        // A written date alone: its format comes next; a division stays one.
-        for date in ["12/04/2026", "2026/12/04", "13/04/2026"] {
-            assert_eq!(cli(date).unwrap_err(), CliError::Incomplete("now the format to convert to: iso, unix, local…".into()), "{date}");
+        // A number expression alone is arithmetic, whatever its shape; a date needs a word beside it.
+        for (expr, value) in [("12/04/2026", "0.0015"), ("2026/12/04", "42.2083"), ("1-10-10", "-19"), ("2026-12-02-2026-12-01", "-27")] {
+            assert_eq!(cli(expr).unwrap(), value, "{expr}");
         }
         assert_eq!(cli("12/4").unwrap(), "3");
         // Past the longest request: an error, whatever it is.

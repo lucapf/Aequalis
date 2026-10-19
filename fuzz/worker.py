@@ -352,13 +352,12 @@ class Worker:
     def calculation(self):
         text, expected, tree = self.gen.calculation()
         doc, _ = self.eval(text)
-        if self.gen.overflowed and isinstance(doc, dict) and doc.get("ok"):
-            # A step past the largest double, yet an answer (`10^800` → infinity, `1/∞` → 0): Aequalis
-            # computes as IEEE does; whether it should say "out of range" instead is a choice.
-            self.report("semantics", "intermediate-overflow", f"{text!r} → {doc.get('result')!r}", "eval", text)
+        # A step past the largest double (`10^800` → infinity) is Aequalis's to settle, not Python's:
+        # an answer (`sin(10^800)^0` → 1, `tanh(741^200)` → 1) or a "too large" error is accepted, so the
+        # comparison with Python (exact integers, no infinity) is skipped.
         if self.plain:
             shape = ",".join(sorted({n[0] if n[0] != "fn" else n[1] for n in walk(tree)}))
-            for kind, key, detail in oracles.differential(text, expected, self.gen.scale(tree), doc):
+            for kind, key, detail in [] if self.gen.overflowed else oracles.differential(text, expected, self.gen.scale(tree), doc):
                 self.report(kind, f"{key}:{shape}", detail, "eval", text)
             # Spelling changes nothing: spaces, brackets.
             spaced = "".join(f" {c} " if c in "+/^()[]{}" else c for c in text)

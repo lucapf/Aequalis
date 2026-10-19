@@ -38,7 +38,8 @@ fn reported_dash_date_with_a_time() {
     assert_eq!(run("2026-12-04 10:00 PM"), ("2026-12-04T22:00+01:00 iso".into(), 0));
     assert_eq!(run("2026-12-04 22:00").0, "2026-12-04T22:00+01:00 iso");
     assert_eq!(run("2026-12-04T10:00PM").0, "2026-12-04T22:00+01:00 iso");
-    assert_eq!(run("2026-12-04").0, "2026-12-04T00:00+01:00 iso = 2026-12-04 iso-date", "the date alone");
+    assert_eq!(run("2026-12-04").0, "2010", "alone, a number expression");
+    assert_eq!(run("2026-12-04 iso").0, "2026-12-04T00:00+01:00 iso", "the date with its format");
 }
 
 #[test]

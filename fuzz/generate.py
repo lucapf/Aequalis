@@ -334,7 +334,13 @@ class Generator:
                 return getattr(math, name)(x)
             except OverflowError:
                 return math.copysign(math.inf, x) if name == "sinh" else math.inf
-        a, b = self._eval(t[1]), self._eval(t[2])
+        a = self._eval(t[1])
+        before = self.overflowed
+        b = self._eval(t[2])
+        if kind == "/" and math.isinf(b) and math.isfinite(a):
+            # Aequalis's rule: a denominator too large to store makes zero (not an overflow to report).
+            self.overflowed = before
+            return 0.0
         if kind in "+-":
             # Aequalis's rule (SPEC §3): a sum below 1e-14 of its larger operand is rounding noise, 0.
             r = a + b if kind == "+" else a - b
@@ -352,9 +358,9 @@ class Generator:
             odd = b == int(b) and int(b) % 2 == 1
             return -math.inf if a < 0 and odd else math.inf
         except ValueError:
-            # 0 to a negative power: infinity (IEEE), which Aequalis reports as not finite.
+            # 0 to a negative power: `1/0`, undefined.
             if a == 0:
-                return math.inf
+                raise ZeroDivisionError
             raise
 
     def scale(self, t):

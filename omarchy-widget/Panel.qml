@@ -368,7 +368,34 @@ Panel {
     id: button
     anchors.fill: parent
     bar: root.bar
-    text: ""  // Nerd Font: calculator
+    // The icon's mark (iconset/icons/master/aequalis-icon-small.svg: the q and, in its bowl, the
+    // bolder arrows of the small sizes) in the bar's colour, its 608×580 box scaled to the slot.
+    iconComponent: Component {
+      Item {
+        Canvas {
+          readonly property real size: Style.space(16)
+          readonly property color color: root.barForeground
+          anchors.centerIn: parent
+          width: size
+          height: Math.ceil(size * 580 / 608)
+          onColorChanged: requestPaint()
+          onSizeChanged: requestPaint()
+          onPaint: {
+            var ctx = getContext("2d")
+            ctx.reset()
+            ctx.scale(size / 608, size / 608)
+            ctx.translate(-208, -220)
+            ctx.fillStyle = color
+            ctx.fillRule = Qt.OddEvenFill
+            ctx.path = "M 468 220 A 260 260 0 0 1 716 402 L 716 220 L 816 220 L 816 750 A 50 50 0 0 1 716 750 L 716 558 A 260 260 0 0 1 468 740 A 260 260 0 0 1 468 220 Z M 468 330 A 150 150 0 0 1 468 630 A 150 150 0 0 1 468 330 Z"
+            ctx.fill()
+            ctx.fillRule = Qt.WindingFill
+            ctx.path = "M 356 388 L 504 388 L 504 358 Q 504 338 522 348 L 598 428 Q 614 438 598 448 L 522 502 Q 504 512 504 492 L 504 464 L 356 464 A 38 38 0 0 1 356 388 Z M 580 572 L 432 572 L 432 544 Q 432 524 414 534 L 338 614 Q 322 624 338 634 L 414 688 Q 432 698 432 678 L 432 650 L 580 650 A 38 38 0 0 0 580 572 Z"
+            ctx.fill()
+          }
+        }
+      }
+    }
     tooltipText: "Aequalis"
     onPressed: function(b) { root.toggle() }
   }

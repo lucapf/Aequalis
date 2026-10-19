@@ -684,7 +684,7 @@ mod tests {
         assert_eq!(member(&r, "value").as_deref(), Some("6.2137"));
         assert!(r.contains(r#""details":[]"#), "{r}");
         assert_eq!(member(&view("12+4/2", false), "grouping").as_deref(), Some("(12 + (4 / 2))"));
-        assert_eq!(member(&view("12/04/2026", true), "grouping"), None, "no grouping with a date's hint");
+        assert_eq!(member(&view("12/04/2026", true), "grouping").as_deref(), Some("((12 / 4) / 2026)"), "a lone number expression is arithmetic");
         // Notes and warnings, under the result.
         assert!(view("1 GB GiB", false).contains(r#""details":["mixing decimal (GB"#));
     }

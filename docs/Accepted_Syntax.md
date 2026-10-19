@@ -14,6 +14,7 @@ Some examples of accepts syntax:
 | Type                        | Result                |
 |-----------------------------|-----------------------|
 | `10 km mi`                    | `6.2137 mi`             |
+| `1000 ly -> yd`, `1000 ly in yd`, `1000 ly to yd` | `1.0346e19 yd` (`->`, `in` or `to` between the units) |
 | `12+12/3`                     | `12 + (12/3) = 16`      |
 | `100sqft mq`                  | `9.2903 m2`             |
 | `100 km/h mph`                | `62.1371 mph`           |
@@ -45,7 +46,8 @@ Some examples of accepts syntax:
 One amount and one or two currencies. A currency can be written as its code (`usd`), its name in
 the singular or plural (`euro`, `US dollars`, `yen`), a symbol (`€`, `£`, `¥`), a common
 abbreviation (`Dhs`, `RMB`, `kr`), a country (`USA`, `UAE`, `China`) or `Europe` / `EU`. Case
-and accents don't matter, and the amount may be attached (`12usd`, `12€`, `US$12`). Rates:
+and accents don't matter, and the amount may be attached (`12usd`, `12€`, `US$12`); `to`, `in` or `->`
+may stand between the currencies (`12 usd -> eur`). Rates:
 ExchangeRate-API, synced once a day in the background (`aequalis --list` lists the currencies).
 
 | Type                       | Result |

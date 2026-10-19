@@ -1,5 +1,5 @@
 //! The files Aequalis keeps, all in one folder (`~/.config/aequalis`, `$XDG_CONFIG_HOME/aequalis`,
-//! `%APPDATA%	ally` on Windows):
+//! `%APPDATA%\aequalis` on Windows):
 //! the settings, the online data, the exchange rates, the city archive, the notices' state.
 //! Each is written atomically: a new file next to it, renamed over it, so a reader (another
 //! aequalis, an interrupted sync) sees the old version or the new one, never a part.
@@ -15,7 +15,7 @@ pub fn set_dir(base: &Path) {
     let _ = APP_DIR.set(base.join("aequalis"));
 }
 
-/// `~/.config/aequalis` (`$XDG_CONFIG_HOME/aequalis`; on Windows `%APPDATA%	ally`), or the app's
+/// `~/.config/aequalis` (`$XDG_CONFIG_HOME/aequalis`; on Windows `%APPDATA%\aequalis`), or the app's
 /// (`set_dir`).
 pub fn dir() -> Option<PathBuf> {
     if let Some(dir) = APP_DIR.get() {

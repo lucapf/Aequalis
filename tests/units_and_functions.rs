@@ -28,6 +28,8 @@ fn new_categories() {
     assert_eq!(out(&["30", "knots", "km/h"]), "55.56 km/h");
     assert_eq!(out(&["1", "bar", "psi"]), "14.5038 psi");
     assert_eq!(out(&["1013.25", "hPa", "atm"]), "1 atm");
+    assert_eq!(out(&["42", "kPa", "hPa"]), "420 hPa");
+    assert_eq!(out(&["42 kPa hPa"]), "420 hPa");
     assert_eq!(out(&["5", "l/100km", "mpg"]), "47.0429 mpg");
     assert_eq!(out(&["40", "mpg", "l/100km"]), "5.8804 l/100km");
     assert_eq!(out(&["1", "kWh", "MJ"]), "3.6 MJ");
@@ -50,11 +52,55 @@ fn compound_units() {
 }
 
 #[test]
+fn connectors_between_the_units() {
+    for connector in ["->", "in", "to", "TO"] {
+        assert_eq!(out(&["1000", "ly", connector, "yd"]), "1.0346e19 yd", "{connector}");
+        assert_eq!(out(&[&format!("1000 ly {connector} yd")]), "1.0346e19 yd", "{connector}");
+    }
+    assert_eq!(out(&["1000ly", "->", "yd"]), "1.0346e19 yd");
+    assert_eq!(out(&["5", "+", "5", "km", "to", "mi"]), "6.2137 mi");
+    // A last `in` is the inch; `to` or `->` last, the target comes next.
+    assert_eq!(out(&["10", "ft", "in"]), "120 in");
+    assert_eq!(out(&["10", "ft", "in", "in"]), "120 in");
+    for connector in ["to", "->"] {
+        let (code, msg) = err(&["10", "km", connector]);
+        assert!(code != 0 && msg.contains("now the length unit to convert to"), "{connector}: {msg}");
+    }
+    assert_ne!(err(&["10", "km", "at", "mi"]).0, 0, "not a connector");
+}
+
+#[test]
+fn not_misspelt_places() {
+    // A calculation (`pi - pi`: not Dili) and a connector (`mpg in`: not Spain).
+    assert_eq!(out(&["pi - pi"]), "0");
+    assert_eq!(out(&["pi-pi"]), "0");
+    assert_eq!(out(&["42 mpg in km/l"]), "17.856 km/l");
+    assert_eq!(out(&["42", "mpg", "in", "l/100km"]), "5.6003 l/100km");
+}
+
+#[test]
+fn units_and_currencies_dont_mix() {
+    for (request, from, to) in
+        [("3 d to USD", "d", "USD"), ("42 USD to ly", "USD", "ly"), ("42 USD ly", "USD", "ly"), ("3 ft -> euro", "ft", "euro"), ("10 km in eur", "km", "eur")]
+    {
+        assert_eq!(err(&[request]), (1, format!("aequalis: error: cannot convert `{from}` to `{to}`: a unit and a currency don't mix")), "{request}");
+    }
+}
+
+#[test]
 fn unit_errors() {
     assert_eq!(err(&["5", "foo/h", "mph"]), (1, "aequalis: error: unknown unit `foo` (see `aequalis --list`)".into()));
     assert_eq!(err(&["10", "C/s", "K/s"]), (1, "aequalis: error: `C` can't be part of a compound unit".into()));
     assert_eq!(err(&["1", "ha", "l/100km"]).0, 1);
-    assert_eq!(err(&["0", "mpg", "l/100km"]), (1, "aequalis: error: division by zero".into()));
+    assert_eq!(err(&["0", "mpg", "l/100km"]), (1, "aequalis: error: undefined".into()));
+    // A zero denominator: undefined, whatever the rest of the expression.
+    for request in ["1/0", "0/0", "1/(1-1)", "0^-1", "1/0 * 0", "1/0 km mi"] {
+        assert_eq!(err(&[request]), (1, "aequalis: error: undefined".into()), "{request}");
+    }
+    // A denominator too large to store: zero.
+    assert_eq!(out(&["7 / [770^563 / -3]"]), "0");
+    assert_eq!(out(&["7/1e400 + 2"]), "2");
+    assert_eq!(out(&["7/[770^563]", "km", "mi"]), "0 mi");
 }
 
 #[test]

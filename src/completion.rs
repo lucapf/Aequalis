@@ -127,7 +127,7 @@ pub fn quote_line(line: &str) -> Option<String> {
     if *cmd != "aequalis" && !cmd.ends_with("/aequalis") {
         return None;
     }
-    let is_flag = |w: &str| w.len() > 1 && w.starts_with('-') && !calc::starts_expression(w);
+    let is_flag = |w: &str| w.len() > 1 && w.starts_with('-') && w != "->" && !calc::starts_expression(w);
     let takes_value = |w: &str| matches!(w, "--precision" | "--autocompletion" | "--quote-line");
     // Flags before the expression (with their values), then the expression and units, then the rest.
     let mut start = 0;

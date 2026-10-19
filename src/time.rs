@@ -924,7 +924,9 @@ fn read_numeric_date(text: &str, fields: Option<Fields>, order: Order) -> Option
         } else {
             c.i = save;
         }
-        if civil.hour > 23 || civil.minute > 59 || civil.second > 59 {
+        // 24:00 is the end of the day, as in ISO (not 24:00 PM).
+        let end_of_day = clock == Clock::H24 && civil.hour == 24 && civil.minute == 0 && civil.second == 0 && civil.nano == 0;
+        if (civil.hour > 23 && !end_of_day) || civil.minute > 59 || civil.second > 59 {
             return None;
         }
         while c.eat(b' ') {}
@@ -1059,7 +1061,8 @@ fn scaled(text: &str, scale: i128) -> Option<i128> {
         let frac = &frac[..frac.len().min(30)];
         let den = 10i128.checked_pow(frac.len() as u32)?;
         let num: i128 = frac.parse().ok()?;
-        value = value.checked_add((num.checked_mul(scale)? * 2 + den) / (2 * den))?;
+        let doubled = num.checked_mul(scale)?.checked_mul(2)?.checked_add(den)?;
+        value = value.checked_add(doubled / (2 * den))?;
     }
     Some(sign * value)
 }
@@ -1467,6 +1470,14 @@ fn starts_with_duration(text: &str) -> bool {
 #[cfg_attr(not(feature = "tui"), allow(dead_code))]
 pub fn is_date_value(text: &str) -> bool {
     is_date_request(text) || read_date(text, None, Order::of_locale()).is_some()
+}
+
+/// Whether `text` is only a number expression (`1-10-10`, `2026-12-02`, `79 / 10 / 1`): digits,
+/// operators and brackets, no word. Alone it is arithmetic, never a date on its way to a format
+/// (`2026-12-02-2026-12-01` = -27); a date needs a format, a unit or a keyword beside it.
+pub fn is_number_expression(text: &str) -> bool {
+    let t = text.trim();
+    t.chars().any(|c| c.is_ascii_digit()) && t.chars().all(|c| c.is_ascii_digit() || " .+-*/^()[]{}xX".contains(c))
 }
 
 /// A written date followed by a single output format (`12/04/26 3:20PM unix`): the date is read
@@ -2236,8 +2247,14 @@ fn near_places(text: &str) -> Vec<NearPlace> {
 /// corrected; the corrections, together, whose request works are an `Ambiguous` error to choose
 /// from (at most 8). `None`: no such places.
 fn place_typos(config: &Config, input: &str, precision: usize, verbose: bool) -> Option<TimeError> {
+    // A calculation is no misspelt place (`pi-pi`, not Dili).
+    if crate::calc::parse_prefix(input).is_ok_and(|(_, rest)| rest.trim().is_empty()) {
+        return None;
+    }
     let words: Vec<&str> = input.split_whitespace().collect();
-    let wordlike = |w: &&str| w.chars().all(|c| c.is_alphabetic() || "'’-.".contains(c)) && !["to", "->"].contains(w);
+    // A word, not an operator (`pi - pi`) or a connector (`42 mpg in km/l`).
+    let wordlike =
+        |w: &&str| w.chars().any(char::is_alphabetic) && w.chars().all(|c| c.is_alphabetic() || "'’-.".contains(c)) && !crate::currency::connector(w);
     // The misspelt runs: (first word, word count, what they may be), longest first.
     let mut spans: Vec<(usize, usize, Vec<NearPlace>)> = Vec::new();
     let mut i = 0;
@@ -2687,6 +2704,24 @@ mod tests {
         assert_eq!((tokio.note.as_str(), tokio.choices[0].pattern.as_str()), ("`Tokio` is not a city", "Tokyo"));
         // Nothing near: no question.
         assert!(!matches!(request(&config, "10:00 Gotham", 4, false), Some(Err(TimeError::Ambiguous(_)))));
+        // Calculations and connectors are no misspelt places (`pi - pi`: not Dili; `mpg in`: not Spain).
+        for input in ["pi - pi", "pi-pi", "42 mpg in km/l"] {
+            assert!(!matches!(request(&config, input, 4, false), Some(Err(TimeError::Ambiguous(_)))), "{input}");
+        }
+        // A misspelt city with 24:00 (bug: no correction offered, 24:00 was not a time).
+        assert_eq!(ask("24:00 Mecico City to Croatia").choices[0].request, "24:00 Mexico City to Zagreb");
+    }
+
+    #[test]
+    fn end_of_day_with_a_city() {
+        let config = Config::default();
+        let at = |s: &str| request(&config, s, 4, false).unwrap();
+        // 24:00 is the next day's 00:00, as in ISO; not 24:30, not 24:00 PM.
+        let (midnight, end) = (at("00:00 Paris").unwrap().0, at("24:00 Paris").unwrap().0);
+        assert!(end.contains("12:00 AM") && end != midnight, "{end}, {midnight}");
+        assert!(at("24:00 Mexico City to Croatia").is_ok());
+        assert!(at("24:30 Paris").is_err());
+        assert!(at("24:00 PM Paris").is_err());
     }
 
     #[test]
