@@ -47,7 +47,12 @@ impl fmt::Display for ConvertError {
 /// Exact match first; then case-insensitive, skipping case-sensitive (data) categories.
 pub fn find_unit<'a>(config: &'a Config, name: &str) -> Option<(&'a Category, &'a Unit)> {
     let names = config.unit_names();
-    let &(c, u) = names.exact.get(name).or_else(|| names.lower.get(&name.to_lowercase()))?;
+    // In lower case already (most words typed): looked up as it is, without a copy.
+    let lower = || match name.chars().any(char::is_uppercase) {
+        true => names.lower.get(&name.to_lowercase()),
+        false => names.lower.get(name),
+    };
+    let &(c, u) = names.exact.get(name).or_else(lower)?;
     let category = &config.categories[c];
     Some((category, &category.units[u]))
 }

@@ -205,7 +205,7 @@ pub struct Device {
 
 /// The ISO code of the device time zone's country (`IT` for Europe/Rome), to offer its cities first.
 pub fn local_country() -> Option<String> {
-    crate::time::tz::zone_country(&crate::currency::local_zone()?).map(|c| c.code.clone())
+    crate::time::tz::zone_country(crate::time::device_zone()?).map(|c| c.code.clone())
 }
 
 /// `request`, with the city archive `store` (if any), and the `device` asked for once there are two
@@ -492,7 +492,7 @@ mod tests {
 
     #[test]
     fn every_place_has_coordinates() {
-        for name in crate::time::tz::place_names() {
+        for (name, _) in crate::time::tz::place_words() {
             assert!(known(name).is_some(), "{name}");
         }
     }

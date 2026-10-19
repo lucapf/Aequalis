@@ -132,9 +132,7 @@ fn currencies(prefix: &str, besides: Option<&str>) -> (Vec<String>, Vec<String>)
     let mut names = Vec::new();
     let mut labels = Vec::new();
     for c in crate::currency::all() {
-        let fits = typed.is_empty()
-            || c.code.to_ascii_lowercase().starts_with(&typed)
-            || std::iter::once(&c.name).chain(&c.words).any(|w| crate::time::tz::key(w).starts_with(&typed));
+        let fits = typed.is_empty() || crate::currency::starts_with(c, &typed);
         if fits && Some(c.code.as_str()) != source {
             names.push(c.code.clone());
             labels.push(format!("{} - {}", c.code, c.name));
@@ -157,7 +155,7 @@ fn words(config: &Config, before: &str, typing: bool) -> Option<Suggestions> {
             .iter()
             .map(|f| f.to_string())
             .chain(crate::time::pattern_words())
-            .filter(|f| !prefix.is_empty() && f.to_lowercase().starts_with(&prefix.to_lowercase()))
+            .filter(|f| !prefix.is_empty() && starts_with_any_case(f, prefix))
             .take(MAX)
             .collect();
         if !formats.is_empty() {
@@ -174,16 +172,16 @@ fn words(config: &Config, before: &str, typing: bool) -> Option<Suggestions> {
     }
     let typed = crate::time::tz::key(prefix);
     let first = earlier.is_empty();
-    let keywords = ["now", "today", "distance"].into_iter().filter(|_| first).map(|k| (k.to_string(), true));
-    let places = crate::time::tz::place_names().map(|p| (p.to_string(), false));
-    let countries = crate::time::tz::countries().iter().map(|c| (c.name.clone(), false));
+    let keywords = ["now", "today", "distance"].into_iter().filter(|_| first).map(|k| (k, k, true));
+    let places = crate::time::tz::place_words().map(|(name, key)| (name, key, false));
+    let countries = crate::time::tz::country_words().map(|(name, key)| (name, key, false));
     let mut names: Vec<String> = Vec::new();
-    for (name, keyword) in keywords.chain(places).chain(countries) {
+    for (name, key, keyword) in keywords.chain(places).chain(countries) {
         // A place whose name is something else to aequalis (`Bar`, a unit) is not offered (asked only
         // of the names that fit: it looks the name up as a unit, a date word and a currency).
-        let fits = crate::time::tz::key(&name).starts_with(&typed) && !names.contains(&name);
-        if fits && (keyword || !crate::time::reserved(config, &name)) {
-            names.push(name);
+        let fits = key.starts_with(&typed) && !names.iter().any(|n| n == name);
+        if fits && (keyword || !crate::time::reserved(config, name)) {
+            names.push(name.to_string());
         }
         if names.len() == MAX {
             break;
@@ -284,29 +282,34 @@ fn before_start(text: &str, n: usize) -> usize {
 }
 
 fn matching(config: &Config, only: Option<&Category>, prefix: &str) -> Vec<&'static str> {
-    let lower = prefix.to_lowercase();
-    // A category whose case matters, written in a case none of its units has (`gb`, `GiB` aside):
-    // its units in any case, to choose the right one (`GB`, `Gb`). Written in a case one has (`k`,
-    // `Gb`): that case only (`kB` and `kb`, not `KiB`).
-    let any_case =
-        |cat: &Category| cat.case_sensitive && !cat.units.iter().any(|u| std::iter::once(&u.symbol).chain(u.aliases.iter()).any(|n| n.starts_with(prefix)));
-    let fits = |cat: &Category, name: &str| match cat.case_sensitive && !any_case(cat) {
+    // A category whose case matters, written in a case one of its units has (`k`, `Gb`): that case
+    // only (`kB` and `kb`, not `KiB`). Written in a case none has (`gb`, `GiB` aside), or a category
+    // where case doesn't matter: any case (`GB`, `Gb`, to choose the right one).
+    let exact_case = |cat: &Category| cat.case_sensitive && cat.units.iter().any(|u| std::iter::once(&u.symbol).chain(u.aliases.iter()).any(|n| n.starts_with(prefix)));
+    // Each category with how its names are compared, decided once.
+    let categories: Vec<(&Category, bool)> = config.categories.iter().filter(|c| only.is_none_or(|o| o.name == c.name)).map(|c| (c, exact_case(c))).collect();
+    let fits = |exact: bool, name: &str| match exact {
         true => name.starts_with(prefix),
-        false => name.to_lowercase().starts_with(&lower),
+        false => starts_with_any_case(name, prefix),
     };
-    let categories = || config.categories.iter().filter(|c| only.is_none_or(|o| o.name == c.name));
-    let mut names: Vec<&'static str> = categories().flat_map(|c| c.units.iter().filter(move |u| fits(c, u.symbol)).map(|u| u.symbol)).collect();
+    let mut names: Vec<&'static str> = categories.iter().flat_map(|&(c, exact)| c.units.iter().filter(move |u| fits(exact, u.symbol)).map(|u| u.symbol)).collect();
     // With no prefix (the target slot), the symbols are enough.
     if !prefix.is_empty() {
-        for c in categories() {
+        for &(c, exact) in &categories {
             for alias in c.units.iter().flat_map(|u| u.aliases.iter()) {
-                if fits(c, alias) && !names.contains(alias) {
+                if fits(exact, alias) && !names.contains(alias) {
                     names.push(alias);
                 }
             }
         }
     }
     names
+}
+
+/// Whether `text` starts with `prefix`, case aside (any letters, not only ASCII ones).
+fn starts_with_any_case(text: &str, prefix: &str) -> bool {
+    let mut text = text.chars().flat_map(char::to_lowercase);
+    prefix.chars().flat_map(char::to_lowercase).all(|p| text.next() == Some(p))
 }
 
 #[cfg(test)]

@@ -481,9 +481,11 @@ impl Order {
         }
     }
 
-    /// The device locale's order (the C locale's `%m/%d/%y` when unknown).
+    /// The device locale's order (the C locale's `%m/%d/%y` when unknown), read once: a date
+    /// request asks several times, and on Windows each reading is a system query.
     pub fn of_locale() -> Order {
-        sys::date_format().map_or(Order::MonthFirst, |f| Order::from_format(&f))
+        static ORDER: std::sync::OnceLock<Order> = std::sync::OnceLock::new();
+        *ORDER.get_or_init(|| sys::date_format().map_or(Order::MonthFirst, |f| Order::from_format(&f)))
     }
 
     fn describe(self) -> &'static str {

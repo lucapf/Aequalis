@@ -775,6 +775,10 @@ struct Names {
     cities: HashMap<String, usize>,
     /// Each city's normalised name, in `CITIES` order (misspellings are measured against them).
     city_keys: Vec<String>,
+    /// The same with their spaces (`key`), for the prefixes typed (suggestions).
+    city_words: Vec<String>,
+    /// Each country's name as `key` writes it, in `countries()` order.
+    country_words: Vec<String>,
     /// A country's name or alias → its index in `countries()` (the first with that name).
     countries: HashMap<String, usize>,
     /// Every country name and alias, normalised, with the country's index.
@@ -793,15 +797,10 @@ fn names() -> &'static Names {
     static NAMES: OnceLock<Names> = OnceLock::new();
     NAMES.get_or_init(|| {
         // Each name normalised once: its words counted, then squeezed.
-        let mut longest_city = 1;
-        let city_keys: Vec<String> = CITIES
-            .iter()
-            .map(|(n, _)| {
-                let k = key(n);
-                longest_city = longest_city.max(k.split(' ').count());
-                k.replace(' ', "")
-            })
-            .collect();
+        let city_words: Vec<String> = CITIES.iter().map(|(n, _)| key(n)).collect();
+        let longest_city = city_words.iter().map(|k| k.split(' ').count()).max().unwrap_or(1);
+        let city_keys: Vec<String> = city_words.iter().map(|k| k.replace(' ', "")).collect();
+        let country_words: Vec<String> = countries().iter().map(|c| key(&c.name)).collect();
         let mut cities = HashMap::new();
         for (i, k) in city_keys.iter().enumerate() {
             cities.entry(k.clone()).or_insert(i);
@@ -828,7 +827,7 @@ fn names() -> &'static Names {
                 }
             }
         }
-        Names { longest_city, longest_country, cities, city_keys, countries: by_name, country_keys, codes, zones }
+        Names { longest_city, longest_country, cities, city_keys, city_words, countries: by_name, country_keys, country_words, codes, zones }
     })
 }
 
@@ -974,9 +973,14 @@ pub fn place_name(name: &str) -> Option<&'static str> {
     city_index(name).map(|i| CITIES[i].0)
 }
 
-/// The places' names, as shown.
-pub fn place_names() -> impl Iterator<Item = &'static str> {
-    CITIES.iter().map(|(n, _)| *n)
+/// The places' names as shown, each with that name as `key` writes it (`New York`, `new york`).
+pub fn place_words() -> impl Iterator<Item = (&'static str, &'static str)> {
+    CITIES.iter().zip(&names().city_words).map(|((n, _), k)| (*n, k.as_str()))
+}
+
+/// The countries' names as shown, each with that name as `key` writes it.
+pub fn country_words() -> impl Iterator<Item = (&'static str, &'static str)> {
+    countries().iter().zip(&names().country_words).map(|(c, k)| (c.name.as_str(), k.as_str()))
 }
 
 /// The built-in cities nearest a misspelt name, within 2 letters, as indexes in `CITIES`; none

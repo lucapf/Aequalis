@@ -502,11 +502,10 @@ pub extern "C" fn aequalis_currencies() -> *mut c_char {
 }
 
 pub fn currencies() -> String {
-    let countries = crate::time::tz::countries();
     let list: Vec<String> = crate::currency::all()
         .iter()
         .map(|c| {
-            let users: Vec<_> = countries.iter().filter(|k| k.currency == c.code).collect();
+            let users = crate::currency::users(&c.code);
             let names: Vec<String> = users.iter().map(|k| k.name.clone()).collect();
             let aliases: Vec<String> = users.iter().flat_map(|k| k.aliases.iter().cloned()).collect();
             Object::new().str("code", &c.code).str("name", &c.name).strs("symbols", &c.symbols).strs("countries", &names).strs("aliases", &aliases).finish()
