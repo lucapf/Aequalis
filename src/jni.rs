@@ -109,7 +109,7 @@ pub extern "system" fn Java_io_lucapf_aequalis_Core_init(env: Env, _class: Class
     unsafe { to_java(env, &reply) }
 }
 
-/// `Core.eval(request, submitted)`: the reply as the app shows it (`json::view`): what to show, its
+/// `Core.eval(request, submitted)`: the reply as the app shows it (`reply::view`): what to show, its
 /// message, the value to copy, the choices of an ambiguous request. `submitted` is a `jboolean`.
 #[no_mangle]
 pub extern "system" fn Java_io_lucapf_aequalis_Core_eval(env: Env, _class: Class, request: ByteArray, submitted: u8) -> ByteArray {
@@ -118,7 +118,7 @@ pub extern "system" fn Java_io_lucapf_aequalis_Core_eval(env: Env, _class: Class
         return unsafe { to_java(env, &crate::ffi::too_long()) };
     }
     let reply = match unsafe { text(env, request) } {
-        Some(request) => crate::json::view(&request, submitted != 0),
+        Some(request) => crate::reply::view(&request, submitted != 0),
         None => error("no request"),
     };
     unsafe { to_java(env, &reply) }

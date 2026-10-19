@@ -1,7 +1,7 @@
 //! aequalis: an ultra lightweight command-line unit converter.
 
 use aequalis::config::Config;
-use aequalis::{convert, convert_request, json, notify, online, parse_options, run, settings, time, CliError, Output, Parsed};
+use aequalis::{convert, convert_request, notify, online, parse_options, reply, run, settings, time, CliError, Output, Parsed};
 use std::io::{IsTerminal, Read};
 use std::process::ExitCode;
 
@@ -32,11 +32,11 @@ fn main() -> ExitCode {
     let args: Vec<String> = all.into_iter().filter(|a| a != "--json").collect();
     // `--as-typed [--submitted] "<request>"` (with `--json`, for a UI such as the Omarchy widget):
     // the request as typed, a trailing space included, and what the UI shows of its reply
-    // (`json::view`). `--submitted`: Enter was pressed on it. The reply says what went wrong.
+    // (`reply::view`). `--submitted`: Enter was pressed on it. The reply says what went wrong.
     if json && args.iter().any(|a| a == "--as-typed") {
         let submitted = args.iter().any(|a| a == "--submitted");
         let words: Vec<&str> = args.iter().map(String::as_str).filter(|a| !["--as-typed", "--submitted"].contains(a)).collect();
-        println!("{}", json::view(&words.join(" "), submitted));
+        println!("{}", reply::view(&words.join(" "), submitted));
         return ExitCode::SUCCESS;
     }
     // `--settings`, `--set key[=value]`: the settings (`settings.rs`); they work even when the file
@@ -101,7 +101,7 @@ fn main() -> ExitCode {
             // `--json`: the usual reply, the lines as the result (with the peak memory).
             (Ok(report), true) => {
                 let output = Output { stdout: report.done.join("\n"), warnings: report.failed.clone(), ..Output::default() };
-                println!("{}", json::result(&Ok(output), &[]));
+                println!("{}", reply::result(&Ok(output), &[]));
                 code(&report)
             }
             (Ok(report), false) => {
@@ -114,7 +114,7 @@ fn main() -> ExitCode {
                 code(&report)
             }
             (Err(e), true) => {
-                println!("{}", json::result(&Err(CliError::Convert(convert::ConvertError::Domain(e))), &[]));
+                println!("{}", reply::result(&Err(CliError::Convert(convert::ConvertError::Domain(e))), &[]));
                 ExitCode::from(1)
             }
             (Err(e), false) => {
@@ -160,7 +160,7 @@ fn main() -> ExitCode {
             other => other,
         };
         if json {
-            println!("{}", json::result(&result, &notify::current()));
+            println!("{}", reply::result(&result, &notify::current()));
             if let Err(err) = &result {
                 code = code.max(err.exit_code());
             }

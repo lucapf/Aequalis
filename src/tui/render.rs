@@ -1123,9 +1123,9 @@ fn help(canvas: &mut Canvas, rows: usize, scroll: usize) {
     }
     let bottom = top + height - 1;
     // aequalis's memory, on the bottom border, always shown: now (where known) and the peak.
-    let memory = match aequalis::json::current_kb() {
-        Some(now) => format!(" Memory: {} now · peak {} ", aequalis::json::size(now), aequalis::json::size(aequalis::json::peak_kb())),
-        None => format!(" Memory: peak {} ", aequalis::json::size(aequalis::json::peak_kb())),
+    let memory = match aequalis::memory::current_kb() {
+        Some(now) => format!(" Memory: {} now · peak {} ", aequalis::memory::size(now), aequalis::memory::size(aequalis::memory::peak_kb())),
+        None => format!(" Memory: peak {} ", aequalis::memory::size(aequalis::memory::peak_kb())),
     };
     canvas.put_within(bottom, left + 2, right.saturating_sub(9), &memory, Style::Dim);
     if scroll > 0 {

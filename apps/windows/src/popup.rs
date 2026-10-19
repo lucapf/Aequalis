@@ -1,5 +1,5 @@
 //! The input box: a window by the notification area, as the Omarchy widget's popup. What it shows of
-//! a request is the library's reply for a UI (`json::view`): the result, a hint, an error, or a
+//! a request is the library's reply for a UI (`reply::view`): the result, a hint, an error, or a
 //! question with one button per choice; Enter copies a result (or takes a question's default), Esc
 //! or a click elsewhere closes it. Below: notices, what was copied, the recent requests. A click on
 //! the title shows About.
@@ -10,6 +10,7 @@
 use crate::system;
 use crate::win32::*;
 use aequalis::json::{self, Value};
+use aequalis::reply;
 use std::cell::{Cell, RefCell};
 use std::time::Instant;
 
@@ -419,7 +420,7 @@ fn text() -> String {
 fn evaluate() {
     let request = text();
     let submitted = STATE.with(|s| s.borrow().submitted);
-    let reply = if request.trim().is_empty() { None } else { Reply::parse(&json::view(&request, submitted)) };
+    let reply = if request.trim().is_empty() { None } else { Reply::parse(&reply::view(&request, submitted)) };
     STATE.with(|s| {
         let mut s = s.borrow_mut();
         s.reply = reply;

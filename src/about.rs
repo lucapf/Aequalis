@@ -66,7 +66,7 @@ pub fn facts(memory: &str) -> Vec<(&'static str, String)> {
 /// This process's memory (now, where known, and peak) and the binary's size:
 /// `2.9 MiB now · peak 3.0 MiB · binary 868 KiB`.
 pub fn memory() -> String {
-    use crate::json::{current_kb, peak_kb, size};
+    use crate::memory::{current_kb, peak_kb, size};
     let mut parts = Vec::new();
     if let Some(now) = current_kb() {
         parts.push(format!("{} now", size(now)));

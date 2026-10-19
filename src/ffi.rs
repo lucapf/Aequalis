@@ -7,12 +7,13 @@
 //!   them).
 //! - `aequalis_set_fetcher(fetch)`: the app's downloader (the app can't start `curl`).
 //! - `aequalis_eval(request)`: the reply of `aequalis --json <request>` (results, errors, choices);
-//!   `aequalis_view(request, submitted)`: the same, with what a UI shows (`json::view`).
+//!   `aequalis_view(request, submitted)`: the same, with what a UI shows (`reply::view`).
 //! - `aequalis_settings()`, `aequalis_set(key, value)`, `aequalis_sync(auto)`, `aequalis_trivia()`,
 //!   `aequalis_measures()`, `aequalis_currencies()`.
 
 use crate::config::{Config, System};
 use crate::json::{self, Object};
+use crate::reply;
 use std::ffi::{c_char, CStr, CString};
 use std::path::Path;
 
@@ -54,7 +55,7 @@ pub const MAX_BYTES: usize = 4 * crate::MAX_INPUT;
 
 /// The reply to a request longer than `MAX_INPUT` characters, given before anything reads it.
 pub fn too_long() -> String {
-    json::refused(crate::too_long())
+    reply::refused(crate::too_long())
 }
 
 /// No suggestions: `suggest`'s reply for a text with nothing to offer.
@@ -209,10 +210,10 @@ pub unsafe extern "C" fn aequalis_eval(request: *const c_char) -> *mut c_char {
 
 /// `aequalis_eval`'s reply, as submitted (Enter pressed): nothing hidden.
 pub fn eval(request: &str) -> String {
-    json::view(request, true)
+    reply::view(request, true)
 }
 
-/// The reply to a request as a UI shows it (`json::view`): what to show, the value to copy, the
+/// The reply to a request as a UI shows it (`reply::view`): what to show, the value to copy, the
 /// question's choices; `submitted`: Enter was pressed on it, else a reply that is no result shows
 /// nothing while a word is being typed.
 ///
@@ -223,7 +224,7 @@ pub unsafe extern "C" fn aequalis_view(request: *const c_char, submitted: bool) 
     match unsafe { request_text(request) } {
         Err(()) => give(too_long()),
         Ok(None) => error("no request"),
-        Ok(Some(request)) => give(json::view(request, submitted)),
+        Ok(Some(request)) => give(reply::view(request, submitted)),
     }
 }
 
@@ -340,7 +341,7 @@ pub extern "C" fn aequalis_sync(auto: bool) -> *mut c_char {
     let result = crate::online::sync(auto)
         .map(|report| crate::Output { stdout: report.done.join("\n"), warnings: report.failed, ..crate::Output::default() })
         .map_err(|e| crate::CliError::Convert(crate::convert::ConvertError::Domain(e)));
-    give(json::result(&result, &crate::notify::current()))
+    give(reply::result(&result, &crate::notify::current()))
 }
 
 /// The Trivia: `{"sections":[{"name":…,"entries":[{"name","short","description","value",
