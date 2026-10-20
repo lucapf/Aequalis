@@ -95,6 +95,8 @@ pub enum Target {
     BoardClass(usize),
     /// The list of measures moved by this many entries.
     BoardScroll(isize),
+    /// The list jumped to the currencies (true) or to the first class (false).
+    BoardJump(bool),
     /// A window over the screen: a click outside it closes it (Esc); inside it, nothing.
     Dismiss,
     Inside,
@@ -241,7 +243,7 @@ impl<'a> App<'a> {
             MouseKind::Down(Button::Left) => {
                 let hit = self.hits.iter().rev().find(|h| h.contains(mouse.row, mouse.col)).copied();
                 let on_board_item = hit.is_none_or(|h| {
-                    matches!(h.target, Target::BoardUnit(..) | Target::BoardMoney(_) | Target::BoardClock(_) | Target::BoardClass(_) | Target::BoardScroll(_))
+                    matches!(h.target, Target::BoardUnit(..) | Target::BoardMoney(_) | Target::BoardClock(_) | Target::BoardClass(_) | Target::BoardScroll(_) | Target::BoardJump(_))
                 });
                 match hit {
                     // A press on the board (on a button or on nothing) may start a drag of the list,
@@ -378,6 +380,13 @@ impl<'a> App<'a> {
                 }
             }
             Target::BoardScroll(by) => self.scroll_board(by),
+            Target::BoardJump(currencies) => {
+                let classes = super::board::classes(self.config, &self.usage);
+                let items = super::board::items(&classes, &self.usage);
+                if let Some(at) = items.iter().position(|i| matches!(i, super::board::Item::Currencies) == currencies) {
+                    self.board_scroll = at;
+                }
+            }
             Target::BoardClass(i) => {
                 if let Some(index) = super::board::classes(self.config, &self.usage).get(i).and_then(|c| self.config.categories.iter().position(|k| k.name == c.name)) {
                     self.overlay = Some(Overlay::Picker(super::picker::Picker::new(self.config, index, self.system)));

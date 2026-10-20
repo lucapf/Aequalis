@@ -370,9 +370,19 @@ fn board_view(app: &App, canvas: &mut Canvas, area: Area) {
         return;
     }
     let heading = y;
-    canvas.put_within(heading, left + 1, right, "Measures", Style::Bold);
-    // The text stops before the marker for what is above (▲ 12).
-    canvas.put_within(heading, left + 11, right.saturating_sub(8), "(most used first; scroll)", Style::Dim);
+    // Two buttons jump to the currencies or to the measures; the one the list is at is lit.
+    let on_money = matches!(items[first], Item::Currencies);
+    let mut x = left + 1;
+    for (label, money) in [("Currencies", true), ("Measures", false)] {
+        let text = format!("[ {label} ]");
+        let w = text.chars().count();
+        if x + w > right.saturating_sub(8) {
+            break;
+        }
+        canvas.put(heading, x, &text, if on_money == money { Style::Lit } else { Style::Plain });
+        canvas.hit(heading, x, w, Target::BoardJump(money));
+        x += w + 1;
+    }
     y += 1;
     let tall = end - y >= 15;
     // How many entries fit; the last row says how many are below when not all do.
@@ -2631,6 +2641,22 @@ mod tests {
         let col = line[..line.find(text).unwrap()].chars().count();
         app.hits = frame.hits;
         app.handle(Key::Mouse(super::super::keys::Mouse { kind, row, col }));
+    }
+
+    #[test]
+    fn the_board_has_buttons_for_measures_and_currencies() {
+        use super::super::keys::{Button, MouseKind};
+        let config = Config::default();
+        let opts = OPTS;
+        let size = (30, 140);
+        let mut app = app_after_in(&config, &opts, "", size);
+        assert_eq!(app.board_scroll, 0);
+        mouse_at(&mut app, size, "[ Measures ]", MouseKind::Down(Button::Left));
+        mouse_at(&mut app, size, "[ Measures ]", MouseKind::Up);
+        assert_eq!(app.board_scroll, 1, "the first class");
+        mouse_at(&mut app, size, "[ Currencies ]", MouseKind::Down(Button::Left));
+        mouse_at(&mut app, size, "[ Currencies ]", MouseKind::Up);
+        assert_eq!(app.board_scroll, 0);
     }
 
     #[test]
