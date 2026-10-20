@@ -121,12 +121,23 @@ impl aequalis::http::Fetcher for Curl {
 
 /// The full app, `aequalis.exe` (the interactive mode), in a console window of its own (Windows
 /// Terminal when it is the default). It sits next to this program; else the one on the PATH.
+/// Opened as Explorer would open it, so Windows gives a console program its console.
 pub fn open_terminal() {
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     let beside = std::env::current_exe().ok().and_then(|exe| exe.parent().map(|dir| dir.join("aequalis.exe"))).filter(|p| p.exists());
-    let program = beside.map_or_else(|| "aequalis.exe".to_string(), |p| p.display().to_string());
-    // `start` gives a console program a console of its own; the title is the first quoted word.
-    let _ = Command::new("cmd.exe").args(["/c", "start", "Aequalis", &program]).creation_flags(CREATE_NO_WINDOW).spawn();
+    let (op, program) = (wide("open"), wide(&beside.as_ref().map_or_else(|| "aequalis.exe".to_string(), |p| p.display().to_string())));
+    // Started in its folder when it is known (else where this program is).
+    let dir = beside.as_ref().and_then(|p| p.parent()).map(|d| wide(&d.display().to_string()));
+    // SAFETY: valid strings, nul-terminated.
+    unsafe {
+        ShellExecuteW(
+            std::ptr::null_mut(),
+            op.as_ptr(),
+            program.as_ptr(),
+            std::ptr::null(),
+            dir.as_ref().map_or(std::ptr::null(), |d| d.as_ptr()),
+            SW_SHOWNORMAL,
+        )
+    };
 }
 
 /// A page in the browser.
