@@ -34,7 +34,7 @@ use editor::{Entry, History, Line};
 use keys::Key;
 use picker::{Direction, Picker};
 use std::cell::RefCell;
-use std::io::{Read, Write};
+use std::io::Write;
 use std::process::ExitCode;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -678,7 +678,7 @@ pub fn run(config: &Config, opts: &Options) -> ExitCode {
     app.numbers = numbers::device_format();
     // The keypad as the `tui.keyboard` setting says (F9 shows / hides it).
     app.keypad = aequalis::settings::current().keyboard();
-    let (mut stdin, mut stdout) = (std::io::stdin(), std::io::stdout());
+    let mut stdout = std::io::stdout();
     let (mut pending, mut buf) = (Vec::new(), [0u8; 256]);
     let (mut drawn, mut dirty, mut clear, mut hangups) = (None, true, true, 0);
     while !app.quit {
@@ -692,7 +692,7 @@ pub fn run(config: &Config, opts: &Options) -> ExitCode {
             (drawn, dirty, clear) = (Some(size), false, false);
         }
         let started = Instant::now();
-        let n = match stdin.read(&mut buf) {
+        let n = match term::read(&mut buf) {
             Ok(n) => n,
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
             Err(_) => break,

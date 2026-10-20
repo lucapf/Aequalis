@@ -77,3 +77,23 @@ jobs:
         with:
           name: windows-installer
           path: dist/*-setup.exe
+
+  # The interactive mode in a real Windows console: a pseudo-console (ConPTY) gets the keys of a
+  # terminal and its screen is read back (scripts/windows-tui-smoke.py).
+  windows-tui:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+      - name: Toolchain
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+      - name: Build
+        run: cargo build --release
+      - name: Interactive mode
+        run: |
+          python -m pip install --quiet pywinpty
+          # No network, so nothing downloads during the check.
+          target/release/aequalis --set offline=true
+          python scripts/windows-tui-smoke.py target/release/aequalis.exe

@@ -13,7 +13,9 @@ panel), status; no modes.
       share `Action`s (`src/tui/action.rs`).
 - [x] 2. No modes: toolbar (F2 Measures, F3 Currencies, F4 Trivia, F5 History, F10 Settings, Alt
       letters), Ctrl+K unit search, shell-like ↑ ↓, Esc / Ctrl+C steps, REPL layout (Standard).
-- [ ] 1b. Windows: raw mode, VT input and output, size polling (`src/tui/term.rs`).
+- [x] 1b. Windows: console raw mode, VT input and output, a timed read of the console (`src/tui/term.rs`),
+      the clipboard through PowerShell. Type-checked for both Windows targets; its first run in a real
+      console is the CI job `windows-tui` (`scripts/windows-tui-smoke.py`).
 - [ ] 3. The band: keypad (Basic / Sci) and panels (Measures levels, Currencies, Trivia, choices).
 - [ ] 4. Mouse: hit map, `tui.mouse`, terminal mouse modes.
 - [ ] 5. `src/find.rs` in the core and the Ctrl+K palette (units, currencies, cities, trivia,
