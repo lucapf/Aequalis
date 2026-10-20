@@ -519,18 +519,18 @@ pub fn render(app: &App, rows: usize, cols: usize) -> Frame {
             if panel_open(app) {
                 band_content(app, &mut pane, area, false, &mut cursor);
             } else if let (Some((board_w, keyboard_w)), true) = (wide_split(rows, cols), app.keyboard_shown()) {
-                // The board and, beside it, the big keyboard (the compact one when the screen is not
-                // tall enough for it).
-                board_view(app, &mut pane, Area { width: board_w, ..area });
-                for row in 1..rows - 1 {
-                    pane.cells[row][board_w] = ('│', Style::Dim);
-                }
-                let keyboard = Area { left: board_w + 1, width: keyboard_w, ..area };
+                // The big keyboard (the compact one when the screen is not tall enough for it) at the
+                // left and, beside it, the board.
+                let keyboard = Area { width: keyboard_w, ..area };
                 if area.height > BIG_ROWS {
                     big_keyboard(app, &mut pane, keyboard);
                 } else {
                     keypad(app, &mut pane, 1);
                 }
+                for row in 1..rows - 1 {
+                    pane.cells[row][keyboard_w] = ('│', Style::Dim);
+                }
+                board_view(app, &mut pane, Area { left: keyboard_w + 1, width: board_w, ..area });
             } else if !board_shown(app) {
                 keypad(app, &mut pane, 1);
             } else {

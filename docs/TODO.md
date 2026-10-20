@@ -51,7 +51,7 @@ panel), status; no modes.
       when the screen is short), and the five most used currencies (the most traded ones to start:
       USD EUR JPY GBP CNY) valued in `tui.base_currency` (auto: the local currency). From 150
       columns the big keyboard (keys three rows high, with C ← → to ␣ for a pad without a keyboard)
-      sits beside it; `tui.keyboard` is auto / true / false. The usage is counted in `usage.json`.
+      sits at its left; `tui.keyboard` is auto / true / false. The usage is counted in `usage.json`.
 - [ ] 7. Docs, help, dead-code cleanup.
 
 ## Android app
