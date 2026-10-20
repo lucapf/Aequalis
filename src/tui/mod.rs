@@ -16,6 +16,7 @@
 //! touch the terminal.
 
 mod action;
+mod board;
 mod clipboard;
 mod currencies;
 mod editor;
@@ -165,6 +166,7 @@ pub struct App<'a> {
     /// The device's country (to rank the cities of the search), read when the search opens, and the
     /// last search made (query, how many requests were in the history) and its matches.
     country: Option<String>,
+    clocks: RefCell<Option<(i64, Rc<Vec<board::Clock>>)>>,
     found: RefCell<Option<LastSearch>>,
     /// The last request evaluated and its result: the preview, the currencies line and Enter
     /// share it (one evaluation per change of the bar, not one per use).
@@ -224,6 +226,7 @@ impl<'a> App<'a> {
             copied: None,
             system_clipboard: false,
             country: None,
+            clocks: RefCell::new(None),
             found: RefCell::new(None),
             evaluation: RefCell::new(None),
         }
@@ -234,24 +237,35 @@ impl<'a> App<'a> {
         self.keypad != Keypad::Hidden && self.screen.0 >= render::KEYPAD_FROM && !matches!(self.overlay, Some(Overlay::Measures(_) | Overlay::Picker(_) | Overlay::Currencies(_) | Overlay::Trivia(_) | Overlay::Search(_) | Overlay::History(_)))
     }
 
-    /// The columns the keyboard has: the pane's in the Wide layout, else the terminal's.
+    /// The columns the keyboard has: its column beside the board in the Wide layout (big keys),
+    /// else the pane's, else the terminal's.
     fn keyboard_cols(&self) -> usize {
-        render::pane_width(self.screen.0, self.screen.1).unwrap_or(self.screen.1)
+        match render::wide_split(self.screen.0, self.screen.1) {
+            Some((_, keyboard)) => keyboard,
+            None => render::pane_width(self.screen.0, self.screen.1).unwrap_or(self.screen.1),
+        }
     }
 
-    /// The layout the keyboard opens on: Sci when it fits with the shortcuts, else Basic.
+    /// The layout the keyboard opens on: Sci when it fits (with the shortcuts, or in its column
+    /// beside the board), else Basic.
     fn best_layout(&self) -> Keypad {
-        if render::shortcuts_fit(self.keyboard_cols(), true) {
+        let fits = match render::wide_split(self.screen.0, self.screen.1) {
+            Some((_, keyboard)) => render::big_sci_fits(keyboard),
+            None => render::shortcuts_fit(self.keyboard_cols(), true),
+        };
+        if fits {
             Keypad::Sci
         } else {
             Keypad::Basic
         }
     }
 
-    /// The parts Tab goes through: the layouts, and the shortcuts when there is room for them.
+    /// The parts Tab goes through: the layouts, and the shortcuts when there is room for them (the
+    /// big keyboard beside the board has none: the board has the units and the currencies).
     fn parts(&self) -> Vec<Part> {
         let mut parts = vec![Part::Basic, Part::Sci];
-        if render::shortcuts_fit(self.keyboard_cols(), self.keypad == Keypad::Sci) {
+        let beside_the_board = render::wide_split(self.screen.0, self.screen.1).is_some();
+        if !beside_the_board && render::shortcuts_fit(self.keyboard_cols(), self.keypad == Keypad::Sci) {
             parts.extend([Part::Units, Part::Money]);
         }
         parts
@@ -301,6 +315,54 @@ impl<'a> App<'a> {
             _ => return false,
         }
         true
+    }
+
+    /// A unit (or a currency) written into the request where the cursor is, and counted.
+    fn write_unit(&mut self, name: &str, currency: bool) {
+        let line = picker::place_unit(&self.line.text(), self.line.cursor(), name);
+        self.line.set(&line);
+        self.used(name, currency);
+    }
+
+    /// The currency the board values the others in: the setting, else the local currency.
+    pub(super) fn base_currency(&self) -> Option<String> {
+        aequalis::settings::current().base_currency().map(str::to_string).or_else(|| self.local_currency.map(str::to_string))
+    }
+
+    /// The board's currencies against the base.
+    pub(super) fn board_money(&self) -> Vec<board::Money> {
+        board::currencies(&self.usage, &self.rates, self.base_currency().as_deref())
+    }
+
+    /// The clocks of the board: our own zone, then the common cities; made once a minute.
+    pub(super) fn clocks(&self) -> Rc<Vec<board::Clock>> {
+        let minute = aequalis::time::unix_now() / 60;
+        if let Some((at, clocks)) = &*self.clocks.borrow() {
+            if *at == minute {
+                return Rc::clone(clocks);
+            }
+        }
+        // Plainly, whatever the notes the session shows: only the time is wanted.
+        let plain = Options { positional: Vec::new(), precision: self.opts.precision, silent: true, verbose: false };
+        let print = |request: &str| {
+            let tokens: Vec<&str> = request.split_whitespace().collect();
+            match convert_request(self.config, &plain, &tokens) {
+                Ok(out) => Some(out.stdout.trim().to_string()),
+                Err(_) => None,
+            }
+        };
+        let here = print("now").and_then(|printed| board::parse_time(&printed)).map(|(_, day, utc)| (day, utc));
+        let mut clocks = Vec::new();
+        if let Some(here) = here {
+            for city in board::COMMON_CITIES {
+                if let Some(clock) = print(&format!("now {city}")).and_then(|printed| board::clock(city, &printed, here)) {
+                    clocks.push(clock);
+                }
+            }
+        }
+        let clocks = Rc::new(clocks);
+        *self.clocks.borrow_mut() = Some((minute, Rc::clone(&clocks)));
+        clocks
     }
 
     /// The shortcuts as the settings keep them (the units' defaults follow the measurement system).
@@ -368,6 +430,8 @@ impl<'a> App<'a> {
         }
         self.online_stamp = stamp;
         self.online = aequalis::online::load_from(&path);
+        // The exchange rates came with it.
+        self.refresh_money();
         true
     }
 
@@ -979,9 +1043,13 @@ pub fn run(config: &Config, opts: &Options) -> ExitCode {
     app.persist = true;
     app.load_shortcuts();
     app.usage = aequalis::usage::load();
+    app.refresh_money();
     // The keypad as the `tui.keyboard` setting says (F9 shows, changes and hides it).
     app.screen = term::size().unwrap_or((24, 80));
-    app.keypad = if aequalis::settings::current().keyboard() { app.best_layout() } else { Keypad::Hidden };
+    // On screen from the start when asked for, or (auto) when the screen has the room for the board
+    // and the keyboard side by side.
+    let both = render::wide_split(app.screen.0, app.screen.1).is_some();
+    app.keypad = if aequalis::settings::current().keyboard().unwrap_or(both) { app.best_layout() } else { Keypad::Hidden };
     // The mouse as the `tui.mouse` setting says (Alt+O switches it for the session).
     app.mouse_on = aequalis::settings::current().mouse();
     let mut mouse_reported = false;

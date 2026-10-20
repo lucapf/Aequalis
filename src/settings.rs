@@ -94,9 +94,15 @@ pub const KEYS: &[Key] = &[
     // Only the interactive mode's: the app (`ffi::settings`) doesn't list the `tui.` keys.
     Key {
         key: "tui.keyboard",
-        default: "false",
-        kind: Kind::Bool,
-        about: "the interactive mode starts with its keypad on screen (F9 shows, changes and hides it)",
+        default: "auto",
+        kind: Kind::Choice(&["auto", "true", "false"]),
+        about: "the interactive mode starts with its keyboard on screen (auto: when the screen is wide enough for the board; F9 shows and hides it)",
+    },
+    Key {
+        key: "tui.base_currency",
+        default: "auto",
+        kind: Kind::Currency,
+        about: "the currency the board's currencies are valued in (auto: the local currency)",
     },
     Key {
         key: "tui.mouse",
@@ -197,9 +203,19 @@ impl Settings {
         self.get("format.datetime")
     }
 
-    /// The interactive mode starts with its keypad on screen (off unless asked).
-    pub fn keyboard(&self) -> bool {
-        self.get("tui.keyboard") == "true"
+    /// Whether the interactive mode starts with its keyboard: `Some` when asked for (`true`,
+    /// `false`), `None` for `auto` (when the screen is wide enough for the board).
+    pub fn keyboard(&self) -> Option<bool> {
+        match self.get("tui.keyboard") {
+            "true" => Some(true),
+            "false" => Some(false),
+            _ => None,
+        }
+    }
+
+    /// The currency the board values the others in, when set (not `auto`).
+    pub fn base_currency(&self) -> Option<&str> {
+        Some(self.get("tui.base_currency")).filter(|c| *c != "auto")
     }
 
     /// The interactive mode takes the mouse (on unless turned off).
@@ -441,7 +457,7 @@ mod tests {
         assert_eq!((s.currency(), s.distance_unit(), s.precision()), (None, DistanceUnit::Auto, 4));
         assert_eq!((s.format_date(), s.format_datetime()), ("DD MMM YY", "DD MMM YY h:mm AM tz"));
         // Every accessor reads a key by name (`get` panics on a wrong one): each is called here.
-        assert_eq!((s.interval("live"), s.keyboard()), (86_400, false));
+        assert_eq!((s.interval("live"), s.keyboard()), (86_400, None));
     }
 
     #[test]

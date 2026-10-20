@@ -196,17 +196,216 @@ pub const MIN_COLS: usize = 40;
 /// and the history (the Wide layout), which stay as they are; below it, in the band under the line.
 const WIDE_FROM: usize = 120;
 
-/// The width of the pane at the right in the Wide layout, for a terminal of `rows` and `cols`.
+/// The width of the pane at the right in the Wide layout, for a terminal of `rows` and `cols`: 40%
+/// of the width, and from 150 columns 60%, so that the board and the keyboard are side by side.
 pub(super) fn pane_width(rows: usize, cols: usize) -> Option<usize> {
-    (cols >= WIDE_FROM && rows >= MIN_ROWS + 2).then(|| (cols * 2 / 5).clamp(52, 90))
+    if cols < WIDE_FROM || rows < MIN_ROWS + 2 {
+        return None;
+    }
+    Some(if cols >= BOTH_FROM { (cols * 3 / 5).clamp(100, 130) } else { (cols * 2 / 5).clamp(52, 90) })
 }
 
-/// Whether the band holds something: a panel, or the keyboard.
-fn band_is_open(app: &App) -> bool {
+/// From this many columns the pane holds the board and the keyboard side by side.
+const BOTH_FROM: usize = 150;
+
+/// The columns of the board, which needs this many for a class's name and five buttons.
+const BOARD_WIDTH: usize = 52;
+
+/// In the Wide layout with room for both: the columns of the board and of the keyboard beside it.
+pub(super) fn wide_split(rows: usize, cols: usize) -> Option<(usize, usize)> {
+    let pane = pane_width(rows, cols).filter(|w| *w >= BOARD_WIDTH + 1 + BIG_BASIC_WIDTH)?;
+    Some((BOARD_WIDTH, pane - BOARD_WIDTH - 1))
+}
+
+/// The columns of the big keyboard: Basic is 5 keys, Sci 2 more; a key is `BIG_KEY` wide and a
+/// column of the keyboard `BIG_KEY + 1` with the gap.
+const BIG_KEY: usize = 7;
+const BIG_BASIC_WIDTH: usize = 5 * (BIG_KEY + 1);
+const BIG_SCI_WIDTH: usize = 2 * (BIG_KEY + 1) + 2;
+/// The rows of the big keyboard: its tabs, then five rows of keys three high.
+const BIG_ROWS: usize = 1 + 5 * 3;
+
+/// Whether the big keyboard has the room for the Sci keys beside the Basic ones.
+pub(super) fn big_sci_fits(columns: usize) -> bool {
+    columns >= BIG_SCI_WIDTH + BIG_BASIC_WIDTH
+}
+
+/// Whether a panel (Measures, Currencies, …) is open: it takes the pane.
+fn panel_open(app: &App) -> bool {
     matches!(
         &app.overlay,
         Some(Overlay::Measures(_) | Overlay::Picker(_) | Overlay::Currencies(_) | Overlay::Trivia(_) | Overlay::History(_) | Overlay::Search(_))
-    ) || app.keyboard_shown()
+    )
+}
+
+/// The Basic keys of the big keyboard, five rows of five, and the Sci keys beside them, five of two.
+const BIG_BASIC: [[&str; 5]; 5] = [
+    ["(", ")", "%", "÷", "C"],
+    ["7", "8", "9", "×", "⌫"],
+    ["4", "5", "6", "−", "←"],
+    ["1", "2", "3", "+", "→"],
+    ["0", ".", "to", "␣", "⏎"],
+];
+const BIG_SCI: [[&str; 2]; 5] = [["sin", "cos"], ["tan", "√"], ["ln", "log"], ["π", "e"], ["^", "°"]];
+
+/// The big keyboard, for a finger: keys three rows high, its tabs on the first row. Every key is
+/// a button; the one typed last is lit.
+fn big_keyboard(app: &App, canvas: &mut Canvas, area: Area) {
+    let Area { top, left, .. } = area;
+    let sci = app.keypad == Keypad::Sci && big_sci_fits(area.width);
+    let tab = |part: Part, shown: bool| match (app.focus == Some(part), shown) {
+        (true, _) => Style::Inverse,
+        (false, true) => Style::Lit,
+        (false, false) => Style::Dim,
+    };
+    let mut col = canvas.put(top, left + 1, " Basic ", tab(Part::Basic, !sci));
+    canvas.hit(top, left + 1, col - left - 1, Target::Focus(Part::Basic));
+    col = canvas.put(top, col, "│", Style::Dim);
+    let from = col;
+    col = canvas.put(top, col, " Sci ", tab(Part::Sci, sci));
+    canvas.hit(top, from, col - from, Target::Focus(Part::Sci));
+    let key = |canvas: &mut Canvas, row: usize, x: usize, label: &str| {
+        let typed = label.chars().next().filter(|_| label.chars().count() == 1).map(|c| match c {
+            '÷' => '/',
+            '×' => '*',
+            '−' => '-',
+            '⏎' => '=',
+            c => c,
+        });
+        let lit = typed.is_some_and(|c| Some(c) == app.pressed);
+        let style = match typed {
+            _ if lit => Style::Lit,
+            Some('0'..='9' | '.') => Style::Bold,
+            _ => Style::Yellow,
+        };
+        big_button(canvas, row, x, BIG_KEY, "");
+        canvas.put(row + 1, x + 1, &format!("{label:^width$}", width = BIG_KEY - 2), style);
+        canvas.hit_rect(row, x, BIG_KEY, 3, Target::Act(key_action(label)));
+    };
+    for r in 0..5 {
+        let row = top + 1 + r * 3;
+        let mut x = left + 1;
+        if sci {
+            for (c, label) in BIG_SCI[r].iter().enumerate() {
+                key(canvas, row, x + c * (BIG_KEY + 1), label);
+            }
+            x += 2 * (BIG_KEY + 1) + 2;
+            canvas.cells[row + 1][x - 2] = ('│', Style::Dim);
+        }
+        for (c, label) in BIG_BASIC[r].iter().enumerate() {
+            key(canvas, row, x + c * (BIG_KEY + 1), label);
+        }
+    }
+}
+
+/// The width a clock takes on the board, and the first column of a class's buttons.
+const CLOCK_WIDTH: usize = 28;
+const CLASS_NAME: usize = 16;
+
+/// A box three rows high at (`y`, `x`) of `width` columns, with `title` on its top border
+/// (`┌─USD────┐`); its middle row is for the caller.
+fn big_button(canvas: &mut Canvas, y: usize, x: usize, width: usize, title: &str) {
+    let inner = width - 2;
+    let top = if title.is_empty() { format!("┌{}┐", "─".repeat(inner)) } else { format!("┌─{title}{}┐", "─".repeat(inner.saturating_sub(title.chars().count() + 1))) };
+    canvas.put(y, x, &top, Style::Dim);
+    canvas.put(y + 1, x, "│", Style::Dim);
+    canvas.put(y + 1, x + width - 1, "│", Style::Dim);
+    canvas.put(y + 2, x, &format!("└{}┘", "─".repeat(inner)), Style::Dim);
+}
+
+/// The board: the clocks, the units of each class (the most used first, used ones lit) and the
+/// currencies against the base. Every button writes what it shows.
+fn board_view(app: &App, canvas: &mut Canvas, area: Area) {
+    let Area { top, left, width, height } = area;
+    let right = left + width;
+    let mut y = top;
+    // The clocks: as many as fit, in rows.
+    let clocks = app.clocks();
+    let per = ((width.saturating_sub(1)) / CLOCK_WIDTH).max(1);
+    // As many rows as the height leaves after the currencies and a good part for the classes.
+    let allowed_rows = height.saturating_sub(4 + 20 + 1).min(6);
+    let shown = clocks.len().min(per * allowed_rows);
+    let clock_rows = shown.div_ceil(per);
+    if shown > 0 {
+        canvas.put_within(y, left + 1, right, "Clocks", Style::Bold);
+        y += 1;
+        for (i, c) in clocks.iter().take(shown).enumerate() {
+            let x = left + 1 + (i % per) * CLOCK_WIDTH;
+            let row = y + i / per;
+            let text = format!("{:<11}{:>8} {:>4}{:>4}", c.city, c.time, c.difference, c.day);
+            let end = canvas.put_within(row, x, right, &text, Style::Plain);
+            canvas.hit(row, x, end - x, Target::BoardClock(i));
+        }
+        y += clock_rows;
+    }
+    // The currencies at the bottom (a heading and boxes three rows high), the classes between.
+    let money = app.board_money();
+    let money_h = 4;
+    let measures_end = (top + height).saturating_sub(money_h);
+    let classes = super::board::classes(app.config, &app.usage);
+    if measures_end > y + 1 {
+        canvas.put_within(y, left + 1, right, "Measures", Style::Bold);
+        canvas.put_within(y, left + 12, right, "(the most used first; used ones lit)", Style::Dim);
+        y += 1;
+        let rows = measures_end - y;
+        let tall = rows / 3 >= classes.len().min(6);
+        let step = if tall { 3 } else { 1 };
+        let mut fits = (rows / step).min(classes.len());
+        let more = fits < classes.len();
+        if more && fits > 0 {
+            fits -= 1;
+        }
+        for (ci, class) in classes.iter().take(fits).enumerate() {
+            let row = y + ci * step;
+            let name_row = if tall { row + 1 } else { row };
+            canvas.put_within(name_row, left + 1, left + CLASS_NAME, &format!("{} {}", class.letter, class.name), Style::Bold);
+            canvas.hit_rect(row, left + 1, CLASS_NAME - 1, step, Target::BoardClass(ci));
+            let mut x = left + 1 + CLASS_NAME;
+            for (bi, b) in class.buttons.iter().enumerate() {
+                let w = (b.label.chars().count() + 4).max(6);
+                if x + w > right {
+                    break;
+                }
+                let style = if b.used { Style::Lit } else { Style::Plain };
+                if tall {
+                    big_button(canvas, row, x, w, "");
+                    canvas.put(row + 1, x + 1, &format!("{:^width$}", b.label, width = w - 2), style);
+                } else {
+                    canvas.put(row, x, "[", Style::Dim);
+                    canvas.put(row, x + 1, &format!(" {} ", b.label), style);
+                    canvas.put(row, x + w - 1, "]", Style::Dim);
+                }
+                canvas.hit_rect(row, x, w, step, Target::BoardUnit(ci, bi));
+                x += w + 1;
+            }
+        }
+        if more {
+            let row = y + fits * step;
+            let end = canvas.put_within(row, left + 1, right, &format!("… {} more classes: F2 Measures", classes.len() - fits), Style::Dim);
+            canvas.hit(row, left + 1, end - left - 1, Target::Act(Action::Open(super::action::Panel::Measures)));
+        }
+    }
+    // The currencies.
+    if height > money_h + 2 {
+        let row = top + height - money_h;
+        let heading = match app.base_currency() {
+            Some(base) => format!("Currencies in {base}"),
+            None => "Currencies  (set tui.base_currency for values)".to_string(),
+        };
+        canvas.put_within(row, left + 1, right, &heading, Style::Bold);
+        let mut x = left + 1;
+        for (i, m) in money.iter().enumerate() {
+            let w = 11;
+            if x + w > right {
+                break;
+            }
+            big_button(canvas, row + 1, x, w, &m.code);
+            let value = m.value.clone().unwrap_or_else(|| "–".to_string());
+            canvas.put(row + 2, x + 1, &format!("{value:^9}"), if m.used { Style::Lit } else { Style::Plain });
+            canvas.hit_rect(row + 1, x, w, 3, Target::BoardMoney(i));
+            x += w + 1;
+        }
+    }
 }
 
 /// What the band holds, in `area`: a panel, else the keyboard (from `keypad_top`) when `keypad_on`.
@@ -246,7 +445,7 @@ pub fn render(app: &App, rows: usize, cols: usize) -> Frame {
     // under a rule.
     let head = 1;
     let mut cursor;
-    match pane_width(rows, cols).filter(|_| band_is_open(app)) {
+    match pane_width(rows, cols) {
         // Wide: the history and the request keep the left; what the band holds is in a pane at the
         // right, as high as the screen between the toolbar and the status line.
         Some(pane_w) => {
@@ -258,11 +457,30 @@ pub fn render(app: &App, rows: usize, cols: usize) -> Frame {
             left.rule(band_top);
             let mut pane = Canvas::new(rows, pane_w);
             let area = Area { top: 1, left: 0, width: pane_w, height: rows - 2 };
-            band_content(app, &mut pane, area, true, &mut cursor);
+            if panel_open(app) {
+                band_content(app, &mut pane, area, false, &mut cursor);
+            } else if let (Some((board_w, keyboard_w)), true) = (wide_split(rows, cols), app.keyboard_shown()) {
+                // The board and, beside it, the big keyboard (the compact one when the screen is not
+                // tall enough for it).
+                board_view(app, &mut pane, Area { width: board_w, ..area });
+                for row in 1..rows - 1 {
+                    pane.cells[row][board_w] = ('│', Style::Dim);
+                }
+                let keyboard = Area { left: board_w + 1, width: keyboard_w, ..area };
+                if area.height > BIG_ROWS {
+                    big_keyboard(app, &mut pane, keyboard);
+                } else {
+                    keypad(app, &mut pane, 1);
+                }
+            } else if app.keyboard_shown() && wide_split(rows, cols).is_none() && pane_w < BOTH_FROM {
+                keypad(app, &mut pane, 1);
+            } else {
+                board_view(app, &mut pane, area);
+            }
             for row in 1..rows - 1 {
                 canvas.cells[row][..left_w].copy_from_slice(&left.cells[row]);
                 // A divider for the keyboard; a panel has its own border.
-                canvas.cells[row][left_w] = if app.overlay.is_none() || !matches!(app.overlay, Some(Overlay::Measures(_) | Overlay::Picker(_) | Overlay::Currencies(_) | Overlay::Trivia(_) | Overlay::History(_) | Overlay::Search(_))) { ('│', Style::Dim) } else { (' ', Style::Plain) };
+                canvas.cells[row][left_w] = if panel_open(app) { (' ', Style::Plain) } else { ('│', Style::Dim) };
                 canvas.cells[row][left_w + 1..].copy_from_slice(&pane.cells[row]);
             }
             canvas.hits.extend(left.hits);
@@ -430,6 +648,11 @@ fn key_action(label: &str) -> Action {
         "−" => Action::Insert('-'),
         "⌫" => Action::Backspace,
         "⏎" => Action::Submit,
+        "C" => Action::Clear,
+        "←" => Action::Left,
+        "→" => Action::Right,
+        "to" => Action::Write(" to "),
+        "␣" => Action::Insert(' '),
         "sin" => Action::Write("sin("),
         "cos" => Action::Write("cos("),
         "tan" => Action::Write("tan("),
@@ -1358,6 +1581,10 @@ const HELP: &[(&str, &str)] = &[
     ("  Ctrl-K", "search units, currencies, settings, trivia,"),
     ("", "cities, earlier requests; Enter uses it"),
     ("  Alt-O", "mouse on/off (off: the terminal selects text)"),
+    ("Wide screens (120 columns or more)", ""),
+    ("  the board", "clocks, units per class, currencies;"),
+    ("", "a button writes it; used ones are lit"),
+    ("  150 columns", "the big keyboard beside the board"),
     ("  F9  Alt-B", "the keyboard under the request; again: hides it"),
     ("  Tab  Shift-Tab", "Basic, Sci, Units, Money; Esc back"),
     ("  ↑↓ ←→  Enter", "in Units / Money: choose, column, write"),
@@ -1909,7 +2136,7 @@ mod tests {
 
     #[test]
     fn help_window() {
-        let (lines, cursor) = screen("<F1>", 70, 90);
+        let (lines, cursor) = screen("<F1>", 100, 90);
         let text = lines.join("\n");
         assert!(text.contains("Help · Esc close"));
         assert!(text.contains("F2  Alt-M") && text.contains("this help") && text.contains("Ctrl-C"));
@@ -1979,7 +2206,7 @@ mod tests {
         let text = lines.join("\n");
         assert!(text.contains("The request") && text.contains("↓ more") && !text.contains("Ctrl-C"));
         // Scrolled past the end: stops at the last line.
-        let (lines, _) = screen(&format!("<F1>{}", "j".repeat(50)), 14, 80);
+        let (lines, _) = screen(&format!("<F1>{}", "j".repeat(80)), 14, 80);
         let text = lines.join("\n");
         assert!(text.contains("Ctrl-C") && text.contains("↑ more") && !text.contains("↓ more"));
     }
@@ -2266,9 +2493,6 @@ mod tests {
         // Under 120 columns it is the band under the line, as before.
         let (lines, _) = screen("<F2>", 30, 119);
         assert!(lines[2..20].iter().all(|l| l.chars().nth(58) != Some('│')));
-        // Nothing open: no pane, the whole width.
-        let (lines, _) = screen("10 km mi\n", 30, 140);
-        assert!(lines[1..29].iter().all(|l| l.chars().nth(separator) != Some('│')));
         // The keyboard has a divider.
         let (lines, _) = screen("<F9>", 30, 140);
         assert!(lines[2..28].iter().all(|l| l.chars().nth(separator) == Some('│')));
@@ -2276,8 +2500,8 @@ mod tests {
         // shortcuts), Sci at 200.
         let (lines, _) = screen("<F9>", 30, 140);
         assert!(lines.iter().any(|l| l.contains("Basic │ Sci")) && !lines.iter().any(|l| l.contains("sin  cos")), "{}", lines.join("\n"));
-        let (lines, _) = screen("<F9>", 30, 200);
-        assert!(lines.iter().any(|l| l.contains("sin  cos")), "Sci");
+        let (lines, _) = screen("<F9>", 44, 200);
+        assert!(lines.iter().any(|l| l.contains("│ sin │")), "the big keyboard, Sci");
         // Clicks on the keys count the pane's offset.
         let app = clicked(&config, &opts, "<F9>", (30, 140), &["7    8", "×"]);
         assert_eq!(app.line.text(), "7*");
@@ -2300,6 +2524,66 @@ mod tests {
         // From 52 columns the toolbar has short names.
         let (lines, _) = screen("", 20, 52);
         assert!(lines[0].starts_with(" F2 Meas  F3 Curr  F4 Triv  F5 Hist  F9 Keys  F10 ⚙"), "{}", lines[0]);
+    }
+
+    #[test]
+    fn the_board_fills_the_wide_pane() {
+        let config = Config::default();
+        let opts = OPTS;
+        let (lines, _) = screen("12 sqft m", 44, 140);
+        let text = lines.join("\n");
+        assert!(text.contains("Clocks") && text.contains("Measures") && text.contains("Currencies"), "{text}");
+        // Every class with its units, in boxes three rows high (the most common first).
+        assert!(text.contains("L Length") && text.contains("│ km │ │ m  │ │ cm │ │ mi │ │ ft │"), "{text}");
+        assert!(text.contains("┌─USD") && text.contains("┌─EUR"), "{text}");
+        // A short screen: one row per class, in brackets, and what does not fit is said.
+        let (lines, _) = screen("12 sqft m", 24, 140);
+        assert!(lines.iter().any(|l| l.contains("[ km ]") && l.contains("Length")), "{}", lines.join("\n"));
+        let (lines, _) = screen("12 sqft m", 16, 140);
+        assert!(lines.iter().any(|l| l.contains("more classes: F2 Measures")), "{}", lines.join("\n"));
+        // A click on a unit writes it and counts it; the class name opens its units.
+        let app = clicked(&config, &opts, "5 ", (44, 140), &["│ km │"]);
+        assert_eq!(app.line.text(), "5 km ");
+        assert_eq!(app.usage.hits(aequalis::usage::Kind::Unit, "km"), 1);
+        let app = clicked(&config, &opts, "", (44, 140), &["M Mass"]);
+        assert!(matches!(&app.overlay, Some(Overlay::Picker(_))));
+        // A currency tile writes its code.
+        let app = clicked(&config, &opts, "10 ", (44, 140), &["┌─JPY"]);
+        assert_eq!(app.line.text(), "10 JPY ");
+        // A clock writes its city into the request.
+        let app = clicked(&config, &opts, "", (44, 140), &["New York"]);
+        assert_eq!(app.line.text(), "now New York ");
+        // What is used comes first and is lit: after using the pound twice it is the first tile.
+        let mut app = app_after_in(&config, &opts, "", (44, 140));
+        app.usage.hit(aequalis::usage::Kind::Currency, "GBP");
+        app.usage.hit(aequalis::usage::Kind::Currency, "GBP");
+        let frame = render(&app, 44, 140);
+        let text = frame.lines.iter().map(|l| plain(l)).collect::<Vec<_>>().join("\n");
+        assert!(text.contains("┌─GBP─────┐ ┌─USD"), "{text}");
+    }
+
+    #[test]
+    fn the_big_keyboard_beside_the_board() {
+        let config = Config::default();
+        let opts = OPTS;
+        // 170 columns: the board (52) and the keyboard beside it; Basic keys only.
+        let (lines, _) = screen("<F9>", 44, 170);
+        let text = lines.join("\n");
+        assert!(text.contains("│  7  │") && text.contains("│ to  │") && text.contains("│  C  │") && text.contains("Clocks"), "{text}");
+        assert!(!text.contains("│ sin │"), "no room for the Sci keys: {text}");
+        // 200 columns: the Sci keys too.
+        let (lines, _) = screen("<F9>", 44, 200);
+        assert!(lines.join("\n").contains("│ sin │"));
+        // Clicks: the keys write, `to` writes a conversion, C clears, the arrows move.
+        let app = clicked(&config, &opts, "<F9>", (44, 170), &["│  7  │", "│  8  │", "│ to  │"]);
+        assert_eq!(app.line.text(), "78 to ");
+        let app = clicked(&config, &opts, "<F9>7", (44, 170), &["│  C  │"]);
+        assert!(app.line.is_empty());
+        let app = clicked(&config, &opts, "<F9>12", (44, 170), &["│  ←  │", "│  9  │"]);
+        assert_eq!(app.line.text(), "192");
+        // Short of rows for it (under 17): the compact keyboard.
+        let (lines, _) = screen("<F9>", 16, 170);
+        assert!(lines.iter().any(|l| l.contains("7    8    9")), "{}", lines.join("\n"));
     }
 
     #[test]
@@ -2342,12 +2626,10 @@ mod tests {
             assert!(lines[row].contains(units) && lines[row].contains(money), "{}", lines[row]);
             assert!(lines[row].trim_end().chars().count() <= 80);
         }
-        // Wide: they are in the pane at the right (200 columns: a pane of 80, its Sci keys and the
-        // shortcuts), which ends at the right edge of the screen.
-        let (lines, _) = screen("<F9>", 24, 200);
-        let row = lines.iter().position(|l| l.contains("1 km")).unwrap();
-        let at = lines[row].find("1 km").unwrap();
-        assert!(lines[row][..at].chars().count() > 119 + 34, "{}", lines[row]);
+        // Wide, with the board beside it: the big keyboard has no shortcut columns (the board has the
+        // units and the currencies).
+        let (lines, _) = screen("<F9>", 44, 200);
+        assert!(!lines.join("\n").contains(" Units "), "{}", lines.join("\n"));
         // Used ones follow the use: Egyptian pounds (picked in the search) replace the last with no hits.
         let (lines, _) = screen("<C-k>egyptian\n<F9>", 24, 80);
         assert!(lines[22].contains("0 EGP") && !lines.join("\n").contains("AED"), "{}", lines[22]);

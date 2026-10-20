@@ -46,6 +46,12 @@ panel), status; no modes.
       suggestions are plain words; from 120 columns (and 14 rows) the keyboard and the panels open in
       a pane at the right (40% of the width, 52 to 90) while the history and the request keep the
       left; under that they are in the band under the line.
+- [x] 6b. The board (Wide, from 120 columns): the pane at the right always holds clocks, every unit
+      class with its five most used units (boxes three rows high, used ones lit; one row per class
+      when the screen is short), and the five most used currencies (the most traded ones to start:
+      USD EUR JPY GBP CNY) valued in `tui.base_currency` (auto: the local currency). From 150
+      columns the big keyboard (keys three rows high, with C ← → to ␣ for a pad without a keyboard)
+      sits beside it; `tui.keyboard` is auto / true / false. The usage is counted in `usage.json`.
 - [ ] 7. Docs, help, dead-code cleanup.
 
 ## Android app

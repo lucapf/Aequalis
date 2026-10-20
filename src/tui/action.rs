@@ -87,6 +87,12 @@ pub enum Target {
     Tab(usize),
     /// The unit keys' date formats: the cell at (row, column), chosen and used.
     Cell(usize, usize),
+    /// The board: the n-th unit button of the n-th class, the n-th currency, the n-th clock, the
+    /// name of the n-th class (its units open).
+    BoardUnit(usize, usize),
+    BoardMoney(usize),
+    BoardClock(usize),
+    BoardClass(usize),
     /// A window over the screen: a click outside it closes it (Esc); inside it, nothing.
     Dismiss,
     Inside,
@@ -101,6 +107,8 @@ pub enum Action {
     Insert(char),
     /// Text written at the cursor (a function and its bracket).
     Write(&'static str),
+    /// The request line cleared (what is cleared comes back with ↑).
+    Clear,
     /// Alt+O: the mouse reported to the program, or left to the terminal for selecting text.
     ToggleMouse,
     Backspace,
@@ -300,6 +308,30 @@ impl<'a> App<'a> {
             },
             Target::Line(offset) => self.line.move_to(offset + col - hit.col),
             Target::Suggest(i) => self.complete_with(i),
+            Target::BoardUnit(class, button) => {
+                let name = super::board::classes(self.config, &self.usage).get(class).and_then(|c| c.buttons.get(button)).map(|b| b.written.clone());
+                if let Some(name) = name {
+                    self.write_unit(&name, false);
+                }
+            }
+            Target::BoardMoney(i) => {
+                let code = self.board_money().get(i).map(|m| m.code.clone());
+                if let Some(code) = code {
+                    self.write_unit(&code, true);
+                }
+            }
+            Target::BoardClock(i) => {
+                if let Some(city) = self.clocks().get(i).map(|c| c.city.clone()) {
+                    let mut text = self.line.text();
+                    text = if text.trim().is_empty() { "now ".to_string() } else if text.ends_with(' ') { text } else { format!("{text} ") };
+                    self.line.set(&format!("{text}{city} "));
+                }
+            }
+            Target::BoardClass(i) => {
+                if let Some(index) = super::board::classes(self.config, &self.usage).get(i).and_then(|c| self.config.categories.iter().position(|k| k.name == c.name)) {
+                    self.overlay = Some(Overlay::Picker(super::picker::Picker::new(self.config, index, self.system)));
+                }
+            }
             Target::Dismiss => self.handle(Key::Esc),
             Target::Inside => {}
             Target::Pick(n) => self.pick(n),
@@ -342,6 +374,7 @@ impl<'a> App<'a> {
             Action::Redraw => self.redraw = true,
             Action::Insert(c) => self.line.insert(c),
             Action::Write(text) => text.chars().for_each(|c| self.line.insert(c)),
+            Action::Clear => self.clear_line(),
             Action::ToggleMouse => {
                 self.mouse_on = !self.mouse_on;
                 self.status = Some((
