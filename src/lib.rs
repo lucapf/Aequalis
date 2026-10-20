@@ -12,6 +12,7 @@ pub mod convert;
 pub mod currency;
 #[cfg(feature = "ffi")]
 pub mod ffi;
+pub mod favourites;
 pub mod files;
 pub mod geo;
 pub mod http;

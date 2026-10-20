@@ -46,6 +46,8 @@ pub enum Kind {
     Format,
     /// An address: `https://…`, `file://…`.
     Url,
+    /// Names with their hits (`USD:3,EUR:1`; empty: the defaults), kept by the interactive mode.
+    Favourites,
 }
 
 /// A setting: its key, default, kind, and what it does.
@@ -95,6 +97,18 @@ pub const KEYS: &[Key] = &[
         default: "false",
         kind: Kind::Bool,
         about: "the interactive mode starts with its keypad on screen (F9 shows, changes and hides it)",
+    },
+    Key {
+        key: "tui.favourite_units",
+        default: "",
+        kind: Kind::Favourites,
+        about: "the units of the keypad's shortcuts (Alt+1…5) with their hits; kept as you use them (empty: the defaults)",
+    },
+    Key {
+        key: "tui.favourite_currencies",
+        default: "",
+        kind: Kind::Favourites,
+        about: "the currencies of the keypad's shortcuts (Alt+6…0) with their hits; kept as you use them (empty: the defaults)",
     },
 ];
 
@@ -182,6 +196,11 @@ impl Settings {
         self.get("tui.keyboard") == "true"
     }
 
+    /// The stored shortcuts: the units, or the currencies (empty when nothing is stored).
+    pub fn favourites(&self, currencies: bool) -> &str {
+        self.get(if currencies { "tui.favourite_currencies" } else { "tui.favourite_units" })
+    }
+
     /// The file's content: every key, one per line, in `KEYS` order.
     pub fn to_json(&self) -> String {
         let lines: Vec<String> = KEYS
@@ -262,6 +281,7 @@ pub fn check(spec: &Key, value: &str) -> Result<String, String> {
             true => Ok(v.to_string()),
             false => wrong("an address, such as https://… or file://…"),
         },
+        Kind::Favourites => crate::favourites::Favourites::check(v).map_err(|e| format!("`{}`: {e}", spec.key)),
         Kind::Format => match v.is_empty() {
             true => wrong("a date pattern, such as DD MMM YY"),
             false => Ok(v.to_string()),
@@ -387,6 +407,19 @@ pub fn text(settings: &Settings) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn favourites_are_stored_checked_and_cleared() {
+        let mut s = Settings::default();
+        assert_eq!((s.favourites(true), s.favourites(false)), ("", ""), "nothing stored: the defaults");
+        s.set("tui.favourite_currencies", Some(" usd:2 , EUR ")).unwrap();
+        assert_eq!(s.favourites(true), "usd:2,EUR:0", "normalised");
+        assert!(s.set("tui.favourite_units", Some("km:many")).is_err());
+        let back = Settings::from_json(&s.to_json()).unwrap();
+        assert_eq!(back.favourites(true), "usd:2,EUR:0", "kept in the file");
+        s.set("tui.favourite_currencies", None).unwrap();
+        assert_eq!(s.favourites(true), "", "cleared: the defaults again");
+    }
 
     #[test]
     fn defaults() {
