@@ -25,6 +25,9 @@ jobs:
   # `tzdata` package on PyPI (the same TZif files as /usr/share/zoneinfo), through `TZDIR`.
   windows:
     runs-on: windows-latest
+    # To publish the build of a branch as a pre-release (below).
+    permissions:
+      contents: write
     defaults:
       run:
         shell: bash
@@ -94,6 +97,19 @@ jobs:
         with:
           name: windows-installer
           path: dist/*-setup.exe
+      - name: Publish the build
+        # A branch (not master, which has its own releases) keeps its latest build as a pre-release
+        # `dev-<branch>`: the installer, to download without signing in. The tag does not start with
+        # `v<number>`, so it never counts as a release version.
+        if: github.event_name == 'push' && github.ref_name != 'master'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="dev-${GITHUB_REF_NAME//\//-}"
+          if gh release view "$tag" >/dev/null 2>&1; then gh release delete "$tag" --yes --cleanup-tag; fi
+          gh release create "$tag" dist/*-setup.exe --prerelease --target "$GITHUB_SHA" \
+            --title "$VERSION (branch $GITHUB_REF_NAME)" \
+            --notes "The latest build of the branch \`$GITHUB_REF_NAME\`, version $VERSION (commit ${GITHUB_SHA::7}). Not a release: it is replaced by the next push to the branch."
 
   # The interactive mode in a real Windows console: a pseudo-console (ConPTY) gets the keys of a
   # terminal and its screen is read back (scripts/windows-tui-smoke.py).
