@@ -122,6 +122,8 @@ pub struct App<'a> {
     units: Favourites,
     currencies: Favourites,
     lit: Option<usize>,
+    /// How often each unit, currency and city was used (`usage.json`): the board's order.
+    usage: aequalis::usage::Usage,
     /// The part of the keyboard that has the focus (letters and digits still go to the line), and
     /// the entry of the Units or Money column chosen.
     focus: Option<Part>,
@@ -200,6 +202,7 @@ impl<'a> App<'a> {
             units: Favourites::of("", &favourites::METRIC),
             currencies: Favourites::of("", &favourites::CURRENCIES),
             lit: None,
+            usage: aequalis::usage::Usage::default(),
             focus: None,
             slot: 0,
             screen: (24, 80),
@@ -322,8 +325,10 @@ impl<'a> App<'a> {
             false => (&mut self.units, "tui.favourite_units"),
         };
         list.hit(name);
+        self.usage.hit(if currency { aequalis::usage::Kind::Currency } else { aequalis::usage::Kind::Unit }, name);
         if self.persist {
             let _ = aequalis::settings::change(key, Some(&list.to_text()));
+            aequalis::usage::save(&self.usage);
         }
     }
 
@@ -973,6 +978,7 @@ pub fn run(config: &Config, opts: &Options) -> ExitCode {
     app.numbers = numbers::device_format();
     app.persist = true;
     app.load_shortcuts();
+    app.usage = aequalis::usage::load();
     // The keypad as the `tui.keyboard` setting says (F9 shows, changes and hides it).
     app.screen = term::size().unwrap_or((24, 80));
     app.keypad = if aequalis::settings::current().keyboard() { app.best_layout() } else { Keypad::Hidden };
@@ -1109,6 +1115,8 @@ mod tests {
         typed(&mut app, "5 km to mi");
         app.handle(Key::Enter);
         assert_eq!(app.units.to_text(), "km:1,kg:0,l:0,C:0,mi:1", "mi takes m's place");
+        // Every unit counts in the usage, listed or not (the board's order).
+        assert_eq!((app.usage.hits(aequalis::usage::Kind::Unit, "km"), app.usage.hits(aequalis::usage::Kind::Unit, "mi")), (1, 1));
         // One that fails counts nothing.
         typed(&mut app, "5 km to eur");
         app.handle(Key::Enter);

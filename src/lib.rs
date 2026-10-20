@@ -32,6 +32,7 @@ pub mod settings;
 pub mod suggest;
 pub mod time;
 pub mod trivia;
+pub mod usage;
 #[cfg(windows)]
 pub mod windows;
 
