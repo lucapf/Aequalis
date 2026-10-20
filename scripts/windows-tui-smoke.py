@@ -4,7 +4,7 @@ through `pywinpty`), gets keys as a terminal sends them, and its screen is read 
     python scripts/windows-tui-smoke.py target/release/aequalis.exe
 
 Checks, in order: the toolbar is drawn; a request is evaluated; a function key (F2) opens the
-Measures and Esc closes it; Alt+Y copies; Ctrl+Q quits and the screen is given back. The CI runs it
+Measures and Esc closes it; a mouse click on the toolbar opens the Currencies; Alt+Y copies; Ctrl+Q quits and the screen is given back. The CI runs it
 (`windows-tui`); it needs `pip install pywinpty`.
 """
 
@@ -72,6 +72,11 @@ def main():
     s.send("\x1b")
     time.sleep(0.5)
     print("F2 opens the Measures")
+    s.send("\x1b[<0;16;1M\x1b[<0;16;1m")  # a left click (SGR) on the toolbar's F3 Currencies
+    s.expect("\u250c\u2500 Currencies")
+    s.send("\x1b")
+    time.sleep(0.5)
+    print("a mouse click opens the Currencies")
     s.send("\x1by")  # Alt+Y
     s.expect("copied")
     print("Alt+Y copies")
