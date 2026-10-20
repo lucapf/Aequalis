@@ -75,6 +75,15 @@ pub enum Target {
     Line(usize),
     /// A suggestion under the line (the n-th): the word completed with it.
     Suggest(usize),
+    /// The n-th item of the window open: chosen and used (Enter).
+    Pick(usize),
+    /// The n-th tab of the window open (the unit keys' systems, the Trivia's sections).
+    Tab(usize),
+    /// The unit keys' date formats: the cell at (row, column), chosen and used.
+    Cell(usize, usize),
+    /// A window over the screen: a click outside it closes it (Esc); inside it, nothing.
+    Dismiss,
+    Inside,
 }
 
 /// An act on the request line, the history or the windows.
@@ -200,7 +209,12 @@ impl<'a> App<'a> {
     pub(super) fn mouse(&mut self, mouse: Mouse) {
         (self.pressed, self.lit) = (None, None);
         match mouse.kind {
-            MouseKind::ScrollUp | MouseKind::ScrollDown if self.overlay.is_some() => {}
+            // The wheel moves through the window open, as ↑ ↓ do (not while typing a setting).
+            MouseKind::ScrollUp | MouseKind::ScrollDown if self.overlay.is_some() => {
+                if !matches!(&self.overlay, Some(Overlay::Settings(v)) if v.edit.is_some()) {
+                    self.handle(if mouse.kind == MouseKind::ScrollUp { Key::Up } else { Key::Down });
+                }
+            }
             MouseKind::ScrollUp => self.apply(Action::ScrollUp),
             MouseKind::ScrollDown => self.apply(Action::ScrollDown),
             MouseKind::Down(Button::Left) => {
@@ -210,6 +224,38 @@ impl<'a> App<'a> {
                 }
             }
             MouseKind::Down(_) | MouseKind::Up | MouseKind::Drag(_) => {}
+        }
+    }
+
+    /// A click on the n-th item of the window open: it is chosen, then used as Enter would.
+    fn pick(&mut self, n: usize) {
+        match &mut self.overlay {
+            Some(Overlay::Measures(v)) => v.selected = n,
+            Some(Overlay::Picker(p)) => p.selected = n,
+            Some(Overlay::Currencies(v)) => v.selected = n,
+            Some(Overlay::Search(s)) => s.selected = n,
+            Some(Overlay::Trivia(v)) if v.popup.is_none() => v.selected = n,
+            Some(Overlay::Choice(_, selected)) => *selected = n,
+            // The settings: a row being typed in is left as it is.
+            Some(Overlay::Settings(v)) if v.edit.is_none() => v.selected = n,
+            _ => return,
+        }
+        self.handle(Key::Enter);
+    }
+
+    /// A click on the n-th tab of the window open.
+    fn pick_tab(&mut self, n: usize) {
+        match &mut self.overlay {
+            Some(Overlay::Picker(p)) => {
+                if p.tabs(self.config).get(n).is_some_and(|&(_, shown)| !shown) {
+                    p.switch_tab();
+                }
+            }
+            Some(Overlay::Trivia(v)) if v.popup.is_none() => {
+                v.section = n;
+                v.selected = 0;
+            }
+            _ => {}
         }
     }
 
@@ -249,6 +295,16 @@ impl<'a> App<'a> {
             },
             Target::Line(offset) => self.line.move_to(offset + col - hit.col),
             Target::Suggest(i) => self.complete_with(i),
+            Target::Dismiss => self.handle(Key::Esc),
+            Target::Inside => {}
+            Target::Pick(n) => self.pick(n),
+            Target::Tab(n) => self.pick_tab(n),
+            Target::Cell(r, c) => {
+                if let Some(Overlay::Picker(p)) = &mut self.overlay {
+                    p.cell = (r, c);
+                    self.handle(Key::Enter);
+                }
+            }
         }
     }
 

@@ -646,6 +646,13 @@ fn status(app: &App, canvas: &mut Canvas, row: usize) {
     }
 }
 
+/// A window over the screen takes the clicks: those outside it ask to close it (Esc), those inside
+/// it are the window's (and where it has nothing, nothing).
+fn modal_hits(canvas: &mut Canvas, rows: usize, (top, left, width, height): (usize, usize, usize, usize)) {
+    canvas.hit_rect(1, 0, canvas.cols, rows - 1, Target::Dismiss);
+    canvas.hit_rect(top, left, width, height, Target::Inside);
+}
+
 /// A centred window of at most `width` × `height`; returns (top, left, width, height).
 fn centred(canvas: &mut Canvas, rows: usize, width: usize, height: usize, title: &str) -> (usize, usize, usize, usize) {
     let (width, height) = (width.min(canvas.cols - 4), height.min(rows - 2));
@@ -683,8 +690,10 @@ fn unit_keys(app: &App, p: &Picker, canvas: &mut Canvas, area: Area) {
 
     // The tabs: the one shown is lit.
     let mut col = left + 2;
-    for (name, shown) in p.tabs(app.config) {
+    for (k, (name, shown)) in p.tabs(app.config).into_iter().enumerate() {
+        let from = col;
         col = canvas.put_within(top + 1, col, right, &format!(" {name} "), if shown { Style::Lit } else { Style::Dim });
+        canvas.hit(top + 1, from, col - from, Target::Tab(k));
         col = canvas.put_within(top + 1, col, right, " ", Style::Plain);
     }
     canvas.cells[top + 2][left + 1..right].fill(('─', Style::Dim));
@@ -705,6 +714,7 @@ fn unit_keys(app: &App, p: &Picker, canvas: &mut Canvas, area: Area) {
                 let x = x0 + c * (FORMAT_CELL + 1);
                 let selected = (r, c) == p.cell;
                 let end = canvas.put_within(y, x, right, &format!("{short:^FORMAT_CELL$}"), if selected { Style::Lit } else { Style::Plain });
+                canvas.hit(y, x, end - x, Target::Cell(r, c));
                 if c + 1 < row.cells.len() && end < right {
                     canvas.cells[y][end] = ('│', Style::Dim);
                 }
@@ -746,6 +756,7 @@ fn unit_keys(app: &App, p: &Picker, canvas: &mut Canvas, area: Area) {
         let row = first + r - offset;
         let style = if i == p.selected { Style::Lit } else { Style::Bold };
         let end = canvas.put_within(row, at, right, &format!("{:^button$}", unit.symbol), style);
+        canvas.hit(row, at, end - at, Target::Pick(i));
         if c + 1 < table[r] && end < right {
             canvas.cells[row][end] = ('│', Style::Dim);
         }
@@ -790,7 +801,9 @@ fn trivia(app: &App, v: &super::trivia::View, canvas: &mut Canvas, area: Area) {
     canvas.boxed(top, left, height, width, "Trivia");
     let mut col = left + 2;
     for (i, name) in aequalis::trivia::sections().iter().enumerate() {
+        let from = col;
         col = canvas.put_within(top + 1, col, right, &format!(" {name} "), if i == v.section { Style::Lit } else { Style::Dim });
+        canvas.hit(top + 1, from, col - from, Target::Tab(i));
         col = canvas.put_within(top + 1, col, right, " ", Style::Plain);
     }
     let rule = |canvas: &mut Canvas, row: usize| {
@@ -826,6 +839,7 @@ fn trivia(app: &App, v: &super::trivia::View, canvas: &mut Canvas, area: Area) {
     for (i, e) in entries.iter().enumerate().skip(offset).take(visible) {
         let row = top + 3 + i - offset;
         let selected = i == v.selected;
+        canvas.hit(row, left + 1, width - 2, Target::Pick(i));
         if selected {
             canvas.cells[row][left + 1..right].fill((' ', Style::Lit));
         }
@@ -903,6 +917,7 @@ fn trivia_popup(app: &App, v: &super::trivia::View, canvas: &mut Canvas, rows: u
     }
     let height = (lines.len() + 2).min(rows - 2);
     let (top, left, width, height) = centred(canvas, rows, width, height, &entry.name);
+    modal_hits(canvas, rows, (top, left, width, height));
     let right = left + width - 1;
     let visible = height - 2;
     let scroll = scroll.min(lines.len().saturating_sub(visible));
@@ -945,6 +960,7 @@ fn search(app: &App, s: &super::search::Search, canvas: &mut Canvas, area: Area)
         };
         let text = format!(" {:<symbol_width$}  {what} ", f.written());
         canvas.put_within(top + 3 + i - offset, left + 1, right, &text, style);
+        canvas.hit(top + 3 + i - offset, left + 1, width - 2, Target::Pick(i));
     }
 }
 
@@ -978,6 +994,7 @@ fn measures(app: &App, v: &super::measures::View, canvas: &mut Canvas, area: Are
         let row = top + 1 + i - offset;
         let (name, key) = label(app.config, item);
         let lit = i == v.selected;
+        canvas.hit(row, left + 1, width - 2, Target::Pick(i));
         let col = canvas.put_within(row, left + 1, right, &format!(" {key} "), if lit { Style::Lit } else { Style::Inverse });
         let col = canvas.put_within(row, col, right, &format!(" {name:<names$} "), if lit { Style::Lit } else { Style::Bold });
         // Its units, the whole ones that fit, then `…`.
@@ -1031,6 +1048,7 @@ fn currencies(v: &super::currencies::View, canvas: &mut Canvas, area: Area) {
         let symbol = c.symbols.first().map_or("", String::as_str);
         let text = format!(" {}  {:<4} {} ", c.code, symbol, c.name);
         canvas.put_within(top + 3 + i - offset, left + 1, right, &text, style);
+        canvas.hit(top + 3 + i - offset, left + 1, width - 2, Target::Pick(i));
     }
 }
 
@@ -1075,10 +1093,12 @@ fn choice(canvas: &mut Canvas, rows: usize, a: &aequalis::time::Ambiguity, selec
     // The patterns in a column as wide as the longest (at least 12), the dates after them.
     let column = a.choices.iter().map(|c| c.pattern.chars().count()).max().unwrap_or(0).max(12);
     let width = a.choices.iter().map(|c| column + c.date.chars().count() + 9).max().unwrap_or(0).max(title.chars().count() + 6);
-    let (top, left, width, _) = centred(canvas, rows, width, a.choices.len() + 2, &title);
+    let (top, left, width, height) = centred(canvas, rows, width, a.choices.len() + 2, &title);
+    modal_hits(canvas, rows, (top, left, width, height));
     let right = left + width - 1;
     for (i, c) in a.choices.iter().enumerate() {
         let row = top + 1 + i;
+        canvas.hit(row, left + 1, width - 2, Target::Pick(i));
         let text = format!(" {}  {:<column$} {} ", i + 1, c.pattern, c.date);
         let style = if i == selected { Style::Lit } else { Style::Plain };
         canvas.put_within(row, left + 2, right - 1, &text, style);
@@ -1092,11 +1112,13 @@ fn settings_window(canvas: &mut Canvas, rows: usize, view: &super::settings::Vie
     let key_width = KEYS.iter().map(|k| k.key.len()).max().unwrap_or(0);
     let lines = super::settings::rows() + 5;
     let (top, left, width, height) = centred(canvas, rows, 78, lines, "⚙ Settings");
+    modal_hits(canvas, rows, (top, left, width, height));
     let right = left + width - 2;
     let visible = height.saturating_sub(5);
     let offset = view.selected.saturating_sub(visible.saturating_sub(1));
     for (row, i) in (top + 1..).zip((0..super::settings::rows()).skip(offset).take(visible)) {
         let chosen = i == view.selected;
+        canvas.hit(row, left + 1, width - 2, Target::Pick(i));
         let text = match KEYS.get(i) {
             Some(k) => {
                 let value = match (&view.edit, chosen) {
@@ -1168,7 +1190,8 @@ fn about(canvas: &mut Canvas, rows: usize) {
     lines.push((String::new(), Style::Plain));
     let width = lines.iter().map(|(l, _)| l.chars().count()).chain(facts.iter().map(|(l, v)| l.chars().count() + v.chars().count() + 2)).max().unwrap_or(0) + 4;
     let height = lines.len() + facts.len() + 2;
-    let (top, left, width, _) = centred(canvas, rows, width, height, "About");
+    let (top, left, width, about_height) = centred(canvas, rows, width, height, "About");
+    modal_hits(canvas, rows, (top, left, width, about_height));
     let right = left + width - 2;
     for (i, (line, style)) in lines.iter().enumerate() {
         if i < logo_rows {
@@ -1212,6 +1235,7 @@ const HELP: &[(&str, &str)] = &[
     ("  F1  Alt-?", "this help"),
     ("  Alt-A", "about: version, memory, last online sync"),
     ("  Ctrl-K", "search the units and the currencies"),
+    ("  Alt-O", "mouse on/off (off: the terminal selects text)"),
     ("  F9  Alt-B", "the keyboard under the request; again: hides it"),
     ("  Tab  Shift-Tab", "Basic, Sci, Units, Money; Esc back"),
     ("  ↑↓ ←→  Enter", "in Units / Money: choose, column, write"),
@@ -1251,6 +1275,7 @@ const HELP: &[(&str, &str)] = &[
 /// The help window; scrolls (j/k) when the terminal is shorter than the help.
 fn help(canvas: &mut Canvas, rows: usize, scroll: usize) {
     let (top, left, width, height) = centred(canvas, rows, 80, HELP.len() + 2, "Help · Esc close");
+    modal_hits(canvas, rows, (top, left, width, height));
     let right = left + width - 2;
     let visible = height - 2;
     let scroll = scroll.min(HELP.len() - visible);
@@ -1989,6 +2014,55 @@ mod tests {
         // A suggestion completes the word.
         let app = clicked(&config, &opts, "5 km m", (24, 80), &["mi mil"]);
         assert_eq!(app.line.text(), "5 km mi", "{}", app.line.text());
+    }
+
+    #[test]
+    fn clicking_the_panels() {
+        let config = Config::default();
+        let opts = OPTS;
+        // Measures → a class → a unit (the source), a second click on a unit (the target).
+        let app = clicked(&config, &opts, "10 ", (24, 100), &["F2 Measures", "Length", "km", "Imperial", " mi "]);
+        assert_eq!(app.line.text(), "10 km mi ");
+        // The unit keys' second tab.
+        let app = clicked(&config, &opts, "<F2>L", (24, 100), &["Imperial"]);
+        assert!(matches!(&app.overlay, Some(Overlay::Picker(p)) if p.tab == System::Imperial));
+        // Currencies and the search: a click writes the code, like Enter.
+        let app = clicked(&config, &opts, "<F3>", (24, 100), &["JPY"]);
+        assert_eq!((app.line.text().as_str(), app.overlay.is_none()), ("1 JPY ", true), "{}", app.line.text());
+        let app = clicked(&config, &opts, "<C-k>yen", (24, 100), &["JPY"]);
+        assert_eq!(app.line.text(), "1 JPY ");
+        let app = clicked(&config, &opts, "<C-k>kilomet", (24, 100), &["km       kilometre"]);
+        assert_eq!(app.line.text(), "1 km ");
+        // The Trivia: a section's tab, an entry's details.
+        let app = clicked(&config, &opts, "<F4>", (24, 100), &["Space"]);
+        assert!(matches!(&app.overlay, Some(Overlay::Trivia(v)) if v.section == 1), "second section");
+        let app = clicked(&config, &opts, "<F4>", (24, 100), &["Distance between places"]);
+        assert!(matches!(&app.overlay, Some(Overlay::Trivia(v)) if v.popup.is_some()), "details");
+    }
+
+    #[test]
+    fn clicking_the_windows() {
+        let config = Config::default();
+        let opts = OPTS;
+        // The settings: a click on a yes/no changes it (the file in use is not touched: offline
+        // and cities are read from a copy in tests only when Enter saves, so look at the view).
+        let app = clicked(&config, &opts, "", (30, 100), &["F10 ⚙"]);
+        assert!(matches!(app.overlay, Some(Overlay::Settings(_))));
+        // Outside a window closes it; inside it, nothing.
+        let app = clicked(&config, &opts, "<F1>", (30, 100), &["Help · Esc close"]);
+        assert!(matches!(app.overlay, Some(Overlay::Help(_))), "the window's own title: stays");
+        let mut app = app_after_in(&config, &opts, "<F1>", (30, 100));
+        let frame = render(&app, 30, 100);
+        app.hits = frame.hits;
+        app.handle(Key::Mouse(super::super::keys::Mouse { kind: super::super::keys::MouseKind::Down(super::super::keys::Button::Left), row: 29, col: 0 }));
+        assert!(app.overlay.is_none(), "a click outside the help closes it");
+        // The wheel scrolls the help.
+        let mut app = app_after_in(&config, &opts, "<F1>", (14, 80));
+        app.handle(Key::Mouse(super::super::keys::Mouse { kind: super::super::keys::MouseKind::ScrollDown, row: 5, col: 5 }));
+        assert!(matches!(app.overlay, Some(Overlay::Help(n)) if n > 0));
+        // An ambiguous date: a click on a reading chooses it, and the request goes on.
+        let app = clicked(&config, &opts, "12/04/2026 YYYY/MM/DD\n", (24, 100), &["1  "]);
+        assert!(app.overlay.is_none() && app.history.entries().len() == 1, "{:?}", app.history.entries().len());
     }
 
     #[test]

@@ -28,7 +28,14 @@ panel), status; no modes.
       F9 opens the keyboard on Sci when it fits with the shortcuts (else Basic) and gives it the focus:
       Tab / Shift+Tab go round Basic, Sci, Units, Money; ↑↓ ←→ Enter in the columns; letters and digits
       still go to the line; Esc gives the focus back. No Tab completion while the keyboard is shown.
-- [ ] 4. Mouse: hit map, `tui.mouse`, terminal mouse modes.
+- [x] 4. Mouse: a hit map filled by what draws the screen (`render::Hit`, `action::Target`); a left click
+      does what the key does: toolbar, keyboard keys, Basic / Sci / Units / Money, shortcut buttons,
+      history (request back into the line, result copied), the live answer (copied), the line
+      (cursor), suggestions, items and tabs of every panel, the settings rows, the readings of an
+      ambiguous date; a click outside a window closes it; the wheel moves through the window open.
+      `tui.mouse` (default on) and Alt+O; Shift+drag still selects text. On Windows Quick Edit is
+      turned off while the mouse is on (untested on a real console: see the CI job `windows-tui`).
+      Left: the suggestion chips, the result aligned at the right, a History panel.
 - [ ] 5. `src/find.rs` in the core and the Ctrl+K palette (units, currencies, cities, trivia,
       settings, history).
 - [ ] 6. Compact (< 60 columns) and Wide (≥ 100) layouts.

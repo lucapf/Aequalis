@@ -67,3 +67,16 @@ fn tab_completes_units() {
     assert!(out.contains("100 sqft m2"));
     assert!(out.contains("9.2903 m2"));
 }
+
+#[test]
+fn the_mouse_is_reported_while_running_and_clicks_work() {
+    // A click (SGR) on the toolbar's Measures opens them; Ctrl-Q quits and gives the mouse back.
+    let Some(out) = session(&["\x1b[<0;5;1M", "\x1b[<0;5;1m", "\x11"]) else {
+        return;
+    };
+    assert!(out.contains("\x1b[?1000h\x1b[?1006h"), "the mouse asked for at the start");
+    assert!(out.contains("Measures") && out.contains("Length"), "the click opened the Measures");
+    let off = out.rfind("\x1b[?1006l\x1b[?1000l").expect("the mouse given back");
+    assert!(off > out.rfind("Length").unwrap_or(0), "given back at the end");
+    assert!(out.trim_end().ends_with("\x1b[?1049l\x1b[?25h"), "terminal restored on exit");
+}
