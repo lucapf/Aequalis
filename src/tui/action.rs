@@ -1,8 +1,9 @@
 //! What a key or a click asks for, apart from which of them asked: `keymap` turns a key into an
 //! `Action` and `apply` carries it out, so a click on the screen can ask for the same.
 
-use super::keys::{Key, Mouse, MouseKind};
-use super::{currencies, measures, search, settings, trivia, App, Keypad, Overlay, Part, SCROLL_STEP};
+use super::keys::{Button, Key, Mouse, MouseKind};
+use super::render::Hit;
+use super::{currencies, measures, search, settings, trivia, App, Keypad, Overlay, Part, StatusKind, SCROLL_STEP};
 
 /// A window of the toolbar (and Ctrl+K).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -59,6 +60,23 @@ pub const TOOLBAR: [Tool; 6] = [
     Tool { fkey: 10, alt: 's', label: "⚙", short: "⚙", action: Action::Open(Panel::Settings) },
 ];
 
+/// What a click on a region of the screen asks for (`render::Hit`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Target {
+    /// What a key or the toolbar asks for.
+    Act(Action),
+    /// A part of the keyboard: Basic, Sci, Units, Money.
+    Focus(Part),
+    /// A history entry's request: back into the line.
+    Entry(usize),
+    /// A history entry's result: copied.
+    EntryResult(usize),
+    /// The request line, whose first column shows the character at this offset.
+    Line(usize),
+    /// A suggestion under the line (the n-th): the word completed with it.
+    Suggest(usize),
+}
+
 /// An act on the request line, the history or the windows.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Action {
@@ -66,6 +84,10 @@ pub enum Action {
     Redraw,
     /// A character typed at the cursor.
     Insert(char),
+    /// Text written at the cursor (a function and its bracket).
+    Write(&'static str),
+    /// Alt+O: the mouse reported to the program, or left to the terminal for selecting text.
+    ToggleMouse,
     Backspace,
     Delete,
     Left,
@@ -162,6 +184,7 @@ impl<'a> App<'a> {
                 'n' => Some(Action::Now),
                 'y' => Some(Action::Copy),
                 'k' => Some(Action::KillToEnd),
+                'o' => Some(Action::ToggleMouse),
                 'q' => Some(Action::Quit),
                 // Alt+1…5 the units, Alt+6…9 and Alt+0 the currencies.
                 '1'..='9' => Some(Action::Shortcut(c as usize - '1' as usize)),
@@ -172,15 +195,60 @@ impl<'a> App<'a> {
         }
     }
 
-    /// A mouse report: the wheel scrolls the history under the sections; the rest has no target yet.
+    /// A mouse report: the wheel scrolls the history; a left click asks for what the screen drew
+    /// under it (`hits`, from the last frame).
     pub(super) fn mouse(&mut self, mouse: Mouse) {
-        if self.overlay.is_some() {
-            return;
-        }
+        (self.pressed, self.lit) = (None, None);
         match mouse.kind {
+            MouseKind::ScrollUp | MouseKind::ScrollDown if self.overlay.is_some() => {}
             MouseKind::ScrollUp => self.apply(Action::ScrollUp),
             MouseKind::ScrollDown => self.apply(Action::ScrollDown),
+            MouseKind::Down(Button::Left) => {
+                let hit = self.hits.iter().rev().find(|h| h.contains(mouse.row, mouse.col)).copied();
+                if let Some(hit) = hit {
+                    self.click(hit, mouse.col);
+                }
+            }
             MouseKind::Down(_) | MouseKind::Up | MouseKind::Drag(_) => {}
+        }
+    }
+
+    /// A left click at column `col` on `hit`.
+    fn click(&mut self, hit: Hit, col: usize) {
+        self.cycle = None;
+        match hit.target {
+            Target::Act(action) => {
+                // The keypad's keys light up as the typed ones do.
+                self.pressed = match action {
+                    Action::Insert(c) => Some(c),
+                    Action::Backspace => Some('⌫'),
+                    Action::Submit => Some('='),
+                    _ => None,
+                };
+                self.apply(action);
+            }
+            Target::Focus(part) => {
+                self.focus = Some(part);
+                match part {
+                    Part::Basic => self.keypad = Keypad::Basic,
+                    Part::Sci => self.keypad = Keypad::Sci,
+                    Part::Units | Part::Money => {}
+                }
+            }
+            Target::Entry(i) => {
+                if let Some(input) = self.history.entries().get(i).map(|e| e.input.clone()) {
+                    self.history.stop_browsing();
+                    self.recall = None;
+                    self.line.set(&input);
+                }
+            }
+            Target::EntryResult(i) => match self.history.entries().get(i).map(|e| e.result.clone()) {
+                Some(Ok(result)) => self.copy_text(result),
+                Some(Err(_)) => self.status = Some((StatusKind::Warning, "nothing to copy: that entry is an error".into())),
+                None => {}
+            },
+            Target::Line(offset) => self.line.move_to(offset + col - hit.col),
+            Target::Suggest(i) => self.complete_with(i),
         }
     }
 
@@ -191,6 +259,7 @@ impl<'a> App<'a> {
         if matches!(
             action,
             Action::Insert(_)
+                | Action::Write(_)
                 | Action::Backspace
                 | Action::Delete
                 | Action::KillToStart
@@ -211,6 +280,14 @@ impl<'a> App<'a> {
             Action::Quit => self.quit = true,
             Action::Redraw => self.redraw = true,
             Action::Insert(c) => self.line.insert(c),
+            Action::Write(text) => text.chars().for_each(|c| self.line.insert(c)),
+            Action::ToggleMouse => {
+                self.mouse_on = !self.mouse_on;
+                self.status = Some((
+                    StatusKind::Note,
+                    if self.mouse_on { "mouse on: Shift+drag selects text".into() } else { "mouse off: the terminal selects text (Alt+O: on)".into() },
+                ));
+            }
             Action::Backspace => self.line.backspace(),
             Action::Delete => self.line.delete(),
             Action::Left => self.line.left(),

@@ -18,7 +18,7 @@
 //!  note: evaluated as (100 + 20) + (50 / 10)      F1 help · Ctrl+K search · Ctrl+Q quit
 //! ```
 
-use super::action::{Action, TOOLBAR};
+use super::action::{Action, Target, TOOLBAR};
 use super::picker::{format_rows, Picker};
 use super::{App, Keypad, Overlay, Part, StatusKind};
 use aequalis::config::System;
@@ -58,6 +58,26 @@ pub struct Frame {
     pub lines: Vec<String>,
     /// Row and column of the cursor, from 0.
     pub cursor: Option<(usize, usize)>,
+    /// What a click on a cell does, as drawn.
+    pub hits: Vec<Hit>,
+}
+
+/// A rectangle of the screen and what a click in it asks for: registered by what draws it, so
+/// clickable regions cannot drift from what is on screen. The last registered under a cell wins
+/// (what is drawn over another covers it).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Hit {
+    pub row: usize,
+    pub col: usize,
+    pub width: usize,
+    pub height: usize,
+    pub target: Target,
+}
+
+impl Hit {
+    pub fn contains(&self, row: usize, col: usize) -> bool {
+        (self.row..self.row + self.height).contains(&row) && (self.col..self.col + self.width).contains(&col)
+    }
 }
 
 impl Frame {
@@ -84,11 +104,23 @@ impl Frame {
 struct Canvas {
     cols: usize,
     cells: Vec<Vec<(char, Style)>>,
+    hits: Vec<Hit>,
 }
 
 impl Canvas {
     fn new(rows: usize, cols: usize) -> Self {
-        Canvas { cols, cells: vec![vec![(' ', Style::Plain); cols]; rows] }
+        Canvas { cols, cells: vec![vec![(' ', Style::Plain); cols]; rows], hits: Vec::new() }
+    }
+
+    /// A click on `width` cells of `row` from `col` asks for `target`.
+    fn hit(&mut self, row: usize, col: usize, width: usize, target: Target) {
+        self.hit_rect(row, col, width, 1, target);
+    }
+
+    fn hit_rect(&mut self, row: usize, col: usize, width: usize, height: usize, target: Target) {
+        if width > 0 {
+            self.hits.push(Hit { row, col, width, height, target });
+        }
     }
 
     /// Writes `text` from `col`, cut before column `limit`; returns the column after it.
@@ -164,7 +196,7 @@ pub fn render(app: &App, rows: usize, cols: usize) -> Frame {
     let mut canvas = Canvas::new(rows, cols);
     if rows < MIN_ROWS || cols < MIN_COLS {
         canvas.put(0, 0, &format!("terminal too small (needs {MIN_COLS}x{MIN_ROWS})"), Style::Plain);
-        return Frame { lines: canvas.lines(), cursor: None };
+        return Frame { lines: canvas.lines(), cursor: None, hits: Vec::new() };
     }
     toolbar(app, &mut canvas);
     // From the bottom: the status line; the band (its top rule or border first); the request
@@ -214,7 +246,7 @@ pub fn render(app: &App, rows: usize, cols: usize) -> Frame {
         choice(&mut canvas, rows, a, *selected);
         cursor = None;
     }
-    Frame { lines: canvas.lines(), cursor }
+    Frame { lines: canvas.lines(), cursor, hits: canvas.hits }
 }
 
 /// The toolbar: the function key and the name of each window, the open one lit; shorter names,
@@ -248,8 +280,10 @@ fn toolbar(app: &App, canvas: &mut Canvas) {
             _ => false,
         };
         let (key, name) = parts(tool, tier);
+        let from = col;
         col = canvas.put_within(0, col, cols, &key, if lit { Style::Lit } else { Style::Yellow });
         col = canvas.put_within(0, col, cols, &name, if lit { Style::Lit } else { Style::Plain });
+        canvas.hit(0, from, col - from, Target::Act(tool.action));
     }
     // Online or offline, at the right.
     use aequalis::network::Status;
@@ -300,17 +334,22 @@ fn history(app: &App, canvas: &mut Canvas, top: usize, height: usize) {
         let selected = app.history.selected() == Some(start + i);
         let mut col = canvas.put_within(row, 2, right, if selected { "› " } else { "  " }, Style::Bold);
         let input_style = if selected { Style::Inverse } else { Style::Plain };
+        // The request recalls into the line; the result is copied.
+        let from = col - 2;
         col = canvas.put_within(row, col, right, &format!("{:<width$}", entry.input), input_style);
+        canvas.hit(row, 2, col - from, Target::Entry(start + i));
+        let result_from = col;
         match &entry.result {
             Ok(result) => {
                 col = canvas.put_within(row, col, right, "  = ", Style::Dim);
-                canvas.put_within(row, col, right, result, Style::Bold);
+                col = canvas.put_within(row, col, right, result, Style::Bold);
             }
             Err(msg) => {
                 col = canvas.put_within(row, col, right, "  ✗ ", Style::Red);
-                canvas.put_within(row, col, right, msg, Style::Red);
+                col = canvas.put_within(row, col, right, msg, Style::Red);
             }
         }
+        canvas.hit(row, result_from, col - result_from, Target::EntryResult(start + i));
     }
     if scroll > 0 {
         // On the rule under the history.
@@ -330,6 +369,26 @@ const BASIC: [[KeyCap; 4]; 5] = [
     [("1", Some('1')), ("2", Some('2')), ("3", Some('3')), ("+", Some('+'))],
     [("0", Some('0')), (".", Some('.')), ("⌫", Some('⌫')), ("⏎", Some('='))],
 ];
+
+/// What a click on a key of the keypad asks for: its label's character (`÷` is `/`, `×` is `*`),
+/// ⌫ and ⏎, or for a function its name and bracket.
+fn key_action(label: &str) -> Action {
+    match label {
+        "÷" => Action::Insert('/'),
+        "×" => Action::Insert('*'),
+        "−" => Action::Insert('-'),
+        "⌫" => Action::Backspace,
+        "⏎" => Action::Submit,
+        "sin" => Action::Write("sin("),
+        "cos" => Action::Write("cos("),
+        "tan" => Action::Write("tan("),
+        "ln" => Action::Write("ln("),
+        "log" => Action::Write("log("),
+        "√" => Action::Write("sqrt("),
+        "π" => Action::Write("pi"),
+        other => Action::Insert(other.chars().next().unwrap_or(' ')),
+    }
+}
 
 /// The functions beside them in Sci (each writes its bracket: `sin(`; `π` writes `pi`).
 const SCI: [[KeyCap; 2]; 5] = [
@@ -384,8 +443,11 @@ fn keypad(app: &App, canvas: &mut Canvas, top: usize) {
         (false, false) => Style::Dim,
     };
     let mut col = canvas.put(top, 3, " Basic ", tab(Part::Basic, !sci));
+    canvas.hit(top, 3, col - 3, Target::Focus(Part::Basic));
     col = canvas.put(top, col, "│", Style::Dim);
-    canvas.put(top, col, " Sci ", tab(Part::Sci, sci));
+    let from = col;
+    col = canvas.put(top, col, " Sci ", tab(Part::Sci, sci));
+    canvas.hit(top, from, col - from, Target::Focus(Part::Sci));
     let cap = |canvas: &mut Canvas, row: usize, x: usize, (label, typed): KeyCap| {
         let style = match typed {
             Some(c) if Some(c) == app.pressed => Style::Lit,
@@ -394,6 +456,7 @@ fn keypad(app: &App, canvas: &mut Canvas, top: usize) {
             None => Style::Plain,
         };
         canvas.put(row, x, &format!("{label:^5}"), style);
+        canvas.hit(row, x, 5, Target::Act(key_action(label)));
     };
     for r in 0..BASIC.len() {
         let row = top + 1 + r;
@@ -442,6 +505,8 @@ fn shortcuts(app: &App, canvas: &mut Canvas, top: usize, sci: bool) {
     let title = |part: Part| if app.focus == Some(part) { Style::Inverse } else { Style::Dim };
     canvas.put(top, left - 1, " Units ", title(Part::Units));
     canvas.put(top, left + SHORTCUT_COLUMN + SHORTCUT_GAP - 1, " Money ", title(Part::Money));
+    canvas.hit(top, left - 1, 7, Target::Focus(Part::Units));
+    canvas.hit(top, left + SHORTCUT_COLUMN + SHORTCUT_GAP - 1, 7, Target::Focus(Part::Money));
     for row in 0..BASIC.len() {
         for (column, base) in [(0, 0), (1, 5)] {
             let index = base + row;
@@ -453,6 +518,7 @@ fn shortcuts(app: &App, canvas: &mut Canvas, top: usize, sci: bool) {
             let lit = app.lit == Some(index) || chosen;
             canvas.put(top + 1 + row, x, &digit.to_string(), if lit { Style::Lit } else { Style::Dim });
             canvas.put_within(top + 1 + row, x + 2, x + SHORTCUT_COLUMN, &format!("{name:<7}"), if lit { Style::Lit } else { Style::Plain });
+            canvas.hit(top + 1 + row, x, SHORTCUT_COLUMN, Target::Act(Action::Shortcut(index)));
         }
     }
 }
@@ -473,6 +539,7 @@ fn expression(app: &App, canvas: &mut Canvas, top: usize) -> Option<(usize, usiz
     let visible: String = app.line.chars().iter().skip(offset).collect();
     canvas.put_within(top + 1, 2, right, PROMPT, Style::Bold);
     canvas.put_within(top + 1, start, right, &visible, Style::Plain);
+    canvas.hit(top + 1, start, right - start, Target::Line(offset));
 
     // The grouping applied (when there are operations), then the result or the error.
     let row = top + 2;
@@ -483,7 +550,9 @@ fn expression(app: &App, canvas: &mut Canvas, top: usize) -> Option<(usize, usiz
     }
     match app.preview() {
         Some(Ok(result)) => {
+            let from = col;
             col = canvas.put_within(row, col, right, &format!("= {result}"), Style::Green);
+            canvas.hit(row, from, col - from, Target::Act(Action::Copy));
             if let Some(currencies) = app.currencies() {
                 col = canvas.put_within(row, col, right, &format!("   {currencies}"), Style::Dim);
             }
@@ -503,7 +572,9 @@ fn expression(app: &App, canvas: &mut Canvas, top: usize) -> Option<(usize, usiz
                 _ => col = canvas.put_within(row, col, right, " ", Style::Plain),
             }
             let style = if selected == Some(i) { Style::Inverse } else { Style::Plain };
+            let from = col;
             col = canvas.put_within(row, col, right, name, style);
+            canvas.hit(row, from, col - from, Target::Suggest(i));
         }
     }
     Some((top + 1, start + app.line.cursor() - offset))
@@ -1837,6 +1908,99 @@ mod tests {
         let text = lines.join("\n");
         assert!(text.contains("tui.favourite_units") && text.contains("tui.favourite_currencies"), "{text}");
         assert!(text.contains("(none yet: the defaults)"), "{text}");
+    }
+
+    /// Types `keys`, then clicks (left button) on the first cell of each text in `texts`, in
+    /// order, as drawn at that moment (a click that changes the screen is followed by one on the
+    /// new screen). Returns the app.
+    fn clicked<'a>(config: &'a Config, opts: &'a Options<'a>, keys: &str, size: (usize, usize), texts: &[&str]) -> App<'a> {
+        let mut app = app_after_in(config, opts, keys, size);
+        for text in texts {
+            let frame = render(&app, size.0, size.1);
+            let plain: Vec<String> = frame.lines.iter().map(|l| plain(l)).collect();
+            let (row, line) = plain.iter().enumerate().find(|(_, l)| l.contains(text)).unwrap_or_else(|| panic!("no `{text}` on screen:\n{}", plain.join("\n")));
+            let col = line[..line.find(text).unwrap()].chars().count();
+            app.hits = frame.hits;
+            app.handle(Key::Mouse(super::super::keys::Mouse { kind: super::super::keys::MouseKind::Down(super::super::keys::Button::Left), row, col }));
+        }
+        app
+    }
+
+    #[test]
+    fn clicking_the_toolbar() {
+        let config = Config::default();
+        let opts = OPTS;
+        let app = clicked(&config, &opts, "", (24, 100), &["F3 Currencies"]);
+        assert!(matches!(app.overlay, Some(Overlay::Currencies(_))));
+        // The same entry again closes it, as the key does.
+        let app = clicked(&config, &opts, "", (24, 100), &["F3 Currencies", "F3 Currencies"]);
+        assert!(app.overlay.is_none());
+        let app = clicked(&config, &opts, "", (24, 100), &["F2 Measures"]);
+        assert!(matches!(app.overlay, Some(Overlay::Measures(_))));
+        // The Keys entry shows the keyboard.
+        let app = clicked(&config, &opts, "", (24, 100), &["F9 Keys"]);
+        assert!(app.keypad != Keypad::Hidden);
+        // Short names at 60 columns are still clickable.
+        let app = clicked(&config, &opts, "", (24, 60), &["F4 Triv"]);
+        assert!(matches!(app.overlay, Some(Overlay::Trivia(_))));
+    }
+
+    #[test]
+    fn clicking_the_keyboard() {
+        let config = Config::default();
+        let opts = OPTS;
+        // The keys write as typed ones do, and light up.
+        let app = clicked(&config, &opts, "<F9>", (24, 80), &["7    8", "×", "9    ×"]);
+        assert_eq!((app.line.text().as_str(), app.pressed), ("7*9", Some('9')), "the last key is lit");
+        let app = clicked(&config, &opts, "<F9>", (24, 80), &["7    8", "⌫"]);
+        assert_eq!(app.line.text(), "");
+        let app = clicked(&config, &opts, "<F9>", (24, 80), &["7    8", "⏎"]);
+        assert_eq!((app.line.text().as_str(), app.history.entries().len()), ("", 1), "Enter evaluated it");
+        // Functions write their bracket.
+        let app = clicked(&config, &opts, "<F9>", (24, 80), &["sin", "√", "π"]);
+        assert_eq!(app.line.text(), "sin(sqrt(pi");
+        // The tabs switch the layout and take the focus; the titles of the columns too.
+        let app = clicked(&config, &opts, "<F9>", (24, 80), &["Basic"]);
+        assert_eq!((app.keypad, app.focus), (Keypad::Basic, Some(Part::Basic)));
+        let app = clicked(&config, &opts, "<F9>", (24, 80), &["Money"]);
+        assert_eq!(app.focus, Some(Part::Money));
+        // The shortcuts write their entry, as Alt+7 does.
+        let app = clicked(&config, &opts, "<F9>", (24, 80), &["7 EUR", "1 km"]);
+        assert_eq!((app.line.text().as_str(), app.currencies.hits("EUR")), ("1 EUR km ", Some(1)));
+    }
+
+    #[test]
+    fn clicking_the_history_the_answer_and_the_line() {
+        let config = Config::default();
+        let opts = OPTS;
+        // A request in the history comes back to the line; its result is copied.
+        let app = clicked(&config, &opts, "10 km mi\n", (24, 80), &["10 km mi  ="]);
+        assert_eq!(app.line.text(), "10 km mi");
+        let app = clicked(&config, &opts, "10 km mi\n", (24, 80), &["6.2137 mi"]);
+        assert_eq!(app.copied.as_deref(), Some("6.2137 mi"));
+        // The live answer is copied.
+        let app = clicked(&config, &opts, "1+2", (24, 80), &["= 3"]);
+        assert_eq!(app.copied.as_deref(), Some("3"));
+        // A click on the line puts the cursor there.
+        let app = clicked(&config, &opts, "100 km mi", (24, 80), &["> 100 km mi"]);
+        assert_eq!(app.line.cursor(), 9, "on the prompt: nothing");
+        let app = clicked(&config, &opts, "100 km mi", (24, 80), &["00 km mi"]);
+        assert_eq!(app.line.cursor(), 1);
+        // A suggestion completes the word.
+        let app = clicked(&config, &opts, "5 km m", (24, 80), &["mi mil"]);
+        assert_eq!(app.line.text(), "5 km mi", "{}", app.line.text());
+    }
+
+    #[test]
+    fn the_mouse_can_be_given_back_to_the_terminal() {
+        let config = Config::default();
+        let opts = OPTS;
+        let mut app = app_after(&config, &opts, "");
+        assert!(app.mouse_on);
+        app.handle(Key::Alt('o'));
+        assert!(!app.mouse_on && app.status.as_ref().is_some_and(|(_, m)| m.contains("mouse off")));
+        app.handle(Key::Alt('o'));
+        assert!(app.mouse_on);
     }
 
     #[test]

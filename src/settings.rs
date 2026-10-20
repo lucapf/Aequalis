@@ -99,6 +99,12 @@ pub const KEYS: &[Key] = &[
         about: "the interactive mode starts with its keypad on screen (F9 shows, changes and hides it)",
     },
     Key {
+        key: "tui.mouse",
+        default: "true",
+        kind: Kind::Bool,
+        about: "the interactive mode takes mouse clicks (off: the terminal selects text; Alt+O switches it for a session)",
+    },
+    Key {
         key: "tui.favourite_units",
         default: "",
         kind: Kind::Favourites,
@@ -194,6 +200,11 @@ impl Settings {
     /// The interactive mode starts with its keypad on screen (off unless asked).
     pub fn keyboard(&self) -> bool {
         self.get("tui.keyboard") == "true"
+    }
+
+    /// The interactive mode takes the mouse (on unless turned off).
+    pub fn mouse(&self) -> bool {
+        self.get("tui.mouse") == "true"
     }
 
     /// The stored shortcuts: the units, or the currencies (empty when nothing is stored).

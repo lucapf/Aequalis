@@ -145,6 +145,9 @@ mod imp {
         }
     }
 
+    /// Nothing to set: the terminal reports the mouse when asked with escapes.
+    pub fn mouse(_: bool) {}
+
     pub fn size() -> Option<(usize, usize)> {
         let mut ws = Winsize::default();
         // SAFETY: TIOCGWINSZ writes one `struct winsize`.
@@ -169,6 +172,8 @@ mod imp {
     }
 
     pub fn restore() {}
+
+    pub fn mouse(_: bool) {}
 
     pub fn size() -> Option<(usize, usize)> {
         None
@@ -196,6 +201,9 @@ mod imp {
     const ENABLE_PROCESSED_INPUT: u32 = 0x1;
     const ENABLE_LINE_INPUT: u32 = 0x2;
     const ENABLE_ECHO_INPUT: u32 = 0x4;
+    const ENABLE_MOUSE_INPUT: u32 = 0x10;
+    const ENABLE_QUICK_EDIT_MODE: u32 = 0x40;
+    const ENABLE_EXTENDED_FLAGS: u32 = 0x80;
     const ENABLE_VIRTUAL_TERMINAL_INPUT: u32 = 0x200;
     const ENABLE_PROCESSED_OUTPUT: u32 = 0x1;
     const ENABLE_VIRTUAL_TERMINAL_PROCESSING: u32 = 0x4;
@@ -258,8 +266,21 @@ mod imp {
             restore();
             return Err(old_console.into());
         }
+        let _ = RAW_IN.set(raw_in);
         Ok(())
     }
+
+    /// The mouse for the program: Quick Edit (the console selecting text on a click) off, mouse
+    /// input on, so the console reports the mouse as escape sequences (once the program asks for
+    /// them); off puts the raw mode back, with Quick Edit as the console had it.
+    pub fn mouse(on: bool) {
+        let Some(&raw_in) = RAW_IN.get() else { return };
+        let mode = if on { (raw_in | ENABLE_EXTENDED_FLAGS | ENABLE_MOUSE_INPUT) & !ENABLE_QUICK_EDIT_MODE } else { raw_in };
+        // SAFETY: the handle is the process's own; the mode is a plain value.
+        unsafe { SetConsoleMode(handle(STD_INPUT_HANDLE), mode) };
+    }
+
+    static RAW_IN: OnceLock<u32> = OnceLock::new();
 
     pub fn restore() {
         if let Some(&(in_mode, out_mode)) = ORIGINAL.get() {
@@ -385,8 +406,15 @@ pub fn enter() -> Result<Guard, String> {
 
 /// Leaves the alternate screen, shows the cursor (default shape) and restores the terminal settings.
 pub fn leave() {
-    print_now("\x1b[0 q\x1b[?1049l\x1b[?25h");
+    print_now("\x1b[?1006l\x1b[?1000l\x1b[0 q\x1b[?1049l\x1b[?25h");
     imp::restore();
+}
+
+/// The terminal reports mouse clicks and the wheel (SGR, `?1000` + `?1006`) while `on`; off gives
+/// the mouse back to the terminal, which selects text with it.
+pub fn mouse(on: bool) {
+    imp::mouse(on);
+    print_now(if on { "\x1b[?1000h\x1b[?1006h" } else { "\x1b[?1006l\x1b[?1000l" });
 }
 
 /// Rows and columns of the terminal, if known.

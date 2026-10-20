@@ -125,6 +125,10 @@ pub struct App<'a> {
     slot: usize,
     /// The terminal's rows and columns.
     screen: (usize, usize),
+    /// What a click does, as the last frame drew it; whether the mouse is reported to the program
+    /// (`tui.mouse`, Alt+O), and whether the terminal was last told so.
+    hits: Vec<render::Hit>,
+    mouse_on: bool,
     /// Whether the hits are kept in the settings (only in a real session: never in the tests).
     persist: bool,
     redraw: bool,
@@ -189,6 +193,8 @@ impl<'a> App<'a> {
             focus: None,
             slot: 0,
             screen: (24, 80),
+            hits: Vec::new(),
+            mouse_on: true,
             persist: false,
             redraw: false,
             quit: false,
@@ -667,6 +673,11 @@ impl<'a> App<'a> {
                 },
             },
         };
+        self.copy_text(result);
+    }
+
+    /// `result` to the clipboard (the system's too in a real session).
+    fn copy_text(&mut self, result: String) {
         let copied = if self.system_clipboard { clipboard::copy(&result) } else { Ok(()) };
         self.status = Some(match copied {
             Ok(()) => (StatusKind::Note, format!("copied {result}")),
@@ -695,6 +706,14 @@ impl<'a> App<'a> {
             }
         };
         self.cycle = Some(cycle);
+    }
+
+    /// A click on the n-th suggestion: the word under the cursor becomes it.
+    fn complete_with(&mut self, n: usize) {
+        let Some(s) = aequalis::suggest::suggest(self.config, &self.line.text(), self.line.cursor(), 0) else { return };
+        if let Some(name) = s.names.get(n) {
+            self.line.replace(s.start, self.line.cursor(), name);
+        }
     }
 
     /// The result of `input` (trimmed), evaluated once while it stays the same.
@@ -853,18 +872,26 @@ pub fn run(config: &Config, opts: &Options) -> ExitCode {
     // The keypad as the `tui.keyboard` setting says (F9 shows, changes and hides it).
     app.screen = term::size().unwrap_or((24, 80));
     app.keypad = if aequalis::settings::current().keyboard() { app.best_layout() } else { Keypad::Hidden };
+    // The mouse as the `tui.mouse` setting says (Alt+O switches it for the session).
+    app.mouse_on = aequalis::settings::current().mouse();
+    let mut mouse_reported = false;
     let mut stdout = std::io::stdout();
     let (mut pending, mut buf) = (Vec::new(), [0u8; 256]);
     let (mut drawn, mut dirty, mut clear, mut hangups) = (None, true, true, 0);
     while !app.quit {
         app.keep_online_fresh();
         dirty |= app.refresh_online();
+        if app.mouse_on != mouse_reported {
+            term::mouse(app.mouse_on);
+            mouse_reported = app.mouse_on;
+        }
         let size = term::size().unwrap_or((24, 80));
         app.screen = size;
         if dirty || drawn != Some(size) {
             let frame = render::render(&app, size.0, size.1);
             let _ = stdout.write_all(frame.to_ansi(clear || drawn != Some(size)).as_bytes());
             let _ = stdout.flush();
+            app.hits = frame.hits;
             (drawn, dirty, clear) = (Some(size), false, false);
         }
         let started = Instant::now();

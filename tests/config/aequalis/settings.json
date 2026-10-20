@@ -14,6 +14,7 @@
   "format.date": "DD MMM YY",
   "format.datetime": "DD MMM YY h:mm AM tz",
   "tui.keyboard": false,
-  "tui.favourite_units": "km:40,kg:0,l:0,ft:8,mi:40",
+  "tui.mouse": true,
+  "tui.favourite_units": "km:45,kg:0,l:0,ft:9,mi:45",
   "tui.favourite_currencies": ""
 }

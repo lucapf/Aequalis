@@ -32,6 +32,11 @@ impl Line {
         self.cursor = self.chars.len();
     }
 
+    /// The cursor to character `at` (the end at most).
+    pub fn move_to(&mut self, at: usize) {
+        self.cursor = at.min(self.chars.len());
+    }
+
     /// Replaces `start..end` with `text`; the cursor goes after it.
     pub fn replace(&mut self, start: usize, end: usize, text: &str) {
         self.chars.splice(start..end, text.chars());
