@@ -9,13 +9,18 @@
 //! ──────────────────────────────────────────────────────────────────────────────────
 //!  > 100 + 20 sqft m
 //!    = …   Tab: mm2 m2 mi2
-//! ──────────────────────────────────────────────────────────────────────────────────
-//!  note: evaluated as (100 + 20) + (50 / 10)           F1 help · Ctrl+K search · Ctrl+Q quit
+//! ─── Basic │ Sci ────────────────────────────────────────────────────────────────────
+//!    sin  cos │   (    )    %    ÷                       the band: the keypad (F9), or the
+//!    tan   √  │   7    8    9    ×                       panel of F2, F3, F4 and Ctrl+K,
+//!    ln   log │   4    5    6    −                       which takes its rows
+//!     π    e  │   1    2    3    +
+//!     ^    °  │   0    .    ⌫    ⏎
+//!  note: evaluated as (100 + 20) + (50 / 10)      F1 help · Ctrl+K search · Ctrl+Q quit
 //! ```
 
 use super::action::{Action, TOOLBAR};
 use super::picker::{format_rows, Picker};
-use super::{App, Overlay, StatusKind};
+use super::{App, Keypad, Overlay, StatusKind};
 use aequalis::config::System;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -162,25 +167,31 @@ pub fn render(app: &App, rows: usize, cols: usize) -> Frame {
         return Frame { lines: canvas.lines(), cursor: None };
     }
     toolbar(app, &mut canvas);
-    // The history takes the rows between the toolbar and the request, under a rule.
+    // From the bottom: the status line; the band (its top rule or border first); the request
+    // block above it (a rule, the line, its result and suggestions); the history takes the rest,
+    // under a rule.
     let head = 1;
-    history(app, &mut canvas, head, rows - 5 - head);
-    let mut cursor = expression(app, &mut canvas, rows - 5);
+    let band = band_rows(app, rows);
+    let band_top = rows - 1 - band;
+    history(app, &mut canvas, head, band_top - 3 - head);
+    let mut cursor = expression(app, &mut canvas, band_top - 3);
     status(app, &mut canvas, rows - 1);
-    // The keypad, top-right in the history: digits, or a category's units while picking one.
+    // What the band holds: a panel, else the keypad; with nothing open, only the rule.
+    let width = cols.min(PANEL_WIDTH);
+    let area = Area { top: band_top, left: (cols - width) / 2, width, height: band };
     match &app.overlay {
-        Some(Overlay::Measures(v)) => measures(app, v, &mut canvas, rows, head),
-        Some(Overlay::Picker(p)) => unit_keys(app, p, &mut canvas, rows, head),
+        Some(Overlay::Measures(v)) => measures(app, v, &mut canvas, area),
+        Some(Overlay::Picker(p)) => unit_keys(app, p, &mut canvas, area),
         Some(Overlay::Currencies(v)) => {
-            currencies(v, &mut canvas, rows, head);
+            currencies(v, &mut canvas, area);
             cursor = None;
         }
-        Some(Overlay::Trivia(v)) => trivia(app, v, &mut canvas, rows, head),
+        Some(Overlay::Trivia(v)) => trivia(app, v, &mut canvas, area),
         Some(Overlay::Search(s)) => {
-            search(app, s, &mut canvas, rows, head);
+            search(app, s, &mut canvas, area);
             cursor = None;
         }
-        _ if app.keypad => keypad(app, &mut canvas, head + 1, rows - 6 - head),
+        _ if band > 1 => keypad(app, &mut canvas, band_top),
         _ => {}
     }
     if let Some(Overlay::Trivia(v @ super::trivia::View { popup: Some(scroll), .. })) = &app.overlay {
@@ -300,50 +311,88 @@ fn history(app: &App, canvas: &mut Canvas, top: usize, height: usize) {
     }
 }
 
-/// The keypad, row by row. `=` stands for Enter, `e` for the exponent (`1e3`).
-const KEYPAD: [[char; 4]; 5] = [['(', ')', '^', '/'], ['7', '8', '9', '*'], ['4', '5', '6', '-'], ['1', '2', '3', '+'], ['0', '.', 'e', '=']];
+/// A key of the keypad: what it shows, and the character that lights it when typed.
+type KeyCap = (&'static str, Option<char>);
 
-/// A numeric keypad in the top-right corner of the history, in front of its lines. Full size with a
-/// grid when there is room (11 rows), compact (7 rows) otherwise, not drawn when even that doesn't fit.
-/// The key typed last is lit.
-fn keypad(app: &App, canvas: &mut Canvas, top: usize, room: usize) {
-    let full = room >= 11;
-    if !full && room < 7 {
-        return;
-    }
-    let (cell, width, height) = if full { (4, 17, 11) } else { (3, 15, 7) };
-    let left = canvas.cols - 2 - width;
-    canvas.boxed(top, left, height, width, "");
-    // Clear the empty title the box drew.
-    canvas.cells[top][left + 1..left + width - 1].fill(('─', Style::Dim));
-    let key_row = |r: usize| if full { top + 1 + 2 * r } else { top + 1 + r };
-    if full {
-        for r in 0..KEYPAD.len() {
-            for c in 1..4 {
-                canvas.cells[key_row(r)][left + 4 * c] = ('│', Style::Dim);
-                canvas.cells[top][left + 4 * c] = ('┬', Style::Dim);
-                canvas.cells[top + height - 1][left + 4 * c] = ('┴', Style::Dim);
+/// The calculator keys, row by row: the same as the Android app's.
+const BASIC: [[KeyCap; 4]; 5] = [
+    [("(", Some('(')), (")", Some(')')), ("%", Some('%')), ("÷", Some('/'))],
+    [("7", Some('7')), ("8", Some('8')), ("9", Some('9')), ("×", Some('*'))],
+    [("4", Some('4')), ("5", Some('5')), ("6", Some('6')), ("−", Some('-'))],
+    [("1", Some('1')), ("2", Some('2')), ("3", Some('3')), ("+", Some('+'))],
+    [("0", Some('0')), (".", Some('.')), ("⌫", Some('⌫')), ("⏎", Some('='))],
+];
+
+/// The functions beside them in Sci (each writes its bracket: `sin(`; `π` writes `pi`).
+const SCI: [[KeyCap; 2]; 5] = [
+    [("sin", None), ("cos", None)],
+    [("tan", None), ("√", None)],
+    [("ln", None), ("log", None)],
+    [("π", None), ("e", Some('e'))],
+    [("^", Some('^')), ("°", Some('°'))],
+];
+
+/// Rows of the keypad in the band: its rule with the tabs, and five rows of keys.
+const KEYPAD_ROWS: usize = 6;
+/// The panels in the band are at most this wide, centred.
+const PANEL_WIDTH: usize = 100;
+/// The terminal's rows from which the keypad is shown: below them the history would be too short.
+const KEYPAD_FROM: usize = 15;
+
+/// A rectangle of the screen.
+#[derive(Clone, Copy)]
+struct Area {
+    top: usize,
+    left: usize,
+    width: usize,
+    height: usize,
+}
+
+/// The rows the band takes under the request line, its top rule or border included: just that
+/// rule (1) with nothing open. A panel takes the rows it needs, or what the terminal leaves.
+fn band_rows(app: &App, rows: usize) -> usize {
+    let wanted = match &app.overlay {
+        Some(Overlay::Measures(_)) => measures_rows(app),
+        Some(Overlay::Picker(p)) => unit_keys_rows(app, p),
+        Some(Overlay::Currencies(v)) => list_rows(aequalis::currency::search(&v.query).len()),
+        Some(Overlay::Search(s)) => list_rows(super::search::matches(app.config, &s.query).len()),
+        Some(Overlay::Trivia(v)) => trivia_rows(v),
+        _ if app.keypad != Keypad::Hidden && rows >= KEYPAD_FROM => KEYPAD_ROWS,
+        _ => 1,
+    };
+    // The toolbar, its rule, the history's rule and one line, the request's 4 rows and the status.
+    wanted.clamp(1, rows - 7)
+}
+
+/// The keypad in the band: its rule carries the tabs (the one shown is lit), then the keys. The key
+/// typed last is lit.
+fn keypad(app: &App, canvas: &mut Canvas, top: usize) {
+    let sci = app.keypad == Keypad::Sci;
+    canvas.rule(top);
+    let mut col = canvas.put(top, 3, " Basic ", if sci { Style::Dim } else { Style::Lit });
+    col = canvas.put(top, col, "│", Style::Dim);
+    canvas.put(top, col, " Sci ", if sci { Style::Lit } else { Style::Dim });
+    let cap = |canvas: &mut Canvas, row: usize, x: usize, (label, typed): KeyCap| {
+        let style = match typed {
+            Some(c) if Some(c) == app.pressed => Style::Lit,
+            Some('0'..='9' | '.') => Style::Bold,
+            Some(_) => Style::Yellow,
+            None => Style::Plain,
+        };
+        canvas.put(row, x, &format!("{label:^5}"), style);
+    };
+    for r in 0..BASIC.len() {
+        let row = top + 1 + r;
+        let mut x = 2;
+        if sci {
+            for (c, &key) in SCI[r].iter().enumerate() {
+                cap(canvas, row, x + 5 * c, key);
             }
-            if r + 1 < KEYPAD.len() {
-                let sep = key_row(r) + 1;
-                canvas.cells[sep][left + 1..left + width - 1].fill(('─', Style::Dim));
-                canvas.cells[sep][left] = ('├', Style::Dim);
-                canvas.cells[sep][left + width - 1] = ('┤', Style::Dim);
-                for c in 1..4 {
-                    canvas.cells[sep][left + 4 * c] = ('┼', Style::Dim);
-                }
-            }
+            canvas.cells[row][x + 10] = ('│', Style::Dim);
+            x += 12;
         }
-    }
-    for (r, keys) in KEYPAD.iter().enumerate() {
-        for (c, &key) in keys.iter().enumerate() {
-            let x = left + 1 + cell * c;
-            let style = match key {
-                k if Some(k) == app.pressed => Style::Lit,
-                '0'..='9' | '.' => Style::Bold,
-                _ => Style::Yellow,
-            };
-            canvas.put(key_row(r), x, &format!(" {key} "), style);
+        for (c, &key) in BASIC[r].iter().enumerate() {
+            cap(canvas, row, x + 5 * c, key);
         }
     }
 }
@@ -473,35 +522,31 @@ fn centred(canvas: &mut Canvas, rows: usize, width: usize, height: usize, title:
 /// (5 for Area and Data, 4 for the others), the selected one lit.
 /// Top-right in the history like the digits; it grows upwards over the Units bar when the history
 /// is too short.
-fn unit_keys(app: &App, p: &Picker, canvas: &mut Canvas, rows: usize, head: usize) {
+/// The rows the unit keys need: the tabs, the buttons of the larger tab (or the table of date
+/// formats and its footer), the line about the selected unit, and the borders.
+fn unit_keys_rows(app: &App, p: &Picker) -> usize {
+    let category = p.category(app.config);
+    let columns = super::measures::columns(category);
+    let most = [System::Metric, System::Imperial].map(|tab| p.units_of(app.config, tab).count()).into_iter().max().unwrap_or(1);
+    let dates_rows = (category.name == aequalis::config::TIME).then(format_rows).map_or(0, |t| t.len() + 1);
+    // Sized for the larger tab, so the panel does not jump while switching.
+    (most.div_ceil(columns) + 1).max(dates_rows) + 4
+}
+
+fn unit_keys(app: &App, p: &Picker, canvas: &mut Canvas, area: Area) {
+    let Area { top, left, width, height } = area;
+    let right = left + width - 1;
     let category = p.category(app.config);
     let items = p.items(app.config);
     let button = category.units.iter().map(|u| u.symbol.chars().count()).max().unwrap_or(1) + 2;
     let title = format!("{} units", p.title(app.config));
-    let columns = super::measures::columns(category);
-    // Wide enough for the buttons, the title and the tabs.
-    let tabs = p.tabs(app.config);
-    let tabs_len: usize = tabs.iter().map(|(n, _)| n.chars().count() + 3).sum();
     // Time's second tab is the table of date formats.
     let formats = (category.name == aequalis::config::TIME).then(format_rows);
-    let table_width = 2 + FORMAT_LABEL + 1 + 5 * (FORMAT_CELL + 1) + 1;
-    let width =
-        (columns * (button + 1) + 1).max(title.chars().count() + 6).max(tabs_len + 4).max(if formats.is_some() { table_width } else { 0 }).min(canvas.cols - 3);
-    // Sized for the larger tab, so the window does not jump while switching.
-    let most = [System::Metric, System::Imperial].map(|tab| p.units_of(app.config, tab).count()).into_iter().max().unwrap_or(1);
-    // The Formats tab: the table and a footer line for the selected format.
-    let dates_rows = formats.as_ref().map_or(0, |t| t.len() + 1);
-    // Below the top bar when there is room; small terminals let it cover the top bar.
-    let table_rows = most.div_ceil(columns);
-    let height = (table_rows.max(dates_rows) + 4).min((rows - 7 - head).max(7));
-    let top = (head + 1).min(rows - 5 - height);
-    let left = canvas.cols - 2 - width;
-    let right = left + width - 1;
     canvas.boxed(top, left, height, width, &title);
 
     // The tabs: the one shown is lit.
     let mut col = left + 2;
-    for (name, shown) in tabs {
+    for (name, shown) in p.tabs(app.config) {
         col = canvas.put_within(top + 1, col, right, &format!(" {name} "), if shown { Style::Lit } else { Style::Dim });
         col = canvas.put_within(top + 1, col, right, " ", Style::Plain);
     }
@@ -544,9 +589,11 @@ fn unit_keys(app: &App, p: &Picker, canvas: &mut Canvas, rows: usize, head: usiz
         return;
     }
 
+    // The buttons, and under them one line about the selected unit when there is room.
+    let about = (height >= 7).then(|| top + height - 2);
+    let visible = visible - usize::from(about.is_some());
     let table = p.rows(app.config);
     let offset = Picker::position(&table, p.selected).0.saturating_sub(visible.saturating_sub(1));
-    let mut chosen = None;
     let mut x = left + 1;
     for (i, unit) in items.iter().enumerate() {
         let (r, c) = Picker::position(&table, i);
@@ -554,24 +601,27 @@ fn unit_keys(app: &App, p: &Picker, canvas: &mut Canvas, rows: usize, head: usiz
             x = left + 1;
         }
         // All as wide as the category's longest.
-        let width = button;
         let at = x;
-        x += width + 1;
+        x += button + 1;
         if r < offset || r >= offset + visible {
             continue;
         }
         let row = first + r - offset;
         let style = if i == p.selected { Style::Lit } else { Style::Bold };
-        let end = canvas.put_within(row, at, right, &format!("{:^width$}", unit.symbol), style);
+        let end = canvas.put_within(row, at, right, &format!("{:^button$}", unit.symbol), style);
         if c + 1 < table[r] && end < right {
             canvas.cells[row][end] = ('│', Style::Dim);
         }
-        if i == p.selected {
-            chosen = Some((*unit, at, width));
-        }
     }
-    if let Some((unit, x, width)) = chosen {
-        card(canvas, &unit_card_lines(app, category, unit), (rows, head), (top, top + height - 1), (x, x + width));
+    if let (Some(unit), Some(row)) = (items.get(p.selected), about) {
+        let [name, aliases, value] = unit_card_lines(app, category, unit);
+        // The aliases go first when the line is too long for the panel.
+        let long = name.chars().count() + aliases.chars().count() + value.chars().count() + 6 > width.saturating_sub(4);
+        let mut col = canvas.put_within(row, left + 2, right, &name, Style::Bold);
+        if !long {
+            col = canvas.put_within(row, col, right, &format!(" · {aliases}"), Style::Dim);
+        }
+        canvas.put_within(row, col, right, &format!(" · {value}"), Style::Green);
     }
 }
 
@@ -592,11 +642,13 @@ fn wrap(text: &str, width: usize) -> Vec<String> {
 
 /// The Trivia: the sections as tabs, the entries of the one shown (name, value), and the selected
 /// entry's description at the bottom. Top-right in the history, like the unit keys.
-fn trivia(app: &App, v: &super::trivia::View, canvas: &mut Canvas, rows: usize, head: usize) {
-    let width = 78.min(canvas.cols - 3);
-    let height = (rows - 7 - head).max(8).min(rows - 5);
-    let top = (head + 1).min(rows - 5 - height);
-    let left = canvas.cols - 2 - width;
+/// The rows of the Trivia: the sections, the entries, and the description of the selected one.
+fn trivia_rows(v: &super::trivia::View) -> usize {
+    (v.entries().len().max(1) + 9).min(18)
+}
+
+fn trivia(app: &App, v: &super::trivia::View, canvas: &mut Canvas, area: Area) {
+    let Area { top, left, width, height } = area;
     let right = left + width - 1;
     canvas.boxed(top, left, height, width, "Trivia");
     let mut col = left + 2;
@@ -729,13 +781,10 @@ fn trivia_popup(app: &App, v: &super::trivia::View, canvas: &mut Canvas, rows: u
 }
 
 /// `/`: the query, and the units matching it (symbol, name, category), the chosen one lit.
-fn search(app: &App, s: &super::search::Search, canvas: &mut Canvas, rows: usize, head: usize) {
+fn search(app: &App, s: &super::search::Search, canvas: &mut Canvas, area: Area) {
     use super::search::Found;
     let found = super::search::matches(app.config, &s.query);
-    let width = 64.min(canvas.cols - 3);
-    let height = (found.len().max(1) + 4).min((rows - 7 - head).max(6)).min(rows - 5);
-    let top = (head + 1).min(rows - 5 - height);
-    let left = canvas.cols - 2 - width;
+    let Area { top, left, width, height } = area;
     let right = left + width - 1;
     canvas.boxed(top, left, height, width, "Search units and currencies");
     let col = canvas.put_within(top + 1, left + 2, right, "/ ", Style::Yellow);
@@ -775,13 +824,14 @@ fn conversion(app: &App, code: &str) -> String {
     }
 }
 
-fn measures(app: &App, v: &super::measures::View, canvas: &mut Canvas, rows: usize, head: usize) {
+fn measures_rows(app: &App) -> usize {
+    super::measures::items(app.config).len() + 2
+}
+
+fn measures(app: &App, v: &super::measures::View, canvas: &mut Canvas, area: Area) {
     use super::measures::{items, label, Item};
     let items = items(app.config);
-    let width = 60.min(canvas.cols - 3);
-    let height = (items.len() + 2).min((rows - 7 - head).max(6)).min(rows - 5);
-    let top = (head + 1).min(rows - 5 - height);
-    let left = canvas.cols - 2 - width;
+    let Area { top, left, width, height } = area;
     let right = left + width - 1;
     canvas.boxed(top, left, height, width, "Measures");
     let names = items.iter().map(|&i| label(app.config, i).0.chars().count()).max().unwrap_or(0);
@@ -817,12 +867,14 @@ fn measures(app: &App, v: &super::measures::View, canvas: &mut Canvas, rows: usi
 }
 
 /// The Currencies: the search line, then the currencies matching it (code, symbol, name).
-fn currencies(v: &super::currencies::View, canvas: &mut Canvas, rows: usize, head: usize) {
+/// The rows of a search panel: the query, a rule, up to 8 matches, the borders.
+fn list_rows(found: usize) -> usize {
+    (found.max(1) + 4).min(12)
+}
+
+fn currencies(v: &super::currencies::View, canvas: &mut Canvas, area: Area) {
     let found = aequalis::currency::search(&v.query);
-    let width = 60.min(canvas.cols - 3);
-    let height = (found.len().max(1) + 4).min((rows - 7 - head).max(6)).min(rows - 5);
-    let top = (head + 1).min(rows - 5 - height);
-    let left = canvas.cols - 2 - width;
+    let Area { top, left, width, height } = area;
     let right = left + width - 1;
     canvas.boxed(top, left, height, width, "Currencies");
     let col = canvas.put_within(top + 1, left + 2, right, "/ ", Style::Yellow);
@@ -873,42 +925,6 @@ fn unit_card_lines(app: &App, category: &aequalis::config::Category, unit: &aequ
         format!("1 {} = {} {}", unit.symbol, number(unit.factor), category.base)
     };
     [unit.name.to_string(), aliases, value]
-}
-
-/// A card below the unit keys window, starting under the selected button, with a `▲` pointing up at
-/// it. All the buttons stay visible. It moves left to stay on screen, and goes above the window
-/// (with a `▼`) when there is no room below the history.
-fn card(
-    canvas: &mut Canvas,
-    lines: &[String; 3],
-    (rows, head): (usize, usize),
-    (window_top, window_bottom): (usize, usize),
-    (button_left, button_right): (usize, usize),
-) {
-    // Inside the history's borders.
-    let width = (lines.iter().map(|l| l.chars().count()).max().unwrap_or(0) + 4).min(canvas.cols - 2);
-    let height = lines.len() + 2;
-    let left = button_left.min(canvas.cols - 1 - width);
-    // Below the window, inside the history (which ends 5 rows above the bottom); else above it;
-    // else, without covering the window's title, inside the window at its bottom. Never over the
-    // top bar (`head` rows).
-    let below = window_bottom + 1 + height <= rows - 5;
-    let above = window_top >= head + height;
-    let top = match (below, above) {
-        (true, _) => window_bottom + 1,
-        (false, true) => window_top - height,
-        (false, false) => window_bottom.saturating_sub(height).max(window_top + 1),
-    };
-    canvas.boxed(top, left, height, width, "");
-    let pointer = (button_left + button_right) / 2;
-    if (below || above) && (left + 1..left + width - 1).contains(&pointer) {
-        let edge = if below { top } else { top + height - 1 };
-        canvas.cells[edge][pointer] = (if below { '▲' } else { '▼' }, Style::Yellow);
-    }
-    let right = left + width - 1;
-    for (i, (text, style)) in lines.iter().zip([Style::Bold, Style::Plain, Style::Green]).enumerate() {
-        canvas.put_within(top + 1 + i, left + 2, right, text, style);
-    }
 }
 
 /// The readings of an ambiguous date, to choose from: `1  DD/MM/YYYY  2026-04-12`.
@@ -1055,7 +1071,7 @@ const HELP: &[(&str, &str)] = &[
     ("  F1  Alt-?", "this help"),
     ("  Alt-A", "about: version, memory, last online sync"),
     ("  Ctrl-K", "search the units and the currencies"),
-    ("  F9", "show / hide the keypad over the history"),
+    ("  F9", "the keypad under the request: Basic, Sci, hidden"),
     ("  the same key again", "closes the window"),
     ("The history in focus (F5)", ""),
     ("  ↑/↓", "choose an entry"),
@@ -1066,7 +1082,7 @@ const HELP: &[(&str, &str)] = &[
     ("  Enter  or its letter", "its units (D: Earth distance, then the places)"),
     ("Currencies", ""),
     ("  type  ↑/↓  Enter", "search by code or name, choose, write the code"),
-    ("Unit keys (on the keypad)", ""),
+    ("Unit keys (in the band under the request)", ""),
     ("  ←↓↑→  h j k l", "move; circular, wraps around at the edges"),
     ("  Tab / Shift-Tab", "the next / previous tab (Metric / Imperial:"),
     ("", "opens on the device's system; Bits & Bytes,"),
@@ -1259,28 +1275,31 @@ mod tests {
     }
 
     #[test]
-    fn unit_keys_replace_the_digits() {
-        // Esc M B: the keypad shows the bits and bytes, top-right in the history: the Decimal tab
-        // first; Tab switches to Binary. No search row.
+    fn unit_keys_in_the_band() {
+        // F2 B: the bits and bytes in the band, under the request line: the Decimal tab first;
+        // Tab switches to Binary. The keypad (when shown) gives way to them.
         let (lines, _) = screen("10<F2>B", 24, 80);
         let text = lines.join("\n");
-        assert!(!text.contains("│ 7 │"), "digits replaced");
-        assert!(lines[2].contains("┌─ Bits & Bytes units ─") && lines[2].ends_with("┐"), "{}", lines[2]);
-        assert!(lines[3].contains("│  Decimal   Binary "), "{}", lines[3]);
-        assert!(lines[4].contains("├──"), "{}", lines[4]);
-        assert!(lines[5].contains("│  B  │ kB  │ MB  │ GB  │ TB  "), "{}", lines[5]);
-        assert!(lines[7].contains("└──") && !lines[7].contains("Enter"), "no keys on the border: {}", lines[7]);
+        let top = lines.iter().position(|l| l.contains("┌─ Bits & Bytes units ─")).expect("the panel");
+        assert!(lines[top].ends_with("┐"), "{}", lines[top]);
+        assert!(lines[top + 1].contains("│  Decimal   Binary "), "{}", lines[top + 1]);
+        assert!(lines[top + 2].contains("├──"), "{}", lines[top + 2]);
+        assert!(lines[top + 3].contains("│  B  │ kB  │ MB  │ GB  │ TB  "), "{}", lines[top + 3]);
+        assert!(lines[top + 5].contains("byte (8 bits) · aliases: byte, bytes · 1 B = 8 b"), "the selected unit: {}", lines[top + 5]);
+        assert!(lines[top + 6].contains("└──") && !lines[top + 6].contains("Enter"), "no keys on the border: {}", lines[top + 6]);
+        assert_eq!(top + 6, 22, "it ends right above the status line");
         assert!(!text.contains(" KiB "), "binary units on the other tab");
-        assert!(!lines[2..8].join("\n").contains("/ "), "no search row");
-        assert!(!text.contains("Type an expression"), "hint hidden while picking");
+        assert!(!text.contains("Type an expression") || top > 3, "the request stays above it");
         // The navigation keys are on the status line.
         assert!(lines[23].starts_with(" UNITS "));
         assert!(lines[23].ends_with("←↓↑→ h j k l move · Tab system · Enter write · <Esc> measures"), "{}", lines[23]);
         let (lines, _) = screen("10<F2>B\t", 24, 80);
-        assert!(lines[5].contains("│  B  │ KiB │ MiB │ GiB │ TiB "), "Tab: {}", lines[5]);
-        // Shown even when the digit keypad is hidden.
+        assert!(lines[top + 3].contains("│  B  │ KiB │ MiB │ GiB │ TiB "), "Tab: {}", lines[top + 3]);
+        // The keypad shown gives way to it, and comes back with Esc Esc.
         let (lines, _) = screen("<F9><F2>B", 24, 80);
-        assert!(lines.join("\n").contains("Bits & Bytes units"));
+        assert!(lines.join("\n").contains("Bits & Bytes units") && !lines.join("\n").contains("Basic │ Sci"));
+        let (lines, _) = screen("<F9><F2>B\x1b\x1b", 24, 80);
+        assert!(lines.join("\n").contains("Basic │ Sci") && !lines.join("\n").contains("units"));
         // Another class's letter: its units.
         let (lines, _) = screen("<F2>BT", 24, 80);
         assert!(lines.join("\n").contains("Date & Time units"));
@@ -1289,23 +1308,23 @@ mod tests {
     #[test]
     fn trivia_window() {
         let (lines, _) = screen("<F4>", 24, 80);
-        assert!(lines[2].contains("┌─ Trivia ─"), "{}", lines[2]);
-        assert!(lines[3].contains("│  Earth   Space   Satellites   Math   Physics "), "{}", lines[3]);
+        let top = lines.iter().position(|l| l.contains("┌─ Trivia ─")).expect("the panel");
+        assert_eq!(top + 14, 23, "the panel ends right above the status line");
+        assert!(lines[top + 1].contains("│  Earth   Space   Satellites   Math   Physics "), "{}", lines[top + 1]);
         // Name, value, short description; the first is a tip.
-        assert!(lines[5].contains("│ Distance between places  London to Paris km  Just type the cities"), "{}", lines[5]);
-        assert!(lines[6].contains("│ Equator                        40075.017 km  Earth's circumference"), "{}", lines[6]);
-        assert!(lines[13].contains("Just type the city from and to: London [to] Paris [mi/km/…]."), "the description: {}", lines[13]);
-        // Space: km, and the astronomical unit in brackets.
+        assert!(lines[top + 3].contains("│ Distance between places  London to Paris km  Just type the cities"), "{}", lines[top + 3]);
+        assert!(lines[top + 4].contains("│ Equator                        40075.017 km  Earth's circumference"), "{}", lines[top + 4]);
+        assert!(lines.join("\n").contains("Just type the city from and to: London [to] Paris [mi/km/…]."), "the description");
+        // Space: the Voyagers first, estimated (no retrieval in the tests), with their launch.
         let (lines, _) = screen("<F4>\t", 24, 80);
-        assert!(lines[5].contains("│ Voyager 1 ") && lines[6].contains("│ Voyager 2 "), "the Voyagers first: {}", lines[5]);
+        let text = lines.join("\n");
+        let voyager = lines.iter().position(|l| l.contains("│ Voyager 1 ")).expect("Voyager 1");
+        assert!(lines[voyager + 1].contains("│ Voyager 2 "), "the Voyagers first: {}", lines[voyager]);
         // A planet by its name, its distance from the Earth now (changing every day: its shape).
         let mercury = lines.iter().find(|l| l.contains("│ Mercury ")).expect("Mercury");
         assert!(mercury.contains(" au)  Distance from the Earth"), "{mercury}");
         assert!(lines[23].starts_with(" TRIVIA ") && lines[23].ends_with("Enter details · <Esc> back"), "{}", lines[23]);
-        // Space: the Voyagers first, estimated (no retrieval in the tests), with their launch.
-        let (lines, _) = screen("<F4>\t", 24, 80);
-        let text = lines.join("\n");
-        assert!(text.contains("│ Voyager 1 ") && text.contains("Launched 1977-09-05 12:56 UTC · estimated"), "{text}");
+        assert!(text.contains("Launched 1977-09-05 12:56 UTC · estimated"), "{text}");
         // Satellites: counts, as of their date offline.
         let (lines, _) = screen("<F4>\t\t", 24, 80);
         let text = lines.join("\n");
@@ -1415,7 +1434,7 @@ mod tests {
         assert!(text.contains(" T  Date & Time   ") && text.contains(" B  Bits & Bytes  "), "{text}");
         assert!(text.contains(" L  Length ") && text.contains(" mm cm m km "), "{text}");
         // Whole units, then `…` when they don't fit.
-        assert!(text.contains(" B kB MB GB TB KiB MiB GiB TiB b kb …  │"), "{text}");
+        assert!(text.contains(" B kB MB GB TB KiB MiB GiB TiB b kb Mb Gb Tb Kib Mib …"), "{text}");
         let length = lines.iter().position(|l| l.contains(" L  Length ")).unwrap();
         assert!(lines[length + 1].contains(" D  Earth distance ") && lines[length + 1].contains("Rome to Paris"), "{text}");
         assert!(text.contains(" K  Temperature ") && text.contains(" W  Power "), "{text}");
@@ -1445,30 +1464,19 @@ mod tests {
     }
 
     #[test]
-    fn card_under_the_selected_unit() {
-        // Length, Imperial: in selected first; → → → mi.
-        let config = Config::default();
-        let opts = Options { positional: Vec::new(), precision: 4, silent: false, verbose: false };
-        let mut app = App::new(&config, &opts);
-        for key in [Key::F(2), Key::Char('L'), Key::Tab, Key::Right, Key::Right, Key::Right] {
-            app.handle(key);
-        }
-        let lines: Vec<String> = render(&app, 24, 80).lines.iter().map(|l| plain(l)).collect();
-        let button = lines.iter().position(|l| l.contains("│ in │ ft │ yd │ mi ")).unwrap();
-        let km = lines[button].chars().collect::<Vec<_>>().windows(4).position(|w| w == [' ', 'm', 'i', ' ']).unwrap();
-        // The window's bottom border follows (sized for the metric tab's two rows); the card
-        // starts under it, under mi, pointing up at it.
-        let button = (button + 1..).find(|&i| lines[i].contains("└─")).unwrap() - 2;
-        assert!(lines[button + 2].contains("└─"));
-        let card_top: Vec<char> = lines[button + 3].chars().collect();
-        // It starts under mi, or further left when it would not fit; ▲ is always under mi.
-        assert!(card_top[..=km].contains(&'┌'), "{}", lines[button + 3]);
-        assert_eq!(card_top[km + 2], '▲', "{}", lines[button + 3]);
-        assert!(lines[button + 4].contains("│ mile "));
-        assert!(lines[button + 5].contains("│ aliases: mile, miles "));
-        assert!(lines[button + 6].contains("│ 1 mi = 1609.344 m "));
-        assert!(lines[button + 7].contains('└'));
-        assert!(lines[button + 3..button + 8].iter().all(|l| l.chars().count() <= 80));
+    fn selected_unit_line() {
+        // Length, Imperial: in selected first; → → → mi. The line under the buttons says what it is.
+        let (lines, _) = screen("<F2>L\t<Right><Right><Right>", 24, 80);
+        let button = lines.iter().position(|l| l.contains("│ in │ ft │ yd │ mi ")).expect("the buttons");
+        assert!(lines[button + 2].contains("mile · aliases: mile, miles · 1 mi = 1609.344 m"), "{}", lines[button + 2]);
+        assert!(lines[button + 3].contains('└'), "the panel ends under it: {}", lines[button + 3]);
+        // Too narrow for the aliases: they go first.
+        let (lines, _) = screen("<F2>L\t<Right><Right><Right>", 24, 40);
+        let line = lines.iter().find(|l| l.contains("1 mi = 1609.344 m")).expect("the line");
+        assert!(line.contains("mile · 1 mi") && !line.contains("aliases"), "{line}");
+        // A short terminal has no room for it.
+        let (lines, _) = screen("<F2>L", 12, 80);
+        assert!(!lines.join("\n").contains("aliases"));
     }
 
     #[test]
@@ -1492,21 +1500,14 @@ mod tests {
     }
 
     #[test]
-    fn card_stays_on_screen() {
-        // The last unit of the row is near the right edge: the card moves left. In a short terminal
-        // it goes above the button.
-        for (rows, cols) in [(24, 80), (12, 40), (14, 60)] {
-            for keys in ["<F2>L<Right>", "<F2>V\t<Down>", "<F2>B\t"] {
-                let config = Config::default();
-                let opts = Options { positional: Vec::new(), precision: 4, silent: false, verbose: false };
-                let mut app = app_after(&config, &opts, keys);
-                for _ in 0..4 {
-                    app.handle(Key::Right);
-                }
-                let lines: Vec<String> = render(&app, rows, cols).lines.iter().map(|l| plain(l)).collect();
+    fn unit_keys_stay_on_screen() {
+        for (rows, cols) in [(24, 80), (12, 40), (14, 60), (50, 200)] {
+            for keys in ["<F2>L<Right>", "<F2>V\t<Down>", "<F2>B\t", "<F2>T\t"] {
+                let (lines, _) = screen(keys, rows, cols);
                 assert_eq!(lines.len(), rows);
                 assert!(lines.iter().all(|l| l.chars().count() <= cols), "{keys:?} {rows}x{cols}");
-                assert!(lines.join("\n").contains("aliases:"), "{keys:?} {rows}x{cols}: card shown");
+                assert!(lines[rows - 1].starts_with(" UNITS "), "{keys:?} {rows}x{cols}: the status line");
+                assert!(lines.iter().any(|l| l.starts_with("  >")), "{keys:?} {rows}x{cols}: the request line stays");
             }
         }
     }
@@ -1528,14 +1529,14 @@ mod tests {
         // Durations: every time unit on the first tab.
         let (lines, _) = screen("<F2>T", 24, 80);
         let text = lines.join("\n");
-        assert!(lines[2].contains("─ Date & Time units ─"), "{}", lines[2]);
+        assert!(text.contains("─ Date & Time units ─"), "{text}");
         assert!(text.contains(" Durations   Formats "));
         assert!(text.contains("│ ns  │ us  │ ms  │  s  │ min ") && text.contains("│  h  │  d  │ wk  │ mo  │ yr "), "{text}");
-        assert!(text.contains("nanosecond"), "the card, inside the window: {text}");
+        assert!(text.contains("nanosecond · aliases: nanosecond, nanoseconds · 1 ns = 0.000000001 s"), "the selected unit's line: {text}");
         // Formats: the table of formats, and the footer for the selected one.
         let (lines, _) = screen("<F2>T\t", 24, 80);
         let text = lines.join("\n");
-        assert!(lines[2].contains("─ Date & Time units ─"), "the title is not covered: {}", lines[2]);
+        let top = lines.iter().position(|l| l.contains("─ Date & Time units ─")).expect("the title is not covered");
         for row in [
             "ISO           iso   │   utc   │  basic  │  date   │  time",
             "Unix/local     s    │   ms    │   µs    │   ns    │  local",
@@ -1544,10 +1545,10 @@ mod tests {
         ] {
             assert!(text.contains(row), "{row}\n{text}");
         }
-        // The footer: the selected format and now in it; the window stays above the request.
+        // The footer: the selected format and now in it; the panel ends above the status line.
         assert!(text.contains("│ iso · 20"), "{text}");
         let footer = lines.iter().position(|l| l.contains("│ iso · 20")).unwrap();
-        assert!(lines[footer + 1].contains("└") && lines[footer + 1] != lines[22], "inside the history:\n{text}");
+        assert!(top < footer && lines[footer + 1].contains('└') && footer + 1 == 22, "{text}");
         // l l: basic.
         let (lines, _) = screen("<F2>T\tll", 24, 80);
         assert!(lines.join("\n").contains("iso-basic · 20"));
@@ -1580,7 +1581,7 @@ mod tests {
                 assert!(screens.iter().flatten().all(|l| l.chars().count() <= cols));
                 // At 80 columns every unit is on one of the tabs, and visible there.
                 if cols == 80 {
-                    assert!(!first.join("\n").contains("Time units") || first[2].contains("Time units"), "the title is not covered");
+                    assert!(first.iter().any(|l| l.contains(&format!("{} units", category.name))), "{} has its title", category.name);
                     let all = screens.iter().map(|s| s.join("\n")).collect::<Vec<_>>().join("\n");
                     for u in &category.units {
                         assert!(all.contains(&format!(" {} ", u.symbol)), "{} missing", u.symbol);
@@ -1698,33 +1699,39 @@ mod tests {
     }
 
     #[test]
-    fn keypad_in_front_of_the_history() {
-        // Full size, top-right: 24 rows leave 17 history rows.
+    fn keypad_in_the_band() {
+        // Not shown until asked for.
         let (lines, _) = screen("", 24, 80);
-        assert!(lines[2].starts_with("  Type an expression"), "{}", lines[2]);
-        assert!(lines[2].ends_with("┌───┬───┬───┬───┐"), "{}", lines[2]);
-        assert!(lines[3].ends_with("│ ( │ ) │ ^ │ / │"));
-        assert!(lines[4].ends_with("├───┼───┼───┼───┤"));
-        assert!(lines[5].ends_with("│ 7 │ 8 │ 9 │ * │"));
-        assert!(lines[11].ends_with("│ 0 │ . │ e │ = │"));
-        assert!(lines[12].ends_with("└───┴───┴───┴───┘"));
-        // Compact on a short terminal.
-        let (lines, _) = screen("", 17, 80);
-        let compact = ["┌─────────────┐", "│ (  )  ^  /  │", "│ 7  8  9  *  │", "│ 4  5  6  -  │", "│ 1  2  3  +  │", "│ 0  .  e  =  │", "└─────────────┘"];
-        for (line, want) in lines[2..9].iter().zip(compact) {
-            assert!(line.ends_with(want), "{line}");
+        assert!(!lines.join("\n").contains("Basic"));
+        assert!(lines[19].chars().all(|c| c == '─') && lines[22].chars().all(|c| c == '─'), "the request block between rules");
+        // F9: Basic, in the band under the request line: a rule with the tabs, five rows of keys.
+        let (lines, _) = screen("12+3<F9>", 24, 80);
+        assert!(lines[17].starts_with("─── Basic │ Sci ───") && lines[17].chars().count() == 80, "{}", lines[17]);
+        assert!(lines[15].starts_with("  > 12+3") && lines[16].starts_with("    (12 + 3) = 15"), "{} / {}", lines[15], lines[16]);
+        for (row, keys) in [(18, "(    )    %    ÷"), (19, "7    8    9    ×"), (20, "4    5    6    −"), (21, "1    2    3    +"), (22, "0    .    ⌫    ⏎")]
+        {
+            assert!(lines[row].starts_with("   ") && lines[row].contains(keys), "{}", lines[row]);
+            assert!(!lines[row].contains("│"), "no Sci keys in Basic: {}", lines[row]);
         }
-        // It covers the history lines under it; the newest lines (bottom) stay visible.
+        // F9 again: Sci, with the functions beside the keys.
+        let (lines, _) = screen("12+3<F9><F9>", 24, 80);
+        for (row, keys) in [(18, "sin  cos │"), (19, "tan   √  │"), (20, "ln   log │"), (21, "π    e  │"), (22, "^    °  │")] {
+            assert!(lines[row].contains(keys), "{}", lines[row]);
+        }
+        assert!(lines[18].contains("(    )    %    ÷"), "{}", lines[18]);
+        // And again: hidden.
+        let (lines, _) = screen("12+3<F9><F9><F9>", 24, 80);
+        assert!(!lines.join("\n").contains("Basic"));
+        // The history is not covered: it ends above the request, whatever the keypad.
         let wide: String = (1..=20).map(|i| format!("{}+{i}\n", "1".repeat(70))).collect();
-        let (lines, _) = screen(&wide, 24, 80);
-        assert!(lines[3].ends_with("│ ( │ ) │ ^ │ / │"));
-        assert!(lines[18].contains("+20"), "{}", lines[18]);
-        // F9 hides it and the lines show.
         let (lines, _) = screen(&format!("{wide}<F9>"), 24, 80);
-        assert!(!lines[3].contains("│ ( │"), "{}", lines[3]);
-        // Too short for even the compact one: not drawn.
-        let (lines, _) = screen("", 12, 80);
-        assert!(!lines.join("").contains("┌───") && !lines.join("").contains("┌──────"));
+        assert!(lines[13].contains("+20"), "{}", lines[13]);
+        assert!(!lines[2..14].iter().any(|l| l.contains("Basic") || l.contains("│")));
+        // Too short for it (under 15 rows): not drawn, and not missed.
+        let (lines, _) = screen("<F9>", 14, 80);
+        assert!(!lines.join("\n").contains("Basic"));
+        let (lines, _) = screen("<F9>", 15, 80);
+        assert!(lines.join("\n").contains("Basic │ Sci"));
     }
 
     /// How long a keystroke takes in the interactive mode (the key, then the whole screen drawn
@@ -1760,13 +1767,24 @@ mod tests {
         let config = Config::default();
         let opts = Options { positional: Vec::new(), precision: 4, silent: false, verbose: false };
         let mut app = App::new(&config, &opts);
+        app.keypad = Keypad::Basic;
+        // The lit key, and the lit tab of the keypad (Basic).
+        let lit = |frame: &Frame| frame.lines.iter().map(|l| l.matches("\x1b[1;30;43m").count()).sum::<usize>();
         for digit in "0123456789".chars() {
             app.handle(Key::Char(digit));
             let frame = render(&app, 24, 80);
-            let lit: Vec<_> = frame.lines.iter().filter(|l| l.contains(&format!("\x1b[1;30;43m {digit} "))).collect();
-            assert_eq!(lit.len(), 1, "{digit} lit");
-            assert_eq!(frame.lines.iter().map(|l| l.matches("\x1b[1;30;43m").count()).sum::<usize>(), 1, "only {digit} lit");
+            let with_digit: Vec<_> = frame.lines.iter().filter(|l| l.contains(&format!("\x1b[1;30;43m  {digit}  "))).collect();
+            assert_eq!(with_digit.len(), 1, "{digit} lit");
+            assert_eq!(lit(&frame), 2, "only {digit} and the tab lit");
         }
+        // The operators, as typed, and Backspace and Enter.
+        for (typed, key) in [('x', '×'), ('/', '÷'), ('-', '−'), ('+', '+'), ('(', '(')] {
+            app.handle(Key::Char(typed));
+            let frame = render(&app, 24, 80);
+            assert!(frame.lines.iter().any(|l| l.contains(&format!("\x1b[1;30;43m  {key}  "))), "{typed} lights {key}");
+        }
+        app.handle(Key::Backspace);
+        assert!(render(&app, 24, 80).lines.iter().any(|l| l.contains("\x1b[1;30;43m  ⌫  ")));
     }
 
     #[test]

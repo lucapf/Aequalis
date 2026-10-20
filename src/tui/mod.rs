@@ -2,10 +2,11 @@
 //!
 //! Sections, top to bottom: the toolbar (F2 Measures, F3 Currencies, F4 Trivia, F5 History,
 //! F10 Settings), the history of expressions and results as a scrollback, the request line with
-//! its live result and suggestions, and a status line. There are no modes: typing always edits
+//! its live result and suggestions, the band (the keypad when asked for, or the panel of a
+//! window, which takes the rows it needs), and a status line. There are no modes: typing always edits
 //! the request. Every toolbar entry has an Alt letter too (Alt+M, C, T, H, S), for terminals that
-//! keep the function keys; F1 / Alt+? is the help, Ctrl+K searches the units and the currencies, F9 shows / hides the
-//! keypad, Alt+Y copies the result, Alt+N writes `now`, Ctrl+Q quits. ↑ ↓ recall earlier requests
+//! keep the function keys; F1 / Alt+? is the help, Ctrl+K searches the units and the currencies, F9 shows the
+//! keypad (Basic, then Sci) and hides it, Alt+Y copies the result, Alt+N writes `now`, Ctrl+Q quits. ↑ ↓ recall earlier requests
 //! as in a shell; F5 puts the history in focus (↑ ↓ choose, Enter recalls, Alt+Y copies, Del
 //! removes). Esc steps back: the open window, the history focus, the Tab cycle, the status
 //! message, then it clears the line (↑ brings the cleared text back). Ctrl+C does the same and,
@@ -68,6 +69,25 @@ pub enum Overlay {
     Settings(settings::View),
 }
 
+/// The keypad of the band: the calculator keys, with the functions beside them in Sci.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Keypad {
+    Hidden,
+    Basic,
+    Sci,
+}
+
+impl Keypad {
+    /// F9: Basic, then Sci, then hidden, then Basic again.
+    pub fn next(self) -> Keypad {
+        match self {
+            Keypad::Hidden => Keypad::Basic,
+            Keypad::Basic => Keypad::Sci,
+            Keypad::Sci => Keypad::Hidden,
+        }
+    }
+}
+
 /// Tab cycling through the suggestions for one word.
 struct Cycle {
     start: usize,
@@ -87,8 +107,8 @@ pub struct App<'a> {
     /// History lines scrolled up from the bottom.
     scroll: usize,
     cycle: Option<Cycle>,
-    /// The keypad drawn over the history (F9).
-    keypad: bool,
+    /// The keypad in the band under the request line (F9: Basic, Sci, hidden).
+    keypad: Keypad,
     /// The measurement system the unit keys open on: the device's (`locale`).
     system: System,
     /// Decimal and thousands separators for the preview: the device's (`numbers`).
@@ -147,7 +167,7 @@ impl<'a> App<'a> {
             status: None,
             scroll: 0,
             cycle: None,
-            keypad: true,
+            keypad: Keypad::Hidden,
             system: System::Metric,
             numbers: numbers::NumberFormat::default(),
             pressed: None,
@@ -365,6 +385,7 @@ impl<'a> App<'a> {
             (Key::Char('x'), None) => Some('*'),
             (Key::Char(c), None) => Some(c),
             (Key::Enter, None) if self.history.selected().is_none() => Some('='),
+            (Key::Backspace, None) => Some('⌫'),
             _ => None,
         };
         // Browsing the history (F5, then ↑ ↓): its own keys first.
@@ -676,8 +697,8 @@ pub fn run(config: &Config, opts: &Options) -> ExitCode {
     }
     app.system = aequalis::locale::device_system();
     app.numbers = numbers::device_format();
-    // The keypad as the `tui.keyboard` setting says (F9 shows / hides it).
-    app.keypad = aequalis::settings::current().keyboard();
+    // The keypad as the `tui.keyboard` setting says (F9 shows, changes and hides it).
+    app.keypad = if aequalis::settings::current().keyboard() { Keypad::Basic } else { Keypad::Hidden };
     let mut stdout = std::io::stdout();
     let (mut pending, mut buf) = (Vec::new(), [0u8; 256]);
     let (mut drawn, mut dirty, mut clear, mut hangups) = (None, true, true, 0);
@@ -1419,26 +1440,36 @@ mod tests {
     }
 
     #[test]
-    fn keypad_toggle_and_pressed_key() {
+    fn keypad_cycles_and_lights_the_key_typed() {
         let config = Config::default();
         let opts = options(&config);
         let mut app = App::new(&config, &opts);
-        assert!(app.keypad, "shown at the start");
+        assert_eq!(app.keypad, Keypad::Hidden, "asked for, not shown at the start");
         typed(&mut app, "7");
         assert_eq!(app.pressed, Some('7'));
         typed(&mut app, "x");
         assert_eq!(app.pressed, Some('*'), "x is multiply");
-        // C is text; F9 toggles the keypad, and no key is lit after it.
+        app.handle(Key::Backspace);
+        assert_eq!(app.pressed, Some('⌫'));
+        // C is text; F9 shows the Basic keypad, then Sci, then hides it; no key is lit after it.
         typed(&mut app, "C");
-        assert!(app.keypad);
-        app.handle(Key::F(9));
-        assert!(!app.keypad);
-        assert_eq!(app.pressed, None);
-        app.handle(Key::F(9));
-        assert!(app.keypad);
+        assert_eq!(app.keypad, Keypad::Hidden);
+        for want in [Keypad::Basic, Keypad::Sci, Keypad::Hidden, Keypad::Basic] {
+            app.handle(Key::F(9));
+            assert_eq!((app.keypad, app.pressed), (want, None));
+        }
         // Enter lights =.
         app.handle(Key::Enter);
         assert_eq!(app.pressed, Some('='));
+        // A panel in the band gives way to the keypad, which then shows.
+        app.handle(Key::F(2));
+        app.handle(Key::F(9));
+        assert!(app.overlay.is_none() && app.keypad == Keypad::Basic);
+        app.keypad = Keypad::Hidden;
+        app.handle(Key::F(3));
+        app.handle(Key::F(9));
+        assert!(app.overlay.is_none());
+        assert_eq!(app.keypad, Keypad::Basic, "hidden: the first F9 shows it");
     }
 
     /// Bug 007: a written date with date math is complete: its result previews, no "target unit"

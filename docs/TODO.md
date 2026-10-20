@@ -16,7 +16,10 @@ panel), status; no modes.
 - [x] 1b. Windows: console raw mode, VT input and output, a timed read of the console (`src/tui/term.rs`),
       the clipboard through PowerShell. Type-checked for both Windows targets; its first run in a real
       console is the CI job `windows-tui` (`scripts/windows-tui-smoke.py`).
-- [ ] 3. The band: keypad (Basic / Sci) and panels (Measures levels, Currencies, Trivia, choices).
+- [x] 3. The band under the request line: the keypad on request (F9: Basic, Sci, hidden; `tui.keyboard`
+      now defaults to off) and the panels (Measures, unit keys, Currencies, Ctrl+K search, Trivia),
+      which take the rows they need. The suggestion chips, the result beside the request, buttons for
+      the ambiguous date and a History panel are left to the mouse phase.
 - [ ] 4. Mouse: hit map, `tui.mouse`, terminal mouse modes.
 - [ ] 5. `src/find.rs` in the core and the Ctrl+K palette (units, currencies, cities, trivia,
       settings, history).

@@ -2,7 +2,7 @@
 //! `Action` and `apply` carries it out, so a click on the screen can ask for the same.
 
 use super::keys::{Key, Mouse, MouseKind};
-use super::{currencies, measures, search, settings, trivia, App, Overlay, SCROLL_STEP};
+use super::{currencies, measures, search, settings, trivia, App, Keypad, Overlay, SCROLL_STEP};
 
 /// A window of the toolbar (and Ctrl+K).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -238,7 +238,17 @@ impl<'a> App<'a> {
             }
             Action::Help => self.overlay = if matches!(self.overlay, Some(Overlay::Help(_))) { None } else { Some(Overlay::Help(0)) },
             Action::About => self.overlay = if matches!(self.overlay, Some(Overlay::About)) { None } else { Some(Overlay::About) },
-            Action::ToggleKeypad => self.keypad = !self.keypad,
+            Action::ToggleKeypad => {
+                // A panel in the band gives way to the keypad.
+                if matches!(self.overlay, Some(Overlay::Measures(_) | Overlay::Picker(_) | Overlay::Currencies(_) | Overlay::Trivia(_) | Overlay::Search(_))) {
+                    self.overlay = None;
+                    if self.keypad == Keypad::Hidden {
+                        return self.keypad = Keypad::Basic;
+                    }
+                    return;
+                }
+                self.keypad = self.keypad.next();
+            }
             Action::Now => {
                 let at_start = self.line.cursor() == 0 || self.line.chars()[self.line.cursor() - 1] == ' ';
                 for c in if at_start { "now " } else { " now " }.chars() {

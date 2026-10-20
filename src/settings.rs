@@ -90,7 +90,12 @@ pub const KEYS: &[Key] = &[
     Key { key: "format.date", default: crate::time::HUMAN_DATE, kind: Kind::Format, about: "how dates are shown" },
     Key { key: "format.datetime", default: crate::time::HUMAN_DATETIME, kind: Kind::Format, about: "how dates with a time are shown" },
     // Only the interactive mode's: the app (`ffi::settings`) doesn't list the `tui.` keys.
-    Key { key: "tui.keyboard", default: "true", kind: Kind::Bool, about: "the interactive mode starts with its keypad on screen (F9 shows / hides it)" },
+    Key {
+        key: "tui.keyboard",
+        default: "false",
+        kind: Kind::Bool,
+        about: "the interactive mode starts with its keypad on screen (F9 shows, changes and hides it)",
+    },
 ];
 
 /// The settings in effect: every key with its value (as written in the file, or the default).
@@ -172,7 +177,7 @@ impl Settings {
         self.get("format.datetime")
     }
 
-    /// The interactive mode starts with its keypad on screen.
+    /// The interactive mode starts with its keypad on screen (off unless asked).
     pub fn keyboard(&self) -> bool {
         self.get("tui.keyboard") == "true"
     }
@@ -392,7 +397,7 @@ mod tests {
         assert_eq!((s.currency(), s.distance_unit(), s.precision()), (None, DistanceUnit::Auto, 4));
         assert_eq!((s.format_date(), s.format_datetime()), ("DD MMM YY", "DD MMM YY h:mm AM tz"));
         // Every accessor reads a key by name (`get` panics on a wrong one): each is called here.
-        assert_eq!((s.interval("live"), s.keyboard()), (86_400, true));
+        assert_eq!((s.interval("live"), s.keyboard()), (86_400, false));
     }
 
     #[test]

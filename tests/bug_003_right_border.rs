@@ -148,11 +148,15 @@ fn reported_rules_reach_the_right_edge() {
 }
 
 #[test]
-fn rules_reach_the_edge_with_the_unit_keys() {
-    // Alt+M, then L: the Length unit keys.
+fn right_border_with_the_unit_keys() {
+    // Alt+M, then L: the Length unit keys, in a box across the band under the request line.
     let Some(screen) = session(&["\x1bmL"]) else { return };
-    assert_rules_reach_the_edge(&screen);
-    assert!((0..ROWS).any(|r| screen.line(r).contains("Length units")));
+    let top = (0..ROWS).find(|&r| screen.line(r).contains("Length units")).expect("the panel");
+    for row in top..ROWS - 1 {
+        let last = screen.cells[row][COLS - 1];
+        assert!("│┐┘┤".contains(last), "row {row} ends with {last:?}:\n{}", screen.line(row));
+    }
+    assert_eq!(screen.cells[1][COLS - 1], '─', "the rule under the toolbar");
 }
 
 #[test]
