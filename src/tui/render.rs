@@ -1581,7 +1581,7 @@ const HELP: &[(&str, &str)] = &[
     ("  Ctrl-K", "search units, currencies, settings, trivia,"),
     ("", "cities, earlier requests; Enter uses it"),
     ("  Alt-O", "mouse on/off (off: the terminal selects text)"),
-    ("Wide screens (120 columns or more)", ""),
+    ("Wide screens (from 120 columns)", ""),
     ("  the board", "clocks, units per class, currencies;"),
     ("", "a button writes it; used ones are lit"),
     ("  150 columns", "the big keyboard beside the board"),
