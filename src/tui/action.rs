@@ -2,7 +2,7 @@
 //! `Action` and `apply` carries it out, so a click on the screen can ask for the same.
 
 use super::keys::{Key, Mouse, MouseKind};
-use super::{currencies, measures, search, settings, trivia, App, Keypad, Overlay, SCROLL_STEP};
+use super::{currencies, measures, search, settings, trivia, App, Keypad, Overlay, Part, SCROLL_STEP};
 
 /// A window of the toolbar (and Ctrl+K).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -229,13 +229,14 @@ impl<'a> App<'a> {
             Action::ScrollUp => self.scroll = (self.scroll + SCROLL_STEP).min(self.history.entries().len().saturating_sub(1)),
             Action::ScrollDown => self.scroll = self.scroll.saturating_sub(SCROLL_STEP),
             Action::Open(panel) => {
+                self.focus = None;
                 self.overlay = if panel.is(&self.overlay) { None } else { Some(panel.overlay()) };
                 if panel == Panel::Search && self.overlay.is_some() {
                     self.refresh_money();
                 }
             }
             Action::FocusHistory => {
-                self.overlay = None;
+                (self.overlay, self.focus) = (None, None);
                 if self.history.selected().is_some() {
                     self.history.stop_browsing();
                 } else {
@@ -245,15 +246,18 @@ impl<'a> App<'a> {
             Action::Help => self.overlay = if matches!(self.overlay, Some(Overlay::Help(_))) { None } else { Some(Overlay::Help(0)) },
             Action::About => self.overlay = if matches!(self.overlay, Some(Overlay::About)) { None } else { Some(Overlay::About) },
             Action::ToggleKeypad => {
-                // A panel in the band gives way to the keypad.
-                if matches!(self.overlay, Some(Overlay::Measures(_) | Overlay::Picker(_) | Overlay::Currencies(_) | Overlay::Trivia(_) | Overlay::Search(_))) {
-                    self.overlay = None;
+                // A panel in the band gives way to the keyboard; with the keyboard shown, F9 hides it.
+                let was_panel = matches!(self.overlay, Some(Overlay::Measures(_) | Overlay::Picker(_) | Overlay::Currencies(_) | Overlay::Trivia(_) | Overlay::Search(_)));
+                self.overlay = if was_panel { None } else { self.overlay.take() };
+                if self.keypad != Keypad::Hidden && !was_panel {
+                    (self.keypad, self.focus) = (Keypad::Hidden, None);
+                } else {
                     if self.keypad == Keypad::Hidden {
-                        return self.keypad = Keypad::Basic;
+                        self.keypad = self.best_layout();
                     }
-                    return;
+                    // The focus goes to the keyboard: Tab moves it across, Esc gives it back.
+                    self.focus = Some(if self.keypad == Keypad::Sci { Part::Sci } else { Part::Basic });
                 }
-                self.keypad = self.keypad.next();
             }
             Action::Shortcut(index) => {
                 if self.overlay.is_some() {
@@ -281,7 +285,7 @@ impl<'a> App<'a> {
                 }
             }
             Action::Interrupt => {
-                if self.overlay.take().is_some() || cycling {
+                if self.overlay.take().is_some() || cycling || self.focus.take().is_some() {
                     return;
                 }
                 if self.history.selected().is_some() {

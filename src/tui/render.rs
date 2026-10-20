@@ -20,7 +20,7 @@
 
 use super::action::{Action, TOOLBAR};
 use super::picker::{format_rows, Picker};
-use super::{App, Keypad, Overlay, StatusKind};
+use super::{App, Keypad, Overlay, Part, StatusKind};
 use aequalis::config::System;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -345,7 +345,7 @@ const KEYPAD_ROWS: usize = 6;
 /// The panels in the band are at most this wide, centred.
 const PANEL_WIDTH: usize = 100;
 /// The terminal's rows from which the keypad is shown: below them the history would be too short.
-const KEYPAD_FROM: usize = 15;
+pub(super) const KEYPAD_FROM: usize = 15;
 
 /// A rectangle of the screen.
 #[derive(Clone, Copy)]
@@ -377,9 +377,15 @@ fn band_rows(app: &App, rows: usize) -> usize {
 fn keypad(app: &App, canvas: &mut Canvas, top: usize) {
     let sci = app.keypad == Keypad::Sci;
     canvas.rule(top);
-    let mut col = canvas.put(top, 3, " Basic ", if sci { Style::Dim } else { Style::Lit });
+    // The layout shown is lit; the part with the focus is reversed.
+    let tab = |part: Part, shown: bool| match (app.focus == Some(part), shown) {
+        (true, _) => Style::Inverse,
+        (false, true) => Style::Lit,
+        (false, false) => Style::Dim,
+    };
+    let mut col = canvas.put(top, 3, " Basic ", tab(Part::Basic, !sci));
     col = canvas.put(top, col, "│", Style::Dim);
-    canvas.put(top, col, " Sci ", if sci { Style::Lit } else { Style::Dim });
+    canvas.put(top, col, " Sci ", tab(Part::Sci, sci));
     let cap = |canvas: &mut Canvas, row: usize, x: usize, (label, typed): KeyCap| {
         let style = match typed {
             Some(c) if Some(c) == app.pressed => Style::Lit,
@@ -403,7 +409,7 @@ fn keypad(app: &App, canvas: &mut Canvas, top: usize) {
             cap(canvas, row, x + 5 * c, key);
         }
     }
-    shortcuts(app, canvas, top, if sci { 34 } else { 22 });
+    shortcuts(app, canvas, top, sci);
 }
 
 /// The width of the shortcuts' two columns (units, currencies) and the gap between them.
@@ -412,19 +418,30 @@ const SHORTCUT_GAP: usize = 2;
 /// The columns kept free between the keypad and the shortcuts.
 const SHORTCUT_APART: usize = 3;
 
+/// The column the shortcuts end at: the right edge of the width the panels use.
+fn shortcuts_right(cols: usize) -> usize {
+    let area = cols.min(PANEL_WIDTH);
+    (cols - area) / 2 + area - 2
+}
+
+/// Whether the shortcuts fit at the right of the keypad (Basic, or Sci) in `cols` columns.
+pub(super) fn shortcuts_fit(cols: usize, sci: bool) -> bool {
+    let keypad_end = if sci { 34 } else { 22 };
+    shortcuts_right(cols) >= keypad_end + SHORTCUT_APART + 2 * SHORTCUT_COLUMN + SHORTCUT_GAP
+}
+
 /// The shortcuts at the right of the keypad (Alt+1…5 units, Alt+6…0 currencies), when the keypad
 /// ends at `keypad_end` and the width leaves room: the units and the currencies used most, each
 /// with the digit that writes it. They end at the right edge of the panels' width.
-fn shortcuts(app: &App, canvas: &mut Canvas, top: usize, keypad_end: usize) {
-    let width = 2 * SHORTCUT_COLUMN + SHORTCUT_GAP;
-    let area = canvas.cols.min(PANEL_WIDTH);
-    let right = (canvas.cols - area) / 2 + area - 2;
-    if right < keypad_end + SHORTCUT_APART + width {
+fn shortcuts(app: &App, canvas: &mut Canvas, top: usize, sci: bool) {
+    if !shortcuts_fit(canvas.cols, sci) {
         return;
     }
-    let left = right - width;
-    canvas.put(top, left - 1, " Units ", Style::Dim);
-    canvas.put(top, left + SHORTCUT_COLUMN + SHORTCUT_GAP - 1, " Money ", Style::Dim);
+    let width = 2 * SHORTCUT_COLUMN + SHORTCUT_GAP;
+    let left = shortcuts_right(canvas.cols) - width;
+    let title = |part: Part| if app.focus == Some(part) { Style::Inverse } else { Style::Dim };
+    canvas.put(top, left - 1, " Units ", title(Part::Units));
+    canvas.put(top, left + SHORTCUT_COLUMN + SHORTCUT_GAP - 1, " Money ", title(Part::Money));
     for row in 0..BASIC.len() {
         for (column, base) in [(0, 0), (1, 5)] {
             let index = base + row;
@@ -432,7 +449,8 @@ fn shortcuts(app: &App, canvas: &mut Canvas, top: usize, keypad_end: usize) {
             let name = if column == 0 { aequalis::favourites::label(name) } else { name };
             let digit = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'][index];
             let x = left + column * (SHORTCUT_COLUMN + SHORTCUT_GAP);
-            let lit = app.lit == Some(index);
+            let chosen = (app.focus == Some(Part::Units) && column == 0 || app.focus == Some(Part::Money) && column == 1) && app.slot == row;
+            let lit = app.lit == Some(index) || chosen;
             canvas.put(top + 1 + row, x, &digit.to_string(), if lit { Style::Lit } else { Style::Dim });
             canvas.put_within(top + 1 + row, x + 2, x + SHORTCUT_COLUMN, &format!("{name:<7}"), if lit { Style::Lit } else { Style::Plain });
         }
@@ -518,6 +536,11 @@ fn status(app: &App, canvas: &mut Canvas, row: usize) {
         None if app.history.selected().is_some() => {
             (" HISTORY ", &[("↑↓", "choose"), ("Enter", "recall"), ("Alt+Y", "copy result"), ("Del", "remove"), ("<Esc>", "back")])
         }
+        // The keyboard has the focus (F9, Tab).
+        None if app.focus.is_some() && app.keyboard_shown() => match app.focus {
+            Some(Part::Units | Part::Money) => (" KEYS ", &[("Tab", "next"), ("Shift+Tab", "previous"), ("↑↓ ←→", "choose"), ("Enter", "write"), ("<Esc>", "back")]),
+            _ => (" KEYS ", &[("Tab", "next"), ("Shift+Tab", "previous"), ("type", "as usual"), ("<Esc>", "back")]),
+        },
         Some(Overlay::Choice(..)) => (" CHOOSE ", &[("↑↓ j k 1-9", "reading"), ("Enter", "confirm"), ("<Esc>", "back")]),
         Some(Overlay::Trivia(v)) if v.popup.is_some() => (" TRIVIA ", &[("↑↓", "scroll"), ("Enter", "write the value"), ("<Esc>", "back")]),
         Some(Overlay::Trivia(_)) => (" TRIVIA ", &[("Tab ←→", "section"), ("↑↓ j k", "entry"), ("Enter", "details"), ("<Esc>", "back")]),
@@ -529,6 +552,7 @@ fn status(app: &App, canvas: &mut Canvas, row: usize) {
         Some(Overlay::Currencies(_)) => (" CURRENCIES ", &[("type", "search"), ("↑↓", "choose"), ("Enter", "write"), ("<Esc>", "back")]),
         Some(Overlay::Measures(_)) => (" MEASURES ", &[("↑↓ j k", "choose"), ("letter Enter", "open"), ("<Esc>", "back")]),
         Some(Overlay::Picker(_)) => (" UNITS ", &[("←↓↑→ h j k l", "move"), ("Tab", "system"), ("Enter", "write"), ("<Esc>", "measures")]),
+        None if app.keyboard_shown() => ("", &[("F1", "help"), ("Tab", "keyboard"), ("Alt+Y", "copy result"), ("Ctrl+Q", "quit")]),
         None => ("", &[("F1", "help"), ("Ctrl+K", "search"), ("Alt+Y", "copy result"), ("Ctrl+Q", "quit")]),
     };
     // The message first: the first keys go until it fits next to them, and all of them when it
@@ -1117,7 +1141,9 @@ const HELP: &[(&str, &str)] = &[
     ("  F1  Alt-?", "this help"),
     ("  Alt-A", "about: version, memory, last online sync"),
     ("  Ctrl-K", "search the units and the currencies"),
-    ("  F9  Alt-B", "the keypad under the request: Basic, Sci, hidden"),
+    ("  F9  Alt-B", "the keyboard under the request; again: hides it"),
+    ("  Tab  Shift-Tab", "Basic, Sci, Units, Money; Esc back"),
+    ("  ↑↓ ←→  Enter", "in Units / Money: choose, column, write"),
     ("  Alt-1…5  Alt-6…0", "write one of your units / currencies, as listed"),
     ("", "beside the keypad; the used ones stay (Settings)"),
     ("  the same key again", "closes the window"),
@@ -1203,7 +1229,13 @@ mod tests {
     const OPTS: Options<'static> = Options { positional: Vec::new(), precision: 4, silent: false, verbose: false };
 
     fn app_after<'a>(config: &'a Config, opts: &'a Options<'a>, keys: &str) -> App<'a> {
+        app_after_in(config, opts, keys, (24, 80))
+    }
+
+    /// `app_after` on a terminal of `screen` rows and columns.
+    fn app_after_in<'a>(config: &'a Config, opts: &'a Options<'a>, keys: &str, screen: (usize, usize)) -> App<'a> {
         let mut app = App::new(config, opts);
+        app.screen = screen;
         let mut chars = keys.chars();
         while let Some(c) = chars.next() {
             let key = match c {
@@ -1217,6 +1249,8 @@ mod tests {
                         "Up" => Key::Up,
                         "Down" => Key::Down,
                         "Right" => Key::Right,
+                        "Left" => Key::Left,
+                        "S-Tab" => Key::BackTab,
                         n if n.starts_with('F') => Key::F(n[1..].parse().unwrap()),
                         n if n.starts_with("A-") => Key::Alt(n.chars().nth(2).unwrap()),
                         n if n.starts_with("C-") => Key::Ctrl(n.chars().nth(2).unwrap()),
@@ -1234,7 +1268,7 @@ mod tests {
         let config = Config::default();
         // Verbose: the status line shows the notes.
         let opts = Options { positional: Vec::new(), precision: 4, silent: false, verbose: true };
-        let app = app_after(&config, &opts, keys);
+        let app = app_after_in(&config, &opts, keys, (rows, cols));
         let frame = render(&app, rows, cols);
         (frame.lines.iter().map(|l| plain(l)).collect(), frame.cursor)
     }
@@ -1281,8 +1315,8 @@ mod tests {
         assert_eq!(lit("<F10>", 100), [" F10 ⚙"]);
         // The keypad's key is lit while the keypad is shown: it says how to bring it, and back.
         assert_eq!(lit("<F9>", 100), [" F9 Keys"]);
-        assert_eq!(lit("<A-b><A-b>", 100), [" F9 Keys"], "Basic, then Sci");
-        assert!(lit("<F9><F9><F9>", 100).is_empty(), "hidden again");
+        assert_eq!(lit("<A-b>", 100), [" F9 Keys"]);
+        assert!(lit("<F9><F9>", 100).is_empty(), "hidden again");
         assert!(lit("<F9><F2>", 100).iter().all(|l| l != " F9 Keys"), "a panel has taken the band");
         assert_eq!(lit("1\n<F5>", 100), [" F5 History"], "the history in focus");
         assert!(lit("<F1>", 100).is_empty(), "the help is not on the toolbar");
@@ -1763,23 +1797,27 @@ mod tests {
         let (lines, _) = screen("", 24, 80);
         assert!(!lines.join("\n").contains("Basic"));
         assert!(lines[19].chars().all(|c| c == '─') && lines[22].chars().all(|c| c == '─'), "the request block between rules");
-        // F9: Basic, in the band under the request line: a rule with the tabs, five rows of keys.
+        // F9 opens the Sci layout when there is room for it and the shortcuts, in the band under the
+        // request line: a rule with the tabs, five rows of keys.
         let (lines, _) = screen("12+3<F9>", 24, 80);
         assert!(lines[17].starts_with("─── Basic │ Sci ───") && lines[17].chars().count() == 80, "{}", lines[17]);
         assert!(lines[15].starts_with("  > 12+3") && lines[16].starts_with("    (12 + 3) = 15"), "{} / {}", lines[15], lines[16]);
+        for (row, keys) in [(18, "sin  cos │"), (19, "tan   √  │"), (20, "ln   log │"), (21, "π    e  │"), (22, "^    °  │")] {
+            assert!(lines[row].contains(keys), "{}", lines[row]);
+        }
+        assert!(lines[18].contains("(    )    %    ÷"), "{}", lines[18]);
+        // Short of room (under 59 columns) it opens on Basic: no functions beside the keys.
+        let (lines, _) = screen("12+3<F9>", 24, 58);
         for (row, keys) in [(18, "(    )    %    ÷"), (19, "7    8    9    ×"), (20, "4    5    6    −"), (21, "1    2    3    +"), (22, "0    .    ⌫    ⏎")]
         {
             assert!(lines[row].starts_with("   ") && lines[row].contains(keys), "{}", lines[row]);
             assert!(!lines[row].contains("│"), "no Sci keys in Basic: {}", lines[row]);
         }
-        // F9 again: Sci, with the functions beside the keys.
+        // Tab goes round Basic, Sci, Units, Money: Basic is shown as soon as it has the focus.
+        let (lines, _) = screen("12+3<F9>\t\t\t", 24, 80);
+        assert!(!lines[18].contains("sin") && lines[18].contains("(    )    %    ÷"), "{}", lines[18]);
+        // And again F9: hidden.
         let (lines, _) = screen("12+3<F9><F9>", 24, 80);
-        for (row, keys) in [(18, "sin  cos │"), (19, "tan   √  │"), (20, "ln   log │"), (21, "π    e  │"), (22, "^    °  │")] {
-            assert!(lines[row].contains(keys), "{}", lines[row]);
-        }
-        assert!(lines[18].contains("(    )    %    ÷"), "{}", lines[18]);
-        // And again: hidden.
-        let (lines, _) = screen("12+3<F9><F9><F9>", 24, 80);
         assert!(!lines.join("\n").contains("Basic"));
         // The history is not covered: it ends above the request, whatever the keypad.
         let wide: String = (1..=20).map(|i| format!("{}+{i}\n", "1".repeat(70))).collect();
@@ -1802,6 +1840,24 @@ mod tests {
     }
 
     #[test]
+    fn the_keyboard_has_no_completion() {
+        // With the keyboard shown Tab goes to it: no "Tab: …" suggestions, and the status says so.
+        let (lines, _) = screen("5 km m", 24, 80);
+        assert!(lines.join("\n").contains("Tab:"), "completion with the keyboard hidden");
+        let (lines, _) = screen("5 km m<F9><Esc>", 24, 80);
+        assert!(!lines.join("\n").contains("Tab:"), "{}", lines.join("\n"));
+        assert!(lines[23].contains("Tab keyboard"), "{}", lines[23]);
+        let (lines, _) = screen("5 km m<F9>", 24, 80);
+        assert!(lines[23].starts_with(" KEYS ") && lines[23].contains("<Esc> back"), "{}", lines[23]);
+        // The focus is drawn: Units reversed once Tab reaches it.
+        let config = Config::default();
+        let opts = OPTS;
+        let app = app_after(&config, &opts, "<F9>\t");
+        let frame = render(&app, 24, 80);
+        assert!(frame.lines[17].contains("\x1b[7m Units "), "{:?}", frame.lines[17]);
+    }
+
+    #[test]
     fn shortcuts_beside_the_keypad() {
         // At the right of the keypad, when the keypad shows: the units (Alt+1…5) and the
         // currencies (Alt+6…0) with their digits, on the rule's row their titles.
@@ -1809,7 +1865,7 @@ mod tests {
         assert!(lines[17].contains("Units") && lines[17].contains("Money"), "{}", lines[17]);
         for (row, units, money) in [(18, "1 km", "6 USD"), (19, "2 kg", "7 EUR"), (20, "3 L", "8 JPY"), (21, "4 °C", "9 CNY"), (22, "5 m", "0 AED")] {
             assert!(lines[row].contains(units) && lines[row].contains(money), "{}", lines[row]);
-            assert!(lines[row].starts_with("   ") && lines[row].trim_end().len() <= 80);
+            assert!(lines[row].trim_end().chars().count() <= 80);
         }
         // The right edge of the width the panels use: 100 columns, centred.
         let (lines, _) = screen("<F9>", 24, 200);
@@ -1821,9 +1877,9 @@ mod tests {
         // Narrow: the keypad first, then no shortcuts.
         let (lines, _) = screen("<F9>", 24, 44);
         assert!(!lines.join("\n").contains("Units") && lines[19].contains("7    8    9"), "{}", lines[19]);
-        let (lines, _) = screen("<F9><F9>", 24, 56);
+        let (lines, _) = screen("<F9>\t", 24, 56);
         assert!(!lines.join("\n").contains("Units") && lines[19].contains("tan"), "Sci needs more room");
-        let (lines, _) = screen("<F9><F9>", 24, 80);
+        let (lines, _) = screen("<F9>", 24, 80);
         assert!(lines[19].contains("2 kg"), "{}", lines[19]);
         // Not in the band when a window is open, or without the keypad.
         let (lines, _) = screen("", 24, 80);

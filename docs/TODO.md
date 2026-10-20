@@ -25,6 +25,9 @@ panel), status; no modes.
       a new one replaces the listed one with the fewest hits (the last of them), in its place; every
       pick (Ctrl+K, Currencies, unit keys, shortcuts) and every unit or currency of a request that
       worked counts. `d` in Settings clears them (the defaults: USD EUR JPY CNY AED, units by system).
+      F9 opens the keyboard on Sci when it fits with the shortcuts (else Basic) and gives it the focus:
+      Tab / Shift+Tab go round Basic, Sci, Units, Money; ↑↓ ←→ Enter in the columns; letters and digits
+      still go to the line; Esc gives the focus back. No Tab completion while the keyboard is shown.
 - [ ] 4. Mouse: hit map, `tui.mouse`, terminal mouse modes.
 - [ ] 5. `src/find.rs` in the core and the Ctrl+K palette (units, currencies, cities, trivia,
       settings, history).

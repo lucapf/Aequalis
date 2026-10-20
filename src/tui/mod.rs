@@ -70,7 +70,7 @@ pub enum Overlay {
     Settings(settings::View),
 }
 
-/// The keypad of the band: the calculator keys, with the functions beside them in Sci.
+/// The keyboard of the band: the calculator keys, with the functions beside them in Sci.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Keypad {
     Hidden,
@@ -78,15 +78,13 @@ pub enum Keypad {
     Sci,
 }
 
-impl Keypad {
-    /// F9: Basic, then Sci, then hidden, then Basic again.
-    pub fn next(self) -> Keypad {
-        match self {
-            Keypad::Hidden => Keypad::Basic,
-            Keypad::Basic => Keypad::Sci,
-            Keypad::Sci => Keypad::Hidden,
-        }
-    }
+/// A part of the keyboard Tab goes to: the two layouts, then the columns of shortcuts.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Part {
+    Basic,
+    Sci,
+    Units,
+    Money,
 }
 
 /// Tab cycling through the suggestions for one word.
@@ -121,6 +119,12 @@ pub struct App<'a> {
     units: Favourites,
     currencies: Favourites,
     lit: Option<usize>,
+    /// The part of the keyboard that has the focus (letters and digits still go to the line), and
+    /// the entry of the Units or Money column chosen.
+    focus: Option<Part>,
+    slot: usize,
+    /// The terminal's rows and columns.
+    screen: (usize, usize),
     /// Whether the hits are kept in the settings (only in a real session: never in the tests).
     persist: bool,
     redraw: bool,
@@ -182,6 +186,9 @@ impl<'a> App<'a> {
             units: Favourites::of("", &favourites::METRIC),
             currencies: Favourites::of("", &favourites::CURRENCIES),
             lit: None,
+            focus: None,
+            slot: 0,
+            screen: (24, 80),
             persist: false,
             redraw: false,
             quit: false,
@@ -199,6 +206,75 @@ impl<'a> App<'a> {
             system_clipboard: false,
             evaluation: RefCell::new(None),
         }
+    }
+
+    /// Whether the keyboard is on screen (not hidden, a terminal tall enough, no window over it).
+    fn keyboard_shown(&self) -> bool {
+        self.keypad != Keypad::Hidden && self.screen.0 >= render::KEYPAD_FROM && !matches!(self.overlay, Some(Overlay::Measures(_) | Overlay::Picker(_) | Overlay::Currencies(_) | Overlay::Trivia(_) | Overlay::Search(_)))
+    }
+
+    /// The layout the keyboard opens on: Sci when it fits with the shortcuts, else Basic.
+    fn best_layout(&self) -> Keypad {
+        if render::shortcuts_fit(self.screen.1, true) {
+            Keypad::Sci
+        } else {
+            Keypad::Basic
+        }
+    }
+
+    /// The parts Tab goes through: the layouts, and the shortcuts when there is room for them.
+    fn parts(&self) -> Vec<Part> {
+        let mut parts = vec![Part::Basic, Part::Sci];
+        if render::shortcuts_fit(self.screen.1, self.keypad == Keypad::Sci) {
+            parts.extend([Part::Units, Part::Money]);
+        }
+        parts
+    }
+
+    /// Tab (`forward`) or Shift+Tab: the focus to the next part, round; from the line, to the
+    /// layout shown (to the last part going back). A layout is shown as soon as it has the focus.
+    fn move_focus(&mut self, forward: bool) {
+        let parts = self.parts();
+        let n = parts.len();
+        let at = self.focus.and_then(|f| parts.iter().position(|p| *p == f));
+        let to = match (at, forward) {
+            (Some(i), true) => (i + 1) % n,
+            (Some(i), false) => (i + n - 1) % n,
+            (None, true) => usize::from(self.keypad == Keypad::Sci),
+            (None, false) => n - 1,
+        };
+        self.focus = Some(parts[to]);
+        match parts[to] {
+            Part::Basic => self.keypad = Keypad::Basic,
+            Part::Sci => self.keypad = Keypad::Sci,
+            Part::Units | Part::Money => {}
+        }
+    }
+
+    /// The keys the keyboard takes while it is on screen: Tab / Shift+Tab across its parts, Esc
+    /// back to the line, and in the Units and Money columns ↑ ↓ to choose, ← → to change column,
+    /// Enter to write. Everything else goes on to the line (`false`).
+    fn keyboard_key(&mut self, key: Key) -> bool {
+        if !self.keyboard_shown() {
+            self.focus = None;
+            return false;
+        }
+        let column = |part: Option<Part>| matches!(part, Some(Part::Units | Part::Money));
+        match key {
+            Key::Tab => self.move_focus(true),
+            Key::BackTab => self.move_focus(false),
+            Key::Esc if self.focus.is_some() => self.focus = None,
+            Key::Up if column(self.focus) => self.slot = (self.slot + favourites::SLOTS - 1) % favourites::SLOTS,
+            Key::Down if column(self.focus) => self.slot = (self.slot + 1) % favourites::SLOTS,
+            Key::Left if column(self.focus) => self.focus = Some(Part::Units),
+            Key::Right if column(self.focus) => self.focus = Some(Part::Money),
+            Key::Enter if column(self.focus) => {
+                let base = if self.focus == Some(Part::Money) { 5 } else { 0 };
+                self.apply(action::Action::Shortcut(base + self.slot));
+            }
+            _ => return false,
+        }
+        true
     }
 
     /// The shortcuts as the settings keep them (the units' defaults follow the measurement system).
@@ -454,6 +530,9 @@ impl<'a> App<'a> {
         };
         // Browsing the history (F5, then ↑ ↓): its own keys first.
         if self.overlay.is_none() && self.history.selected().is_some() && self.browse_key(key) {
+            return;
+        }
+        if self.overlay.is_none() && self.keyboard_key(key) {
             return;
         }
         match self.overlay {
@@ -724,7 +803,8 @@ impl<'a> App<'a> {
     /// The suggestions to show: their labels (cities: `Milano - Italy`, else
     /// what Tab writes), which one Tab selected, and whether they are cities (shown apart, `·`).
     fn suggestions(&self) -> Option<(Vec<String>, Option<usize>, bool)> {
-        if aequalis::time::is_date_request(&self.line.text()) {
+        // With the keyboard shown Tab goes to it: nothing to complete with.
+        if self.keyboard_shown() || aequalis::time::is_date_request(&self.line.text()) {
             return None;
         }
         let shown = |names: &[String], labels: &[String]| (if labels.is_empty() { names } else { labels }.to_vec(), !labels.is_empty());
@@ -771,7 +851,8 @@ pub fn run(config: &Config, opts: &Options) -> ExitCode {
     app.persist = true;
     app.load_shortcuts();
     // The keypad as the `tui.keyboard` setting says (F9 shows, changes and hides it).
-    app.keypad = if aequalis::settings::current().keyboard() { Keypad::Basic } else { Keypad::Hidden };
+    app.screen = term::size().unwrap_or((24, 80));
+    app.keypad = if aequalis::settings::current().keyboard() { app.best_layout() } else { Keypad::Hidden };
     let mut stdout = std::io::stdout();
     let (mut pending, mut buf) = (Vec::new(), [0u8; 256]);
     let (mut drawn, mut dirty, mut clear, mut hangups) = (None, true, true, 0);
@@ -779,6 +860,7 @@ pub fn run(config: &Config, opts: &Options) -> ExitCode {
         app.keep_online_fresh();
         dirty |= app.refresh_online();
         let size = term::size().unwrap_or((24, 80));
+        app.screen = size;
         if dirty || drawn != Some(size) {
             let frame = render::render(&app, size.0, size.1);
             let _ = stdout.write_all(frame.to_ansi(clear || drawn != Some(size)).as_bytes());
@@ -1585,25 +1667,89 @@ mod tests {
         assert_eq!(app.pressed, Some('*'), "x is multiply");
         app.handle(Key::Backspace);
         assert_eq!(app.pressed, Some('⌫'));
-        // C is text; F9 shows the Basic keypad, then Sci, then hides it; no key is lit after it.
+        // C is text; F9 shows the keyboard (Sci, with room for the shortcuts), then hides it; no key
+        // is lit after it.
         typed(&mut app, "C");
         assert_eq!(app.keypad, Keypad::Hidden);
-        for want in [Keypad::Basic, Keypad::Sci, Keypad::Hidden, Keypad::Basic] {
+        for want in [Keypad::Sci, Keypad::Hidden, Keypad::Sci] {
             app.handle(Key::F(9));
             assert_eq!((app.keypad, app.pressed), (want, None));
         }
+        // On a narrow terminal it opens on Basic.
+        let mut narrow = App::new(&config, &opts);
+        narrow.screen = (24, 58);
+        narrow.handle(Key::F(9));
+        assert_eq!(narrow.keypad, Keypad::Basic);
         // Enter lights =.
         app.handle(Key::Enter);
         assert_eq!(app.pressed, Some('='));
         // A panel in the band gives way to the keypad, which then shows.
         app.handle(Key::F(2));
         app.handle(Key::F(9));
-        assert!(app.overlay.is_none() && app.keypad == Keypad::Basic);
+        assert!(app.overlay.is_none() && app.keypad == Keypad::Sci);
         app.keypad = Keypad::Hidden;
         app.handle(Key::F(3));
         app.handle(Key::F(9));
         assert!(app.overlay.is_none());
-        assert_eq!(app.keypad, Keypad::Basic, "hidden: the first F9 shows it");
+        assert_eq!(app.keypad, Keypad::Sci, "hidden: the first F9 shows it");
+    }
+
+    #[test]
+    fn tab_moves_the_focus_across_the_keyboard() {
+        let config = Config::default();
+        let opts = options(&config);
+        let mut app = App::new(&config, &opts);
+        // Hidden: Tab completes as before.
+        typed(&mut app, "5 k");
+        app.handle(Key::Tab);
+        assert!(app.focus.is_none() && app.line.text() != "5 k", "{}", app.line.text());
+        app.handle(Key::Esc);
+        // F9 opens the keyboard with the focus on its layout.
+        app.handle(Key::F(9));
+        assert_eq!((app.keypad, app.focus), (Keypad::Sci, Some(Part::Sci)));
+        // Tab: Units, Money, round to Basic (shown at once), Sci again.
+        for (want, layout) in [(Part::Units, Keypad::Sci), (Part::Money, Keypad::Sci), (Part::Basic, Keypad::Basic), (Part::Sci, Keypad::Sci)] {
+            app.handle(Key::Tab);
+            assert_eq!((app.focus, app.keypad), (Some(want), layout));
+        }
+        app.handle(Key::BackTab);
+        assert_eq!((app.focus, app.keypad), (Some(Part::Basic), Keypad::Basic));
+        app.handle(Key::BackTab);
+        assert_eq!(app.focus, Some(Part::Money), "back round: the last part");
+        // Letters and digits go to the line, wherever the focus is.
+        app.line.set("");
+        typed(&mut app, "12 e");
+        assert_eq!((app.line.text().as_str(), app.focus), ("12 e", Some(Part::Money)));
+        // In Money: ↑ ↓ choose, ← → change the column, Enter writes and stays for the next.
+        app.line.set("");
+        app.handle(Key::Down);
+        app.handle(Key::Down);
+        app.handle(Key::Enter);
+        assert_eq!((app.line.text().as_str(), app.focus, app.slot), ("1 JPY ", Some(Part::Money), 2));
+        app.handle(Key::Left);
+        app.handle(Key::Up);
+        app.handle(Key::Enter);
+        assert_eq!((app.line.text().as_str(), app.focus), ("1 JPY kg ", Some(Part::Units)), "the second entry, replacing the unit");
+        // Esc gives the focus back to the line (the keyboard stays); Esc again clears the line.
+        app.handle(Key::Esc);
+        assert_eq!((app.focus, app.keypad, app.line.text().as_str()), (None, Keypad::Basic, "1 JPY kg "));
+        // The arrows are the line's again; Tab returns to the keyboard, on the layout shown.
+        app.handle(Key::Up);
+        app.handle(Key::Tab);
+        assert_eq!(app.focus, Some(Part::Basic));
+        // A window takes the focus; F9 hides everything.
+        app.handle(Key::F(3));
+        assert!(app.focus.is_none());
+        app.handle(Key::F(9));
+        app.handle(Key::F(9));
+        assert_eq!((app.keypad, app.focus), (Keypad::Hidden, None));
+        // On a narrow terminal there are no columns to go to.
+        let mut narrow = App::new(&config, &opts);
+        narrow.screen = (24, 50);
+        narrow.handle(Key::F(9));
+        narrow.handle(Key::Tab);
+        narrow.handle(Key::Tab);
+        assert_eq!(narrow.focus, Some(Part::Basic));
     }
 
     /// Bug 007: a written date with date math is complete: its result previews, no "target unit"
