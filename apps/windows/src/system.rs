@@ -119,6 +119,16 @@ impl aequalis::http::Fetcher for Curl {
 
 // ---------------------------------------------------------------- opening things
 
+/// The full app, `aequalis.exe` (the interactive mode), in a console window of its own (Windows
+/// Terminal when it is the default). It sits next to this program; else the one on the PATH.
+pub fn open_terminal() {
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let beside = std::env::current_exe().ok().and_then(|exe| exe.parent().map(|dir| dir.join("aequalis.exe"))).filter(|p| p.exists());
+    let program = beside.map_or_else(|| "aequalis.exe".to_string(), |p| p.display().to_string());
+    // `start` gives a console program a console of its own; the title is the first quoted word.
+    let _ = Command::new("cmd.exe").args(["/c", "start", "Aequalis", &program]).creation_flags(CREATE_NO_WINDOW).spawn();
+}
+
 /// A page in the browser.
 pub fn open_link(url: &str) {
     let (op, url) = (wide("open"), wide(url));

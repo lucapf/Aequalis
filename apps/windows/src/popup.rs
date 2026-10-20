@@ -89,6 +89,8 @@ enum Action {
     Download,
     About,
     Link(String),
+    /// The full app (the interactive mode) in a terminal.
+    Terminal,
 }
 
 /// The colours of a theme (the icon's palette: green, ivory, gold).
@@ -502,6 +504,10 @@ fn act(action: Action) {
             hide();
             system::open_link(&url);
         }
+        Action::Terminal => {
+            hide();
+            system::open_terminal();
+        }
     }
 }
 
@@ -701,7 +707,12 @@ fn layout(pass: &mut Pass, s: &State) -> i32 {
         Some(key) => format!("Enter copies · Esc closes · {key} opens"),
         None => "Enter copies · Esc closes".to_string(),
     };
-    y += pass.text(f.small, t.muted, &footer, inner(y), true);
+    // The footer, and at its right the button for the full app (the interactive mode, in a terminal).
+    let button = "Full app";
+    let button_w = pass.text_width(f.small, button) + s.px(20);
+    let h = pass.text(f.small, t.muted, &footer, RECT { right: w - pad - button_w - s.px(8), ..inner(y) }, true);
+    pass.pill(s, f.small, button, w - pad - button_w, y - s.px(2), Action::Terminal);
+    y += h.max(s.px(24));
     y + pad
 }
 

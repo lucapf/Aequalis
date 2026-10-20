@@ -27,6 +27,7 @@ const MENU_SETTINGS: usize = 3;
 const MENU_AUTOSTART: usize = 4;
 const MENU_ABOUT: usize = 5;
 const MENU_QUIT: usize = 6;
+const MENU_TERMINAL: usize = 7;
 
 /// The window, for the download thread to say it ended.
 static MAIN: AtomicIsize = AtomicIsize::new(0);
@@ -202,6 +203,7 @@ fn menu(hwnd: HWND, at: POINT) {
             AppendMenuW(menu, flags, id, text.as_ptr());
         };
         item(MENU_OPEN, MF_STRING, &format!("Open Aequalis\t{HOTKEY_NAME}"));
+        item(MENU_TERMINAL, MF_STRING, "Open the full app (terminal)");
         item(0, MF_SEPARATOR, "");
         item(MENU_DOWNLOAD, MF_STRING, "Download the online data now");
         item(MENU_SETTINGS, MF_STRING, "Settings…");
@@ -218,6 +220,7 @@ fn menu(hwnd: HWND, at: POINT) {
     };
     match command {
         MENU_OPEN => popup::show(anchor(hwnd)),
+        MENU_TERMINAL => system::open_terminal(),
         MENU_DOWNLOAD => download(false),
         MENU_SETTINGS => edit_settings(),
         MENU_AUTOSTART => {
