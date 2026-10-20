@@ -14,6 +14,7 @@ pub mod currency;
 pub mod ffi;
 pub mod favourites;
 pub mod files;
+pub mod find;
 pub mod geo;
 pub mod http;
 #[cfg(all(feature = "ffi", target_os = "android"))]
