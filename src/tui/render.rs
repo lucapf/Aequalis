@@ -403,6 +403,40 @@ fn keypad(app: &App, canvas: &mut Canvas, top: usize) {
             cap(canvas, row, x + 5 * c, key);
         }
     }
+    shortcuts(app, canvas, top, if sci { 34 } else { 22 });
+}
+
+/// The width of the shortcuts' two columns (units, currencies) and the gap between them.
+const SHORTCUT_COLUMN: usize = 9;
+const SHORTCUT_GAP: usize = 2;
+/// The columns kept free between the keypad and the shortcuts.
+const SHORTCUT_APART: usize = 3;
+
+/// The shortcuts at the right of the keypad (Alt+1…5 units, Alt+6…0 currencies), when the keypad
+/// ends at `keypad_end` and the width leaves room: the units and the currencies used most, each
+/// with the digit that writes it. They end at the right edge of the panels' width.
+fn shortcuts(app: &App, canvas: &mut Canvas, top: usize, keypad_end: usize) {
+    let width = 2 * SHORTCUT_COLUMN + SHORTCUT_GAP;
+    let area = canvas.cols.min(PANEL_WIDTH);
+    let right = (canvas.cols - area) / 2 + area - 2;
+    if right < keypad_end + SHORTCUT_APART + width {
+        return;
+    }
+    let left = right - width;
+    canvas.put(top, left - 1, " Units ", Style::Dim);
+    canvas.put(top, left + SHORTCUT_COLUMN + SHORTCUT_GAP - 1, " Money ", Style::Dim);
+    for row in 0..BASIC.len() {
+        for (column, base) in [(0, 0), (1, 5)] {
+            let index = base + row;
+            let Some(name) = app.shortcut(index) else { continue };
+            let name = if column == 0 { aequalis::favourites::label(name) } else { name };
+            let digit = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'][index];
+            let x = left + column * (SHORTCUT_COLUMN + SHORTCUT_GAP);
+            let lit = app.lit == Some(index);
+            canvas.put(top + 1 + row, x, &digit.to_string(), if lit { Style::Lit } else { Style::Dim });
+            canvas.put_within(top + 1 + row, x + 2, x + SHORTCUT_COLUMN, &format!("{name:<7}"), if lit { Style::Lit } else { Style::Plain });
+        }
+    }
 }
 
 const PROMPT: &str = "> ";
@@ -972,6 +1006,7 @@ fn settings_window(canvas: &mut Canvas, rows: usize, view: &super::settings::Vie
             Some(k) => {
                 let value = match (&view.edit, chosen) {
                     (Some(typed), true) => format!("{typed}▏"),
+                    _ if k.kind == aequalis::settings::Kind::Favourites && current.get(k.key).is_empty() => "(none yet: the defaults)".to_string(),
                     _ => current.get(k.key).to_string(),
                 };
                 format!(" {:<key_width$}  {value}", k.key)
@@ -994,7 +1029,10 @@ fn settings_window(canvas: &mut Canvas, rows: usize, view: &super::settings::Vie
     canvas.cells[sep][left + 1..left + width - 1].fill(('─', Style::Dim));
     let about = KEYS
         .get(view.selected)
-        .map_or("the city archive, the exchange rates, the live values (aequalis --sync)".to_string(), |k| format!("{} (default: {})", k.about, k.default));
+        .map_or("the city archive, the exchange rates, the live values (aequalis --sync)".to_string(), |k| match k.default.is_empty() {
+            true => format!("{} (d clears)", k.about),
+            false => format!("{} (default: {})", k.about, k.default),
+        });
     canvas.put_within(sep + 1, left + 2, right, &about, Style::Dim);
     if let Some(msg) = &view.message {
         canvas.put_within(sep + 2, left + 2, right, msg, Style::Green);
@@ -1080,6 +1118,8 @@ const HELP: &[(&str, &str)] = &[
     ("  Alt-A", "about: version, memory, last online sync"),
     ("  Ctrl-K", "search the units and the currencies"),
     ("  F9  Alt-B", "the keypad under the request: Basic, Sci, hidden"),
+    ("  Alt-1…5  Alt-6…0", "write one of your units / currencies, as listed"),
+    ("", "beside the keypad; the used ones stay (Settings)"),
     ("  the same key again", "closes the window"),
     ("The history in focus (F5)", ""),
     ("  ↑/↓", "choose an entry"),
@@ -1751,6 +1791,43 @@ mod tests {
         assert!(!lines.join("\n").contains("Basic"));
         let (lines, _) = screen("<F9>", 15, 80);
         assert!(lines.join("\n").contains("Basic │ Sci"));
+    }
+
+    #[test]
+    fn settings_list_the_shortcuts() {
+        let (lines, _) = screen("<F10>", 40, 100);
+        let text = lines.join("\n");
+        assert!(text.contains("tui.favourite_units") && text.contains("tui.favourite_currencies"), "{text}");
+        assert!(text.contains("(none yet: the defaults)"), "{text}");
+    }
+
+    #[test]
+    fn shortcuts_beside_the_keypad() {
+        // At the right of the keypad, when the keypad shows: the units (Alt+1…5) and the
+        // currencies (Alt+6…0) with their digits, on the rule's row their titles.
+        let (lines, _) = screen("<F9>", 24, 80);
+        assert!(lines[17].contains("Units") && lines[17].contains("Money"), "{}", lines[17]);
+        for (row, units, money) in [(18, "1 km", "6 USD"), (19, "2 kg", "7 EUR"), (20, "3 L", "8 JPY"), (21, "4 °C", "9 CNY"), (22, "5 m", "0 AED")] {
+            assert!(lines[row].contains(units) && lines[row].contains(money), "{}", lines[row]);
+            assert!(lines[row].starts_with("   ") && lines[row].trim_end().len() <= 80);
+        }
+        // The right edge of the width the panels use: 100 columns, centred.
+        let (lines, _) = screen("<F9>", 24, 200);
+        let at = lines[18].find("1 km").unwrap();
+        assert!(lines[18][..at].chars().count() > 100 && lines[18].trim_end().chars().count() <= 148, "{}", lines[18]);
+        // Used ones follow the use: Egyptian pounds (picked in the search) replace the last with no hits.
+        let (lines, _) = screen("<C-k>egyptian\n<F9>", 24, 80);
+        assert!(lines[22].contains("0 EGP") && !lines.join("\n").contains("AED"), "{}", lines[22]);
+        // Narrow: the keypad first, then no shortcuts.
+        let (lines, _) = screen("<F9>", 24, 44);
+        assert!(!lines.join("\n").contains("Units") && lines[19].contains("7    8    9"), "{}", lines[19]);
+        let (lines, _) = screen("<F9><F9>", 24, 56);
+        assert!(!lines.join("\n").contains("Units") && lines[19].contains("tan"), "Sci needs more room");
+        let (lines, _) = screen("<F9><F9>", 24, 80);
+        assert!(lines[19].contains("2 kg"), "{}", lines[19]);
+        // Not in the band when a window is open, or without the keypad.
+        let (lines, _) = screen("", 24, 80);
+        assert!(!lines.join("\n").contains("Units"));
     }
 
     /// How long a keystroke takes in the interactive mode (the key, then the whole screen drawn

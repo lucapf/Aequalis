@@ -1,4 +1,19 @@
 {
   "offline": true,
-  "distance.unit": "km"
+  "cities.enabled": true,
+  "cities.refresh": "manual",
+  "cities.interval": "30d",
+  "cities.url": "https://github.com/lucapf/aequalis/releases/download/cities/cities.json",
+  "rates.refresh": "silent",
+  "rates.interval": "24h",
+  "live.refresh": "manual",
+  "live.interval": "24h",
+  "currency.local": "auto",
+  "distance.unit": "km",
+  "precision": 4,
+  "format.date": "DD MMM YY",
+  "format.datetime": "DD MMM YY h:mm AM tz",
+  "tui.keyboard": false,
+  "tui.favourite_units": "km:10,kg:0,l:0,ft:2,mi:10",
+  "tui.favourite_currencies": ""
 }

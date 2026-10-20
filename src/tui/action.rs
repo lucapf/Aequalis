@@ -93,6 +93,8 @@ pub enum Action {
     Help,
     About,
     ToggleKeypad,
+    /// A shortcut of the keypad's right side: 0-4 its units, 5-9 its currencies (Alt+1…5, Alt+6…0).
+    Shortcut(usize),
     /// `now` at the cursor, for date math.
     Now,
     /// The answer, or the history entry in focus, to the clipboard.
@@ -161,6 +163,9 @@ impl<'a> App<'a> {
                 'y' => Some(Action::Copy),
                 'k' => Some(Action::KillToEnd),
                 'q' => Some(Action::Quit),
+                // Alt+1…5 the units, Alt+6…9 and Alt+0 the currencies.
+                '1'..='9' => Some(Action::Shortcut(c as usize - '1' as usize)),
+                '0' => Some(Action::Shortcut(9)),
                 c => TOOLBAR.iter().find(|t| t.alt == c).map(|t| t.action),
             },
             _ => None,
@@ -193,6 +198,7 @@ impl<'a> App<'a> {
                 | Action::KillWord
                 | Action::Complete(_)
                 | Action::Submit
+                | Action::Shortcut(_)
                 | Action::Now
         ) {
             (self.recall, self.draft) = (None, None);
@@ -248,6 +254,16 @@ impl<'a> App<'a> {
                     return;
                 }
                 self.keypad = self.keypad.next();
+            }
+            Action::Shortcut(index) => {
+                if self.overlay.is_some() {
+                    return;
+                }
+                let Some(name) = self.shortcut(index).map(str::to_string) else { return };
+                let line = super::picker::place_unit(&self.line.text(), self.line.cursor(), &name);
+                self.line.set(&line);
+                self.lit = Some(index);
+                self.used(&name, index >= 5);
             }
             Action::Now => {
                 let at_start = self.line.cursor() == 0 || self.line.chars()[self.line.cursor() - 1] == ' ';

@@ -29,6 +29,7 @@ mod term;
 mod trivia;
 
 use aequalis::config::{Config, System};
+use aequalis::favourites::{self, Favourites};
 use aequalis::numbers;
 use aequalis::{convert_request, Options};
 use editor::{Entry, History, Line};
@@ -115,6 +116,13 @@ pub struct App<'a> {
     numbers: numbers::NumberFormat,
     /// The keypad key to light up: the last character typed (`=` for Enter).
     pressed: Option<char>,
+    /// The units and the currencies of the keypad's shortcuts (Alt+1…5, Alt+6…0) with their hits;
+    /// `lit` is the shortcut used last (0-4 a unit, 5-9 a currency).
+    units: Favourites,
+    currencies: Favourites,
+    lit: Option<usize>,
+    /// Whether the hits are kept in the settings (only in a real session: never in the tests).
+    persist: bool,
     redraw: bool,
     quit: bool,
     /// The spacecraft's distances in the Trivia, retrieved when it first opens if `fetch_live`
@@ -171,6 +179,10 @@ impl<'a> App<'a> {
             system: System::Metric,
             numbers: numbers::NumberFormat::default(),
             pressed: None,
+            units: Favourites::of("", &favourites::METRIC),
+            currencies: Favourites::of("", &favourites::CURRENCIES),
+            lit: None,
+            persist: false,
             redraw: false,
             quit: false,
             online: aequalis::online::Data::default(),
@@ -186,6 +198,54 @@ impl<'a> App<'a> {
             copied: None,
             system_clipboard: false,
             evaluation: RefCell::new(None),
+        }
+    }
+
+    /// The shortcuts as the settings keep them (the units' defaults follow the measurement system).
+    fn load_shortcuts(&mut self) {
+        let stored = aequalis::settings::current();
+        self.units = Favourites::of(stored.favourites(false), &favourites::default_units(self.system));
+        self.currencies = Favourites::of(stored.favourites(true), &favourites::CURRENCIES);
+    }
+
+    /// What the shortcut `index` writes (0-4 a unit's symbol, 5-9 a currency's code).
+    fn shortcut(&self, index: usize) -> Option<&str> {
+        match index {
+            0..=4 => self.units.names().nth(index),
+            _ => self.currencies.names().nth(index - 5),
+        }
+    }
+
+    /// A unit (`currency` false) or a currency was used: a hit for it, kept in the settings.
+    fn used(&mut self, name: &str, currency: bool) {
+        let (list, key) = match currency {
+            true => (&mut self.currencies, "tui.favourite_currencies"),
+            false => (&mut self.units, "tui.favourite_units"),
+        };
+        list.hit(name);
+        if self.persist {
+            let _ = aequalis::settings::change(key, Some(&list.to_text()));
+        }
+    }
+
+    /// The units and currencies a request that worked used: a hit for each, once.
+    fn used_in(&mut self, request: &str) {
+        let mut seen: Vec<(String, bool)> = Vec::new();
+        for word in request.split(|c: char| c.is_whitespace() || "(),".contains(c)).filter(|w| !w.is_empty()) {
+            let found = match aequalis::convert::find_unit(self.config, word) {
+                Some((_, unit)) => Some((unit.symbol.to_string(), false)),
+                None if word.len() == 3 && word.chars().all(|c| c.is_ascii_alphabetic()) => match aequalis::currency::exact(word).as_deref() {
+                    Some(&[code]) => Some((code.to_string(), true)),
+                    _ => None,
+                },
+                None => None,
+            };
+            if let Some(found) = found.filter(|f| !seen.contains(f)) {
+                seen.push(found);
+            }
+        }
+        for (name, currency) in seen {
+            self.used(&name, currency);
         }
     }
 
@@ -270,10 +330,11 @@ impl<'a> App<'a> {
             Key::Down | Key::Tab if found > 0 => v.selected = (v.selected + 1) % found,
             Key::Up | Key::BackTab if found > 0 => v.selected = (v.selected + found - 1) % found,
             Key::Enter => {
-                if let Some(c) = aequalis::currency::search(&v.query).get(v.selected) {
-                    let line = picker::place_unit(&self.line.text(), self.line.cursor(), &c.code);
+                if let Some(code) = aequalis::currency::search(&v.query).get(v.selected).map(|c| c.code.clone()) {
+                    let line = picker::place_unit(&self.line.text(), self.line.cursor(), &code);
                     self.line.set(&line);
                     self.overlay = None;
+                    self.used(&code, true);
                 }
             }
             _ => {}
@@ -347,11 +408,14 @@ impl<'a> App<'a> {
             Key::Down | Key::Tab if found > 0 => s.selected = (s.selected + 1) % found,
             Key::Up | Key::BackTab if found > 0 => s.selected = (s.selected + found - 1) % found,
             Key::Enter => {
-                let chosen = search::matches(self.config, &s.query).get(s.selected).map(|found| found.written().to_string());
-                if let Some(unit) = chosen {
-                    let line = picker::place_unit(&self.line.text(), self.line.cursor(), &unit);
+                let chosen = search::matches(self.config, &s.query)
+                    .get(s.selected)
+                    .map(|found| (found.written().to_string(), matches!(found, search::Found::Currency(_))));
+                if let Some((name, currency)) = chosen {
+                    let line = picker::place_unit(&self.line.text(), self.line.cursor(), &name);
                     self.line.set(&line);
                     self.overlay = None;
+                    self.used(&name, currency);
                 }
             }
             _ => {}
@@ -367,7 +431,7 @@ impl<'a> App<'a> {
             key => key,
         };
         // The toolbar and the keys that work in every window.
-        self.pressed = None;
+        (self.pressed, self.lit) = (None, None);
         if let Some(action) = self.global_keymap(key) {
             return self.apply(action);
         }
@@ -401,6 +465,9 @@ impl<'a> App<'a> {
             Some(Overlay::Settings(ref mut view)) => {
                 if !settings::key(view, key) {
                     self.overlay = None;
+                }
+                if self.live {
+                    self.load_shortcuts();
                 }
                 // The offline setting may have changed: the indicator follows.
                 self.forced_offline = aequalis::network::mode() == aequalis::network::Mode::Offline;
@@ -466,6 +533,7 @@ impl<'a> App<'a> {
                     if picker::has_target(&line) {
                         self.overlay = None;
                     }
+                    self.used(unit, false);
                 }
             }
             Key::Tab | Key::BackTab => p.switch_tab(),
@@ -595,6 +663,9 @@ impl<'a> App<'a> {
             }
             Err(e) => (Err(e.to_string()), Some((StatusKind::Error, e.to_string()))),
         };
+        if result.is_ok() {
+            self.used_in(&input);
+        }
         self.history.push(Entry { input, result });
         self.status = status;
         self.line.set("");
@@ -697,6 +768,8 @@ pub fn run(config: &Config, opts: &Options) -> ExitCode {
     }
     app.system = aequalis::locale::device_system();
     app.numbers = numbers::device_format();
+    app.persist = true;
+    app.load_shortcuts();
     // The keypad as the `tui.keyboard` setting says (F9 shows, changes and hides it).
     app.keypad = if aequalis::settings::current().keyboard() { Keypad::Basic } else { Keypad::Hidden };
     let mut stdout = std::io::stdout();
@@ -751,6 +824,67 @@ mod tests {
         for c in text.chars() {
             app.handle(Key::Char(c));
         }
+    }
+
+    #[test]
+    fn alt_digits_write_the_shortcuts_and_count_them() {
+        let config = Config::default();
+        let opts = options(&config);
+        let mut app = App::new(&config, &opts);
+        // Alt+7 is the second currency (EUR), Alt+1 the first unit (km): `1 EUR`, then a target.
+        app.handle(Key::Alt('7'));
+        assert_eq!((app.line.text().as_str(), app.lit), ("1 EUR ", Some(6)));
+        app.handle(Key::Alt('6'));
+        assert_eq!(app.line.text(), "1 EUR USD ", "the target");
+        assert_eq!(app.currencies.to_text(), "USD:1,EUR:1,JPY:0,CNY:0,AED:0");
+        // Alt+0 is the fifth currency; Alt+5 the fifth unit.
+        app.handle(Key::Alt('0'));
+        assert_eq!(app.currencies.hits("AED"), Some(1));
+        app.handle(Key::Alt('5'));
+        assert_eq!(app.units.hits("m"), Some(1));
+        // Typing anything else puts the light out.
+        app.handle(Key::Char('x'));
+        assert_eq!(app.lit, None);
+        // A window open: the shortcuts wait.
+        app.handle(Key::F(2));
+        let before = app.line.text();
+        app.handle(Key::Alt('1'));
+        assert_eq!((app.line.text(), app.units.hits("km")), (before, Some(0)));
+    }
+
+    #[test]
+    fn what_is_used_is_counted() {
+        let config = Config::default();
+        let opts = options(&config);
+        let mut app = App::new(&config, &opts);
+        // A request that works counts each unit once, on both sides (a currency request needs the
+        // rates, which a test has not).
+        typed(&mut app, "5 km to mi");
+        app.handle(Key::Enter);
+        assert_eq!(app.units.to_text(), "km:1,kg:0,l:0,C:0,mi:1", "mi takes m's place");
+        // One that fails counts nothing.
+        typed(&mut app, "5 km to eur");
+        app.handle(Key::Enter);
+        assert_eq!((app.units.hits("km"), app.currencies.hits("EUR")), (Some(1), Some(0)));
+        // The Ctrl+K search and the Currencies panel count the pick.
+        app.handle(Key::Ctrl('k'));
+        typed(&mut app, "pound sterling");
+        app.handle(Key::Enter);
+        assert_eq!(app.currencies.to_text(), "USD:0,EUR:0,JPY:0,CNY:0,GBP:1", "GBP takes AED's place: {:?}", app.currencies);
+        // A pick that is not saved in tests: the settings file is untouched.
+        assert!(!app.persist);
+    }
+
+    #[test]
+    fn the_units_default_follows_the_measurement_system() {
+        let config = Config::default();
+        let opts = options(&config);
+        let mut app = App::new(&config, &opts);
+        app.system = System::Imperial;
+        app.units = Favourites::of("", &favourites::default_units(app.system));
+        assert_eq!(app.shortcut(0), Some("mi"));
+        assert_eq!(app.shortcut(9), Some("AED"));
+        assert_eq!(app.shortcut(10), None);
     }
 
     #[test]

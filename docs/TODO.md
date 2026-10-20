@@ -20,6 +20,11 @@ panel), status; no modes.
       now defaults to off) and the panels (Measures, unit keys, Currencies, Ctrl+K search, Trivia),
       which take the rows they need. The suggestion chips, the result beside the request, buttons for
       the ambiguous date and a History panel are left to the mouse phase.
+- [x] 3b. Shortcuts at the right of the keypad: five units (Alt+1…5) and five currencies (Alt+6…0),
+      kept with their hits in `tui.favourite_units` / `tui.favourite_currencies` (`src/favourites.rs`):
+      a new one replaces the listed one with the fewest hits (the last of them), in its place; every
+      pick (Ctrl+K, Currencies, unit keys, shortcuts) and every unit or currency of a request that
+      worked counts. `d` in Settings clears them (the defaults: USD EUR JPY CNY AED, units by system).
 - [ ] 4. Mouse: hit map, `tui.mouse`, terminal mouse modes.
 - [ ] 5. `src/find.rs` in the core and the Ctrl+K palette (units, currencies, cities, trivia,
       settings, history).
