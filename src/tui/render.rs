@@ -541,41 +541,57 @@ fn expression(app: &App, canvas: &mut Canvas, top: usize) -> Option<(usize, usiz
     canvas.put_within(top + 1, start, right, &visible, Style::Plain);
     canvas.hit(top + 1, start, right - start, Target::Line(offset));
 
-    // The grouping applied (when there are operations), then the result or the error.
+    // The result (or the error) row. At the right edge the answer, which a click copies (kept
+    // whole); at the left what the line means, as far as the answer leaves room: the grouping
+    // applied (when there are operations), the error, the currencies, the suggestions as buttons.
     let row = top + 2;
+    let preview = app.preview();
+    let answer = match &preview {
+        Some(Ok(result)) => Some(format!("= {result} ⧉")),
+        _ => None,
+    };
+    let answer_width = answer.as_ref().map_or(0, |a| a.chars().count());
+    let limit = if answer.is_some() { (right + 1).saturating_sub(answer_width + 2).max(4) } else { right };
+    if let Some(answer) = &answer {
+        let from = (right + 1).saturating_sub(answer_width).max(limit + 1);
+        let end = canvas.put_within(row, from, right + 1, answer, Style::Green);
+        canvas.hit(row, from, end - from, Target::Act(Action::Copy));
+    }
     let mut col = 4;
     if let Some(grouping) = app.grouping() {
-        col = canvas.put_within(row, col, right, &grouping, Style::Bold);
-        col = canvas.put_within(row, col, right, " ", Style::Plain);
+        col = canvas.put_within(row, col, limit, &grouping, Style::Bold);
+        col = canvas.put_within(row, col, limit, " ", Style::Plain);
     }
-    match app.preview() {
-        Some(Ok(result)) => {
-            let from = col;
-            col = canvas.put_within(row, col, right, &format!("= {result}"), Style::Green);
-            canvas.hit(row, from, col - from, Target::Act(Action::Copy));
-            if let Some(currencies) = app.currencies() {
-                col = canvas.put_within(row, col, right, &format!("   {currencies}"), Style::Dim);
-            }
-        }
-        Some(Err(msg)) => col = canvas.put_within(row, col, right, &format!("· {msg}"), Style::Dim),
-        None => {}
+    if let Some(Err(msg)) = &preview {
+        col = canvas.put_within(row, col, limit, &format!("· {msg}"), Style::Dim);
     }
     if let Some((names, selected, cities)) = app.suggestions() {
-        col = canvas.put_within(row, col, right, "   ", Style::Plain);
+        col = canvas.put_within(row, col, limit, "   ", Style::Plain);
         if selected.is_none() {
-            col = canvas.put_within(row, col, right, "Tab:", Style::Dim);
+            col = canvas.put_within(row, col, limit, "Tab:", Style::Dim);
         }
+        // Buttons, `[ mi ]`, when there is room for the brackets; plain words in a narrow window.
+        let buttons = cols >= 60;
         for (i, name) in names.iter().enumerate() {
             // Cities have spaces in their labels: `·` between them.
-            match (cities, i) {
-                (true, 1..) => col = canvas.put_within(row, col, right, " · ", Style::Dim),
-                _ => col = canvas.put_within(row, col, right, " ", Style::Plain),
+            match (cities, i, buttons) {
+                (true, 1.., false) => col = canvas.put_within(row, col, limit, " · ", Style::Dim),
+                _ => col = canvas.put_within(row, col, limit, " ", Style::Plain),
             }
             let style = if selected == Some(i) { Style::Inverse } else { Style::Plain };
             let from = col;
-            col = canvas.put_within(row, col, right, name, style);
+            if buttons {
+                col = canvas.put_within(row, col, limit, "[", Style::Dim);
+                col = canvas.put_within(row, col, limit, &format!(" {name} "), style);
+                col = canvas.put_within(row, col, limit, "]", Style::Dim);
+            } else {
+                col = canvas.put_within(row, col, limit, name, style);
+            }
             canvas.hit(row, from, col - from, Target::Suggest(i));
         }
+    }
+    if let (Some(Ok(_)), Some(currencies)) = (&preview, app.currencies()) {
+        canvas.put_within(row, col, limit, &format!("   {currencies}"), Style::Dim);
     }
     Some((top + 1, start + app.line.cursor() - offset))
 }
@@ -1382,7 +1398,7 @@ mod tests {
         assert!(lines[8].starts_with("    (100+20)/120  = 1"), "{}", lines[8]);
         assert!(lines[9].chars().all(|c| c == '─'));
         assert!(lines[10].starts_with("  > 100 + 20 sqft m"), "{}", lines[10]);
-        assert!(lines[11].contains("Tab: mm2 m2 mi2"), "{}", lines[11]);
+        assert!(lines[11].contains("Tab: [ mm2 ] [ m2 ] [ mi2 ]"), "{}", lines[11]);
         assert!(lines[12].chars().all(|c| c == '─'));
         assert!(lines[13].starts_with(" note: evaluated as (100 + 20) / 120"), "{}", lines[13]);
         assert!(lines[13].ends_with("F1 help · Ctrl+K search · Alt+Y copy result · Ctrl+Q quit"), "{}", lines[13]);
@@ -1868,16 +1884,16 @@ mod tests {
     #[test]
     fn preview_shows_the_grouping() {
         let (lines, _) = screen("12+12/3", 12, 80);
-        assert!(lines[9].starts_with("    (12 + (12 / 3)) = 16"), "{}", lines[9]);
+        assert!(lines[9].starts_with("    (12 + (12 / 3))") && lines[9].ends_with("= 16 ⧉"), "{}", lines[9]);
         let (lines, _) = screen("100 + 20 + 50 / 10 sqft m2", 12, 80);
-        assert!(lines[9].starts_with("    ((100 + 20) + (50 / 10)) = 11.6129 m2"), "{}", lines[9]);
+        assert!(lines[9].starts_with("    ((100 + 20) + (50 / 10))") && lines[9].ends_with("= 11.6129 m2 ⧉"), "{}", lines[9]);
         // A plain conversion: just the result.
         let (lines, _) = screen("10 km mi", 12, 80);
-        assert!(lines[9].starts_with("    = 6.2137 mi"), "{}", lines[9]);
+        assert!(lines[9].ends_with("= 6.2137 mi ⧉") && lines[9].chars().count() <= 80, "{}", lines[9]);
         // Only the source unit so far: what comes next follows the grouping, once the unit is typed
         // (a space after it: `km` may still become `km/h`, and Tab offers those meanwhile).
         let (lines, _) = screen("1+2 km", 12, 100);
-        assert!(lines[9].starts_with("    (1 + 2)    Tab: km · km2 · km/h"), "{}", lines[9]);
+        assert!(lines[9].starts_with("    (1 + 2)    Tab: [ km ] [ km2 ] [ km/h ]"), "{}", lines[9]);
         let (lines, _) = screen("1+2 km ", 12, 100);
         assert!(lines[9].starts_with("    (1 + 2) · now the length unit to convert to: in, ft, yd…"), "{}", lines[9]);
         // A real error follows the grouping too, once the word is typed (a space after it).
@@ -1897,7 +1913,7 @@ mod tests {
         // request line: a rule with the tabs, five rows of keys.
         let (lines, _) = screen("12+3<F9>", 24, 80);
         assert!(lines[17].starts_with("─── Basic │ Sci ───") && lines[17].chars().count() == 80, "{}", lines[17]);
-        assert!(lines[15].starts_with("  > 12+3") && lines[16].starts_with("    (12 + 3) = 15"), "{} / {}", lines[15], lines[16]);
+        assert!(lines[15].starts_with("  > 12+3") && lines[16].starts_with("    (12 + 3)") && lines[16].ends_with("= 15 ⧉"), "{} / {}", lines[15], lines[16]);
         for (row, keys) in [(18, "sin  cos │"), (19, "tan   √  │"), (20, "ln   log │"), (21, "π    e  │"), (22, "^    °  │")] {
             assert!(lines[row].contains(keys), "{}", lines[row]);
         }
@@ -2012,7 +2028,7 @@ mod tests {
         let app = clicked(&config, &opts, "100 km mi", (24, 80), &["00 km mi"]);
         assert_eq!(app.line.cursor(), 1);
         // A suggestion completes the word.
-        let app = clicked(&config, &opts, "5 km m", (24, 80), &["mi mil"]);
+        let app = clicked(&config, &opts, "5 km m", (24, 80), &["[ mi ]"]);
         assert_eq!(app.line.text(), "5 km mi", "{}", app.line.text());
     }
 
@@ -2063,6 +2079,21 @@ mod tests {
         // An ambiguous date: a click on a reading chooses it, and the request goes on.
         let app = clicked(&config, &opts, "12/04/2026 YYYY/MM/DD\n", (24, 100), &["1  "]);
         assert!(app.overlay.is_none() && app.history.entries().len() == 1, "{:?}", app.history.entries().len());
+    }
+
+    #[test]
+    fn the_answer_at_the_right_and_the_suggestions_as_buttons() {
+        // The answer ends at the right edge, with the sign that a click copies it.
+        let (lines, _) = screen("10 km mi", 12, 80);
+        assert!(lines[9].ends_with("= 6.2137 mi ⧉"), "{}", lines[9]);
+        // The suggestions are buttons; in a narrow window plain words.
+        let (lines, _) = screen("5 km m", 12, 80);
+        assert!(lines[9].contains("Tab: [ mm ] [ m ] [ mi ]"), "{}", lines[9]);
+        let (lines, _) = screen("5 km m", 12, 50);
+        assert!(lines[9].contains("Tab: mm m mi") && !lines[9].contains('['), "{}", lines[9]);
+        // The answer is kept whole when the left side is long: it is cut instead.
+        let (lines, _) = screen("(1+2+3+4+5+6+7+8)/7+(1+2+3+4+5+6)", 12, 60);
+        assert!(lines[9].ends_with("⧉") && lines[9].contains("= "), "{}", lines[9]);
     }
 
     #[test]
