@@ -535,9 +535,18 @@ mod tests {
     fn end_of_day_with_a_city() {
         let config = Config::default();
         let at = |s: &str| request(&config, s, 4, false).unwrap();
-        // 24:00 is the next day's 00:00, as in ISO; not 24:30, not 24:00 PM.
+        // 24:00 is the next day's 00:00, as in ISO; not 24:30, not 24:00 PM. The time is the
+        // machine's, shown in Paris (so what it reads depends on the machine's zone): the same
+        // time of day, the day after.
         let (midnight, end) = (at("00:00 Paris").unwrap().0, at("24:00 Paris").unwrap().0);
-        assert!(end.contains("12:00 AM") && end != midnight, "{end}, {midnight}");
+        let split = |shown: &str| {
+            let mut parts = shown.splitn(4, ' ');
+            let date = parts.by_ref().take(3).collect::<Vec<_>>().join(" ");
+            (date, parts.next().unwrap_or("").to_string())
+        };
+        let ((midnight_day, midnight_time), (end_day, end_time)) = (split(&midnight), split(&end));
+        assert_eq!(end_time, midnight_time, "{end}, {midnight}");
+        assert_ne!(end_day, midnight_day, "{end}, {midnight}");
         assert!(at("24:00 Mexico City to Croatia").is_ok());
         assert!(at("24:30 Paris").is_err());
         assert!(at("24:00 PM Paris").is_err());
