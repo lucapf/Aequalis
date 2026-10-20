@@ -23,7 +23,7 @@ const COMMON: &[(&str, &[&str])] = &[
     ("Pressure", &["bar", "psi", "atm", "Pa", "hPa"]),
     ("Fuel economy", &["l/100km", "mpg", "km/l", "mpg-uk"]),
     ("Energy", &["kWh", "J", "kcal", "kJ", "BTU"]),
-    ("Power", &["W", "kW", "hp", "MW", "PS"]),
+    ("Power", &["W", "kW", "hp", "MW", "cv"]),
 ];
 
 /// The currencies the board starts with: the most traded ones (BIS Triennial Survey).

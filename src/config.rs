@@ -492,7 +492,7 @@ impl Default for Config {
                         metric("kW", "kilowatt", &["kilowatt", "kilowatts"], 1e3),
                         metric("MW", "megawatt", &["megawatt", "megawatts"], 1e6),
                         metric("GW", "gigawatt", &["gigawatt", "gigawatts"], 1e9),
-                        metric("PS", "metric horsepower (Pferdestärke)", &["cv", "metric-horsepower"], 735.498_75),
+                        metric("cv", "metric horsepower (cavallo vapore, PS)", &["PS", "metric-horsepower"], 735.498_75),
                         imperial("hp", "horsepower (mechanical)", &["horsepower", "bhp"], 745.699_871_582_270_2),
                         imperial("BTU/h", "British thermal unit per hour", &["btu/h", "btu/hr"], 1_055.055_852_62 / 3600.0),
                     ],

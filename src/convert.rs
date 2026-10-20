@@ -374,7 +374,7 @@ mod tests {
         assert_eq!(conv(1.0, "therm", "kWh"), "29.3001 kWh");
         assert_eq!(conv(1.0, "BTU", "ft-lbf"), "778.1693 ft-lbf");
         assert_eq!(conv(100.0, "hp", "kW"), "74.57 kW");
-        assert_eq!(conv(100.0, "PS", "hp"), "98.632 hp");
+        assert_eq!(conv(100.0, "cv", "hp"), "98.632 hp");
         assert_eq!(conv(1.0, "kW", "BTU/h"), "3412.1416 BTU/h");
     }
 
