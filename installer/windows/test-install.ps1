@@ -30,6 +30,9 @@ $app = Get-ItemProperty $uninstallKey -ErrorAction SilentlyContinue
 Check "in Settings > Apps: $($app.DisplayName) $($app.DisplayVersion)" ($app.DisplayName -eq "Aequalis")
 Check "the app's file says Aequalis" ((Get-Item "$dir\aequalis-tray.exe").VersionInfo.FileDescription -eq "Aequalis")
 Check "the command line answers: $(& "$dir\aequalis.exe" 10 km mi)" ((& "$dir\aequalis.exe" 10 km mi) -eq "6.2137 mi")
+# The installed program has the interactive mode (a build without it is the command line only).
+$exeText = [Text.Encoding]::Latin1.GetString([IO.File]::ReadAllBytes("$dir\aequalis.exe"))
+Check "the command line has the interactive mode and the mouse" ($exeText.Contains("Shift+drag selects text"))
 Start-Process "$dir\aequalis-tray.exe" -ArgumentList "--autostart"
 Start-Sleep -Seconds 2
 Check "the app runs" ([bool](Get-Process aequalis-tray -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$dir*" }))

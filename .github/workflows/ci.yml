@@ -14,7 +14,8 @@ jobs:
       - name: Build
         run: cargo build --release
       - name: Build without the interactive mode
-        run: cargo build --release --no-default-features
+        # In a folder of its own: it must not replace the exe the installer ships.
+        run: cargo build --release --no-default-features --target-dir target/no-tui
       - name: Test
         run: cargo test
       - name: Test the C interface (the Android app's)
@@ -39,7 +40,8 @@ jobs:
         # The command line and the tray app (apps/windows).
         run: cargo build --release --workspace
       - name: Build without the interactive mode
-        run: cargo build --release --no-default-features
+        # In a folder of its own: it must not replace the exe the installer ships.
+        run: cargo build --release --no-default-features --target-dir target/no-tui
       - name: Smoke test
         run: |
           target/release/aequalis 10 km mi
