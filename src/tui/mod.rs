@@ -163,11 +163,14 @@ pub struct App<'a> {
     /// The device's country (to rank the cities of the search), read when the search opens, and the
     /// last search made (query, how many requests were in the history) and its matches.
     country: Option<String>,
-    found: RefCell<Option<(String, usize, Rc<Vec<aequalis::find::Found>>)>>,
+    found: RefCell<Option<LastSearch>>,
     /// The last request evaluated and its result: the preview, the currencies line and Enter
     /// share it (one evaluation per change of the bar, not one per use).
     evaluation: RefCell<Option<(String, Evaluated)>>,
 }
+
+/// The last search of Ctrl+K: its query, how many requests the history had, and its matches.
+type LastSearch = (String, usize, Rc<Vec<aequalis::find::Found>>);
 
 /// A request's result, shared by its uses.
 type Evaluated = Rc<Result<aequalis::Output, aequalis::CliError>>;
@@ -565,8 +568,8 @@ impl<'a> App<'a> {
                 self.overlay = None;
             }
             Kind::Setting => {
-                let mut view = settings::View::default();
-                view.selected = aequalis::settings::KEYS.iter().position(|k| k.key == found.written).unwrap_or(0);
+                let selected = aequalis::settings::KEYS.iter().position(|k| k.key == found.written).unwrap_or(0);
+                let view = settings::View { selected, ..settings::View::default() };
                 self.overlay = Some(Overlay::Settings(view));
             }
             Kind::History => {

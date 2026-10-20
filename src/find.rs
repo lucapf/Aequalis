@@ -100,7 +100,7 @@ pub fn search(config: &Config, query: &str, sources: &Sources) -> Vec<Found> {
     for c in crate::currency::search(&q) {
         let mut names = vec![c.code.clone()];
         names.extend(c.symbols.iter().cloned());
-        let s = if q.is_empty() { 0 } else { score(&q, &names, &[c.name.clone()]).unwrap_or(3) };
+        let s = if q.is_empty() { 0 } else { score(&q, &names, std::slice::from_ref(&c.name)).unwrap_or(3) };
         add(s, Found { kind: Kind::Currency, written: c.code.clone(), name: c.name.clone(), about: String::new() });
     }
 
@@ -132,7 +132,7 @@ pub fn search(config: &Config, query: &str, sources: &Sources) -> Vec<Found> {
     }
 
     for (input, result) in sources.history.iter().rev() {
-        let s = if q.is_empty() { Some(0) } else { score(&q, &[input.clone()], &[]).map(|s| s.max(1)) };
+        let s = if q.is_empty() { Some(0) } else { score(&q, std::slice::from_ref(input), &[]).map(|s| s.max(1)) };
         if let Some(s) = s {
             add(s, Found { kind: Kind::History, written: input.clone(), name: result.clone(), about: String::new() });
         }
