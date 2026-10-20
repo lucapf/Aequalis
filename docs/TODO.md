@@ -42,7 +42,10 @@ panel), status; no modes.
       (from the archive, two letters at least, the device's country first) and earlier requests, each
       with its kind. Enter writes a unit, currency or city into the request, a trivia entry's value,
       reopens an earlier request, or opens the Settings on a setting.
-- [ ] 6. Compact (< 60 columns) and Wide (≥ 100) layouts.
+- [x] 6. Compact and Wide: below 60 columns the toolbar has short names (keys only under 52) and the
+      suggestions are plain words; from 120 columns (and 14 rows) the keyboard and the panels open in
+      a pane at the right (40% of the width, 52 to 90) while the history and the request keep the
+      left; under that they are in the band under the line.
 - [ ] 7. Docs, help, dead-code cleanup.
 
 ## Android app

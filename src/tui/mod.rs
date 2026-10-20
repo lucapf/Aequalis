@@ -231,9 +231,14 @@ impl<'a> App<'a> {
         self.keypad != Keypad::Hidden && self.screen.0 >= render::KEYPAD_FROM && !matches!(self.overlay, Some(Overlay::Measures(_) | Overlay::Picker(_) | Overlay::Currencies(_) | Overlay::Trivia(_) | Overlay::Search(_) | Overlay::History(_)))
     }
 
+    /// The columns the keyboard has: the pane's in the Wide layout, else the terminal's.
+    fn keyboard_cols(&self) -> usize {
+        render::pane_width(self.screen.0, self.screen.1).unwrap_or(self.screen.1)
+    }
+
     /// The layout the keyboard opens on: Sci when it fits with the shortcuts, else Basic.
     fn best_layout(&self) -> Keypad {
-        if render::shortcuts_fit(self.screen.1, true) {
+        if render::shortcuts_fit(self.keyboard_cols(), true) {
             Keypad::Sci
         } else {
             Keypad::Basic
@@ -243,7 +248,7 @@ impl<'a> App<'a> {
     /// The parts Tab goes through: the layouts, and the shortcuts when there is room for them.
     fn parts(&self) -> Vec<Part> {
         let mut parts = vec![Part::Basic, Part::Sci];
-        if render::shortcuts_fit(self.screen.1, self.keypad == Keypad::Sci) {
+        if render::shortcuts_fit(self.keyboard_cols(), self.keypad == Keypad::Sci) {
             parts.extend([Part::Units, Part::Money]);
         }
         parts

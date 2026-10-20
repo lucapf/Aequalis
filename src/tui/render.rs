@@ -192,6 +192,47 @@ impl Canvas {
 pub const MIN_ROWS: usize = 12;
 pub const MIN_COLS: usize = 40;
 
+/// From this many columns the keyboard and the panels open in a pane at the right of the request
+/// and the history (the Wide layout), which stay as they are; below it, in the band under the line.
+const WIDE_FROM: usize = 120;
+
+/// The width of the pane at the right in the Wide layout, for a terminal of `rows` and `cols`.
+pub(super) fn pane_width(rows: usize, cols: usize) -> Option<usize> {
+    (cols >= WIDE_FROM && rows >= MIN_ROWS + 2).then(|| (cols * 2 / 5).clamp(52, 90))
+}
+
+/// Whether the band holds something: a panel, or the keyboard.
+fn band_is_open(app: &App) -> bool {
+    matches!(
+        &app.overlay,
+        Some(Overlay::Measures(_) | Overlay::Picker(_) | Overlay::Currencies(_) | Overlay::Trivia(_) | Overlay::History(_) | Overlay::Search(_))
+    ) || app.keyboard_shown()
+}
+
+/// What the band holds, in `area`: a panel, else the keyboard (from `keypad_top`) when `keypad_on`.
+/// The cursor goes when a panel has its own caret.
+fn band_content(app: &App, canvas: &mut Canvas, area: Area, keypad_on: bool, cursor: &mut Option<(usize, usize)>) {
+    match &app.overlay {
+        Some(Overlay::Measures(v)) => measures(app, v, canvas, area),
+        Some(Overlay::Picker(p)) => unit_keys(app, p, canvas, area),
+        Some(Overlay::Currencies(v)) => {
+            currencies(v, canvas, area);
+            *cursor = None;
+        }
+        Some(Overlay::Trivia(v)) => trivia(app, v, canvas, area),
+        Some(Overlay::History(v)) => {
+            history_panel(app, v, canvas, area);
+            *cursor = None;
+        }
+        Some(Overlay::Search(s)) => {
+            search(app, s, canvas, area);
+            *cursor = None;
+        }
+        _ if keypad_on => keypad(app, canvas, area.top),
+        _ => {}
+    }
+}
+
 pub fn render(app: &App, rows: usize, cols: usize) -> Frame {
     let mut canvas = Canvas::new(rows, cols);
     if rows < MIN_ROWS || cols < MIN_COLS {
@@ -199,36 +240,44 @@ pub fn render(app: &App, rows: usize, cols: usize) -> Frame {
         return Frame { lines: canvas.lines(), cursor: None, hits: Vec::new() };
     }
     toolbar(app, &mut canvas);
+    status(app, &mut canvas, rows - 1);
     // From the bottom: the status line; the band (its top rule or border first); the request
     // block above it (a rule, the line, its result and suggestions); the history takes the rest,
     // under a rule.
     let head = 1;
-    let band = band_rows(app, rows);
-    let band_top = rows - 1 - band;
-    history(app, &mut canvas, head, band_top - 3 - head);
-    let mut cursor = expression(app, &mut canvas, band_top - 3);
-    status(app, &mut canvas, rows - 1);
-    // What the band holds: a panel, else the keypad; with nothing open, only the rule.
-    let width = cols.min(PANEL_WIDTH);
-    let area = Area { top: band_top, left: (cols - width) / 2, width, height: band };
-    match &app.overlay {
-        Some(Overlay::Measures(v)) => measures(app, v, &mut canvas, area),
-        Some(Overlay::Picker(p)) => unit_keys(app, p, &mut canvas, area),
-        Some(Overlay::Currencies(v)) => {
-            currencies(v, &mut canvas, area);
-            cursor = None;
+    let mut cursor;
+    match pane_width(rows, cols).filter(|_| band_is_open(app)) {
+        // Wide: the history and the request keep the left; what the band holds is in a pane at the
+        // right, as high as the screen between the toolbar and the status line.
+        Some(pane_w) => {
+            let left_w = cols - pane_w - 1;
+            let band_top = rows - 2;
+            let mut left = Canvas::new(rows, left_w);
+            history(app, &mut left, head, band_top - 3 - head);
+            cursor = expression(app, &mut left, band_top - 3);
+            left.rule(band_top);
+            let mut pane = Canvas::new(rows, pane_w);
+            let area = Area { top: 1, left: 0, width: pane_w, height: rows - 2 };
+            band_content(app, &mut pane, area, true, &mut cursor);
+            for row in 1..rows - 1 {
+                canvas.cells[row][..left_w].copy_from_slice(&left.cells[row]);
+                // A divider for the keyboard; a panel has its own border.
+                canvas.cells[row][left_w] = if app.overlay.is_none() || !matches!(app.overlay, Some(Overlay::Measures(_) | Overlay::Picker(_) | Overlay::Currencies(_) | Overlay::Trivia(_) | Overlay::History(_) | Overlay::Search(_))) { ('│', Style::Dim) } else { (' ', Style::Plain) };
+                canvas.cells[row][left_w + 1..].copy_from_slice(&pane.cells[row]);
+            }
+            canvas.hits.extend(left.hits);
+            canvas.hits.extend(pane.hits.into_iter().map(|h| Hit { col: h.col + left_w + 1, ..h }));
         }
-        Some(Overlay::Trivia(v)) => trivia(app, v, &mut canvas, area),
-        Some(Overlay::History(v)) => {
-            history_panel(app, v, &mut canvas, area);
-            cursor = None;
+        None => {
+            let band = band_rows(app, rows);
+            let band_top = rows - 1 - band;
+            history(app, &mut canvas, head, band_top - 3 - head);
+            cursor = expression(app, &mut canvas, band_top - 3);
+            // What the band holds: a panel, else the keypad; with nothing open, only the rule.
+            let width = cols.min(PANEL_WIDTH);
+            let area = Area { top: band_top, left: (cols - width) / 2, width, height: band };
+            band_content(app, &mut canvas, area, band > 1, &mut cursor);
         }
-        Some(Overlay::Search(s)) => {
-            search(app, s, &mut canvas, area);
-            cursor = None;
-        }
-        _ if band > 1 => keypad(app, &mut canvas, band_top),
-        _ => {}
     }
     if let Some(Overlay::Trivia(v @ super::trivia::View { popup: Some(scroll), .. })) = &app.overlay {
         trivia_popup(app, v, &mut canvas, rows, *scroll);
@@ -2195,6 +2244,65 @@ mod tests {
     }
 
     #[test]
+    fn wide_has_a_pane_at_the_right() {
+        // 140 columns: the pane is 56 wide, the separator before it.
+        let (lines, _) = screen("10 km mi\n5 kg lb\n<F2>", 30, 140);
+        let separator = 140 - 56 - 1;
+        for line in &lines[2..28] {
+            assert_eq!(line.chars().nth(separator), Some(' '), "a panel has its own border: {line}");
+            assert_eq!(line.chars().nth(separator + 1), Some('│'));
+        }
+        // The history and the request keep the left, whole.
+        assert!(lines.iter().any(|l| l.starts_with("    10 km mi  = 6.2137 mi")), "{}", lines.join("\n"));
+        assert!(lines.iter().any(|l| l.starts_with("  > ") && !l.contains("Measures")));
+        // The Measures are in the pane, from the top to the status line.
+        assert!(lines[1].chars().skip(separator + 1).collect::<String>().starts_with("┌─ Measures"), "{}", lines[1]);
+        assert!(lines[28].chars().skip(separator + 1).collect::<String>().starts_with("└"), "{}", lines[28]);
+        // A click in the pane is the pane's: a class opens its units.
+        let config = Config::default();
+        let opts = OPTS;
+        let app = clicked(&config, &opts, "<F2>", (30, 140), &["Length"]);
+        assert!(matches!(app.overlay, Some(Overlay::Picker(_))));
+        // Under 120 columns it is the band under the line, as before.
+        let (lines, _) = screen("<F2>", 30, 119);
+        assert!(lines[2..20].iter().all(|l| l.chars().nth(58) != Some('│')));
+        // Nothing open: no pane, the whole width.
+        let (lines, _) = screen("10 km mi\n", 30, 140);
+        assert!(lines[1..29].iter().all(|l| l.chars().nth(separator) != Some('│')));
+        // The keyboard has a divider.
+        let (lines, _) = screen("<F9>", 30, 140);
+        assert!(lines[2..28].iter().all(|l| l.chars().nth(separator) == Some('│')));
+        // The keyboard in the pane: Basic at 140 columns (the pane has no room for Sci and the
+        // shortcuts), Sci at 200.
+        let (lines, _) = screen("<F9>", 30, 140);
+        assert!(lines.iter().any(|l| l.contains("Basic │ Sci")) && !lines.iter().any(|l| l.contains("sin  cos")), "{}", lines.join("\n"));
+        let (lines, _) = screen("<F9>", 30, 200);
+        assert!(lines.iter().any(|l| l.contains("sin  cos")), "Sci");
+        // Clicks on the keys count the pane's offset.
+        let app = clicked(&config, &opts, "<F9>", (30, 140), &["7    8", "×"]);
+        assert_eq!(app.line.text(), "7*");
+    }
+
+    #[test]
+    fn compact_keeps_what_matters() {
+        // The smallest terminal: 40 columns, 12 rows. Every line fits; the answer is whole and at
+        // the right edge; no keyboard (too short for it).
+        let (lines, _) = screen("10 km mi", 12, 40);
+        assert!(lines.iter().all(|l| l.chars().count() <= 40), "{}", lines.join("\n"));
+        assert!(lines[0].starts_with(" F2  F3  F4  F5  F9  F10"), "keys only: {}", lines[0]);
+        assert!(lines.iter().any(|l| l.ends_with("= 6.2137 mi ⧉")), "{}", lines.join("\n"));
+        let (lines, _) = screen("<F9>", 12, 40);
+        assert!(!lines.join("\n").contains("Basic"));
+        // 50 columns, 20 rows: the keyboard in the band, without the shortcuts (no room).
+        let (lines, _) = screen("<F9>", 20, 50);
+        assert!(lines.iter().any(|l| l.contains("7    8    9")), "{}", lines.join("\n"));
+        assert!(lines.iter().all(|l| l.chars().count() <= 50));
+        // From 52 columns the toolbar has short names.
+        let (lines, _) = screen("", 20, 52);
+        assert!(lines[0].starts_with(" F2 Meas  F3 Curr  F4 Triv  F5 Hist  F9 Keys  F10 ⚙"), "{}", lines[0]);
+    }
+
+    #[test]
     fn the_mouse_can_be_given_back_to_the_terminal() {
         let config = Config::default();
         let opts = OPTS;
@@ -2234,10 +2342,12 @@ mod tests {
             assert!(lines[row].contains(units) && lines[row].contains(money), "{}", lines[row]);
             assert!(lines[row].trim_end().chars().count() <= 80);
         }
-        // The right edge of the width the panels use: 100 columns, centred.
+        // Wide: they are in the pane at the right (200 columns: a pane of 80, its Sci keys and the
+        // shortcuts), which ends at the right edge of the screen.
         let (lines, _) = screen("<F9>", 24, 200);
-        let at = lines[18].find("1 km").unwrap();
-        assert!(lines[18][..at].chars().count() > 100 && lines[18].trim_end().chars().count() <= 148, "{}", lines[18]);
+        let row = lines.iter().position(|l| l.contains("1 km")).unwrap();
+        let at = lines[row].find("1 km").unwrap();
+        assert!(lines[row][..at].chars().count() > 119 + 34, "{}", lines[row]);
         // Used ones follow the use: Egyptian pounds (picked in the search) replace the last with no hits.
         let (lines, _) = screen("<C-k>egyptian\n<F9>", 24, 80);
         assert!(lines[22].contains("0 EGP") && !lines.join("\n").contains("AED"), "{}", lines[22]);
