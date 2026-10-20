@@ -125,39 +125,40 @@ fn session(keys: &[&str]) -> Option<Screen> {
         stdin.flush().unwrap();
         sleep(Duration::from_millis(250));
     }
-    stdin.write_all(b"\x03").unwrap();
+    stdin.write_all(b"\x11").unwrap();
     drop(stdin);
     child.wait().unwrap();
     let out = reader.join().unwrap().unwrap();
     Some(Screen::replay(&String::from_utf8_lossy(&out)))
 }
 
-/// Every row of the sections (all but the status line) ends with the right border.
-fn assert_right_border(screen: &Screen) {
-    for row in 0..ROWS - 1 {
-        let last = screen.cells[row][COLS - 1];
-        assert!("│┐┘".contains(last), "row {row} ends with {last:?}:\n{}", screen.line(row));
+/// The rules across the screen (under the toolbar, above and below the request line) reach the
+/// last column: an erase there would have wiped the end of them.
+fn assert_rules_reach_the_edge(screen: &Screen) {
+    for row in [1, ROWS - 5, ROWS - 2] {
+        assert_eq!(screen.cells[row][COLS - 1], '─', "row {row} ends with {:?}:\n{}", screen.cells[row][COLS - 1], screen.line(row));
     }
 }
 
 #[test]
-fn reported_right_border_in_input_mode() {
+fn reported_rules_reach_the_right_edge() {
     let Some(screen) = session(&["10 km mi\r", "12+12/3"]) else { return };
-    assert_right_border(&screen);
-    assert!(screen.line(0).starts_with("┌─ Input mode "), "{}", screen.line(0));
+    assert_rules_reach_the_edge(&screen);
+    assert!(screen.line(0).starts_with(" F2 Measures  F3 Currencies"), "{}", screen.line(0));
 }
 
 #[test]
-fn right_border_in_command_mode_and_unit_keys() {
-    let Some(screen) = session(&["\x1b"]) else { return };
-    assert_right_border(&screen);
-    let Some(screen) = session(&["\x1bML"]) else { return };
-    assert_right_border(&screen);
+fn rules_reach_the_edge_with_the_unit_keys() {
+    // Alt+M, then L: the Length unit keys.
+    let Some(screen) = session(&["\x1bmL"]) else { return };
+    assert_rules_reach_the_edge(&screen);
     assert!((0..ROWS).any(|r| screen.line(r).contains("Length units")));
 }
 
 #[test]
-fn right_border_with_the_help() {
-    let Some(screen) = session(&["\x1bE"]) else { return };
-    assert_right_border(&screen);
+fn rules_reach_the_edge_with_the_help() {
+    // F1.
+    let Some(screen) = session(&["\x1bOP"]) else { return };
+    assert_rules_reach_the_edge(&screen);
+    assert!((0..ROWS).any(|r| screen.line(r).contains("Help")));
 }

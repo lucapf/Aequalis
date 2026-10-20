@@ -171,6 +171,14 @@ impl History {
     pub fn stop_browsing(&mut self) {
         self.pos = None;
     }
+
+    /// Removes the highlighted entry; the one after it is highlighted, else the new last, else
+    /// browsing ends.
+    pub fn remove_highlighted(&mut self) {
+        let Some(p) = self.pos else { return };
+        self.entries.remove(p);
+        self.pos = (!self.entries.is_empty()).then(|| p.min(self.entries.len() - 1));
+    }
 }
 
 #[cfg(test)]
@@ -272,6 +280,25 @@ mod tests {
         assert_eq!(h.selected(), None, "after the newest: none");
         h.down();
         assert_eq!(h.selected(), None);
+    }
+
+    #[test]
+    fn remove_highlighted_entry() {
+        let mut h = History::new(10);
+        for e in ["a", "b", "c"] {
+            h.push(entry(e));
+        }
+        h.remove_highlighted();
+        assert_eq!(h.entries().len(), 3, "nothing highlighted: nothing removed");
+        h.up();
+        h.up();
+        h.remove_highlighted();
+        let inputs = |h: &History| h.entries().iter().map(|e| e.input.clone()).collect::<Vec<_>>();
+        assert_eq!((inputs(&h), h.highlighted().map(|e| e.input.as_str())), (vec!["a".into(), "c".into()], Some("c")));
+        h.remove_highlighted();
+        assert_eq!((inputs(&h), h.highlighted().map(|e| e.input.as_str())), (vec!["a".into()], Some("a")));
+        h.remove_highlighted();
+        assert_eq!((h.entries().len(), h.selected()), (0, None));
     }
 
     #[test]

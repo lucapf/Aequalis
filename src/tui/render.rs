@@ -2,22 +2,20 @@
 //! styled cells, so the picker and the help can be drawn over the sections.
 //!
 //! ```text
-//! ┌ Units ────────────────────────────────────────────────────────────┐
-//! │  A  Area   D  Data   L  Length   M  Mass   T  Temperature   V  Volume
-//! └───────────────────────────────────────────────────────────────────┘
-//! ┌ History ──────────────────────────────────────────────────────────┐
-//! │   10 km mi            = 6.2137 mi                                 │
-//! │   (10+12-3)/4Km Mi    = 2.9515 mi                                 │
-//! └───────────────────────────────────────────────────────────────────┘
-//! ┌ Expression ───────────────────────────────────────────────────────┐
-//! │ > 100 + 20 sqft m                                                 │
-//! │   = …   Tab: mm2 m2 mi2                                           │
-//! └───────────────────────────────────────────────────────────────────┘
-//!  INPUT  note: evaluated as (100 + 20) + (50 / 10)    Esc command mode
+//!  F2 Measures  F3 Currencies  F4 Trivia  F5 History  F10 ⚙                    ● online
+//! ──────────────────────────────────────────────────────────────────────────────────
+//!    10 km mi            = 6.2137 mi
+//!    (10+12-3)/4Km Mi    = 2.9515 mi
+//! ──────────────────────────────────────────────────────────────────────────────────
+//!  > 100 + 20 sqft m
+//!    = …   Tab: mm2 m2 mi2
+//! ──────────────────────────────────────────────────────────────────────────────────
+//!  note: evaluated as (100 + 20) + (50 / 10)           F1 help · Ctrl+K units · Ctrl+Q quit
 //! ```
 
+use super::action::{Action, TOOLBAR};
 use super::picker::{format_rows, Picker};
-use super::{shortcuts, App, Mode, Overlay, StatusKind};
+use super::{App, Overlay, StatusKind};
 use aequalis::config::System;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -29,7 +27,7 @@ enum Style {
     Red,
     Green,
     Yellow,
-    /// The mode badge.
+    /// The badge of a window.
     Badge,
     /// A lit key: the one typed last, or the selected unit.
     Lit,
@@ -51,18 +49,10 @@ impl Style {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum CursorShape {
-    /// Input mode: a thin bar.
-    Bar,
-    /// Command mode: a block, as in Vim.
-    Block,
-}
-
 pub struct Frame {
     pub lines: Vec<String>,
-    /// Row and column of the cursor, from 0, and its shape.
-    pub cursor: Option<(usize, usize, CursorShape)>,
+    /// Row and column of the cursor, from 0.
+    pub cursor: Option<(usize, usize)>,
 }
 
 impl Frame {
@@ -78,9 +68,9 @@ impl Frame {
         for (i, line) in self.lines.iter().enumerate() {
             s.push_str(&format!("\x1b[{};1H{line}", i + 1));
         }
-        if let Some((row, col, shape)) = self.cursor {
-            let shape = if shape == CursorShape::Bar { 6 } else { 2 };
-            s.push_str(&format!("\x1b[{};{}H\x1b[{shape} q\x1b[?25h", row + 1, col + 1));
+        if let Some((row, col)) = self.cursor {
+            // A bar, steady.
+            s.push_str(&format!("\x1b[{};{}H\x1b[6 q\x1b[?25h", row + 1, col + 1));
         }
         s
     }
@@ -112,6 +102,11 @@ impl Canvas {
 
     fn put(&mut self, row: usize, col: usize, text: &str, style: Style) -> usize {
         self.put_within(row, col, self.cols, text, style)
+    }
+
+    /// A line across the whole width.
+    fn rule(&mut self, row: usize) {
+        self.cells[row].fill(('─', Style::Dim));
     }
 
     /// A frame with a title; its inside is cleared.
@@ -166,9 +161,9 @@ pub fn render(app: &App, rows: usize, cols: usize) -> Frame {
         canvas.put(0, 0, &format!("terminal too small (needs {MIN_COLS}x{MIN_ROWS})"), Style::Plain);
         return Frame { lines: canvas.lines(), cursor: None };
     }
-    // The top bar: one line of shortcuts in a box.
-    let head = 3;
-    top_bar(app, &mut canvas, head);
+    toolbar(app, &mut canvas);
+    // The history takes the rows between the toolbar and the request, under a rule.
+    let head = 1;
     history(app, &mut canvas, head, rows - 5 - head);
     let mut cursor = expression(app, &mut canvas, rows - 5);
     status(app, &mut canvas, rows - 1);
@@ -185,7 +180,7 @@ pub fn render(app: &App, rows: usize, cols: usize) -> Frame {
             search(app, s, &mut canvas, rows, head);
             cursor = None;
         }
-        _ if app.keypad => keypad(app, &mut canvas, head + 1, rows - 7 - head),
+        _ if app.keypad => keypad(app, &mut canvas, head + 1, rows - 6 - head),
         _ => {}
     }
     if let Some(Overlay::Trivia(v @ super::trivia::View { popup: Some(scroll), .. })) = &app.overlay {
@@ -211,112 +206,62 @@ pub fn render(app: &App, rows: usize, cols: usize) -> Frame {
     Frame { lines: canvas.lines(), cursor }
 }
 
-/// The shortcuts shown in the top bar (`room` columns): all of them when they fit, else the
-/// window of them that starts at the first one, or scrolled so that `active` (the shortcut of the
-/// unit keys shown) is the last; and whether shortcuts are hidden before / after it.
-fn visible_shortcuts(config: &aequalis::config::Config, room: usize, active: Option<usize>) -> (std::ops::Range<usize>, bool, bool) {
-    // ` K `, ` Name ` and a space between them.
-    let widths: Vec<usize> = shortcuts(config).iter().map(|s| s.name.chars().count() + 6).collect();
-    if widths.iter().sum::<usize>() <= room {
-        return (0..widths.len(), false, false);
-    }
-    // `‹ ` and ` ›` take two columns each.
-    let room = room.saturating_sub(4);
-    let fits = |r: std::ops::Range<usize>| widths[r].iter().sum::<usize>() <= room;
-    let mut start = 0;
-    if let Some(a) = active {
-        while start < a && !fits(start..a + 1) {
-            start += 1;
-        }
-    }
-    let mut end = start + 1;
-    while end < widths.len() && fits(start..end + 1) {
-        end += 1;
-    }
-    (start..end, start > 0, end < widths.len())
-}
-
-/// The top bar, `height` rows. In input mode the units are hidden and the bar says how to switch
-/// modes; in command mode it shows the categories in alphabetical order with their shortcuts.
-fn top_bar(app: &App, canvas: &mut Canvas, height: usize) {
+/// The toolbar: the function key and the name of each window, the open one lit; shorter names,
+/// then the keys alone, when the terminal is narrow. The online indicator follows when it fits.
+fn toolbar(app: &App, canvas: &mut Canvas) {
     let cols = canvas.cols;
-    let right = cols - 2;
-    // Online or offline, at the right of the top border, in both modes.
-    let indicator = |canvas: &mut Canvas| {
-        use aequalis::network::Status;
-        let status = app.network_status();
-        let (dot, style) = match status {
-            Status::Online => ("●", Style::Green),
-            Status::Offline | Status::Forced => ("●", Style::Yellow),
-            Status::Checking => ("○", Style::Dim),
+    // The key, then the name: in full, short, or none.
+    let parts = |t: &super::action::Tool, tier: usize| {
+        let name = match tier {
+            0 => format!(" {} ", t.label),
+            1 => format!(" {} ", t.short),
+            _ => " ".to_string(),
         };
-        // The label, else a short one where it does not fit after the title (`offline (forced)`
-        // → `offline`), else nothing.
-        let short = match status {
-            Status::Forced => "offline",
-            Status::Checking => "…",
-            _ => status.label(),
+        (format!(" F{}", t.fkey), name)
+    };
+    let width = |tier: usize| TOOLBAR.iter().map(|t| parts(t, tier)).map(|(k, n)| k.chars().count() + n.chars().count()).sum::<usize>();
+    let tier = (0..2).find(|&tier| width(tier) <= cols).unwrap_or(2);
+    let mut col = 0;
+    for tool in &TOOLBAR {
+        let lit = match tool.action {
+            Action::Open(panel) => panel.is(&app.overlay),
+            Action::FocusHistory => app.history.selected().is_some(),
+            _ => false,
         };
-        for label in [status.label(), short] {
-            let text = format!(" {dot} {label} ");
-            let start = cols.saturating_sub(3 + text.chars().count());
-            if start > 18 {
-                canvas.put_within(0, start, cols - 2, &text, style);
-                break;
-            }
-        }
+        let (key, name) = parts(tool, tier);
+        col = canvas.put_within(0, col, cols, &key, if lit { Style::Lit } else { Style::Yellow });
+        col = canvas.put_within(0, col, cols, &name, if lit { Style::Lit } else { Style::Plain });
+    }
+    // Online or offline, at the right.
+    use aequalis::network::Status;
+    let status = app.network_status();
+    let (dot, style) = match status {
+        Status::Online => ("●", Style::Green),
+        Status::Offline | Status::Forced => ("●", Style::Yellow),
+        Status::Checking => ("○", Style::Dim),
     };
-    if app.mode == Mode::Input {
-        canvas.boxed(0, 0, height, cols, "Input mode");
-        indicator(canvas);
-        let mut col = 2;
-        for (text, style) in [
-            ("Press ", Style::Plain),
-            ("<Esc>", Style::Yellow),
-            (" for command mode, and ", Style::Plain),
-            ("I", Style::Yellow),
-            (" to be back to input mode", Style::Plain),
-        ] {
-            col = canvas.put_within(1, col, right, text, style);
-        }
-        return;
-    }
-    canvas.boxed(0, 0, height, cols, "Units");
-    indicator(canvas);
-    // One line: when the shortcuts don't fit, it scrolls to the one of the unit keys shown.
-    let list = shortcuts(app.config);
-    // What is open, else the highlighted shortcut (← → / h l; the first at the start).
-    let active = match &app.overlay {
-        Some(Overlay::Measures(_) | Overlay::Picker(_)) => list.iter().position(|s| s.name == super::MEASURES.0),
-        Some(Overlay::Currencies(_)) => list.iter().position(|s| s.name == super::CURRENCIES.0),
-        Some(Overlay::Trivia(_)) => list.iter().position(|s| s.name == super::TRIVIA.0),
-        Some(Overlay::Search(_)) => list.iter().position(|s| s.name == super::SEARCH.0),
-        Some(Overlay::Settings(_)) => list.iter().position(|s| s.name == super::SETTINGS.0),
-        _ => Some(app.menu.min(list.len().saturating_sub(1))),
+    // The label, else a short one (`offline (forced)` → `offline`), else nothing.
+    let short = match status {
+        Status::Forced => "offline",
+        Status::Checking => "…",
+        _ => status.label(),
     };
-    let (shown, before, after) = visible_shortcuts(app.config, right - 2, active);
-    let mut col = 2;
-    if before {
-        col = canvas.put_within(1, col, right, "‹ ", Style::Dim);
-    }
-    for s in &list[shown] {
-        // The highlighted one (or the one open) lit whole: its key and its name.
-        let lit = active.is_some_and(|a| list[a].key == s.key);
-        col = canvas.put_within(1, col, right, &format!(" {} ", s.key), if lit { Style::Lit } else { Style::Inverse });
-        col = canvas.put_within(1, col, right, &format!(" {} ", s.name), if lit { Style::Lit } else { Style::Plain });
-        // A space between the items, so a highlighted one stands apart.
-        col = canvas.put_within(1, col, right, " ", Style::Plain);
-    }
-    if after {
-        canvas.put_within(1, col, right, "›", Style::Dim);
+    for label in [status.label(), short] {
+        let text = format!(" {dot} {label} ");
+        let start = cols.saturating_sub(1 + text.chars().count());
+        if start > col {
+            canvas.put_within(0, start, cols, &text, style);
+            break;
+        }
     }
 }
 
-/// The last entries (minus the scroll), newest at the bottom, results aligned.
+/// The last entries (minus the scroll), newest at the bottom, results aligned: `height` rows, the
+/// first of them a rule.
 fn history(app: &App, canvas: &mut Canvas, top: usize, height: usize) {
     let cols = canvas.cols;
-    canvas.boxed(top, 0, height, cols, "History");
-    let inner = height - 2;
+    canvas.rule(top);
+    let inner = height - 1;
     let right = cols - 2;
     let entries = app.history.entries();
     if entries.is_empty() {
@@ -349,8 +294,9 @@ fn history(app: &App, canvas: &mut Canvas, top: usize, height: usize) {
         }
     }
     if scroll > 0 {
+        // On the rule under the history.
         let label = format!(" ↓ {scroll} newer ");
-        canvas.put_within(top + height - 1, cols - 2 - label.chars().count(), cols - 2, &label, Style::Dim);
+        canvas.put_within(top + height, cols - 2 - label.chars().count(), cols - 2, &label, Style::Dim);
     }
 }
 
@@ -404,10 +350,12 @@ fn keypad(app: &App, canvas: &mut Canvas, top: usize, room: usize) {
 
 const PROMPT: &str = "> ";
 
-/// The expression bar and, below it, the live result and the suggestions. Returns the cursor.
-fn expression(app: &App, canvas: &mut Canvas, top: usize) -> Option<(usize, usize, CursorShape)> {
+/// The request line between two rules and, below it, the live result and the suggestions. Returns
+/// the cursor.
+fn expression(app: &App, canvas: &mut Canvas, top: usize) -> Option<(usize, usize)> {
     let cols = canvas.cols;
-    canvas.boxed(top, 0, 4, cols, "Expression");
+    canvas.rule(top);
+    canvas.rule(top + 3);
     let right = cols - 2;
     // Scrolled sideways so the cursor stays visible.
     let start = 2 + PROMPT.len();
@@ -449,8 +397,7 @@ fn expression(app: &App, canvas: &mut Canvas, top: usize) -> Option<(usize, usiz
             col = canvas.put_within(row, col, right, name, style);
         }
     }
-    let shape = if app.mode == Mode::Input { CursorShape::Bar } else { CursorShape::Block };
-    Some((top + 1, start + app.line.cursor() - offset, shape))
+    Some((top + 1, start + app.line.cursor() - offset))
 }
 
 /// `<key> what · <key> what`, right-aligned to end before column `end`; returns its first column.
@@ -471,41 +418,46 @@ fn hints(canvas: &mut Canvas, row: usize, end: usize, items: &[(&str, &str)], fr
     start
 }
 
-/// The mode badge, the last note / warning / error, and the mode's keys on the right.
+/// The badge of the window open (none on the line), the last note / warning / error, and the keys
+/// of the moment on the right.
 fn status(app: &App, canvas: &mut Canvas, row: usize) {
     let cols = canvas.cols;
-    let (badge, keys): (&str, &[(&str, &str)]) = match (app.mode, &app.overlay) {
-        // The unit keys: how to move around them.
-        // Browsing the history: its keys.
-        (_, None) if app.history.selected().is_some() => (" HISTORY ", &[("↑↓", "browse"), ("Enter", "edit"), ("C", "copy"), ("<Esc>", "back")]),
-        (_, Some(Overlay::Choice(..))) => (" CHOOSE ", &[("↑↓ j k 1-9", "reading"), ("Enter", "confirm"), ("<Esc>", "back")]),
-        (_, Some(Overlay::Trivia(v))) if v.popup.is_some() => (" TRIVIA ", &[("↑↓", "scroll"), ("Enter", "write the value"), ("<Esc>", "back")]),
-        (_, Some(Overlay::Trivia(_))) => (" TRIVIA ", &[("Tab ←→", "section"), ("↑↓ j k", "entry"), ("Enter", "details"), ("<Esc>", "back")]),
-        (_, Some(Overlay::About)) => (" ABOUT ", &[("<Esc>", "close")]),
-        (_, Some(Overlay::Settings(v))) if v.edit.is_some() => (" SETTINGS ", &[("type", "value"), ("Enter", "save"), ("<Esc>", "cancel")]),
-        (_, Some(Overlay::Settings(_))) => (" SETTINGS ", &[("↑↓", "choose"), ("Enter ←→", "change"), ("d", "default"), ("<Esc>", "close")]),
-        (_, Some(Overlay::Search(_))) => (" SEARCH ", &[("type", "search"), ("↑↓", "choose"), ("Enter", "write"), ("<Esc>", "back")]),
-        (_, Some(Overlay::Currencies(_))) => (" CURRENCIES ", &[("type", "search"), ("↑↓", "choose"), ("Enter", "write"), ("<Esc>", "back")]),
-        (_, Some(Overlay::Measures(_))) => (" MEASURES ", &[("↑↓ j k", "choose"), ("letter Enter", "open"), ("<Esc>", "back")]),
-        (_, Some(Overlay::Picker(_))) => (" COMMAND ", &[("←↓↑→ h j k l", "move"), ("Tab", "system"), ("Enter", "write"), ("<Esc>", "measures")]),
-        (Mode::Input, _) => (" INPUT ", &[("<Esc>", "command mode"), ("exit", "quit")]),
-        (Mode::Command, _) => (" COMMAND ", &[("←→ Enter", "menu"), ("<I>", "input"), ("<C>", "keypad"), ("<E>", "help"), ("<A>", "about"), ("<q>", "quit")]),
+    let (badge, keys): (&str, &[(&str, &str)]) = match &app.overlay {
+        // The history in focus.
+        None if app.history.selected().is_some() => {
+            (" HISTORY ", &[("↑↓", "choose"), ("Enter", "recall"), ("Alt+Y", "copy"), ("Del", "remove"), ("<Esc>", "back")])
+        }
+        Some(Overlay::Choice(..)) => (" CHOOSE ", &[("↑↓ j k 1-9", "reading"), ("Enter", "confirm"), ("<Esc>", "back")]),
+        Some(Overlay::Trivia(v)) if v.popup.is_some() => (" TRIVIA ", &[("↑↓", "scroll"), ("Enter", "write the value"), ("<Esc>", "back")]),
+        Some(Overlay::Trivia(_)) => (" TRIVIA ", &[("Tab ←→", "section"), ("↑↓ j k", "entry"), ("Enter", "details"), ("<Esc>", "back")]),
+        Some(Overlay::About) => (" ABOUT ", &[("<Esc>", "close")]),
+        Some(Overlay::Help(_)) => (" HELP ", &[("↑↓", "scroll"), ("<Esc>", "close")]),
+        Some(Overlay::Settings(v)) if v.edit.is_some() => (" SETTINGS ", &[("type", "value"), ("Enter", "save"), ("<Esc>", "cancel")]),
+        Some(Overlay::Settings(_)) => (" SETTINGS ", &[("↑↓", "choose"), ("Enter ←→", "change"), ("d", "default"), ("<Esc>", "close")]),
+        Some(Overlay::Search(_)) => (" SEARCH ", &[("type", "search"), ("↑↓", "choose"), ("Enter", "write"), ("<Esc>", "back")]),
+        Some(Overlay::Currencies(_)) => (" CURRENCIES ", &[("type", "search"), ("↑↓", "choose"), ("Enter", "write"), ("<Esc>", "back")]),
+        Some(Overlay::Measures(_)) => (" MEASURES ", &[("↑↓ j k", "choose"), ("letter Enter", "open"), ("<Esc>", "back")]),
+        Some(Overlay::Picker(_)) => (" UNITS ", &[("←↓↑→ h j k l", "move"), ("Tab", "system"), ("Enter", "write"), ("<Esc>", "measures")]),
+        None => ("", &[("F1", "help"), ("Ctrl+K", "units"), ("Alt+Y", "copy"), ("Ctrl+Q", "quit")]),
     };
-    // Too narrow for every key: the first ones go (the top bar shows the menu anyway).
+    // The message first: the first keys go until it fits next to them, and all of them when it
+    // still does not.
+    let message = app.status.as_ref().map(|(kind, msg)| match kind {
+        StatusKind::Note => (format!("note: {msg}"), Style::Dim),
+        StatusKind::Warning => (format!("warning: {msg}"), Style::Yellow),
+        StatusKind::Error => (format!("error: {msg}"), Style::Red),
+    });
     let width = |keys: &[(&str, &str)]| keys.iter().map(|(k, w)| k.chars().count() + 1 + w.chars().count() + 3).sum::<usize>() - 3;
-    let mut keys = keys;
-    while keys.len() > 1 && badge.chars().count() + 1 + width(keys) > cols - 1 {
+    let taken = badge.chars().count() + 1 + message.as_ref().map_or(0, |(text, _)| text.chars().count() + 2);
+    let (mut keys, kept) = (keys, if message.is_some() { 0 } else { 1 });
+    while keys.len() > kept && taken + width(keys) > cols - 1 {
         keys = &keys[1..];
     }
-    let hint_col = hints(canvas, row, cols - 1, keys, false);
+    let hint_col = if keys.is_empty() { cols + 1 } else { hints(canvas, row, cols - 1, keys, false) };
     let col = canvas.put(row, 0, badge, Style::Badge) + 1;
-    let limit = hint_col.saturating_sub(1);
-    match &app.status {
-        Some((StatusKind::Note, msg)) => canvas.put_within(row, col, limit, &format!("note: {msg}"), Style::Dim),
-        Some((StatusKind::Warning, msg)) => canvas.put_within(row, col, limit, &format!("warning: {msg}"), Style::Yellow),
-        Some((StatusKind::Error, msg)) => canvas.put_within(row, col, limit, &format!("error: {msg}"), Style::Red),
-        None => col,
-    };
+    if let Some((text, style)) = message {
+        canvas.put_within(row, col, hint_col.saturating_sub(1), &text, style);
+    }
 }
 
 /// A centred window of at most `width` × `height`; returns (top, left, width, height).
@@ -646,7 +598,7 @@ fn trivia(app: &App, v: &super::trivia::View, canvas: &mut Canvas, rows: usize, 
     let top = (head + 1).min(rows - 5 - height);
     let left = canvas.cols - 2 - width;
     let right = left + width - 1;
-    canvas.boxed(top, left, height, width, super::TRIVIA.0);
+    canvas.boxed(top, left, height, width, "Trivia");
     let mut col = left + 2;
     for (i, name) in aequalis::trivia::sections().iter().enumerate() {
         col = canvas.put_within(top + 1, col, right, &format!(" {name} "), if i == v.section { Style::Lit } else { Style::Dim });
@@ -815,7 +767,7 @@ fn measures(app: &App, v: &super::measures::View, canvas: &mut Canvas, rows: usi
     let top = (head + 1).min(rows - 5 - height);
     let left = canvas.cols - 2 - width;
     let right = left + width - 1;
-    canvas.boxed(top, left, height, width, super::MEASURES.0);
+    canvas.boxed(top, left, height, width, "Measures");
     let names = items.iter().map(|&i| label(app.config, i).0.chars().count()).max().unwrap_or(0);
     let visible = height - 2;
     let offset = v.selected.saturating_sub(visible.saturating_sub(1));
@@ -856,7 +808,7 @@ fn currencies(v: &super::currencies::View, canvas: &mut Canvas, rows: usize, hea
     let top = (head + 1).min(rows - 5 - height);
     let left = canvas.cols - 2 - width;
     let right = left + width - 1;
-    canvas.boxed(top, left, height, width, super::CURRENCIES.0);
+    canvas.boxed(top, left, height, width, "Currencies");
     let col = canvas.put_within(top + 1, left + 2, right, "/ ", Style::Yellow);
     let col = canvas.put_within(top + 1, col, right, &v.query, Style::Bold);
     canvas.put_within(top + 1, col, right, "▏", Style::Yellow);
@@ -970,7 +922,7 @@ fn settings_window(canvas: &mut Canvas, rows: usize, view: &super::settings::Vie
     let current = &view.settings;
     let key_width = KEYS.iter().map(|k| k.key.len()).max().unwrap_or(0);
     let lines = super::settings::rows() + 5;
-    let (top, left, width, height) = centred(canvas, rows, 78, lines, super::SETTINGS.0);
+    let (top, left, width, height) = centred(canvas, rows, 78, lines, "⚙ Settings");
     let right = left + width - 2;
     let visible = height.saturating_sub(5);
     let offset = view.selected.saturating_sub(visible.saturating_sub(1));
@@ -1065,29 +1017,34 @@ fn about(canvas: &mut Canvas, rows: usize) {
 
 /// Section headings have an empty description.
 const HELP: &[(&str, &str)] = &[
-    ("Input mode", ""),
-    ("  type  ←/→  Backspace", "edit the expression"),
+    ("The request", ""),
+    ("  type  ←/→  Backspace", "edit it; Enter evaluates"),
+    ("  Home End  Ctrl-A/E", "start, end"),
+    ("  Alt-←/→  Ctrl-←/→", "by word"),
+    ("  Ctrl-W  Ctrl-U  Alt-K", "kill the word before, to the start, to the end"),
     ("  Tab / Shift-Tab", "complete the unit (cycles)"),
-    ("  ↑/↓", "highlight an earlier entry (the bar is kept)"),
-    ("  Enter  C  Esc", "while one is: edit it, copy its result, stop"),
-    ("  Enter", "evaluate"),
-    ("  Esc", "command mode"),
+    ("  ↑/↓  Ctrl-P  Ctrl-N", "earlier / later requests, as in a shell;"),
+    ("", "↓ past the newest: what you were typing"),
+    ("  Alt-N", "write `now` (dates: now + 3d, now unix, …)"),
+    ("  Alt-Y", "copy the answer"),
+    ("  PgUp/PgDn", "scroll the history"),
     ("  exit + Enter", "quit (quit + Enter works too)"),
     ("  about + Enter", "about: version, memory, last online sync"),
-    ("Command mode", ""),
-    ("  ←/→  h/l", "highlight a shortcut in the top bar (it scrolls)"),
-    ("  Enter", "open the highlighted shortcut"),
-    ("  / M U R O", "Search, Measures, Currencies, Trivia, Settings"),
-    ("  N", "write `now` (dates: now + 3d, now unix, …)"),
-    ("  I  i", "input mode (Enter there evaluates)"),
-    ("  j/k  ↑/↓", "browse the history, as in input mode"),
-    ("  w/b  0/$  Home/End", "move the cursor"),
-    ("  x", "delete the character under the cursor"),
-    ("  C", "show / hide the keypad over the history"),
-    ("  PgUp/PgDn", "scroll the history"),
-    ("  E  ?", "this help"),
-    ("  A", "about: version, memory, last online sync"),
-    ("  q", "quit"),
+    ("Windows (the toolbar; Alt letters where F-keys are taken)", ""),
+    ("  F2  Alt-M", "Measures: the unit classes, then their units"),
+    ("  F3  Alt-C", "Currencies: search by code, name or country"),
+    ("  F4  Alt-T", "Trivia: useful values with a description"),
+    ("  F5  Alt-H", "the history in focus (see below)"),
+    ("  F10  Alt-S", "Settings"),
+    ("  F1  Alt-?", "this help"),
+    ("  Alt-A", "about: version, memory, last online sync"),
+    ("  Ctrl-K", "search the units"),
+    ("  F9", "show / hide the keypad over the history"),
+    ("  the same key again", "closes the window"),
+    ("The history in focus (F5)", ""),
+    ("  ↑/↓", "choose an entry"),
+    ("  Enter  Alt-Y  Del", "recall it, copy its result, remove it"),
+    ("  Esc", "back (any other key goes back and acts)"),
     ("Measures", ""),
     ("  ↑/↓  j/k", "choose a class (Length, Temperature, …)"),
     ("  Enter  or its letter", "its units (D: Earth distance, then the places)"),
@@ -1100,14 +1057,18 @@ const HELP: &[(&str, &str)] = &[
     ("", "Date & Time: the first)"),
     ("  a class's letter", "another class's units (L: Length, K: …)"),
     ("  Enter", "write the unit and a space; stay for the next,"),
-    ("", "or, with the target set, back to input mode"),
+    ("", "or, with the target set, back to the request"),
     ("", "replaces the unit under the cursor, else fills"),
     ("", "the source, then the target"),
     ("  Esc", "back to the Measures, without choosing"),
     ("Help", ""),
     ("  j/k  ↑/↓  PgUp/PgDn", "scroll"),
-    ("Anywhere", ""),
-    ("  Ctrl-C  Ctrl-L", "quit, redraw"),
+    ("Esc and Ctrl-C", ""),
+    ("  Esc", "one step back: the window, the history, the Tab"),
+    ("", "cycle, the message, then the line (↑ restores)"),
+    ("  Ctrl-C", "the same; with nothing to close or clear: quit"),
+    ("  Ctrl-Q  Alt-Q  Ctrl-D", "quit (Ctrl-D on an empty line)"),
+    ("  Ctrl-L", "redraw"),
 ];
 
 /// The help window; scrolls (j/k) when the terminal is shorter than the help.
@@ -1139,7 +1100,7 @@ fn help(canvas: &mut Canvas, rows: usize, scroll: usize) {
 
 #[cfg(test)]
 mod tests {
-    use super::super::keys::{self, Key};
+    use super::super::keys::Key;
     use super::*;
     use aequalis::config::Config;
     use aequalis::Options;
@@ -1157,22 +1118,43 @@ mod tests {
         out.trim_end().to_string()
     }
 
-    /// Types `keys` (`\n` = Enter, `\x1b` = Esc) and renders.
+    /// Types `keys` (`\n` = Enter, `\t` = Tab, `\x1b` = Esc; `<F2>`, `<A-m>`, `<C-k>`, `<Esc>`,
+    /// `<Up>`, `<Down>` for the other keys) and renders.
     const OPTS: Options<'static> = Options { positional: Vec::new(), precision: 4, silent: false, verbose: false };
 
-    fn screen(keys: &str, rows: usize, cols: usize) -> (Vec<String>, Option<(usize, usize, CursorShape)>) {
-        let config = Config::default();
-        // Verbose: the status line shows the notes.
-        let opts = Options { positional: Vec::new(), precision: 4, silent: false, verbose: true };
-        let mut app = App::new(&config, &opts);
-        for c in keys.chars() {
-            app.handle(match c {
+    fn app_after<'a>(config: &'a Config, opts: &'a Options<'a>, keys: &str) -> App<'a> {
+        let mut app = App::new(config, opts);
+        let mut chars = keys.chars();
+        while let Some(c) = chars.next() {
+            let key = match c {
                 '\n' => Key::Enter,
                 '\x1b' => Key::Esc,
                 '\t' => Key::Tab,
+                '<' => {
+                    let name: String = chars.by_ref().take_while(|&c| c != '>').collect();
+                    match name.as_str() {
+                        "Esc" => Key::Esc,
+                        "Up" => Key::Up,
+                        "Down" => Key::Down,
+                        "Right" => Key::Right,
+                        n if n.starts_with('F') => Key::F(n[1..].parse().unwrap()),
+                        n if n.starts_with("A-") => Key::Alt(n.chars().nth(2).unwrap()),
+                        n if n.starts_with("C-") => Key::Ctrl(n.chars().nth(2).unwrap()),
+                        n => panic!("no key <{n}>"),
+                    }
+                }
                 _ => Key::Char(c),
-            });
+            };
+            app.handle(key);
         }
+        app
+    }
+
+    fn screen(keys: &str, rows: usize, cols: usize) -> (Vec<String>, Option<(usize, usize)>) {
+        let config = Config::default();
+        // Verbose: the status line shows the notes.
+        let opts = Options { positional: Vec::new(), precision: 4, silent: false, verbose: true };
+        let app = app_after(&config, &opts, keys);
         let frame = render(&app, rows, cols);
         (frame.lines.iter().map(|l| plain(l)).collect(), frame.cursor)
     }
@@ -1181,136 +1163,156 @@ mod tests {
     fn sections() {
         let (lines, cursor) = screen("10 km mi\n(100+20)/120\n100 + 20 sqft m", 14, 100);
         assert_eq!(lines.len(), 14);
-        // Input mode: the units are hidden, the bar explains the modes.
-        assert!(lines[0].starts_with("┌─ Input mode ─"));
-        assert!(lines[1].starts_with("│ Press <Esc> for command mode, and I to be back to input mode"), "{}", lines[1]);
-        assert!(!lines[1].contains("Length"));
-        assert!(lines[3].starts_with("┌─ History ─"));
-        assert_eq!(&lines[4..6], ["│".to_string() + &" ".repeat(98) + "│", "│".to_string() + &" ".repeat(98) + "│"]);
-        assert!(lines[6].starts_with("│   10 km mi      = 6.2137 mi"), "{}", lines[6]);
-        assert!(lines[7].starts_with("│   (100+20)/120  = 1"));
-        assert!(lines[8].starts_with("└"));
-        assert!(lines[9].starts_with("┌─ Expression ─"));
-        assert!(lines[10].starts_with("│ > 100 + 20 sqft m "));
+        // The toolbar, then a rule, the history as a scrollback (newest at the bottom), a rule,
+        // the request line, its result and suggestions, a rule, the status line.
+        assert!(lines[0].starts_with(" F2 Measures  F3 Currencies  F4 Trivia  F5 History  F10 ⚙ "), "{}", lines[0]);
+        assert!(lines[1].chars().all(|c| c == '─'), "{}", lines[1]);
+        assert!(lines[2..7].iter().all(|l| !l.contains("km")), "{lines:?}");
+        assert!(lines[7].starts_with("    10 km mi      = 6.2137 mi"), "{}", lines[7]);
+        assert!(lines[8].starts_with("    (100+20)/120  = 1"), "{}", lines[8]);
+        assert!(lines[9].chars().all(|c| c == '─'));
+        assert!(lines[10].starts_with("  > 100 + 20 sqft m"), "{}", lines[10]);
         assert!(lines[11].contains("Tab: mm2 m2 mi2"), "{}", lines[11]);
-        assert!(lines[13].starts_with(" INPUT  note: evaluated as (100 + 20) / 120"), "{}", lines[13]);
-        assert!(lines[13].ends_with("<Esc> command mode · exit quit"));
-        assert_eq!(cursor, Some((10, 19, CursorShape::Bar)));
+        assert!(lines[12].chars().all(|c| c == '─'));
+        assert!(lines[13].starts_with(" note: evaluated as (100 + 20) / 120"), "{}", lines[13]);
+        assert!(lines[13].ends_with("F1 help · Ctrl+K units · Alt+Y copy · Ctrl+Q quit"), "{}", lines[13]);
+        assert_eq!(cursor, Some((10, 19)));
+        // No mode: nothing says "INPUT" or "COMMAND".
+        assert!(!lines.join("\n").contains("INPUT") && !lines.join("\n").contains("COMMAND"));
     }
 
     #[test]
-    fn command_mode_status_and_cursor() {
-        let (lines, cursor) = screen("10 km\x1b", 12, 80);
-        assert!(lines[11].starts_with(" COMMAND "));
-        // 80 columns: the menu keys go, the top bar shows the menu.
-        assert!(lines[11].ends_with("<I> input · <C> keypad · <E> help · <A> about · <q> quit"), "{}", lines[11]);
-        let (wide, _) = screen("10 km\x1b", 12, 100);
-        assert!(wide[11].ends_with("←→ Enter menu · <I> input · <C> keypad · <E> help · <A> about · <q> quit"), "{}", wide[11]);
-        // Command mode: the units, and how to go back to input mode.
-        assert!(lines[0].starts_with("┌─ Units ─"));
-        // No hints on the border: the status line has them.
-        assert!(lines[0].ends_with("──┐") && !lines[0].contains("input mode"), "{}", lines[0]);
-        // In the menu's order, on one line; a space between the items.
-        assert!(lines[1].starts_with("│  /  Search   M  Measures   U  Currencies   R  Trivia   O  ⚙ Settings "), "{}", lines[1]);
-        assert!(lines[2].starts_with("└─"), "{}", lines[2]);
-        // Moving the highlight scrolls the bar: at 40 columns, → × 4 shows the Settings.
-        let (config, opts) = (Config::default(), OPTS);
-        let mut app = App::new(&config, &opts);
-        app.handle(Key::Esc);
-        for _ in 0..4 {
-            app.handle(Key::Right);
-        }
-        let narrow: Vec<String> = render(&app, 12, 40).lines.iter().map(|l| plain(l)).collect();
-        assert!(narrow[1].starts_with("│ ‹  R  Trivia   O  ⚙ Settings "), "{}", narrow[1]);
-        // In a narrow terminal, still one line: the shortcuts that fit, and › for the hidden ones.
-        let (narrow, _) = screen("10 km\x1b", 12, 40);
-        assert!(narrow[1].starts_with("│  /  Search   M  Measures  ›"), "{}", narrow[1]);
-        assert!(narrow[2].starts_with("└─") && narrow[3].starts_with("┌─ History"), "{}", narrow.join("\n"));
-        // With a hidden shortcut's window open, it scrolls to show it; ‹ for the ones before.
-        let (narrow, _) = screen("10 km\x1bR", 24, 40);
-        assert!(narrow[1].starts_with("│ ‹  U  Currencies   R  Trivia  ›"), "{}", narrow[1]);
-        let (narrow, _) = screen("10 km\x1bR\x1b/", 24, 40);
-        assert!(narrow[1].starts_with("│  /  Search   M  Measures  ›"), "back to the start: {}", narrow[1]);
-        assert_eq!(cursor.unwrap().2, CursorShape::Block);
-        // No Tab suggestions in command mode.
-        assert!(!lines.join("\n").contains("Tab:"));
+    fn toolbar() {
+        // The online indicator at the right; the open window lit (the style, not the text).
+        let (lines, _) = screen("", 12, 100);
+        assert!(lines[0].starts_with(" F2 Measures  F3 Currencies  F4 Trivia  F5 History  F10 ⚙ "), "{}", lines[0]);
+        assert!(lines[0].contains('●') || lines[0].contains('○'), "{}", lines[0]);
+        let lit = |keys: &str, cols: usize| {
+            let config = Config::default();
+            let opts = OPTS;
+            let app = app_after(&config, &opts, keys);
+            let top = render(&app, 24, cols).lines.remove(0);
+            top.split("\x1b[0m").filter(|part| part.starts_with("\x1b[1;30;43m")).map(plain).collect::<Vec<_>>()
+        };
+        assert!(lit("", 100).is_empty());
+        assert_eq!(lit("<F2>", 100), [" F2 Measures"]);
+        assert_eq!(lit("<A-c>", 100), [" F3 Currencies"]);
+        assert_eq!(lit("<F4>", 100), [" F4 Trivia"]);
+        assert_eq!(lit("<F10>", 100), [" F10 ⚙"]);
+        assert_eq!(lit("1\n<F5>", 100), [" F5 History"], "the history in focus");
+        assert!(lit("<F1>", 100).is_empty(), "the help is not on the toolbar");
+        // The Measures' unit keys are the Measures'.
+        assert_eq!(lit("<F2>L", 100), [" F2 Measures"]);
+        // Narrower: the short names, then the keys alone.
+        let (lines, _) = screen("", 12, 60);
+        assert!(lines[0].starts_with(" F2 Measures  F3 Currencies  F4 Trivia  F5 History  F10 ⚙"), "{}", lines[0]);
+        let (lines, _) = screen("", 12, 50);
+        assert!(lines[0].starts_with(" F2 Meas  F3 Curr  F4 Triv  F5 Hist  F10 ⚙"), "{}", lines[0]);
+        let (lines, _) = screen("", 12, 40);
+        assert!(lines[0].starts_with(" F2  F3  F4  F5  F10"), "{}", lines[0]);
+    }
+
+    #[test]
+    fn status_line_and_cursor() {
+        let (lines, cursor) = screen("10 km", 12, 80);
+        assert!(lines[11].ends_with("F1 help · Ctrl+K units · Alt+Y copy · Ctrl+Q quit"), "{}", lines[11]);
+        assert_eq!(cursor, Some((8, 9)), "the cursor in the request, at the end");
+        // Narrow: the first hints go.
+        let (lines, _) = screen("10 km", 12, 40);
+        assert!(lines[11].ends_with("Alt+Y copy · Ctrl+Q quit") && !lines[11].contains("F1"), "{}", lines[11]);
+        // A message keeps its room: the hints give way (the first ones, then all).
+        let (lines, _) = screen("(10+12-3)/4Km Mi\n", 12, 80);
+        assert!(
+            lines[11].starts_with(" note: evaluated as ((10 + 12) - 3) / 4 Km Mi") || lines[11].starts_with(" note: evaluated as ((10 + 12) - 3) / 4"),
+            "{}",
+            lines[11]
+        );
+        assert!(lines[11].ends_with("Alt+Y copy · Ctrl+Q quit") || lines[11].ends_with("Ctrl+Q quit"), "{}", lines[11]);
+        let (lines, _) = screen("10 km kg\n", 12, 60);
+        assert!(lines[11].starts_with(" error: cannot convert `km` to `kg`: different kinds of unit"), "{}", lines[11]);
+        // The history in focus: its own keys and badge.
+        let (lines, _) = screen("1+1\n<F5>", 12, 100);
+        assert!(lines[11].starts_with(" HISTORY ") && lines[11].ends_with("↑↓ choose · Enter recall · Alt+Y copy · Del remove · <Esc> back"), "{}", lines[11]);
+        // The Tab suggestions show while typing, whatever came before.
+        let (lines, _) = screen("10 km m", 12, 80);
+        assert!(lines.join("\n").contains("Tab:"));
     }
 
     #[test]
     fn unit_keys_replace_the_digits() {
         // Esc M B: the keypad shows the bits and bytes, top-right in the history: the Decimal tab
         // first; Tab switches to Binary. No search row.
-        let (lines, _) = screen("10\x1bMB", 24, 80);
+        let (lines, _) = screen("10<F2>B", 24, 80);
         let text = lines.join("\n");
         assert!(!text.contains("│ 7 │"), "digits replaced");
-        assert!(lines[4].contains("┌─ Bits & Bytes units ─") && lines[4].ends_with("┐ │"), "{}", lines[4]);
-        assert!(lines[5].contains("│  Decimal   Binary "), "{}", lines[5]);
-        assert!(lines[6].contains("├──"), "{}", lines[6]);
-        assert!(lines[7].contains("│  B  │ kB  │ MB  │ GB  │ TB  "), "{}", lines[7]);
-        assert!(lines[9].contains("└──") && !lines[9].contains("Enter"), "no keys on the border: {}", lines[9]);
+        assert!(lines[2].contains("┌─ Bits & Bytes units ─") && lines[2].ends_with("┐"), "{}", lines[2]);
+        assert!(lines[3].contains("│  Decimal   Binary "), "{}", lines[3]);
+        assert!(lines[4].contains("├──"), "{}", lines[4]);
+        assert!(lines[5].contains("│  B  │ kB  │ MB  │ GB  │ TB  "), "{}", lines[5]);
+        assert!(lines[7].contains("└──") && !lines[7].contains("Enter"), "no keys on the border: {}", lines[7]);
         assert!(!text.contains(" KiB "), "binary units on the other tab");
-        assert!(!lines[4..10].join("\n").contains("/ "), "no search row");
+        assert!(!lines[2..8].join("\n").contains("/ "), "no search row");
         assert!(!text.contains("Type an expression"), "hint hidden while picking");
         // The navigation keys are on the status line.
-        assert!(lines[23].starts_with(" COMMAND "));
+        assert!(lines[23].starts_with(" UNITS "));
         assert!(lines[23].ends_with("←↓↑→ h j k l move · Tab system · Enter write · <Esc> measures"), "{}", lines[23]);
-        let (lines, _) = screen("10\x1bMB\t", 24, 80);
-        assert!(lines[7].contains("│  B  │ KiB │ MiB │ GiB │ TiB "), "Tab: {}", lines[7]);
+        let (lines, _) = screen("10<F2>B\t", 24, 80);
+        assert!(lines[5].contains("│  B  │ KiB │ MiB │ GiB │ TiB "), "Tab: {}", lines[5]);
         // Shown even when the digit keypad is hidden.
-        let (lines, _) = screen("\x1bCMB", 24, 80);
+        let (lines, _) = screen("<F9><F2>B", 24, 80);
         assert!(lines.join("\n").contains("Bits & Bytes units"));
         // Another class's letter: its units.
-        let (lines, _) = screen("\x1bMBT", 24, 80);
+        let (lines, _) = screen("<F2>BT", 24, 80);
         assert!(lines.join("\n").contains("Date & Time units"));
     }
 
     #[test]
     fn trivia_window() {
-        let (lines, _) = screen("\x1bR", 24, 80);
-        assert!(lines[1].contains("  R  Trivia "), "{}", lines[1]);
-        assert!(lines[4].contains("┌─ Trivia ─"), "{}", lines[4]);
-        assert!(lines[5].contains("│  Earth   Space   Satellites   Math   Physics "), "{}", lines[5]);
+        let (lines, _) = screen("<F4>", 24, 80);
+        assert!(lines[2].contains("┌─ Trivia ─"), "{}", lines[2]);
+        assert!(lines[3].contains("│  Earth   Space   Satellites   Math   Physics "), "{}", lines[3]);
         // Name, value, short description; the first is a tip.
-        assert!(lines[7].contains("│ Distance between places  London to Paris km  Just type the cities"), "{}", lines[7]);
-        assert!(lines[8].contains("│ Equator                        40075.017 km  Earth's circumference"), "{}", lines[8]);
+        assert!(lines[5].contains("│ Distance between places  London to Paris km  Just type the cities"), "{}", lines[5]);
+        assert!(lines[6].contains("│ Equator                        40075.017 km  Earth's circumference"), "{}", lines[6]);
         assert!(lines[13].contains("Just type the city from and to: London [to] Paris [mi/km/…]."), "the description: {}", lines[13]);
         // Space: km, and the astronomical unit in brackets.
-        let (lines, _) = screen("\x1bR\t", 24, 80);
-        assert!(lines[7].contains("│ Voyager 1 ") && lines[8].contains("│ Voyager 2 "), "the Voyagers first: {}", lines[7]);
+        let (lines, _) = screen("<F4>\t", 24, 80);
+        assert!(lines[5].contains("│ Voyager 1 ") && lines[6].contains("│ Voyager 2 "), "the Voyagers first: {}", lines[5]);
         // A planet by its name, its distance from the Earth now (changing every day: its shape).
-        assert!(lines[10].contains("│ Mercury ") && lines[10].contains(" au)  Distance from the Earth"), "{}", lines[10]);
+        let mercury = lines.iter().find(|l| l.contains("│ Mercury ")).expect("Mercury");
+        assert!(mercury.contains(" au)  Distance from the Earth"), "{mercury}");
         assert!(lines[23].starts_with(" TRIVIA ") && lines[23].ends_with("Enter details · <Esc> back"), "{}", lines[23]);
         // Space: the Voyagers first, estimated (no retrieval in the tests), with their launch.
-        let (lines, _) = screen("\x1bR\t", 24, 80);
+        let (lines, _) = screen("<F4>\t", 24, 80);
         let text = lines.join("\n");
         assert!(text.contains("│ Voyager 1 ") && text.contains("Launched 1977-09-05 12:56 UTC · estimated"), "{text}");
         // Satellites: counts, as of their date offline.
-        let (lines, _) = screen("\x1bR\t\t", 24, 80);
+        let (lines, _) = screen("<F4>\t\t", 24, 80);
         let text = lines.join("\n");
         assert!(text.contains("│ Active satellites ") && text.contains("16701") && text.contains("as of 2026-10-11"), "{text}");
         // Math: pi with 10 decimals.
-        let (lines, _) = screen("\x1bR\t\t\t", 24, 80);
+        let (lines, _) = screen("<F4>\t\t\t", 24, 80);
         assert!(lines.join("\n").contains("3.1415926536"));
     }
 
     #[test]
     fn trivia_popup_window() {
         // Enter: the popup, with the description and the details; Esc back to the list.
-        let (lines, cursor) = screen("\x1bR\t\t\t\n", 30, 80);
+        let (lines, cursor) = screen("<F4>\t\t\t\n", 30, 80);
         let text = lines.join("\n");
         assert!(cursor.is_none());
         assert!(text.contains("┌─ π (pi) ─") && text.contains("Mathematician") && text.contains("Archimedes"), "{text}");
         assert!(text.contains("Definition") && text.contains("π = C / d"), "{text}");
         assert!(lines[29].ends_with("Enter write the value · <Esc> back"), "{}", lines[29]);
         // A planet: its distances from the Sun and the Earth, with the next dates.
-        let (lines, _) = screen("\x1bR\tjjjjjj\n", 30, 80);
+        let (lines, _) = screen("<F4>\tjjjjjj\n", 30, 80);
         let text = lines.join("\n");
         assert!(text.contains("Wikipedia: https://en.wikipedia.org/wiki/Mars"), "{text}");
         assert!(text.contains("Mean distance from the Sun: 227943822 km - 1.5237 au"), "{text}");
         assert!(text.contains("Closest to the Sun (perihelion): ") && text.contains(", next on "), "{text}");
         assert!(text.contains("Closest to the Earth: "), "{text}");
         // Voyager 1, as in the request: description, link, current distance, launch.
-        let (lines, _) = screen("\x1bR\t\n", 30, 80);
+        let (lines, _) = screen("<F4>\t\n", 30, 80);
         let text = lines.join("\n");
         assert!(text.contains("┌─ Voyager 1 ─") && text.contains("Space probe launched by NASA"), "{text}");
         assert!(text.contains("Wikipedia: https://en.wikipedia.org/wiki/Voyager_1"), "{text}");
@@ -1318,27 +1320,26 @@ mod tests {
         assert!(text.contains("Current distance: ") && text.contains(" km - 1") && text.contains(" au - ") && text.contains("e-3 ly"), "{text}");
         assert!(text.contains("(estimated,"), "{text}");
         assert!(text.contains("Launched: 1977-09-05 12:56 UTC"), "{text}");
-        let (lines, _) = screen("\x1bR\t\t\t\n\x1b", 30, 80);
+        let (lines, _) = screen("<F4>\t\t\t\n\x1b", 30, 80);
         assert!(!lines.join("\n").contains("Mathematician"), "Esc: back to the list");
     }
 
     #[test]
     fn search_window() {
-        let (lines, cursor) = screen("\x1b/kilo", 24, 80);
+        let (lines, cursor) = screen("<C-k>kilo", 24, 80);
         assert!(cursor.is_none(), "the search has its own caret");
         let text = lines.join("\n");
         assert!(text.contains("┌─ Search units ─") && text.contains("│ / kilo▏"), "{text}");
         assert!(text.contains("│ km       kilometre · Length "), "{text}");
         assert!(lines[23].starts_with(" SEARCH "), "{}", lines[23]);
-        let (lines, _) = screen("\x1b/zzz", 24, 80);
+        let (lines, _) = screen("<C-k>zzz", 24, 80);
         assert!(lines.join("\n").contains("no unit matches"));
     }
 
     #[test]
     fn measures_window() {
-        let (lines, cursor) = screen("\x1bM", 24, 80);
+        let (lines, cursor) = screen("<F2>", 24, 80);
         let text = lines.join("\n");
-        assert!(lines[1].contains("  M  Measures "), "lit in the top bar: {}", lines[1]);
         assert!(text.contains("┌─ Measures ─"), "{text}");
         // Each class with its letter and its units; the Earth distance after Length.
         assert!(text.contains(" T  Date & Time   ") && text.contains(" B  Bits & Bytes  "), "{text}");
@@ -1347,28 +1348,29 @@ mod tests {
         assert!(text.contains(" B kB MB GB TB KiB MiB GiB TiB b kb …  │"), "{text}");
         let length = lines.iter().position(|l| l.contains(" L  Length ")).unwrap();
         assert!(lines[length + 1].contains(" D  Earth distance ") && lines[length + 1].contains("Rome to Paris"), "{text}");
-        assert!(text.contains(" K  Temperature ") && !text.contains(" W  Power "), "{text}");
-        // ↑ from the first: the last, the list scrolled to it.
-        let (lines, _) = screen("\x1bMk", 24, 80);
+        assert!(text.contains(" K  Temperature ") && text.contains(" W  Power "), "{text}");
+        // A short terminal scrolls the list; ↑ from the first: the last, scrolled to it.
+        let (lines, _) = screen("<F2>", 14, 80);
+        assert!(!lines.join("\n").contains(" W  Power "), "{}", lines.join("\n"));
+        let (lines, _) = screen("<F2>k", 14, 80);
         assert!(lines.join("\n").contains(" W  Power "), "{}", lines.join("\n"));
-        assert!(lines[23].starts_with(" MEASURES ") && lines[23].ends_with("<Esc> back"), "{}", lines[23]);
+        assert!(lines[13].starts_with(" MEASURES ") && lines[13].ends_with("<Esc> back"), "{}", lines[13]);
         assert!(cursor.is_some());
         // Every row inside 40 columns.
-        let (lines, _) = screen("\x1bMjj", 12, 40);
+        let (lines, _) = screen("<F2>jj", 12, 40);
         assert!(lines.iter().all(|l| l.chars().count() <= 40));
         assert!(lines.join("\n").contains(" L  Length"), "scrolled to the row chosen: {}", lines.join("\n"));
     }
 
     #[test]
     fn currencies_window() {
-        let (lines, cursor) = screen("\x1bUyen", 24, 80);
+        let (lines, cursor) = screen("<F3>yen", 24, 80);
         assert!(cursor.is_none(), "the search has its own caret");
         let text = lines.join("\n");
-        assert!(lines[1].contains("  U  Currencies "), "{}", lines[1]);
         assert!(text.contains("┌─ Currencies ─") && text.contains("│ / yen▏"), "{text}");
         assert!(text.contains("│ JPY  ¥    Japanese yen "), "{text}");
         assert!(lines[23].starts_with(" CURRENCIES "), "{}", lines[23]);
-        let (lines, _) = screen("\x1bUzzzz", 24, 80);
+        let (lines, _) = screen("<F3>zzzz", 24, 80);
         assert!(lines.join("\n").contains("no currency matches"));
     }
 
@@ -1378,7 +1380,7 @@ mod tests {
         let config = Config::default();
         let opts = Options { positional: Vec::new(), precision: 4, silent: false, verbose: false };
         let mut app = App::new(&config, &opts);
-        for key in [Key::Esc, Key::Char('M'), Key::Char('L'), Key::Tab, Key::Right, Key::Right, Key::Right] {
+        for key in [Key::F(2), Key::Char('L'), Key::Tab, Key::Right, Key::Right, Key::Right] {
             app.handle(key);
         }
         let lines: Vec<String> = render(&app, 24, 80).lines.iter().map(|l| plain(l)).collect();
@@ -1396,8 +1398,7 @@ mod tests {
         assert!(lines[button + 5].contains("│ aliases: mile, miles "));
         assert!(lines[button + 6].contains("│ 1 mi = 1609.344 m "));
         assert!(lines[button + 7].contains('└'));
-        // The history's right border is not covered.
-        assert!(lines[button + 3..button + 8].iter().all(|l| l.ends_with("│") || l.ends_with("┐") || l.ends_with("┘")));
+        assert!(lines[button + 3..button + 8].iter().all(|l| l.chars().count() <= 80));
     }
 
     #[test]
@@ -1425,13 +1426,10 @@ mod tests {
         // The last unit of the row is near the right edge: the card moves left. In a short terminal
         // it goes above the button.
         for (rows, cols) in [(24, 80), (12, 40), (14, 60)] {
-            for keys in ["\x1bML\x1b[C", "\x1bMV\t\x1b[B", "\x1bMB\t"] {
+            for keys in ["<F2>L<Right>", "<F2>V\t<Down>", "<F2>B\t"] {
                 let config = Config::default();
                 let opts = Options { positional: Vec::new(), precision: 4, silent: false, verbose: false };
-                let mut app = App::new(&config, &opts);
-                for k in keys::decode(keys.as_bytes()).0 {
-                    app.handle(k);
-                }
+                let mut app = app_after(&config, &opts, keys);
                 for _ in 0..4 {
                     app.handle(Key::Right);
                 }
@@ -1445,12 +1443,12 @@ mod tests {
 
     #[test]
     fn area_and_data_have_five_columns() {
-        let (lines, _) = screen("\x1bMB", 24, 80);
+        let (lines, _) = screen("<F2>B", 24, 80);
         // Bytes on the first row, bits below.
         let bytes = lines.iter().position(|l| l.contains("│  B  │ kB  │ MB  │ GB  │ TB  ")).expect("bytes row");
         assert!(lines[bytes + 1].contains("│  b  │ kb  │ Mb  │ Gb  │ Tb  "), "{}", lines[bytes + 1]);
-        assert!(lines[bytes - 1].starts_with("│") && lines[bytes - 1].contains("├─"), "first row of buttons");
-        let (lines, _) = screen("\x1bMB\t", 24, 80);
+        assert!(lines[bytes - 1].contains("├─"), "first row of buttons");
+        let (lines, _) = screen("<F2>B\t", 24, 80);
         let bytes = lines.iter().position(|l| l.contains("│  B  │ KiB │ MiB │ GiB │ TiB ")).expect("bytes row");
         assert!(lines[bytes + 1].contains("│  b  │ Kib │ Mib │ Gib │ Tib "));
     }
@@ -1458,17 +1456,16 @@ mod tests {
     #[test]
     fn time_window_durations_and_dates() {
         // Durations: every time unit on the first tab.
-        let (lines, _) = screen("\x1bMT", 24, 80);
+        let (lines, _) = screen("<F2>T", 24, 80);
         let text = lines.join("\n");
-        assert!(lines[4].contains("─ Date & Time units ─"), "{}", lines[4]);
+        assert!(lines[2].contains("─ Date & Time units ─"), "{}", lines[2]);
         assert!(text.contains(" Durations   Formats "));
         assert!(text.contains("│ ns  │ us  │ ms  │  s  │ min ") && text.contains("│  h  │  d  │ wk  │ mo  │ yr "), "{text}");
         assert!(text.contains("nanosecond"), "the card, inside the window: {text}");
-        // Formats: the table of formats, and the footer for the selected one (25 rows: with the
-        // two-line units bar, 24 rows scroll the table).
-        let (lines, _) = screen("\x1bMT\t", 25, 80);
+        // Formats: the table of formats, and the footer for the selected one.
+        let (lines, _) = screen("<F2>T\t", 24, 80);
         let text = lines.join("\n");
-        assert!(lines[4].contains("─ Date & Time units ─"), "the title is not covered: {}", lines[4]);
+        assert!(lines[2].contains("─ Date & Time units ─"), "the title is not covered: {}", lines[2]);
         for row in [
             "ISO           iso   │   utc   │  basic  │  date   │  time",
             "Unix/local     s    │   ms    │   µs    │   ns    │  local",
@@ -1477,24 +1474,25 @@ mod tests {
         ] {
             assert!(text.contains(row), "{row}\n{text}");
         }
-        // The footer: the selected format and now in it; the window stays inside the history.
+        // The footer: the selected format and now in it; the window stays above the request.
         assert!(text.contains("│ iso · 20"), "{text}");
-        assert!(lines[18].starts_with("│ ") && lines[19].starts_with("└"), "inside the history:\n{text}");
+        let footer = lines.iter().position(|l| l.contains("│ iso · 20")).unwrap();
+        assert!(lines[footer + 1].contains("└") && lines[footer + 1] != lines[22], "inside the history:\n{text}");
         // l l: basic.
-        let (lines, _) = screen("\x1bMT\tll", 24, 80);
+        let (lines, _) = screen("<F2>T\tll", 24, 80);
         assert!(lines.join("\n").contains("iso-basic · 20"));
         // A pattern: its name and now in it, e.g. `DD/MM/YYYY-12h-tz · 10/10/2026 06:45:54 PM +02:00`.
-        let (lines, _) = screen("\x1bMT\tjjjjjjllll", 24, 80);
+        let (lines, _) = screen("<F2>T\tjjjjjjllll", 24, 80);
         assert!(lines.join("\n").contains("DD/MM/YYYY-12h-tz · "), "{}", lines.join("\n"));
     }
 
     #[test]
     fn data_tabs_are_decimal_and_binary() {
-        let (lines, _) = screen("\x1bMB", 24, 80);
+        let (lines, _) = screen("<F2>B", 24, 80);
         let text = lines.join("\n");
         assert!(text.contains(" Decimal   Binary "));
         assert!(text.contains(" kB ") && !text.contains("KiB"));
-        let (lines, _) = screen("\x1bMB\t", 24, 80);
+        let (lines, _) = screen("<F2>B\t", 24, 80);
         let text = lines.join("\n");
         assert!(text.contains(" KiB ") && !text.contains(" kB "));
     }
@@ -1506,13 +1504,13 @@ mod tests {
             let key = crate::tui::measures::key(category);
             for (rows, cols) in [(12, 40), (24, 80)] {
                 // Both tabs.
-                let screens: Vec<Vec<String>> = (0..2).map(|t| screen(&format!("\x1bM{key}{}", "\t".repeat(t)), rows, cols).0).collect();
+                let screens: Vec<Vec<String>> = (0..2).map(|t| screen(&format!("<F2>{key}{}", "\t".repeat(t)), rows, cols).0).collect();
                 let first = &screens[0];
                 assert!(first.join("\n").contains(&format!("{} units", category.name)) || cols < 50, "{} {rows}x{cols}", category.name);
                 assert!(screens.iter().flatten().all(|l| l.chars().count() <= cols));
                 // At 80 columns every unit is on one of the tabs, and visible there.
                 if cols == 80 {
-                    assert!(!first.join("\n").contains("Time units") || first[4].contains("Time units"), "the title is not covered");
+                    assert!(!first.join("\n").contains("Time units") || first[2].contains("Time units"), "the title is not covered");
                     let all = screens.iter().map(|s| s.join("\n")).collect::<Vec<_>>().join("\n");
                     for u in &category.units {
                         assert!(all.contains(&format!(" {} ", u.symbol)), "{} missing", u.symbol);
@@ -1524,10 +1522,10 @@ mod tests {
 
     #[test]
     fn help_window() {
-        let (lines, cursor) = screen("\x1bE", 48, 90);
+        let (lines, cursor) = screen("<F1>", 70, 90);
         let text = lines.join("\n");
         assert!(text.contains("Help · Esc close"));
-        assert!(text.contains("/ M U R O") && text.contains("this help") && text.contains("Ctrl-C"));
+        assert!(text.contains("F2  Alt-M") && text.contains("this help") && text.contains("Ctrl-C"));
         assert!(text.contains("exit + Enter"));
         assert!(!text.contains("more"), "everything fits");
         assert!(cursor.is_none());
@@ -1540,7 +1538,7 @@ mod tests {
         let config = Config::default();
         let opts = Options { positional: Vec::new(), precision: 4, silent: false, verbose: false };
         // The status comes from the last sync (no probing); forced by the offline setting.
-        let top = |status: Status, cols: usize, command: bool| {
+        let top = |status: Status, cols: usize| {
             let mut app = App::new(&config, &opts);
             app.forced_offline = status == Status::Forced;
             app.online = match status {
@@ -1548,39 +1546,36 @@ mod tests {
                 Status::Online => Data { attempted_at: Some(1), ok: true, ..Data::default() },
                 Status::Offline => Data { attempted_at: Some(1), ok: false, ..Data::default() },
             };
-            if command {
-                app.handle(Key::Esc);
-            }
             plain(&render(&app, 12, cols).lines[0])
         };
-        // Top right, in both modes; "not synced" before the first sync.
-        assert!(top(Status::Checking, 80, false).ends_with(" ○ not synced ──┐"), "{}", top(Status::Checking, 80, false));
-        assert!(top(Status::Online, 80, false).ends_with(" ● online ──┐"));
-        assert!(top(Status::Online, 80, true).starts_with("┌─ Units ─") && top(Status::Online, 80, true).ends_with(" ● online ──┐"));
-        assert!(top(Status::Offline, 80, true).ends_with(" ● offline ──┐"));
-        assert!(top(Status::Forced, 80, false).ends_with(" ● offline (forced) ──┐"));
-        // Narrow: the short label.
-        assert!(top(Status::Forced, 40, false).ends_with(" ● offline ──┐"), "{}", top(Status::Forced, 40, false));
+        // Top right, on the toolbar's line; "not synced" before the first sync.
+        assert!(top(Status::Checking, 80).ends_with(" ○ not synced"), "{}", top(Status::Checking, 80));
+        assert!(top(Status::Online, 80).ends_with(" ● online"));
+        assert!(top(Status::Offline, 80).ends_with(" ● offline"));
+        assert!(top(Status::Forced, 80).ends_with(" ● offline (forced)"));
+        // Narrow: the short label, else none.
+        assert!(top(Status::Forced, 72).ends_with(" ● offline"), "{}", top(Status::Forced, 72));
+        assert!(top(Status::Forced, 40).ends_with(" ● offline"), "{}", top(Status::Forced, 40));
     }
 
     #[test]
     fn about_window() {
-        let (lines, cursor) = screen("\x1bA", 24, 80);
+        let (lines, cursor) = screen("<A-a>", 24, 80);
         let text = lines.join("\n");
         assert!(cursor.is_none());
         assert!(text.contains("┌─ About ─") && text.contains("█▛ ----> ███▌") && text.contains("▐█▖<----▗███▌"), "{text}");
         assert!(text.contains("Aequalis — Ultralight calculator and converter made for humans"), "{text}");
         assert!(text.contains("Memory: ") && text.contains("Last online sync: ") && text.contains("Version: "), "{text}");
         assert!(lines[23].starts_with(" ABOUT "), "{}", lines[23]);
-        let (lines, _) = screen("\x1bA\x1b", 24, 80);
+        let (lines, _) = screen("<A-a>\x1b", 24, 80);
         assert!(!lines.join("\n").contains("┌─ About ─"), "Esc closes it");
     }
 
     #[test]
     fn help_shows_memory() {
         // Short or tall, scrolled or not: the memory is on the bottom border.
-        for rows in [14, 48] {
-            let (lines, _) = screen("\x1bE", rows, 90);
+        for rows in [14, 70] {
+            let (lines, _) = screen("<F1>", rows, 90);
             let text = lines.join("\n");
             assert!(text.contains(" Memory: ") && text.contains(" peak "), "{text}");
             if cfg!(target_os = "linux") {
@@ -1591,18 +1586,18 @@ mod tests {
 
     #[test]
     fn help_scrolls_when_short() {
-        let (lines, _) = screen("\x1bE", 14, 80);
+        let (lines, _) = screen("<F1>", 14, 80);
         let text = lines.join("\n");
-        assert!(text.contains("Input mode") && text.contains("↓ more") && !text.contains("Ctrl-C"));
+        assert!(text.contains("The request") && text.contains("↓ more") && !text.contains("Ctrl-C"));
         // Scrolled past the end: stops at the last line.
-        let (lines, _) = screen(&format!("\x1bE{}", "j".repeat(50)), 14, 80);
+        let (lines, _) = screen(&format!("<F1>{}", "j".repeat(50)), 14, 80);
         let text = lines.join("\n");
         assert!(text.contains("Ctrl-C") && text.contains("↑ more") && !text.contains("↓ more"));
     }
 
     #[test]
     fn help_fits_80_columns() {
-        let (lines, _) = screen("\x1bE", 48, 80);
+        let (lines, _) = screen("<F1>", 70, 80);
         for (keys, what) in HELP {
             let text = keys.trim().to_string();
             assert!(text.is_empty() || lines.iter().any(|l| l.contains(&text)), "{text}");
@@ -1613,54 +1608,53 @@ mod tests {
     #[test]
     fn preview_shows_the_grouping() {
         let (lines, _) = screen("12+12/3", 12, 80);
-        assert!(lines[9].starts_with("│   (12 + (12 / 3)) = 16"), "{}", lines[9]);
+        assert!(lines[9].starts_with("    (12 + (12 / 3)) = 16"), "{}", lines[9]);
         let (lines, _) = screen("100 + 20 + 50 / 10 sqft m2", 12, 80);
-        assert!(lines[9].starts_with("│   ((100 + 20) + (50 / 10)) = 11.6129 m2"), "{}", lines[9]);
+        assert!(lines[9].starts_with("    ((100 + 20) + (50 / 10)) = 11.6129 m2"), "{}", lines[9]);
         // A plain conversion: just the result.
         let (lines, _) = screen("10 km mi", 12, 80);
-        assert!(lines[9].starts_with("│   = 6.2137 mi"), "{}", lines[9]);
+        assert!(lines[9].starts_with("    = 6.2137 mi"), "{}", lines[9]);
         // Only the source unit so far: what comes next follows the grouping, once the unit is typed
         // (a space after it: `km` may still become `km/h`, and Tab offers those meanwhile).
         let (lines, _) = screen("1+2 km", 12, 100);
-        assert!(lines[9].starts_with("│   (1 + 2)    Tab: km · km2 · km/h"), "{}", lines[9]);
+        assert!(lines[9].starts_with("    (1 + 2)    Tab: km · km2 · km/h"), "{}", lines[9]);
         let (lines, _) = screen("1+2 km ", 12, 100);
-        assert!(lines[9].starts_with("│   (1 + 2) · now the length unit to convert to: in, ft, yd…"), "{}", lines[9]);
+        assert!(lines[9].starts_with("    (1 + 2) · now the length unit to convert to: in, ft, yd…"), "{}", lines[9]);
         // A real error follows the grouping too, once the word is typed (a space after it).
         let (lines, _) = screen("1+2 km mi m", 12, 100);
-        assert!(lines[9].starts_with("│   (1 + 2)") && !lines[9].contains("expected"), "{}", lines[9]);
+        assert!(lines[9].starts_with("    (1 + 2)") && !lines[9].contains("expected"), "{}", lines[9]);
         let (lines, _) = screen("1+2 km mi m ", 12, 100);
-        assert!(lines[9].starts_with("│   (1 + 2) · expected"), "{}", lines[9]);
+        assert!(lines[9].starts_with("    (1 + 2) · expected"), "{}", lines[9]);
     }
 
     #[test]
     fn keypad_in_front_of_the_history() {
-        // Full size, top-right: 24 rows leave 14 history rows.
+        // Full size, top-right: 24 rows leave 17 history rows.
         let (lines, _) = screen("", 24, 80);
-        assert!(lines[4].starts_with("│ Type an expression"), "{}", lines[4]);
-        assert!(lines[4].ends_with("┌───┬───┬───┬───┐ │"), "{}", lines[4]);
-        assert!(lines[5].ends_with("│ ( │ ) │ ^ │ / │ │"));
-        assert!(lines[6].ends_with("├───┼───┼───┼───┤ │"));
-        assert!(lines[7].ends_with("│ 7 │ 8 │ 9 │ * │ │"));
-        assert!(lines[13].ends_with("│ 0 │ . │ e │ = │ │"));
-        assert!(lines[14].ends_with("└───┴───┴───┴───┘ │"));
+        assert!(lines[2].starts_with("  Type an expression"), "{}", lines[2]);
+        assert!(lines[2].ends_with("┌───┬───┬───┬───┐"), "{}", lines[2]);
+        assert!(lines[3].ends_with("│ ( │ ) │ ^ │ / │"));
+        assert!(lines[4].ends_with("├───┼───┼───┼───┤"));
+        assert!(lines[5].ends_with("│ 7 │ 8 │ 9 │ * │"));
+        assert!(lines[11].ends_with("│ 0 │ . │ e │ = │"));
+        assert!(lines[12].ends_with("└───┴───┴───┴───┘"));
         // Compact on a short terminal.
         let (lines, _) = screen("", 17, 80);
-        let compact =
-            ["┌─────────────┐ │", "│ (  )  ^  /  │ │", "│ 7  8  9  *  │ │", "│ 4  5  6  -  │ │", "│ 1  2  3  +  │ │", "│ 0  .  e  =  │ │", "└─────────────┘ │"];
-        for (line, want) in lines[4..11].iter().zip(compact) {
+        let compact = ["┌─────────────┐", "│ (  )  ^  /  │", "│ 7  8  9  *  │", "│ 4  5  6  -  │", "│ 1  2  3  +  │", "│ 0  .  e  =  │", "└─────────────┘"];
+        for (line, want) in lines[2..9].iter().zip(compact) {
             assert!(line.ends_with(want), "{line}");
         }
         // It covers the history lines under it; the newest lines (bottom) stay visible.
         let wide: String = (1..=20).map(|i| format!("{}+{i}\n", "1".repeat(70))).collect();
         let (lines, _) = screen(&wide, 24, 80);
-        assert!(lines[5].ends_with("│ ( │ ) │ ^ │ / │ │"));
-        assert!(lines[17].contains("+20"), "{}", lines[17]);
-        // C hides it and the lines show.
-        let (lines, _) = screen(&format!("{wide}\x1bC"), 24, 80);
-        assert!(!lines[5].contains("│ ( │"), "{}", lines[5]);
+        assert!(lines[3].ends_with("│ ( │ ) │ ^ │ / │"));
+        assert!(lines[18].contains("+20"), "{}", lines[18]);
+        // F9 hides it and the lines show.
+        let (lines, _) = screen(&format!("{wide}<F9>"), 24, 80);
+        assert!(!lines[3].contains("│ ( │"), "{}", lines[3]);
         // Too short for even the compact one: not drawn.
-        let (lines, _) = screen("", 16, 80);
-        assert!(!lines.join("").contains("┌───"));
+        let (lines, _) = screen("", 12, 80);
+        assert!(!lines.join("").contains("┌───") && !lines.join("").contains("┌──────"));
     }
 
     /// How long a keystroke takes in the interactive mode (the key, then the whole screen drawn
@@ -1711,18 +1705,18 @@ mod tests {
         let text = lines.join("\n");
         assert!(text.contains("10 km kg  ✗ cannot convert `km` to `kg`: different kinds of unit"));
         assert!(lines[9].contains("= 10000 m"), "{}", lines[9]);
-        assert!(lines[11].starts_with(" INPUT  error: "));
+        assert!(lines[11].starts_with(" error: "), "{}", lines[11]);
     }
 
     #[test]
     fn everything_fits() {
         let long = "1+".repeat(60) + "1";
         for (rows, cols) in [(12, 40), (24, 80), (50, 200)] {
-            for keys in [long.as_str(), "10 km mi\n\x1bML", "\x1bMLkilometre", "\x1bE", "1\n2\n3\n4\n5\n6\n7\n8\n9\n"] {
+            for keys in [long.as_str(), "10 km mi\n<F2>L", "<F2>Lkilometre", "<F1>", "1\n2\n3\n4\n5\n6\n7\n8\n9\n"] {
                 let (lines, cursor) = screen(keys, rows, cols);
                 assert_eq!(lines.len(), rows);
                 assert!(lines.iter().all(|l| l.chars().count() <= cols), "{keys:?} at {rows}x{cols}");
-                if let Some((r, c, _)) = cursor {
+                if let Some((r, c)) = cursor {
                     assert!(r < rows && c < cols, "{keys:?} at {rows}x{cols}: cursor {r},{c}");
                 }
             }

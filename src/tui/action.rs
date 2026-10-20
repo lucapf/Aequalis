@@ -2,9 +2,63 @@
 //! `Action` and `apply` carries it out, so a click on the screen can ask for the same.
 
 use super::keys::{Key, Mouse, MouseKind};
-use super::{shortcuts, App, Mode, Overlay, SCROLL_STEP};
+use super::{currencies, measures, search, settings, trivia, App, Overlay, SCROLL_STEP};
 
-/// An act on the request line, the history or the windows, when no window is open.
+/// A window of the toolbar (and Ctrl+K).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Panel {
+    Measures,
+    Currencies,
+    Trivia,
+    Settings,
+    /// Ctrl+K: searching the units.
+    Search,
+}
+
+impl Panel {
+    fn overlay(self) -> Overlay {
+        match self {
+            Panel::Measures => Overlay::Measures(measures::View::default()),
+            Panel::Currencies => Overlay::Currencies(currencies::View::default()),
+            Panel::Trivia => Overlay::Trivia(trivia::View::new()),
+            Panel::Settings => Overlay::Settings(settings::View::default()),
+            Panel::Search => Overlay::Search(search::Search::default()),
+        }
+    }
+
+    /// Whether `overlay` is this window (the unit keys are part of the Measures).
+    pub fn is(self, overlay: &Option<Overlay>) -> bool {
+        matches!(
+            (self, overlay),
+            (Panel::Measures, Some(Overlay::Measures(_) | Overlay::Picker(_)))
+                | (Panel::Currencies, Some(Overlay::Currencies(_)))
+                | (Panel::Trivia, Some(Overlay::Trivia(_)))
+                | (Panel::Settings, Some(Overlay::Settings(_)))
+                | (Panel::Search, Some(Overlay::Search(_)))
+        )
+    }
+}
+
+/// An entry of the toolbar: the function key, the Alt letter for terminals that keep the function
+/// keys, its label, a shorter one for a narrow terminal, and what it asks for.
+pub struct Tool {
+    pub fkey: u8,
+    pub alt: char,
+    pub label: &'static str,
+    pub short: &'static str,
+    pub action: Action,
+}
+
+/// The toolbar, left to right.
+pub const TOOLBAR: [Tool; 5] = [
+    Tool { fkey: 2, alt: 'm', label: "Measures", short: "Meas", action: Action::Open(Panel::Measures) },
+    Tool { fkey: 3, alt: 'c', label: "Currencies", short: "Curr", action: Action::Open(Panel::Currencies) },
+    Tool { fkey: 4, alt: 't', label: "Trivia", short: "Triv", action: Action::Open(Panel::Trivia) },
+    Tool { fkey: 5, alt: 'h', label: "History", short: "Hist", action: Action::FocusHistory },
+    Tool { fkey: 10, alt: 's', label: "⚙", short: "⚙", action: Action::Open(Panel::Settings) },
+];
+
+/// An act on the request line, the history or the windows.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Action {
     Quit,
@@ -25,42 +79,36 @@ pub enum Action {
     Submit,
     /// Tab (`true`) or Shift+Tab: the next or the previous suggestion.
     Complete(bool),
+    /// ↑ ↓ on the line: an earlier or a later request, as in a shell.
     HistoryUp,
     HistoryDown,
     /// The history scrolled up or down.
     ScrollUp,
     ScrollDown,
-    /// The window of the top bar with this shortcut key.
-    Open(char),
-    /// The top bar's highlight moved, and the highlighted entry opened.
-    MenuLeft,
-    MenuRight,
-    OpenMenu,
+    /// A window opened, or closed when it is the one open.
+    Open(Panel),
+    /// The history in focus, or back out of it.
+    FocusHistory,
     Help,
     About,
     ToggleKeypad,
     /// `now` at the cursor, for date math.
     Now,
-    EnterInput,
-    EnterCommand,
-    /// Stop browsing the history and drop the status message.
+    /// The answer, or the history entry in focus, to the clipboard.
+    Copy,
+    /// Esc: one step back.
     Cancel,
+    /// Ctrl+C: Esc's steps, then clearing the line, and with nothing to clear, quitting.
+    Interrupt,
 }
 
 impl<'a> App<'a> {
-    /// What a key does with no window open, in the current mode (`None`: nothing).
+    /// What a key does with no window open (`None`: nothing).
     pub(super) fn keymap(&self, key: Key) -> Option<Action> {
-        match self.mode {
-            Mode::Input => self.input_keymap(key),
-            Mode::Command => self.command_keymap(key),
-        }
-    }
-
-    fn input_keymap(&self, key: Key) -> Option<Action> {
         Some(match key {
             Key::Tab => Action::Complete(true),
             Key::BackTab => Action::Complete(false),
-            Key::Esc => Action::EnterCommand,
+            Key::Esc => Action::Cancel,
             Key::Char(c) => Action::Insert(c),
             Key::Backspace => Action::Backspace,
             Key::Delete => Action::Delete,
@@ -69,47 +117,11 @@ impl<'a> App<'a> {
             Key::Ctrl('a') => Action::Home,
             Key::Ctrl('e') => Action::End,
             Key::Ctrl('u') => Action::KillToStart,
-            Key::Ctrl('k') => Action::KillToEnd,
             Key::Ctrl('w') => Action::KillWord,
             Key::Ctrl('p') => Action::HistoryUp,
             Key::Ctrl('n') => Action::HistoryDown,
             Key::Ctrl('d') if self.line.is_empty() => Action::Quit,
             Key::Ctrl('d') => Action::Delete,
-            other => return Self::common_keymap(other),
-        })
-    }
-
-    fn command_keymap(&self, key: Key) -> Option<Action> {
-        Some(match key {
-            Key::Char('i' | 'I') => Action::EnterInput,
-            Key::Char('e' | 'E' | '?') => Action::Help,
-            Key::Char('a' | 'A') => Action::About,
-            Key::Left | Key::Char('h') => Action::MenuLeft,
-            Key::Right | Key::Char('l') => Action::MenuRight,
-            Key::Enter => Action::OpenMenu,
-            Key::Home | Key::Char('0') => Action::Home,
-            Key::End | Key::Char('$') => Action::End,
-            Key::Char('k') => Action::HistoryUp,
-            Key::Char('j') => Action::HistoryDown,
-            Key::Char('w') => Action::WordRight,
-            Key::Char('b') => Action::WordLeft,
-            Key::Char('x') | Key::Delete => Action::Delete,
-            Key::Char('c' | 'C') => Action::ToggleKeypad,
-            Key::Char('n' | 'N') => Action::Now,
-            Key::Char('q') | Key::Ctrl('d') => Action::Quit,
-            Key::Backspace => Action::Left,
-            Key::Esc => Action::Cancel,
-            Key::Char(c) => {
-                let c = c.to_ascii_uppercase();
-                return shortcuts(self.config).iter().any(|s| s.key == c).then_some(Action::Open(c));
-            }
-            other => return Self::common_keymap(other),
-        })
-    }
-
-    /// The keys that work the same in both modes.
-    fn common_keymap(key: Key) -> Option<Action> {
-        Some(match key {
             Key::Enter => Action::Submit,
             Key::Left => Action::Left,
             Key::Right => Action::Right,
@@ -125,6 +137,36 @@ impl<'a> App<'a> {
         })
     }
 
+    /// The keys that work with a window open too: the toolbar's function keys and Alt letters,
+    /// Ctrl+K, Ctrl+C, Ctrl+Q. Not while a question is asked (the ambiguous date), except Ctrl+C.
+    pub(super) fn global_keymap(&self, key: Key) -> Option<Action> {
+        match key {
+            Key::Ctrl('c') => return Some(Action::Interrupt),
+            Key::Ctrl('l') => return Some(Action::Redraw),
+            Key::Ctrl('q') => return Some(Action::Quit),
+            _ => {}
+        }
+        if matches!(self.overlay, Some(Overlay::Choice(..))) {
+            return None;
+        }
+        match key {
+            Key::F(1) => Some(Action::Help),
+            Key::F(9) => Some(Action::ToggleKeypad),
+            Key::F(n) => TOOLBAR.iter().find(|t| t.fkey == n).map(|t| t.action),
+            Key::Ctrl('k') => Some(Action::Open(Panel::Search)),
+            Key::Alt(c) => match c.to_ascii_lowercase() {
+                '?' => Some(Action::Help),
+                'a' => Some(Action::About),
+                'n' => Some(Action::Now),
+                'y' => Some(Action::Copy),
+                'k' => Some(Action::KillToEnd),
+                'q' => Some(Action::Quit),
+                c => TOOLBAR.iter().find(|t| t.alt == c).map(|t| t.action),
+            },
+            _ => None,
+        }
+    }
+
     /// A mouse report: the wheel scrolls the history under the sections; the rest has no target yet.
     pub(super) fn mouse(&mut self, mouse: Mouse) {
         if self.overlay.is_some() {
@@ -138,9 +180,26 @@ impl<'a> App<'a> {
     }
 
     pub(super) fn apply(&mut self, action: Action) {
-        // Only Tab goes on with a cycle through the suggestions.
-        if !matches!(action, Action::Complete(_)) {
-            self.cycle = None;
+        // Only Tab goes on with a cycle through the suggestions; Esc ends one.
+        let cycling = !matches!(action, Action::Complete(_)) && self.cycle.take().is_some();
+        // Whatever edits the line ends the recall of an earlier request (and drops the draft).
+        if matches!(
+            action,
+            Action::Insert(_)
+                | Action::Backspace
+                | Action::Delete
+                | Action::KillToStart
+                | Action::KillToEnd
+                | Action::KillWord
+                | Action::Complete(_)
+                | Action::Submit
+                | Action::Now
+        ) {
+            (self.recall, self.draft) = (None, None);
+        }
+        // The edits of the line are for the line, not for a window drawn over it.
+        if self.overlay.is_some() && matches!(action, Action::Now | Action::KillToEnd) {
+            return;
         }
         match action {
             Action::Quit => self.quit = true,
@@ -159,27 +218,21 @@ impl<'a> App<'a> {
             Action::KillWord => self.line.kill_word(),
             Action::Submit => self.submit(),
             Action::Complete(forward) => self.complete(forward),
-            Action::HistoryUp => self.history_up(),
-            Action::HistoryDown => self.history_down(),
+            Action::HistoryUp => self.recall_older(),
+            Action::HistoryDown => self.recall_newer(),
             Action::ScrollUp => self.scroll = (self.scroll + SCROLL_STEP).min(self.history.entries().len().saturating_sub(1)),
             Action::ScrollDown => self.scroll = self.scroll.saturating_sub(SCROLL_STEP),
-            Action::Open(key) => {
-                if let Some(s) = shortcuts(self.config).into_iter().find(|s| s.key == key) {
-                    self.open(&s);
+            Action::Open(panel) => self.overlay = if panel.is(&self.overlay) { None } else { Some(panel.overlay()) },
+            Action::FocusHistory => {
+                self.overlay = None;
+                if self.history.selected().is_some() {
+                    self.history.stop_browsing();
+                } else {
+                    self.history.up();
                 }
             }
-            Action::MenuLeft => {
-                let n = shortcuts(self.config).len();
-                self.menu = (self.menu + n - 1) % n;
-            }
-            Action::MenuRight => self.menu = (self.menu + 1) % shortcuts(self.config).len(),
-            Action::OpenMenu => {
-                if let Some(s) = shortcuts(self.config).into_iter().nth(self.menu) {
-                    self.open(&s);
-                }
-            }
-            Action::Help => self.overlay = Some(Overlay::Help(0)),
-            Action::About => self.overlay = Some(Overlay::About),
+            Action::Help => self.overlay = if matches!(self.overlay, Some(Overlay::Help(_))) { None } else { Some(Overlay::Help(0)) },
+            Action::About => self.overlay = if matches!(self.overlay, Some(Overlay::About)) { None } else { Some(Overlay::About) },
             Action::ToggleKeypad => self.keypad = !self.keypad,
             Action::Now => {
                 let at_start = self.line.cursor() == 0 || self.line.chars()[self.line.cursor() - 1] == ' ';
@@ -187,11 +240,74 @@ impl<'a> App<'a> {
                     self.line.insert(c);
                 }
             }
-            Action::EnterInput => self.mode = Mode::Input,
-            Action::EnterCommand => self.mode = Mode::Command,
+            Action::Copy => self.copy_answer(),
             Action::Cancel => {
-                self.history.stop_browsing();
-                self.status = None;
+                if cycling {
+                    return;
+                }
+                if self.status.take().is_none() {
+                    self.clear_line();
+                }
+            }
+            Action::Interrupt => {
+                if self.overlay.take().is_some() || cycling {
+                    return;
+                }
+                if self.history.selected().is_some() {
+                    self.history.stop_browsing();
+                } else if !self.line.is_empty() {
+                    self.clear_line();
+                } else {
+                    self.quit = true;
+                }
+            }
+        }
+    }
+
+    /// Esc or Ctrl+C on the line: its text goes aside, where ↑ finds it again.
+    fn clear_line(&mut self) {
+        let text = self.line.text();
+        if !text.is_empty() {
+            self.draft = Some(text);
+        }
+        self.recall = None;
+        self.line.set("");
+    }
+
+    /// ↑: the request before the one recalled, the newest first; the line's text is kept aside.
+    /// On an empty line, what Esc cleared comes back instead.
+    fn recall_older(&mut self) {
+        let entries = self.history.entries();
+        let index = match self.recall {
+            None => {
+                if let (true, Some(draft)) = (self.line.is_empty(), self.draft.take()) {
+                    return self.line.set(&draft);
+                }
+                if entries.is_empty() {
+                    return;
+                }
+                self.draft = Some(self.line.text());
+                entries.len() - 1
+            }
+            Some(i) => i.saturating_sub(1),
+        };
+        let input = entries[index].input.clone();
+        self.recall = Some(index);
+        self.line.set(&input);
+    }
+
+    /// ↓: the request after the one recalled; after the newest, the text that was kept aside.
+    fn recall_newer(&mut self) {
+        let Some(i) = self.recall else { return };
+        match self.history.entries().get(i + 1).map(|e| e.input.clone()) {
+            Some(input) => {
+                self.recall = Some(i + 1);
+                self.line.set(&input);
+            }
+            None => {
+                self.recall = None;
+                let draft = self.draft.take().unwrap_or_default();
+                self.line.set(&draft);
             }
         }
     }

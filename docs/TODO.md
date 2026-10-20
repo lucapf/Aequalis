@@ -3,6 +3,24 @@
 Open work, in order. Details and evidence: `docs/ANDROID_UX_REVIEW.md` (the `#` numbers below).
 Tick an item when it is done, and note the commit.
 
+## TUI redesign (Android-like, keyboard first, mouse as a rescue)
+
+Branch `tui-redesign`. Layout: toolbar, history as a scrollback, request line, band (keypad or
+panel), status; no modes.
+
+- [x] 0. The TUI leaves the library (a module of the `aequalis` binary).
+- [x] 1. Input groundwork: F-keys, Alt, word moves and mouse reports decoded; keys and clicks
+      share `Action`s (`src/tui/action.rs`).
+- [x] 2. No modes: toolbar (F2 Measures, F3 Currencies, F4 Trivia, F5 History, F10 Settings, Alt
+      letters), Ctrl+K unit search, shell-like ↑ ↓, Esc / Ctrl+C steps, REPL layout (Standard).
+- [ ] 1b. Windows: raw mode, VT input and output, size polling (`src/tui/term.rs`).
+- [ ] 3. The band: keypad (Basic / Sci) and panels (Measures levels, Currencies, Trivia, choices).
+- [ ] 4. Mouse: hit map, `tui.mouse`, terminal mouse modes.
+- [ ] 5. `src/find.rs` in the core and the Ctrl+K palette (units, currencies, cities, trivia,
+      settings, history).
+- [ ] 6. Compact (< 60 columns) and Wide (≥ 100) layouts.
+- [ ] 7. Docs, help, dead-code cleanup.
+
 ## Android app
 
 ### 1. Keep the user's work, and keys that work for everyone (done, 15 Oct 2026)

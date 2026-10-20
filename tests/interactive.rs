@@ -46,8 +46,8 @@ fn session(keys: &[&str]) -> Option<String> {
 
 #[test]
 fn evaluate_recall_edit_and_quit() {
-    // ↑ highlights the entry, Enter writes it into the bar, then it is edited and evaluated.
-    let Some(out) = session(&["10 km mi\r", "\x1b[A", "\r", "\x7f\x7fft\r", "(10+12-3)/4Km Mi\r", "\x04"]) else {
+    // ↑ recalls the request into the line (as in a shell), then it is edited and evaluated.
+    let Some(out) = session(&["10 km mi\r", "\x1b[A", "\x7f\x7fft\r", "(10+12-3)/4Km Mi\r", "\x04"]) else {
         return;
     };
     assert!(out.contains("\x1b[?1049h"), "alternate screen entered");

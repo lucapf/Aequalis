@@ -174,12 +174,12 @@ the source; a time alone is today (24-hour unless AM/PM). A city misspelt by up 
   aequalis Rome to Doha                 the distance: 4,019 km (no time)
   aequalis 2026/12/04 10:00 PM Tokyo    any date, in Tokyo
 
-Interactive mode (no arguments, in a terminal), Vim style. Input mode (the
-start): type an expression, Enter evaluates, Tab completes units, Up/Down
-recall the history, Esc switches to command mode. Command mode: M lists the
-unit classes, a class its units (h j k l or arrows move, Tab switches tab,
-Enter writes the unit, Esc goes back), N writes `now`, C shows or hides the
-keypad, I (or i) returns to input mode, E shows all the shortcuts, q quits.
+Interactive mode (no arguments, in a terminal): type an expression, Enter evaluates,
+Tab completes units, Up/Down recall earlier requests. The toolbar: F2 Measures (the
+unit classes, then their units), F3 Currencies, F4 Trivia, F5 the history, F10
+Settings; Alt+M, C, T, H, S do the same where the function keys are taken. F1 (or
+Alt+?) shows all the keys, Ctrl+K searches the units, Alt+N writes `now`, Alt+Y
+copies the answer, F9 shows or hides the keypad, Esc steps back, Ctrl+Q quits.
 
 Options:
   --precision N             Decimal places, 0-15 (default: the precision setting, 4); trailing

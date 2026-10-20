@@ -90,7 +90,7 @@ pub const KEYS: &[Key] = &[
     Key { key: "format.date", default: crate::time::HUMAN_DATE, kind: Kind::Format, about: "how dates are shown" },
     Key { key: "format.datetime", default: crate::time::HUMAN_DATETIME, kind: Kind::Format, about: "how dates with a time are shown" },
     // Only the interactive mode's: the app (`ffi::settings`) doesn't list the `tui.` keys.
-    Key { key: "tui.keyboard", default: "true", kind: Kind::Bool, about: "the interactive mode starts with its keypad on screen (C shows / hides it)" },
+    Key { key: "tui.keyboard", default: "true", kind: Kind::Bool, about: "the interactive mode starts with its keypad on screen (F9 shows / hides it)" },
 ];
 
 /// The settings in effect: every key with its value (as written in the file, or the default).
