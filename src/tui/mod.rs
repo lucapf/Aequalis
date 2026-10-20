@@ -13,6 +13,7 @@
 //! The state machine (`App`), key decoding and rendering are free of I/O; only `term` and `run`
 //! touch the terminal.
 
+mod action;
 mod clipboard;
 mod currencies;
 mod editor;
@@ -381,11 +382,22 @@ impl<'a> App<'a> {
     }
 
     pub fn handle(&mut self, key: Key) {
-        match key {
-            Key::Ctrl('c') => return self.quit = true,
-            Key::Ctrl('l') => return self.redraw = true,
-            _ => {}
-        }
+        let key = match key {
+            Key::Ctrl('c') => return self.apply(action::Action::Quit),
+            Key::Ctrl('l') => return self.apply(action::Action::Redraw),
+            // Alt + a key that nothing is bound to: Esc, then the key (as in Vim).
+            Key::Alt(c) => {
+                self.handle(Key::Esc);
+                return self.handle(Key::Char(c));
+            }
+            Key::Mouse(mouse) => return self.mouse(mouse),
+            // No function key is bound yet.
+            Key::F(_) => return,
+            // The windows move by item, not by word.
+            Key::WordLeft if self.overlay.is_some() => Key::Left,
+            Key::WordRight if self.overlay.is_some() => Key::Right,
+            key => key,
+        };
         self.pressed = match (key, &self.overlay, self.mode) {
             (Key::Char('x'), None, Mode::Input) => Some('*'),
             (Key::Char(c), None, Mode::Input) => Some(c),
@@ -439,101 +451,14 @@ impl<'a> App<'a> {
                 Key::PageUp => *scroll = scroll.saturating_sub(SCROLL_STEP),
                 _ => {}
             },
-            None => match self.mode {
-                Mode::Input => self.input_key(key),
-                Mode::Command => self.command_key(key),
-            },
+            None => self.line_key(key),
         }
     }
 
-    fn input_key(&mut self, key: Key) {
-        match key {
-            Key::Tab => return self.complete(true),
-            Key::BackTab => return self.complete(false),
-            _ => self.cycle = None,
-        }
-        match key {
-            Key::Esc => self.mode = Mode::Command,
-            Key::Char(c) => self.line.insert(c),
-            Key::Backspace => self.line.backspace(),
-            Key::Delete => self.line.delete(),
-            Key::Ctrl('b') => self.line.left(),
-            Key::Ctrl('f') => self.line.right(),
-            Key::Ctrl('a') => self.line.home(),
-            Key::Ctrl('e') => self.line.end(),
-            Key::Ctrl('u') => self.line.kill_to_start(),
-            Key::Ctrl('k') => self.line.kill_to_end(),
-            Key::Ctrl('w') => self.line.kill_word(),
-            Key::Ctrl('p') => self.history_up(),
-            Key::Ctrl('n') => self.history_down(),
-            Key::Ctrl('d') if self.line.is_empty() => self.quit = true,
-            Key::Ctrl('d') => self.line.delete(),
-            other => self.common_key(other),
-        }
-    }
-
-    fn command_key(&mut self, key: Key) {
-        match key {
-            Key::Char('i' | 'I') => self.mode = Mode::Input,
-            Key::Char('e' | 'E' | '?') => self.overlay = Some(Overlay::Help(0)),
-            Key::Char('a' | 'A') => self.overlay = Some(Overlay::About),
-            // The top bar: ← → / h l move the highlight (circular, scrolling the bar), Enter opens it.
-            Key::Left | Key::Char('h') => {
-                let n = shortcuts(self.config).len();
-                self.menu = (self.menu + n - 1) % n;
-            }
-            Key::Right | Key::Char('l') => self.menu = (self.menu + 1) % shortcuts(self.config).len(),
-            Key::Enter => {
-                if let Some(s) = shortcuts(self.config).into_iter().nth(self.menu) {
-                    self.open(&s);
-                }
-            }
-            Key::Home => self.line.home(),
-            Key::End => self.line.end(),
-            Key::Char('k') => self.history_up(),
-            Key::Char('j') => self.history_down(),
-            Key::Char('w') => self.line.word_forward(),
-            Key::Char('b') => self.line.word_back(),
-            Key::Char('0') => self.line.home(),
-            Key::Char('$') => self.line.end(),
-            Key::Char('x') => self.line.delete(),
-            Key::Char('c' | 'C') => self.keypad = !self.keypad,
-            // `now` at the cursor, for date math: `now + 3d`.
-            Key::Char('n' | 'N') => {
-                let at_start = self.line.cursor() == 0 || self.line.chars()[self.line.cursor() - 1] == ' ';
-                for c in if at_start { "now " } else { " now " }.chars() {
-                    self.line.insert(c);
-                }
-            }
-            Key::Char('q') | Key::Ctrl('d') => self.quit = true,
-            Key::Backspace => self.line.left(),
-            Key::Delete => self.line.delete(),
-            Key::Esc => {
-                self.history.stop_browsing();
-                self.status = None;
-            }
-            Key::Char(c) => {
-                if let Some(s) = shortcuts(self.config).into_iter().find(|s| s.key == c.to_ascii_uppercase()) {
-                    self.open(&s);
-                }
-            }
-            other => self.common_key(other),
-        }
-    }
-
-    /// Keys that work the same in both modes.
-    fn common_key(&mut self, key: Key) {
-        match key {
-            Key::Enter => self.submit(),
-            Key::Left => self.line.left(),
-            Key::Right => self.line.right(),
-            Key::Home => self.line.home(),
-            Key::End => self.line.end(),
-            Key::Up => self.history_up(),
-            Key::Down => self.history_down(),
-            Key::PageUp => self.scroll = (self.scroll + SCROLL_STEP).min(self.history.entries().len().saturating_sub(1)),
-            Key::PageDown => self.scroll = self.scroll.saturating_sub(SCROLL_STEP),
-            _ => {}
+    /// A key with no window open: what the current mode makes of it (`keymap`), done (`apply`).
+    fn line_key(&mut self, key: Key) {
+        if let Some(action) = self.keymap(key) {
+            self.apply(action);
         }
     }
 
@@ -853,6 +778,55 @@ mod tests {
         for c in text.chars() {
             app.handle(Key::Char(c));
         }
+    }
+
+    #[test]
+    fn alt_key_without_a_binding_is_esc_then_the_key() {
+        let config = Config::default();
+        let opts = options(&config);
+        let mut app = App::new(&config, &opts);
+        // Alt+u in input mode: Esc, then `u`, the Currencies shortcut of command mode.
+        app.handle(Key::Alt('u'));
+        assert!(matches!(app.overlay, Some(Overlay::Currencies(_))));
+        let mut app = App::new(&config, &opts);
+        app.handle(Key::Alt('q'));
+        assert!(app.quit);
+    }
+
+    #[test]
+    fn function_keys_and_clicks_do_nothing_yet() {
+        use keys::{Button, Mouse, MouseKind};
+        let config = Config::default();
+        let opts = options(&config);
+        let mut app = App::new(&config, &opts);
+        typed(&mut app, "1+2");
+        app.handle(Key::F(2));
+        app.handle(Key::Mouse(Mouse { kind: MouseKind::Down(Button::Left), row: 1, col: 1 }));
+        assert!(app.overlay.is_none() && app.mode == Mode::Input && app.line.text() == "1+2");
+    }
+
+    #[test]
+    fn words_by_alt_or_ctrl_arrows_and_the_wheel() {
+        use keys::{Mouse, MouseKind};
+        let config = Config::default();
+        let opts = options(&config);
+        let mut app = App::new(&config, &opts);
+        typed(&mut app, "10 km");
+        app.handle(Key::WordLeft);
+        assert_eq!(app.line.cursor(), 3);
+        app.handle(Key::WordLeft);
+        assert_eq!(app.line.cursor(), 0);
+        app.handle(Key::WordRight);
+        assert_eq!(app.line.cursor(), 3);
+        // The wheel scrolls the history like Page Up and Page Down, within its length.
+        for n in 0..8 {
+            app.line.set(&format!("{n}+1"));
+            app.handle(Key::Enter);
+        }
+        app.handle(Key::Mouse(Mouse { kind: MouseKind::ScrollUp, row: 5, col: 5 }));
+        assert_eq!(app.scroll, SCROLL_STEP);
+        app.handle(Key::Mouse(Mouse { kind: MouseKind::ScrollDown, row: 5, col: 5 }));
+        assert_eq!(app.scroll, 0);
     }
 
     #[test]
