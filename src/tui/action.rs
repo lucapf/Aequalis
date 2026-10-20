@@ -3,7 +3,7 @@
 
 use super::keys::{Button, Key, Mouse, MouseKind};
 use super::render::Hit;
-use super::{currencies, history_panel, measures, search, settings, trivia, App, Keypad, Overlay, Part, StatusKind, SCROLL_STEP};
+use super::{currencies, history_panel, measures, search, settings, trivia, App, Keypad, Overlay, Part, Press, StatusKind, SCROLL_STEP};
 
 /// A window of the toolbar (and Ctrl+K).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -93,6 +93,8 @@ pub enum Target {
     BoardMoney(usize),
     BoardClock(usize),
     BoardClass(usize),
+    /// The list of measures moved by this many entries.
+    BoardScroll(isize),
     /// A window over the screen: a click outside it closes it (Esc); inside it, nothing.
     Dismiss,
     Inside,
@@ -219,8 +221,15 @@ impl<'a> App<'a> {
     /// A mouse report: the wheel scrolls the history; a left click asks for what the screen drew
     /// under it (`hits`, from the last frame).
     pub(super) fn mouse(&mut self, mouse: Mouse) {
-        (self.pressed, self.lit) = (None, None);
+        // A key lit by a click stays lit through the release.
+        if !matches!(mouse.kind, MouseKind::Up | MouseKind::Drag(_)) {
+            (self.pressed, self.lit) = (None, None);
+        }
+        let on_board = super::render::board_shown(self) && self.overlay.is_none() && mouse.col >= self.board_left();
         match mouse.kind {
+            // The wheel moves the board's list when it is over it.
+            MouseKind::ScrollUp if on_board => self.scroll_board(-1),
+            MouseKind::ScrollDown if on_board => self.scroll_board(1),
             // The wheel moves through the window open, as ↑ ↓ do (not while typing a setting).
             MouseKind::ScrollUp | MouseKind::ScrollDown if self.overlay.is_some() => {
                 if !matches!(&self.overlay, Some(Overlay::Settings(v)) if v.edit.is_some()) {
@@ -231,12 +240,53 @@ impl<'a> App<'a> {
             MouseKind::ScrollDown => self.apply(Action::ScrollDown),
             MouseKind::Down(Button::Left) => {
                 let hit = self.hits.iter().rev().find(|h| h.contains(mouse.row, mouse.col)).copied();
-                if let Some(hit) = hit {
-                    self.click(hit, mouse.col);
+                let on_board_item = hit.is_none_or(|h| {
+                    matches!(h.target, Target::BoardUnit(..) | Target::BoardMoney(_) | Target::BoardClock(_) | Target::BoardClass(_) | Target::BoardScroll(_))
+                });
+                match hit {
+                    // A press on the board (on a button or on nothing) may start a drag of the list,
+                    // as a finger does: a click only when released where it was pressed.
+                    _ if on_board && on_board_item => self.pressed_on = Some(Press { hit, row: mouse.row, col: mouse.col, scroll: self.board_scroll, dragged: false }),
+                    Some(hit) => self.click(hit, mouse.col),
+                    None => {}
                 }
             }
-            MouseKind::Down(_) | MouseKind::Up | MouseKind::Drag(_) => {}
+            // The finger moving: the list follows it, an entry for every three rows.
+            MouseKind::Drag(Button::Left) => {
+                if let Some(press) = &mut self.pressed_on {
+                    let moved = press.row as isize - mouse.row as isize;
+                    if moved != 0 || press.dragged {
+                        press.dragged = true;
+                        let to = (press.scroll as isize + moved.div_euclid(3)).max(0) as usize;
+                        self.board_scroll = to.min(self.board_len().saturating_sub(1));
+                    }
+                }
+            }
+            MouseKind::Up => {
+                if let Some(press) = self.pressed_on.take() {
+                    if let (false, Some(hit)) = (press.dragged, press.hit) {
+                        self.click(hit, press.col);
+                    }
+                }
+            }
+            MouseKind::Down(_) | MouseKind::Drag(_) => {}
         }
+    }
+
+    /// Where the board starts: the pane's first column.
+    fn board_left(&self) -> usize {
+        super::render::pane_width(self.screen.0, self.screen.1).map_or(usize::MAX, |w| self.screen.1 - w)
+    }
+
+    /// How many entries the board's list has: the currencies and the classes.
+    fn board_len(&self) -> usize {
+        1 + self.config.categories.len()
+    }
+
+    /// The board's list moved by `by` entries.
+    pub(super) fn scroll_board(&mut self, by: isize) {
+        let to = (self.board_scroll as isize + by).max(0) as usize;
+        self.board_scroll = to.min(self.board_len().saturating_sub(1));
     }
 
     /// A click on the n-th item of the window open: it is chosen, then used as Enter would.
@@ -327,6 +377,7 @@ impl<'a> App<'a> {
                     self.line.set(&format!("{text}{city} "));
                 }
             }
+            Target::BoardScroll(by) => self.scroll_board(by),
             Target::BoardClass(i) => {
                 if let Some(index) = super::board::classes(self.config, &self.usage).get(i).and_then(|c| self.config.categories.iter().position(|k| k.name == c.name)) {
                     self.overlay = Some(Overlay::Picker(super::picker::Picker::new(self.config, index, self.system)));

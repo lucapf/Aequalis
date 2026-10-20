@@ -135,6 +135,10 @@ pub struct App<'a> {
     /// (`tui.mouse`, Alt+O), and whether the terminal was last told so.
     hits: Vec<render::Hit>,
     mouse_on: bool,
+    /// The board's list of measures: the first entry shown, and a press on the board waiting to
+    /// be a click or the start of a drag.
+    board_scroll: usize,
+    pressed_on: Option<Press>,
     /// Whether the hits are kept in the settings (only in a real session: never in the tests).
     persist: bool,
     redraw: bool,
@@ -176,6 +180,17 @@ pub struct App<'a> {
 /// The last search of Ctrl+K: its query, how many requests the history had, and its matches.
 type LastSearch = (String, usize, Rc<Vec<aequalis::find::Found>>);
 
+/// A press of the left button on the board: a click when released in place, a drag of the list
+/// when the pointer moved (a finger on a touch screen).
+#[derive(Debug, Clone, Copy)]
+struct Press {
+    hit: Option<render::Hit>,
+    row: usize,
+    col: usize,
+    scroll: usize,
+    dragged: bool,
+}
+
 /// A request's result, shared by its uses.
 type Evaluated = Rc<Result<aequalis::Output, aequalis::CliError>>;
 
@@ -210,6 +225,8 @@ impl<'a> App<'a> {
             screen: (24, 80),
             hits: Vec::new(),
             mouse_on: true,
+            board_scroll: 0,
+            pressed_on: None,
             persist: false,
             redraw: false,
             quit: false,

@@ -299,7 +299,7 @@ fn big_keyboard(app: &App, canvas: &mut Canvas, area: Area) {
 }
 
 /// The width a clock takes on the board, and the first column of a class's buttons.
-const CLOCK_WIDTH: usize = 28;
+const CLOCK_WIDTH: usize = 30;
 const CLASS_NAME: usize = 16;
 
 /// A box three rows high at (`y`, `x`) of `width` columns, with `title` on its top border
@@ -313,98 +313,157 @@ fn big_button(canvas: &mut Canvas, y: usize, x: usize, width: usize, title: &str
     canvas.put(y + 2, x, &format!("└{}┘", "─".repeat(inner)), Style::Dim);
 }
 
-/// The board: the clocks, the units of each class (the most used first, used ones lit) and the
-/// currencies against the base. Every button writes what it shows.
+/// The width of a currency tile and the gap after it.
+const TILE: usize = 11;
+
+/// The rows an entry of the board's list takes: a class one row (brackets) or three (boxes); the
+/// currencies a heading and rows of tiles (three high), or one row.
+fn item_rows(item: super::board::Item, tall: bool, width: usize) -> usize {
+    match (item, tall) {
+        (super::board::Item::Class(_), true) => 3,
+        (super::board::Item::Class(_), false) => 1,
+        (super::board::Item::Currencies, true) => 1 + 3 * super::board::CURRENCIES.div_ceil(((width.saturating_sub(1)) / (TILE + 1)).max(1)),
+        (super::board::Item::Currencies, false) => 1,
+    }
+}
+
+/// Whether the board is what the pane shows (not a panel, nor the compact keyboard in its place).
+pub(super) fn board_shown(app: &App) -> bool {
+    let (rows, cols) = app.screen;
+    match pane_width(rows, cols) {
+        Some(pane_w) => !panel_open(app) && !(app.keyboard_shown() && wide_split(rows, cols).is_none() && pane_w < BOTH_FROM),
+        None => false,
+    }
+}
+
+/// The board: the clocks, then the list of measures that scrolls (the wheel, a drag of the finger):
+/// the currencies and every class, the one used most first, each with its most used units, used
+/// ones lit. Every button writes what it shows.
 fn board_view(app: &App, canvas: &mut Canvas, area: Area) {
+    use super::board::Item;
     let Area { top, left, width, height } = area;
     let right = left + width;
     let mut y = top;
     // The clocks: as many as fit, in rows.
     let clocks = app.clocks();
     let per = ((width.saturating_sub(1)) / CLOCK_WIDTH).max(1);
-    // As many rows as the height leaves after the currencies and a good part for the classes.
     let allowed_rows = height.saturating_sub(4 + 20 + 1).min(6);
     let shown = clocks.len().min(per * allowed_rows);
-    let clock_rows = shown.div_ceil(per);
     if shown > 0 {
         canvas.put_within(y, left + 1, right, "Clocks", Style::Bold);
         y += 1;
         for (i, c) in clocks.iter().take(shown).enumerate() {
             let x = left + 1 + (i % per) * CLOCK_WIDTH;
             let row = y + i / per;
-            let text = format!("{:<11}{:>8} {:>4}{:>4}", c.city, c.time, c.difference, c.day);
+            let text = format!("{:<12}{:>8} {:>4}{:>4}", c.city, c.time, c.difference, c.day);
             let end = canvas.put_within(row, x, right, &text, Style::Plain);
             canvas.hit(row, x, end - x, Target::BoardClock(i));
         }
-        y += clock_rows;
+        y += shown.div_ceil(per);
     }
-    // The currencies at the bottom (a heading and boxes three rows high), the classes between.
-    let money = app.board_money();
-    let money_h = 4;
-    let measures_end = (top + height).saturating_sub(money_h);
+    // The list: a heading, then the entries from the first one scrolled to as far as they fit.
     let classes = super::board::classes(app.config, &app.usage);
-    if measures_end > y + 1 {
-        canvas.put_within(y, left + 1, right, "Measures", Style::Bold);
-        canvas.put_within(y, left + 12, right, "(the most used first; used ones lit)", Style::Dim);
-        y += 1;
-        let rows = measures_end - y;
-        let tall = rows / 3 >= classes.len().min(6);
-        let step = if tall { 3 } else { 1 };
-        let mut fits = (rows / step).min(classes.len());
-        let more = fits < classes.len();
-        if more && fits > 0 {
-            fits -= 1;
-        }
-        for (ci, class) in classes.iter().take(fits).enumerate() {
-            let row = y + ci * step;
-            let name_row = if tall { row + 1 } else { row };
-            canvas.put_within(name_row, left + 1, left + CLASS_NAME, &format!("{} {}", class.letter, class.name), Style::Bold);
-            canvas.hit_rect(row, left + 1, CLASS_NAME - 1, step, Target::BoardClass(ci));
-            let mut x = left + 1 + CLASS_NAME;
-            for (bi, b) in class.buttons.iter().enumerate() {
-                let w = (b.label.chars().count() + 4).max(6);
-                if x + w > right {
-                    break;
-                }
-                let style = if b.used { Style::Lit } else { Style::Plain };
-                if tall {
-                    big_button(canvas, row, x, w, "");
-                    canvas.put(row + 1, x + 1, &format!("{:^width$}", b.label, width = w - 2), style);
-                } else {
-                    canvas.put(row, x, "[", Style::Dim);
-                    canvas.put(row, x + 1, &format!(" {} ", b.label), style);
-                    canvas.put(row, x + w - 1, "]", Style::Dim);
-                }
-                canvas.hit_rect(row, x, w, step, Target::BoardUnit(ci, bi));
-                x += w + 1;
-            }
-        }
-        if more {
-            let row = y + fits * step;
-            let end = canvas.put_within(row, left + 1, right, &format!("… {} more classes: F2 Measures", classes.len() - fits), Style::Dim);
-            canvas.hit(row, left + 1, end - left - 1, Target::Act(Action::Open(super::action::Panel::Measures)));
-        }
+    let items = super::board::items(&classes, &app.usage);
+    let first = app.board_scroll.min(items.len() - 1);
+    let end = top + height;
+    if end <= y + 2 {
+        return;
     }
-    // The currencies.
-    if height > money_h + 2 {
-        let row = top + height - money_h;
-        let heading = match app.base_currency() {
-            Some(base) => format!("Currencies in {base}"),
-            None => "Currencies  (set tui.base_currency for values)".to_string(),
-        };
-        canvas.put_within(row, left + 1, right, &heading, Style::Bold);
-        let mut x = left + 1;
-        for (i, m) in money.iter().enumerate() {
-            let w = 11;
-            if x + w > right {
+    let heading = y;
+    canvas.put_within(heading, left + 1, right, "Measures", Style::Bold);
+    // The text stops before the marker for what is above (▲ 12).
+    canvas.put_within(heading, left + 11, right.saturating_sub(8), "(most used first; scroll)", Style::Dim);
+    y += 1;
+    let tall = end - y >= 15;
+    // How many entries fit; the last row says how many are below when not all do.
+    let fit = |limit: usize| {
+        let (mut used, mut n) = (0, 0);
+        for item in &items[first..] {
+            let h = item_rows(*item, tall, width);
+            if used + h > limit {
                 break;
             }
-            big_button(canvas, row + 1, x, w, &m.code);
-            let value = m.value.clone().unwrap_or_else(|| "–".to_string());
-            canvas.put(row + 2, x + 1, &format!("{value:^9}"), if m.used { Style::Lit } else { Style::Plain });
-            canvas.hit_rect(row + 1, x, w, 3, Target::BoardMoney(i));
-            x += w + 1;
+            used += h;
+            n += 1;
         }
+        n
+    };
+    let mut drawn = fit(end - y);
+    if first + drawn < items.len() {
+        drawn = fit(end - y - 1);
+    }
+    for item in &items[first..first + drawn] {
+        let h = item_rows(*item, tall, width);
+        match *item {
+            Item::Class(ci) => {
+                let class = &classes[ci];
+                let name_row = if tall { y + 1 } else { y };
+                canvas.put_within(name_row, left + 1, left + CLASS_NAME, &format!("{} {}", class.letter, class.name), Style::Bold);
+                canvas.hit_rect(y, left + 1, CLASS_NAME - 1, h, Target::BoardClass(ci));
+                let mut x = left + 1 + CLASS_NAME;
+                for (bi, b) in class.buttons.iter().enumerate() {
+                    let w = (b.label.chars().count() + 4).max(6);
+                    if x + w > right {
+                        break;
+                    }
+                    let style = if b.used { Style::Lit } else { Style::Plain };
+                    if tall {
+                        big_button(canvas, y, x, w, "");
+                        canvas.put(y + 1, x + 1, &format!("{:^width$}", b.label, width = w - 2), style);
+                    } else {
+                        canvas.put(y, x, "[", Style::Dim);
+                        canvas.put(y, x + 1, &format!(" {} ", b.label), style);
+                        canvas.put(y, x + w - 1, "]", Style::Dim);
+                    }
+                    canvas.hit_rect(y, x, w, h, Target::BoardUnit(ci, bi));
+                    x += w + 1;
+                }
+            }
+            Item::Currencies => {
+                let money = app.board_money();
+                let title = match app.base_currency() {
+                    Some(base) => format!("Currencies in {base}"),
+                    None => "Currencies  (set tui.base_currency for values)".to_string(),
+                };
+                canvas.put_within(y, left + 1, right, &title, Style::Bold);
+                let tiles_per_row = ((width.saturating_sub(1)) / (TILE + 1)).max(1);
+                for (i, m) in money.iter().enumerate() {
+                    let (row, x) = (y + 1 + 3 * (i / tiles_per_row), left + 1 + (i % tiles_per_row) * (TILE + 1));
+                    if !tall {
+                        break;
+                    }
+                    big_button(canvas, row, x, TILE, &m.code);
+                    let value = m.value.clone().unwrap_or_else(|| "–".to_string());
+                    canvas.put(row + 1, x + 1, &format!("{value:^9}"), if m.used { Style::Lit } else { Style::Plain });
+                    canvas.hit_rect(row, x, TILE, 3, Target::BoardMoney(i));
+                }
+                if !tall {
+                    let mut x = left + 1 + CLASS_NAME;
+                    for (i, m) in money.iter().enumerate() {
+                        let text = format!("[ {} {} ]", m.code, m.value.clone().unwrap_or_default());
+                        let w = text.chars().count();
+                        if x + w > right {
+                            break;
+                        }
+                        canvas.put(y, x, &text, if m.used { Style::Lit } else { Style::Plain });
+                        canvas.hit(y, x, w, Target::BoardMoney(i));
+                        x += w + 1;
+                    }
+                }
+            }
+        }
+        y += h;
+    }
+    // What is above and below: a click moves there.
+    if first > 0 {
+        let text = format!("▲ {first}");
+        canvas.put_within(heading, right.saturating_sub(text.chars().count() + 1), right, &text, Style::Yellow);
+        canvas.hit(heading, right.saturating_sub(text.chars().count() + 1), text.chars().count(), Target::BoardScroll(-(drawn as isize)));
+    }
+    if first + drawn < items.len() {
+        let text = format!("▼ {} more", items.len() - first - drawn);
+        canvas.put_within(end - 1, left + 1, right, &text, Style::Yellow);
+        canvas.hit(end - 1, left + 1, text.chars().count(), Target::BoardScroll(drawn as isize));
     }
 }
 
@@ -472,7 +531,7 @@ pub fn render(app: &App, rows: usize, cols: usize) -> Frame {
                 } else {
                     keypad(app, &mut pane, 1);
                 }
-            } else if app.keyboard_shown() && wide_split(rows, cols).is_none() && pane_w < BOTH_FROM {
+            } else if !board_shown(app) {
                 keypad(app, &mut pane, 1);
             } else {
                 board_view(app, &mut pane, area);
@@ -2305,7 +2364,9 @@ mod tests {
             let (row, line) = if last { found.next_back() } else { found.next() }.unwrap_or_else(|| panic!("no `{text}` on screen:\n{}", plain.join("\n")));
             let col = line[..line.find(text).unwrap()].chars().count();
             app.hits = frame.hits;
-            app.handle(Key::Mouse(super::super::keys::Mouse { kind: super::super::keys::MouseKind::Down(super::super::keys::Button::Left), row, col }));
+            let mouse = |kind| Key::Mouse(super::super::keys::Mouse { kind, row, col });
+            app.handle(mouse(super::super::keys::MouseKind::Down(super::super::keys::Button::Left)));
+            app.handle(mouse(super::super::keys::MouseKind::Up));
         }
         app
     }
@@ -2535,12 +2596,12 @@ mod tests {
         assert!(text.contains("Clocks") && text.contains("Measures") && text.contains("Currencies"), "{text}");
         // Every class with its units, in boxes three rows high (the most common first).
         assert!(text.contains("L Length") && text.contains("│ km │ │ m  │ │ cm │ │ mi │ │ ft │"), "{text}");
+        assert!(text.find("Currencies").unwrap() < text.find("Length").unwrap(), "the currencies lead");
         assert!(text.contains("┌─USD") && text.contains("┌─EUR"), "{text}");
         // A short screen: one row per class, in brackets, and what does not fit is said.
-        let (lines, _) = screen("12 sqft m", 24, 140);
-        assert!(lines.iter().any(|l| l.contains("[ km ]") && l.contains("Length")), "{}", lines.join("\n"));
         let (lines, _) = screen("12 sqft m", 16, 140);
-        assert!(lines.iter().any(|l| l.contains("more classes: F2 Measures")), "{}", lines.join("\n"));
+        assert!(lines.iter().any(|l| l.contains("[ km ]") && l.contains("Length")), "{}", lines.join("\n"));
+        assert!(lines.iter().any(|l| l.contains("▼") && l.contains("more")), "{}", lines.join("\n"));
         // A click on a unit writes it and counts it; the class name opens its units.
         let app = clicked(&config, &opts, "5 ", (44, 140), &["│ km │"]);
         assert_eq!(app.line.text(), "5 km ");
@@ -2560,6 +2621,57 @@ mod tests {
         let frame = render(&app, 44, 140);
         let text = frame.lines.iter().map(|l| plain(l)).collect::<Vec<_>>().join("\n");
         assert!(text.contains("┌─GBP─────┐ ┌─USD"), "{text}");
+    }
+
+    /// A mouse event at the first cell of the first line with `text`.
+    fn mouse_at(app: &mut App, size: (usize, usize), text: &str, kind: super::super::keys::MouseKind) {
+        let frame = render(app, size.0, size.1);
+        let plain: Vec<String> = frame.lines.iter().map(|l| plain(l)).collect();
+        let (row, line) = plain.iter().enumerate().find(|(_, l)| l.contains(text)).unwrap_or_else(|| panic!("no `{text}`:\n{}", plain.join("\n")));
+        let col = line[..line.find(text).unwrap()].chars().count();
+        app.hits = frame.hits;
+        app.handle(Key::Mouse(super::super::keys::Mouse { kind, row, col }));
+    }
+
+    #[test]
+    fn the_board_scrolls_like_a_phone() {
+        use super::super::keys::{Button, MouseKind};
+        let config = Config::default();
+        let opts = OPTS;
+        let size = (30, 140);
+        // It starts with the currencies, then the classes; the rest is below, said at the bottom.
+        let mut app = app_after_in(&config, &opts, "", size);
+        let text = |app: &App| render(app, size.0, size.1).lines.iter().map(|l| plain(l)).collect::<Vec<_>>().join("\n");
+        let first = text(&app);
+        assert!(first.contains("Currencies") && first.contains("▼") && first.contains("more"), "{first}");
+        assert!(!first.contains("W Power"), "{first}");
+        // The wheel over the board moves the list one entry; back up it returns.
+        app.handle(Key::Mouse(super::super::keys::Mouse { kind: MouseKind::ScrollDown, row: 10, col: 120 }));
+        assert_eq!(app.board_scroll, 1);
+        let moved = text(&app);
+        assert!(!moved.contains("┌─USD") && moved.contains("▲ 1"), "{moved}");
+        app.handle(Key::Mouse(super::super::keys::Mouse { kind: MouseKind::ScrollUp, row: 10, col: 120 }));
+        assert_eq!(app.board_scroll, 0);
+        // The wheel over the history is the history's, not the board's.
+        app.handle(Key::Mouse(super::super::keys::Mouse { kind: MouseKind::ScrollDown, row: 10, col: 20 }));
+        assert_eq!(app.board_scroll, 0);
+        // A finger: press, move up by six rows, release: two entries on, and nothing pressed.
+        let mouse = |kind, row| Key::Mouse(super::super::keys::Mouse { kind, row, col: 125 });
+        app.handle(mouse(MouseKind::Down(Button::Left), 20));
+        app.handle(mouse(MouseKind::Drag(Button::Left), 17));
+        app.handle(mouse(MouseKind::Drag(Button::Left), 14));
+        app.handle(mouse(MouseKind::Up, 14));
+        assert_eq!((app.board_scroll, app.line.text().as_str()), (2, ""), "a drag is not a click");
+        // A tap (press and release in place) is a click.
+        mouse_at(&mut app, size, "│ km │", MouseKind::Down(Button::Left));
+        assert!(app.line.is_empty(), "written when released");
+        mouse_at(&mut app, size, "│ km │", MouseKind::Up);
+        assert_eq!(app.line.text(), "1 km ");
+        // The marker at the bottom moves a page on; the one at the top, back.
+        let mut app = app_after_in(&config, &opts, "", size);
+        mouse_at(&mut app, size, "▼", MouseKind::Down(Button::Left));
+        mouse_at(&mut app, size, "▼", MouseKind::Up);
+        assert!(app.board_scroll > 1, "{}", app.board_scroll);
     }
 
     #[test]

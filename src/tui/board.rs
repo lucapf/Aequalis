@@ -43,12 +43,14 @@ pub struct Class {
     pub name: &'static str,
     pub letter: char,
     pub buttons: Vec<Button>,
+    /// How often its units were used, all of them.
+    pub total: u64,
 }
 
 /// Every class with its `UNITS_PER_CLASS` most used units, the most used first; those not used yet
 /// in the order of `COMMON`, then the class's own.
 pub fn classes(config: &Config, usage: &Usage) -> Vec<Class> {
-    let mut classes: Vec<(u64, Class)> = config
+    config
         .categories
         .iter()
         .map(|c| {
@@ -67,12 +69,26 @@ pub fn classes(config: &Config, usage: &Usage) -> Vec<Class> {
                 })
                 .collect();
             let total = c.units.iter().map(|u| usage.hits(Kind::Unit, u.symbol)).sum();
-            (total, Class { name: c.name, letter: super::measures::key(c), buttons })
+            Class { name: c.name, letter: super::measures::key(c), buttons, total }
         })
-        .collect();
-    // The classes used most first (the others stay in their order).
-    classes.sort_by_key(|(total, _)| std::cmp::Reverse(*total));
-    classes.into_iter().map(|(_, class)| class).collect()
+        .collect()
+}
+
+/// An entry of the board's list of measures: the currencies, or a unit class (its index in
+/// `classes`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Item {
+    Currencies,
+    Class(usize),
+}
+
+/// The list the board scrolls: the currencies and the classes, the one used most first; the
+/// currencies lead when nothing is used (or as often as another), then the classes in their order.
+pub fn items(classes: &[Class], usage: &Usage) -> Vec<Item> {
+    let money: u64 = usage.top(Kind::Currency, usize::MAX).iter().map(|(_, n)| n).sum();
+    let mut items: Vec<(u64, Item)> = std::iter::once((money, Item::Currencies)).chain(classes.iter().enumerate().map(|(i, c)| (c.total, Item::Class(i)))).collect();
+    items.sort_by_key(|(total, _)| std::cmp::Reverse(*total));
+    items.into_iter().map(|(_, item)| item).collect()
 }
 
 /// A currency of the board and what one of it is in the base currency (when the rate is known).
@@ -202,6 +218,27 @@ mod tests {
         // A friendly label.
         let mass = classes(&config, &usage).into_iter().find(|c| c.name == "Temperature").unwrap();
         assert_eq!(mass.buttons[0].label, "°C");
+    }
+
+    #[test]
+    fn the_list_starts_with_what_is_used_most() {
+        let config = Config::default();
+        let mut usage = Usage::default();
+        let order = |usage: &Usage| {
+            let classes = classes(&config, usage);
+            items(&classes, usage).into_iter().take(3).map(|i| match i {
+                Item::Currencies => "Currencies".to_string(),
+                Item::Class(c) => classes[c].name.to_string(),
+            }).collect::<Vec<_>>()
+        };
+        // Nothing used: the currencies, then the classes in their order.
+        assert_eq!(order(&usage), ["Currencies", "Date & Time", "Bits & Bytes"]);
+        // The most used first: a class, then the currencies once they are used as much.
+        for _ in 0..3 {
+            usage.hit(Kind::Unit, "kg");
+        }
+        usage.hit(Kind::Currency, "EUR");
+        assert_eq!(order(&usage), ["Mass", "Currencies", "Date & Time"]);
     }
 
     #[test]
