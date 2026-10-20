@@ -5,7 +5,7 @@
 //! its live result and suggestions, and a status line. There are no modes: typing always edits
 //! the request. Every toolbar entry has an Alt letter too (Alt+M, C, T, H, S), for terminals that
 //! keep the function keys; F1 / Alt+? is the help, Ctrl+K searches the units, F9 shows / hides the
-//! keypad, Alt+Y copies the answer, Alt+N writes `now`, Ctrl+Q quits. ↑ ↓ recall earlier requests
+//! keypad, Alt+Y copies the result, Alt+N writes `now`, Ctrl+Q quits. ↑ ↓ recall earlier requests
 //! as in a shell; F5 puts the history in focus (↑ ↓ choose, Enter recalls, Alt+Y copies, Del
 //! removes). Esc steps back: the open window, the history focus, the Tab cycle, the status
 //! message, then it clears the line (↑ brings the cleared text back). Ctrl+C does the same and,

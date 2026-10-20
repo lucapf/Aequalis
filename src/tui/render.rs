@@ -425,7 +425,7 @@ fn status(app: &App, canvas: &mut Canvas, row: usize) {
     let (badge, keys): (&str, &[(&str, &str)]) = match &app.overlay {
         // The history in focus.
         None if app.history.selected().is_some() => {
-            (" HISTORY ", &[("↑↓", "choose"), ("Enter", "recall"), ("Alt+Y", "copy"), ("Del", "remove"), ("<Esc>", "back")])
+            (" HISTORY ", &[("↑↓", "choose"), ("Enter", "recall"), ("Alt+Y", "copy result"), ("Del", "remove"), ("<Esc>", "back")])
         }
         Some(Overlay::Choice(..)) => (" CHOOSE ", &[("↑↓ j k 1-9", "reading"), ("Enter", "confirm"), ("<Esc>", "back")]),
         Some(Overlay::Trivia(v)) if v.popup.is_some() => (" TRIVIA ", &[("↑↓", "scroll"), ("Enter", "write the value"), ("<Esc>", "back")]),
@@ -438,7 +438,7 @@ fn status(app: &App, canvas: &mut Canvas, row: usize) {
         Some(Overlay::Currencies(_)) => (" CURRENCIES ", &[("type", "search"), ("↑↓", "choose"), ("Enter", "write"), ("<Esc>", "back")]),
         Some(Overlay::Measures(_)) => (" MEASURES ", &[("↑↓ j k", "choose"), ("letter Enter", "open"), ("<Esc>", "back")]),
         Some(Overlay::Picker(_)) => (" UNITS ", &[("←↓↑→ h j k l", "move"), ("Tab", "system"), ("Enter", "write"), ("<Esc>", "measures")]),
-        None => ("", &[("F1", "help"), ("Ctrl+K", "units"), ("Alt+Y", "copy"), ("Ctrl+Q", "quit")]),
+        None => ("", &[("F1", "help"), ("Ctrl+K", "units"), ("Alt+Y", "copy result"), ("Ctrl+Q", "quit")]),
     };
     // The message first: the first keys go until it fits next to them, and all of them when it
     // still does not.
@@ -1026,7 +1026,7 @@ const HELP: &[(&str, &str)] = &[
     ("  ↑/↓  Ctrl-P  Ctrl-N", "earlier / later requests, as in a shell;"),
     ("", "↓ past the newest: what you were typing"),
     ("  Alt-N", "write `now` (dates: now + 3d, now unix, …)"),
-    ("  Alt-Y", "copy the answer"),
+    ("  Alt-Y", "copy the result, not a selection"),
     ("  PgUp/PgDn", "scroll the history"),
     ("  exit + Enter", "quit (quit + Enter works too)"),
     ("  about + Enter", "about: version, memory, last online sync"),
@@ -1175,7 +1175,7 @@ mod tests {
         assert!(lines[11].contains("Tab: mm2 m2 mi2"), "{}", lines[11]);
         assert!(lines[12].chars().all(|c| c == '─'));
         assert!(lines[13].starts_with(" note: evaluated as (100 + 20) / 120"), "{}", lines[13]);
-        assert!(lines[13].ends_with("F1 help · Ctrl+K units · Alt+Y copy · Ctrl+Q quit"), "{}", lines[13]);
+        assert!(lines[13].ends_with("F1 help · Ctrl+K units · Alt+Y copy result · Ctrl+Q quit"), "{}", lines[13]);
         assert_eq!(cursor, Some((10, 19)));
         // No mode: nothing says "INPUT" or "COMMAND".
         assert!(!lines.join("\n").contains("INPUT") && !lines.join("\n").contains("COMMAND"));
@@ -1215,11 +1215,11 @@ mod tests {
     #[test]
     fn status_line_and_cursor() {
         let (lines, cursor) = screen("10 km", 12, 80);
-        assert!(lines[11].ends_with("F1 help · Ctrl+K units · Alt+Y copy · Ctrl+Q quit"), "{}", lines[11]);
+        assert!(lines[11].ends_with("F1 help · Ctrl+K units · Alt+Y copy result · Ctrl+Q quit"), "{}", lines[11]);
         assert_eq!(cursor, Some((8, 9)), "the cursor in the request, at the end");
         // Narrow: the first hints go.
         let (lines, _) = screen("10 km", 12, 40);
-        assert!(lines[11].ends_with("Alt+Y copy · Ctrl+Q quit") && !lines[11].contains("F1"), "{}", lines[11]);
+        assert!(lines[11].ends_with("Alt+Y copy result · Ctrl+Q quit") && !lines[11].contains("F1"), "{}", lines[11]);
         // A message keeps its room: the hints give way (the first ones, then all).
         let (lines, _) = screen("(10+12-3)/4Km Mi\n", 12, 80);
         assert!(
@@ -1227,12 +1227,16 @@ mod tests {
             "{}",
             lines[11]
         );
-        assert!(lines[11].ends_with("Alt+Y copy · Ctrl+Q quit") || lines[11].ends_with("Ctrl+Q quit"), "{}", lines[11]);
+        assert!(lines[11].ends_with("Alt+Y copy result · Ctrl+Q quit") || lines[11].ends_with("Ctrl+Q quit"), "{}", lines[11]);
         let (lines, _) = screen("10 km kg\n", 12, 60);
         assert!(lines[11].starts_with(" error: cannot convert `km` to `kg`: different kinds of unit"), "{}", lines[11]);
         // The history in focus: its own keys and badge.
         let (lines, _) = screen("1+1\n<F5>", 12, 100);
-        assert!(lines[11].starts_with(" HISTORY ") && lines[11].ends_with("↑↓ choose · Enter recall · Alt+Y copy · Del remove · <Esc> back"), "{}", lines[11]);
+        assert!(
+            lines[11].starts_with(" HISTORY ") && lines[11].ends_with("↑↓ choose · Enter recall · Alt+Y copy result · Del remove · <Esc> back"),
+            "{}",
+            lines[11]
+        );
         // The Tab suggestions show while typing, whatever came before.
         let (lines, _) = screen("10 km m", 12, 80);
         assert!(lines.join("\n").contains("Tab:"));

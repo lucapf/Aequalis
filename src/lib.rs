@@ -179,7 +179,7 @@ Tab completes units, Up/Down recall earlier requests. The toolbar: F2 Measures (
 unit classes, then their units), F3 Currencies, F4 Trivia, F5 the history, F10
 Settings; Alt+M, C, T, H, S do the same where the function keys are taken. F1 (or
 Alt+?) shows all the keys, Ctrl+K searches the units, Alt+N writes `now`, Alt+Y
-copies the answer, F9 shows or hides the keypad, Esc steps back, Ctrl+Q quits.
+copies the result, F9 shows or hides the keypad, Esc steps back, Ctrl+Q quits.
 
 Options:
   --precision N             Decimal places, 0-15 (default: the precision setting, 4); trailing
