@@ -10,6 +10,11 @@
 #ifndef Version
   #define Version "0.1.0"
 #endif
+; The numbers of the file's version information (four numbers; a build between releases, `0.2.11-dev.57`,
+; has `0.2.11.57`); by default the version itself.
+#ifndef VersionInfo
+  #define VersionInfo Version
+#endif
 #define Root "..\.."
 
 [Setup]
@@ -22,7 +27,7 @@ AppPublisher=Luca Palanca Falsini
 AppPublisherURL=https://github.com/lucapf/aequalis
 AppSupportURL=https://github.com/lucapf/aequalis/issues
 AppUpdatesURL=https://github.com/lucapf/aequalis/releases
-VersionInfoVersion={#Version}
+VersionInfoVersion={#VersionInfo}
 VersionInfoProductName=Aequalis
 ; For the current user: %LOCALAPPDATA%\Programs\Aequalis.
 PrivilegesRequired=lowest

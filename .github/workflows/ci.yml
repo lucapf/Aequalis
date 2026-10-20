@@ -30,8 +30,22 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       - name: Toolchain
         run: rustup toolchain install stable --profile minimal && rustup default stable
+      - name: Version
+        # Every run has a version of its own, going up: the next release's number, `-dev.` and the
+        # run's number (0.2.11-dev.57). It is the program's version (`aequalis --version`, About),
+        # the installer's name and the file information; the release workflow numbers the releases.
+        run: |
+          last=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -1)
+          base=${last#v}
+          IFS=. read -r major minor patch <<< "${base:-0.1.0}"
+          next="$major.$minor.$((patch + 1))"
+          echo "VERSION=$next-dev.${{ github.run_number }}" >> "$GITHUB_ENV"
+          echo "VERSION_INFO=$next.${{ github.run_number }}" >> "$GITHUB_ENV"
+          sed -i -E "s/^version = \".*\"/version = \"$next-dev.${{ github.run_number }}\"/" Cargo.toml apps/windows/Cargo.toml
       - name: Zone database
         run: |
           python -m pip install --quiet tzdata
@@ -44,6 +58,7 @@ jobs:
         run: cargo build --release --no-default-features --target-dir target/no-tui
       - name: Smoke test
         run: |
+          test "$(target/release/aequalis --version)" = "aequalis $VERSION"
           target/release/aequalis 10 km mi
           target/release/aequalis --json 1+1
           TZ=Europe/Rome target/release/aequalis 10:00AM Paris to New York
@@ -72,9 +87,9 @@ jobs:
         run: |
           $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6/ISCC.exe'
           if (-not (Test-Path $iscc)) { choco install innosetup --no-progress -y | Out-Null }
-          & $iscc /Q /DVersion=0.0.0 installer/windows/aequalis.iss
+          & $iscc /Q "/DVersion=$env:VERSION" "/DVersionInfo=$env:VERSION_INFO" installer/windows/aequalis.iss
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          & installer/windows/test-install.ps1 -Setup dist/aequalis-0.0.0-x86_64-windows-setup.exe
+          & installer/windows/test-install.ps1 -Setup "dist/aequalis-$env:VERSION-x86_64-windows-setup.exe"
       - uses: actions/upload-artifact@v4
         with:
           name: windows-installer
