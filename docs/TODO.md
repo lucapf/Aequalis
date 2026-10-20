@@ -38,8 +38,10 @@ panel), status; no modes.
       The suggestions are buttons (`[ mi ]`) and the answer is at the right edge (`= 6.2137 mi ⧉`, a click
       copies it). F5 is a History panel (all requests, newest first, filtered by typing; ↩ ⧉ ✕ or
       Enter / Alt+Y / Del) in place of the old history focus mode.
-- [ ] 5. `src/find.rs` in the core and the Ctrl+K palette (units, currencies, cities, trivia,
-      settings, history).
+- [x] 5. `src/find.rs` in the core and the Ctrl+K palette: units, currencies, settings, trivia, cities
+      (from the archive, two letters at least, the device's country first) and earlier requests, each
+      with its kind. Enter writes a unit, currency or city into the request, a trivia entry's value,
+      reopens an earlier request, or opens the Settings on a setting.
 - [ ] 6. Compact (< 60 columns) and Wide (≥ 100) layouts.
 - [ ] 7. Docs, help, dead-code cleanup.
 

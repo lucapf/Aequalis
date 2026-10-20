@@ -160,6 +160,10 @@ pub struct App<'a> {
     /// `system_clipboard` (only in a real session: never in the tests).
     copied: Option<String>,
     system_clipboard: bool,
+    /// The device's country (to rank the cities of the search), read when the search opens, and the
+    /// last search made (query, how many requests were in the history) and its matches.
+    country: Option<String>,
+    found: RefCell<Option<(String, usize, Rc<Vec<aequalis::find::Found>>)>>,
     /// The last request evaluated and its result: the preview, the currencies line and Enter
     /// share it (one evaluation per change of the bar, not one per use).
     evaluation: RefCell<Option<(String, Evaluated)>>,
@@ -213,6 +217,8 @@ impl<'a> App<'a> {
             draft: None,
             copied: None,
             system_clipboard: false,
+            country: None,
+            found: RefCell::new(None),
             evaluation: RefCell::new(None),
         }
     }
@@ -455,17 +461,41 @@ impl<'a> App<'a> {
     fn write_trivia(&mut self) {
         let Some(Overlay::Trivia(v)) = &self.overlay else { return };
         let Some(entry) = v.entry() else { return };
-        // A tip: its example request.
+        if self.write_entry(entry) {
+            self.overlay = None;
+        }
+    }
+
+    /// `entry`'s value into the line (a tip: its example request); `false` when it has none.
+    fn write_entry(&mut self, entry: &aequalis::trivia::Entry) -> bool {
         if let aequalis::trivia::Source::Tip(example) = &entry.source {
             self.line.set(example);
-            self.overlay = None;
-            return;
+            return true;
         }
         let now = aequalis::time::unix_now();
-        if let Ok((value, _)) = aequalis::trivia::value(self.config, entry, self.online.get(&entry.name), now) {
-            self.line.set(&format!("{} ", aequalis::trivia::written(self.config, entry, value)));
-            self.overlay = None;
+        match aequalis::trivia::value(self.config, entry, self.online.get(&entry.name), now) {
+            Ok((value, _)) => {
+                self.line.set(&format!("{} ", aequalis::trivia::written(self.config, entry, value)));
+                true
+            }
+            Err(_) => false,
         }
+    }
+
+    /// What Ctrl+K finds for `query` (made once while the query and the history stay the same).
+    pub(super) fn found(&self, query: &str) -> Rc<Vec<aequalis::find::Found>> {
+        let past = self.history.entries().len();
+        if let Some((last, n, found)) = &*self.found.borrow() {
+            if last == query && *n == past {
+                return Rc::clone(found);
+            }
+        }
+        let history: Vec<(String, String)> =
+            self.history.entries().iter().map(|e| (e.input.clone(), e.result.clone().unwrap_or_else(|m| m))).collect();
+        let sources = aequalis::find::Sources { history: &history, country: self.country.as_deref() };
+        let found = Rc::new(aequalis::find::search(self.config, query, &sources));
+        *self.found.borrow_mut() = Some((query.to_string(), past, Rc::clone(&found)));
+        found
     }
 
     /// The rates and the local currency as they are now, for the currencies the search shows.
@@ -473,13 +503,18 @@ impl<'a> App<'a> {
         if self.live {
             self.rates = aequalis::currency::load();
             self.local_currency = aequalis::currency::local().ok().flatten().map(|local| local.code);
+            self.country = aequalis::geo::local_country();
         }
     }
 
-    /// The search's keys: typing edits the query, ↑ ↓ choose, Enter writes the unit or the currency.
+    /// The search's keys: typing edits the query, ↑ ↓ choose, Enter uses the match.
     fn search_key(&mut self, key: Key) {
+        let query = match &self.overlay {
+            Some(Overlay::Search(s)) => s.query.clone(),
+            _ => return,
+        };
+        let found = self.found(&query);
         let Some(Overlay::Search(s)) = &mut self.overlay else { return };
-        let found = search::matches(self.config, &s.query).len();
         match key {
             Key::Esc => self.overlay = None,
             Key::Char(c) => {
@@ -490,20 +525,55 @@ impl<'a> App<'a> {
                 s.query.pop();
                 s.selected = 0;
             }
-            Key::Down | Key::Tab if found > 0 => s.selected = (s.selected + 1) % found,
-            Key::Up | Key::BackTab if found > 0 => s.selected = (s.selected + found - 1) % found,
+            Key::Down | Key::Tab if !found.is_empty() => s.selected = (s.selected + 1) % found.len(),
+            Key::Up | Key::BackTab if !found.is_empty() => s.selected = (s.selected + found.len() - 1) % found.len(),
             Key::Enter => {
-                let chosen = search::matches(self.config, &s.query)
-                    .get(s.selected)
-                    .map(|found| (found.written().to_string(), matches!(found, search::Found::Currency(_))));
-                if let Some((name, currency)) = chosen {
-                    let line = picker::place_unit(&self.line.text(), self.line.cursor(), &name);
-                    self.line.set(&line);
-                    self.overlay = None;
-                    self.used(&name, currency);
+                if let Some(chosen) = found.get(s.selected).cloned() {
+                    self.use_found(&chosen);
                 }
             }
             _ => {}
+        }
+    }
+
+    /// Choosing a match of the search: a unit or a currency is written into the request; a city
+    /// too; a trivia entry writes its value; a setting opens the Settings on it; an earlier
+    /// request comes back into the line.
+    fn use_found(&mut self, found: &aequalis::find::Found) {
+        use aequalis::find::Kind;
+        match found.kind {
+            Kind::Unit | Kind::Currency => {
+                let line = picker::place_unit(&self.line.text(), self.line.cursor(), &found.written);
+                self.line.set(&line);
+                self.overlay = None;
+                self.used(&found.written, found.kind == Kind::Currency);
+            }
+            Kind::City => {
+                let mut text = self.line.text();
+                if !text.is_empty() && !text.ends_with(' ') {
+                    text.push(' ');
+                }
+                text.push_str(&found.written);
+                text.push(' ');
+                self.line.set(&text);
+                self.overlay = None;
+            }
+            Kind::Trivia => {
+                if let Some(entry) = aequalis::trivia::entries().iter().find(|e| e.name == found.written) {
+                    self.write_entry(entry);
+                }
+                self.overlay = None;
+            }
+            Kind::Setting => {
+                let mut view = settings::View::default();
+                view.selected = aequalis::settings::KEYS.iter().position(|k| k.key == found.written).unwrap_or(0);
+                self.overlay = Some(Overlay::Settings(view));
+            }
+            Kind::History => {
+                self.recall = None;
+                self.line.set(&found.written);
+                self.overlay = None;
+            }
         }
     }
 
@@ -985,6 +1055,40 @@ mod tests {
         let before = app.line.text();
         app.handle(Key::Alt('1'));
         assert_eq!((app.line.text(), app.units.hits("km")), (before, Some(0)));
+    }
+
+    #[test]
+    fn the_search_uses_each_kind_of_match() {
+        let config = Config::default();
+        let opts = options(&config);
+        // A setting: the Settings window opens on it.
+        let mut app = App::new(&config, &opts);
+        app.handle(Key::Ctrl('k'));
+        typed(&mut app, "precision");
+        app.handle(Key::Enter);
+        let row = aequalis::settings::KEYS.iter().position(|k| k.key == "precision").unwrap();
+        assert!(matches!(&app.overlay, Some(Overlay::Settings(v)) if v.selected == row));
+        // An earlier request comes back into the line.
+        let mut app = App::new(&config, &opts);
+        typed(&mut app, "10 km mi");
+        app.handle(Key::Enter);
+        app.handle(Key::Ctrl('k'));
+        typed(&mut app, "10 km");
+        app.handle(Key::Enter);
+        assert_eq!((app.line.text().as_str(), app.overlay.is_none()), ("10 km mi", true));
+        // A trivia entry writes its value (a tip, its example); the window closes.
+        let mut app = App::new(&config, &opts);
+        app.handle(Key::Ctrl('k'));
+        typed(&mut app, "speed of light");
+        app.handle(Key::Enter);
+        assert!(app.overlay.is_none() && !app.line.is_empty(), "{:?}", app.line.text());
+        // A unit is placed as before.
+        let mut app = App::new(&config, &opts);
+        typed(&mut app, "5 ");
+        app.handle(Key::Ctrl('k'));
+        typed(&mut app, "kilomet");
+        app.handle(Key::Enter);
+        assert_eq!(app.line.text(), "5 km ");
     }
 
     #[test]

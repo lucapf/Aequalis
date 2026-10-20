@@ -424,7 +424,7 @@ fn band_rows(app: &App, rows: usize) -> usize {
         Some(Overlay::Measures(_)) => measures_rows(app),
         Some(Overlay::Picker(p)) => unit_keys_rows(app, p),
         Some(Overlay::Currencies(v)) => list_rows(aequalis::currency::search(&v.query).len()),
-        Some(Overlay::Search(s)) => list_rows(super::search::matches(app.config, &s.query).len()),
+        Some(Overlay::Search(s)) => list_rows(app.found(&s.query).len()),
         Some(Overlay::History(v)) => list_rows(super::history_panel::matches(&app.history, &v.query).len()),
         Some(Overlay::Trivia(v)) => trivia_rows(v),
         _ if app.keypad != Keypad::Hidden && rows >= KEYPAD_FROM => KEYPAD_ROWS,
@@ -950,11 +950,11 @@ fn trivia_popup(app: &App, v: &super::trivia::View, canvas: &mut Canvas, rows: u
 
 /// `/`: the query, and the units matching it (symbol, name, category), the chosen one lit.
 fn search(app: &App, s: &super::search::Search, canvas: &mut Canvas, area: Area) {
-    use super::search::Found;
-    let found = super::search::matches(app.config, &s.query);
+    use aequalis::find::Kind;
+    let found = app.found(&s.query);
     let Area { top, left, width, height } = area;
     let right = left + width - 1;
-    canvas.boxed(top, left, height, width, "Search units and currencies");
+    canvas.boxed(top, left, height, width, "Search units, currencies, settings, trivia, cities, history");
     let col = canvas.put_within(top + 1, left + 2, right, "/ ", Style::Yellow);
     let col = canvas.put_within(top + 1, col, right, &s.query, Style::Bold);
     canvas.put_within(top + 1, col, right, "▏", Style::Yellow);
@@ -963,20 +963,29 @@ fn search(app: &App, s: &super::search::Search, canvas: &mut Canvas, area: Area)
     canvas.cells[top + 2][right] = ('┤', Style::Dim);
     let visible = height - 4;
     if found.is_empty() {
-        canvas.put_within(top + 3, left + 2, right, "no unit or currency matches", Style::Dim);
+        canvas.put_within(top + 3, left + 2, right, "nothing matches", Style::Dim);
         return;
     }
-    let symbol_width = found.iter().map(|f| f.written().chars().count()).max().unwrap_or(0);
+    let symbol_width = found.iter().map(|f| f.written.chars().count()).max().unwrap_or(0).min(24);
+    let kind_width = 9;
     let offset = s.selected.saturating_sub(visible.saturating_sub(1));
     for (i, f) in found.iter().enumerate().skip(offset).take(visible) {
-        let style = if i == s.selected { Style::Lit } else { Style::Plain };
-        let what = match f {
-            Found::Unit(c, u) => format!("{} · {}", u.name, c.name),
-            Found::Currency(c) => format!("{} · {}", c.name, conversion(app, &c.code)),
+        let lit = i == s.selected;
+        let what = match f.kind {
+            Kind::Unit => format!("{} · {}", f.name, f.about),
+            Kind::Currency => format!("{} · {}", f.name, conversion(app, &f.written)),
+            Kind::Trivia => format!("{} · {}", f.name, f.about),
+            Kind::Setting | Kind::City => f.name.clone(),
+            Kind::History => format!("= {}", f.name),
         };
-        let text = format!(" {:<symbol_width$}  {what} ", f.written());
-        canvas.put_within(top + 3 + i - offset, left + 1, right, &text, style);
-        canvas.hit(top + 3 + i - offset, left + 1, width - 2, Target::Pick(i));
+        let row = top + 3 + i - offset;
+        if lit {
+            canvas.cells[row][left + 1..right].fill((' ', Style::Lit));
+        }
+        let col = canvas.put_within(row, left + 1, right, &format!(" {:<kind_width$}", f.kind.label()), if lit { Style::Lit } else { Style::Dim });
+        let text = format!("{:<symbol_width$}  {what} ", f.written);
+        canvas.put_within(row, col, right, &text, if lit { Style::Lit } else { Style::Plain });
+        canvas.hit(row, left + 1, width - 2, Target::Pick(i));
     }
 }
 
@@ -1297,7 +1306,8 @@ const HELP: &[(&str, &str)] = &[
     ("  F10  Alt-S", "Settings"),
     ("  F1  Alt-?", "this help"),
     ("  Alt-A", "about: version, memory, last online sync"),
-    ("  Ctrl-K", "search the units and the currencies"),
+    ("  Ctrl-K", "search units, currencies, settings, trivia,"),
+    ("", "cities, earlier requests; Enter uses it"),
     ("  Alt-O", "mouse on/off (off: the terminal selects text)"),
     ("  F9  Alt-B", "the keyboard under the request; again: hides it"),
     ("  Tab  Shift-Tab", "Basic, Sci, Units, Money; Esc back"),
@@ -1618,11 +1628,18 @@ mod tests {
         let (lines, cursor) = screen("<C-k>kilo", 24, 80);
         assert!(cursor.is_none(), "the search has its own caret");
         let text = lines.join("\n");
-        assert!(text.contains("┌─ Search units and currencies ─") && text.contains("│ / kilo▏"), "{text}");
-        assert!(text.contains("│ km ") && text.contains("kilometre · Length "), "{text}");
+        assert!(text.contains("┌─ Search units, currencies, settings, trivia, cities, history ─") && text.contains("│ / kilo▏"), "{text}");
+        assert!(text.contains("│ unit     km") && text.contains("kilometre · Length "), "{text}");
         assert!(lines[23].starts_with(" SEARCH "), "{}", lines[23]);
         let (lines, _) = screen("<C-k>zzz", 24, 80);
-        assert!(lines.join("\n").contains("no unit or currency matches"));
+        assert!(lines.join("\n").contains("nothing matches"));
+        // Other kinds: a setting by its words, a trivia entry, an earlier request.
+        let (lines, _) = screen("<C-k>precision", 24, 100);
+        assert!(lines.join("\n").contains("│ setting  precision"), "{}", lines.join("\n"));
+        let (lines, _) = screen("<C-k>voyager", 24, 100);
+        assert!(lines.join("\n").contains("│ trivia   Voyager 1"), "{}", lines.join("\n"));
+        let (lines, _) = screen("10 km mi\n<C-k>10 km", 24, 100);
+        assert!(lines.join("\n").contains("│ history  10 km mi  = 6.2137 mi"), "{}", lines.join("\n"));
     }
 
     /// The rows of the search for `query`, with rates (USD/EUR 0.9, USD/JPY 150, USD/GBP 0.8) and
@@ -1643,7 +1660,7 @@ mod tests {
     fn search_shows_currencies_against_the_local_one() {
         // The code column is as wide as the widest symbol listed: compare without the padding.
         let squeeze = |text: &str| text.split_whitespace().collect::<Vec<_>>().join(" ");
-        let has = |rows: &[String], row: &str| rows.iter().any(|r| squeeze(r).starts_with(&squeeze(row)));
+        let has = |rows: &[String], row: &str| rows.iter().any(|r| squeeze(r).starts_with(&format!("currency {}", squeeze(row))));
         // A currency: its code, its name and what one of it is in the local currency.
         let rows = search_rows("yen", Some("EUR"));
         assert!(has(&rows, "JPY  Japanese yen · 1 JPY = 0.006 EUR"), "{rows:?}");
@@ -1660,7 +1677,7 @@ mod tests {
         assert!(has(&rows, "JPY  Japanese yen · currency"), "{rows:?}");
         // Units and currencies together: the unit first, then the currencies by name.
         let rows = search_rows("pound", Some("EUR"));
-        assert!(rows[0].starts_with("lb "), "{rows:?}");
+        assert!(rows[0].starts_with("unit     lb "), "{rows:?}");
         assert!(has(&rows, "GBP  pound sterling · 1 GBP = 1.125 EUR"), "{rows:?}");
     }
 
