@@ -178,7 +178,7 @@ Interactive mode (no arguments, in a terminal): type an expression, Enter evalua
 Tab completes units, Up/Down recall earlier requests. The toolbar: F2 Measures (the
 unit classes, then their units), F3 Currencies, F4 Trivia, F5 the history, F10
 Settings; Alt+M, C, T, H, S do the same where the function keys are taken. F1 (or
-Alt+?) shows all the keys, Ctrl+K searches the units, Alt+N writes `now`, Alt+Y
+Alt+?) shows all the keys, Ctrl+K searches the units and the currencies, Alt+N writes `now`, Alt+Y
 copies the result, F9 shows or hides the keypad, Esc steps back, Ctrl+Q quits.
 
 Options:

@@ -222,7 +222,12 @@ impl<'a> App<'a> {
             Action::HistoryDown => self.recall_newer(),
             Action::ScrollUp => self.scroll = (self.scroll + SCROLL_STEP).min(self.history.entries().len().saturating_sub(1)),
             Action::ScrollDown => self.scroll = self.scroll.saturating_sub(SCROLL_STEP),
-            Action::Open(panel) => self.overlay = if panel.is(&self.overlay) { None } else { Some(panel.overlay()) },
+            Action::Open(panel) => {
+                self.overlay = if panel.is(&self.overlay) { None } else { Some(panel.overlay()) };
+                if panel == Panel::Search && self.overlay.is_some() {
+                    self.refresh_money();
+                }
+            }
             Action::FocusHistory => {
                 self.overlay = None;
                 if self.history.selected().is_some() {

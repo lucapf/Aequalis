@@ -10,7 +10,7 @@
 //!  > 100 + 20 sqft m
 //!    = …   Tab: mm2 m2 mi2
 //! ──────────────────────────────────────────────────────────────────────────────────
-//!  note: evaluated as (100 + 20) + (50 / 10)           F1 help · Ctrl+K units · Ctrl+Q quit
+//!  note: evaluated as (100 + 20) + (50 / 10)           F1 help · Ctrl+K search · Ctrl+Q quit
 //! ```
 
 use super::action::{Action, TOOLBAR};
@@ -438,7 +438,7 @@ fn status(app: &App, canvas: &mut Canvas, row: usize) {
         Some(Overlay::Currencies(_)) => (" CURRENCIES ", &[("type", "search"), ("↑↓", "choose"), ("Enter", "write"), ("<Esc>", "back")]),
         Some(Overlay::Measures(_)) => (" MEASURES ", &[("↑↓ j k", "choose"), ("letter Enter", "open"), ("<Esc>", "back")]),
         Some(Overlay::Picker(_)) => (" UNITS ", &[("←↓↑→ h j k l", "move"), ("Tab", "system"), ("Enter", "write"), ("<Esc>", "measures")]),
-        None => ("", &[("F1", "help"), ("Ctrl+K", "units"), ("Alt+Y", "copy result"), ("Ctrl+Q", "quit")]),
+        None => ("", &[("F1", "help"), ("Ctrl+K", "search"), ("Alt+Y", "copy result"), ("Ctrl+Q", "quit")]),
     };
     // The message first: the first keys go until it fits next to them, and all of them when it
     // still does not.
@@ -730,13 +730,14 @@ fn trivia_popup(app: &App, v: &super::trivia::View, canvas: &mut Canvas, rows: u
 
 /// `/`: the query, and the units matching it (symbol, name, category), the chosen one lit.
 fn search(app: &App, s: &super::search::Search, canvas: &mut Canvas, rows: usize, head: usize) {
+    use super::search::Found;
     let found = super::search::matches(app.config, &s.query);
-    let width = 60.min(canvas.cols - 3);
+    let width = 64.min(canvas.cols - 3);
     let height = (found.len().max(1) + 4).min((rows - 7 - head).max(6)).min(rows - 5);
     let top = (head + 1).min(rows - 5 - height);
     let left = canvas.cols - 2 - width;
     let right = left + width - 1;
-    canvas.boxed(top, left, height, width, "Search units");
+    canvas.boxed(top, left, height, width, "Search units and currencies");
     let col = canvas.put_within(top + 1, left + 2, right, "/ ", Style::Yellow);
     let col = canvas.put_within(top + 1, col, right, &s.query, Style::Bold);
     canvas.put_within(top + 1, col, right, "▏", Style::Yellow);
@@ -745,20 +746,35 @@ fn search(app: &App, s: &super::search::Search, canvas: &mut Canvas, rows: usize
     canvas.cells[top + 2][right] = ('┤', Style::Dim);
     let visible = height - 4;
     if found.is_empty() {
-        canvas.put_within(top + 3, left + 2, right, "no unit matches", Style::Dim);
+        canvas.put_within(top + 3, left + 2, right, "no unit or currency matches", Style::Dim);
         return;
     }
-    let symbol_width = found.iter().map(|(_, u)| u.symbol.chars().count()).max().unwrap_or(0);
+    let symbol_width = found.iter().map(|f| f.written().chars().count()).max().unwrap_or(0);
     let offset = s.selected.saturating_sub(visible.saturating_sub(1));
-    for (i, (c, u)) in found.iter().enumerate().skip(offset).take(visible) {
+    for (i, f) in found.iter().enumerate().skip(offset).take(visible) {
         let style = if i == s.selected { Style::Lit } else { Style::Plain };
-        let text = format!(" {:<symbol_width$}  {} · {} ", u.symbol, u.name, c.name);
+        let what = match f {
+            Found::Unit(c, u) => format!("{} · {}", u.name, c.name),
+            Found::Currency(c) => format!("{} · {}", c.name, conversion(app, &c.code)),
+        };
+        let text = format!(" {:<symbol_width$}  {what} ", f.written());
         canvas.put_within(top + 3 + i - offset, left + 1, right, &text, style);
     }
 }
 
-/// The Measures: the unit classes, one per row with its letter and a few of its units. Top-right
-/// in the history, like the unit keys.
+/// How a currency stands against the local one: `1 EUR = 1.0850 USD`, `your currency` for the
+/// local one itself, `currency` when there is no local currency or no rate to give.
+fn conversion(app: &App, code: &str) -> String {
+    match app.local_currency {
+        Some(local) if local == code => "your currency".to_string(),
+        Some(local) => match aequalis::currency::rate(&app.rates, code, local) {
+            Some(rate) => format!("1 {code} = {} {local}", aequalis::convert::format_value(rate, 4)),
+            None => "currency, no rate".to_string(),
+        },
+        None => "currency".to_string(),
+    }
+}
+
 fn measures(app: &App, v: &super::measures::View, canvas: &mut Canvas, rows: usize, head: usize) {
     use super::measures::{items, label, Item};
     let items = items(app.config);
@@ -1038,7 +1054,7 @@ const HELP: &[(&str, &str)] = &[
     ("  F10  Alt-S", "Settings"),
     ("  F1  Alt-?", "this help"),
     ("  Alt-A", "about: version, memory, last online sync"),
-    ("  Ctrl-K", "search the units"),
+    ("  Ctrl-K", "search the units and the currencies"),
     ("  F9", "show / hide the keypad over the history"),
     ("  the same key again", "closes the window"),
     ("The history in focus (F5)", ""),
@@ -1175,7 +1191,7 @@ mod tests {
         assert!(lines[11].contains("Tab: mm2 m2 mi2"), "{}", lines[11]);
         assert!(lines[12].chars().all(|c| c == '─'));
         assert!(lines[13].starts_with(" note: evaluated as (100 + 20) / 120"), "{}", lines[13]);
-        assert!(lines[13].ends_with("F1 help · Ctrl+K units · Alt+Y copy result · Ctrl+Q quit"), "{}", lines[13]);
+        assert!(lines[13].ends_with("F1 help · Ctrl+K search · Alt+Y copy result · Ctrl+Q quit"), "{}", lines[13]);
         assert_eq!(cursor, Some((10, 19)));
         // No mode: nothing says "INPUT" or "COMMAND".
         assert!(!lines.join("\n").contains("INPUT") && !lines.join("\n").contains("COMMAND"));
@@ -1215,7 +1231,7 @@ mod tests {
     #[test]
     fn status_line_and_cursor() {
         let (lines, cursor) = screen("10 km", 12, 80);
-        assert!(lines[11].ends_with("F1 help · Ctrl+K units · Alt+Y copy result · Ctrl+Q quit"), "{}", lines[11]);
+        assert!(lines[11].ends_with("F1 help · Ctrl+K search · Alt+Y copy result · Ctrl+Q quit"), "{}", lines[11]);
         assert_eq!(cursor, Some((8, 9)), "the cursor in the request, at the end");
         // Narrow: the first hints go.
         let (lines, _) = screen("10 km", 12, 40);
@@ -1333,11 +1349,61 @@ mod tests {
         let (lines, cursor) = screen("<C-k>kilo", 24, 80);
         assert!(cursor.is_none(), "the search has its own caret");
         let text = lines.join("\n");
-        assert!(text.contains("┌─ Search units ─") && text.contains("│ / kilo▏"), "{text}");
-        assert!(text.contains("│ km       kilometre · Length "), "{text}");
+        assert!(text.contains("┌─ Search units and currencies ─") && text.contains("│ / kilo▏"), "{text}");
+        assert!(text.contains("│ km ") && text.contains("kilometre · Length "), "{text}");
         assert!(lines[23].starts_with(" SEARCH "), "{}", lines[23]);
         let (lines, _) = screen("<C-k>zzz", 24, 80);
-        assert!(lines.join("\n").contains("no unit matches"));
+        assert!(lines.join("\n").contains("no unit or currency matches"));
+    }
+
+    /// The rows of the search for `query`, with rates (USD/EUR 0.9, USD/JPY 150, USD/GBP 0.8) and
+    /// the local currency EUR (`local`) or none.
+    fn search_rows(query: &str, local: Option<&'static str>) -> Vec<String> {
+        use aequalis::online::{Data, Stored};
+        let config = Config::default();
+        let opts = OPTS;
+        let mut app = app_after(&config, &opts, &format!("<C-k>{query}"));
+        let rate = |name: &str, value: f64| (name.to_string(), Stored { value, at: 1 });
+        app.rates = std::sync::Arc::new(Data { values: vec![rate("USD/EUR", 0.9), rate("USD/JPY", 150.0), rate("USD/GBP", 0.8)], ..Data::default() });
+        app.local_currency = local;
+        let lines: Vec<String> = render(&app, 24, 100).lines.iter().map(|l| plain(l)).collect();
+        lines.iter().filter_map(|l| l.split_once("│ ").map(|(_, rest)| rest.trim_end_matches(['│', ' ']).to_string())).filter(|r| !r.starts_with('/')).collect()
+    }
+
+    #[test]
+    fn search_shows_currencies_against_the_local_one() {
+        // The code column is as wide as the widest symbol listed: compare without the padding.
+        let squeeze = |text: &str| text.split_whitespace().collect::<Vec<_>>().join(" ");
+        let has = |rows: &[String], row: &str| rows.iter().any(|r| squeeze(r).starts_with(&squeeze(row)));
+        // A currency: its code, its name and what one of it is in the local currency.
+        let rows = search_rows("yen", Some("EUR"));
+        assert!(has(&rows, "JPY  Japanese yen · 1 JPY = 0.006 EUR"), "{rows:?}");
+        let rows = search_rows("gbp", Some("EUR"));
+        assert!(has(&rows, "GBP  pound sterling · 1 GBP = 1.125 EUR"), "{rows:?}");
+        let rows = search_rows("usd", Some("EUR"));
+        assert!(has(&rows, "USD  US dollar · 1 USD = 0.9 EUR"), "{rows:?}");
+        // The local one itself, one without a rate, and no local currency.
+        let rows = search_rows("eur", Some("EUR"));
+        assert!(has(&rows, "EUR  euro · your currency"), "{rows:?}");
+        let rows = search_rows("kpw", Some("EUR"));
+        assert!(has(&rows, "KPW  North Korean won · currency, no rate"), "{rows:?}");
+        let rows = search_rows("yen", None);
+        assert!(has(&rows, "JPY  Japanese yen · currency"), "{rows:?}");
+        // Units and currencies together: the unit first, then the currencies by name.
+        let rows = search_rows("pound", Some("EUR"));
+        assert!(rows[0].starts_with("lb "), "{rows:?}");
+        assert!(has(&rows, "GBP  pound sterling · 1 GBP = 1.125 EUR"), "{rows:?}");
+    }
+
+    #[test]
+    fn search_writes_a_currency() {
+        let config = Config::default();
+        let opts = OPTS;
+        let app = app_after(&config, &opts, "10 <C-k>yen\n");
+        assert_eq!(app.line.text(), "10 JPY ");
+        assert!(app.overlay.is_none());
+        let app = app_after(&config, &opts, "10 km <C-k>gbp\n");
+        assert_eq!(app.line.text(), "10 km GBP ");
     }
 
     #[test]

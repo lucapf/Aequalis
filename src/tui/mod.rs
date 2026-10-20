@@ -4,7 +4,7 @@
 //! F10 Settings), the history of expressions and results as a scrollback, the request line with
 //! its live result and suggestions, and a status line. There are no modes: typing always edits
 //! the request. Every toolbar entry has an Alt letter too (Alt+M, C, T, H, S), for terminals that
-//! keep the function keys; F1 / Alt+? is the help, Ctrl+K searches the units, F9 shows / hides the
+//! keep the function keys; F1 / Alt+? is the help, Ctrl+K searches the units and the currencies, F9 shows / hides the
 //! keypad, Alt+Y copies the result, Alt+N writes `now`, Ctrl+Q quits. ↑ ↓ recall earlier requests
 //! as in a shell; F5 puts the history in focus (↑ ↓ choose, Enter recalls, Alt+Y copies, Del
 //! removes). Esc steps back: the open window, the history focus, the Tab cycle, the status
@@ -106,6 +106,11 @@ pub struct App<'a> {
     /// The background sync started from here (to reap), and when expiry was last checked.
     sync: Option<std::process::Child>,
     sync_checked: Option<Instant>,
+    /// The exchange rates and the local currency, for the search's currencies (read when it opens,
+    /// and only in a real session: `live`, never in the tests).
+    rates: std::sync::Arc<aequalis::online::Data>,
+    local_currency: Option<&'static str>,
+    live: bool,
     /// The `offline` setting (read once).
     forced_offline: bool,
     /// The entry of the history recalled into the line by ↑ ↓ (as in a shell), and the text the
@@ -152,6 +157,9 @@ impl<'a> App<'a> {
             online_stamp: None,
             sync: None,
             sync_checked: None,
+            rates: std::sync::Arc::default(),
+            local_currency: None,
+            live: false,
             forced_offline: aequalis::network::mode() == aequalis::network::Mode::Offline,
             recall: None,
             draft: None,
@@ -294,7 +302,15 @@ impl<'a> App<'a> {
         }
     }
 
-    /// The search's keys: typing edits the query, ↑ ↓ choose, Enter writes the unit.
+    /// The rates and the local currency as they are now, for the currencies the search shows.
+    pub(super) fn refresh_money(&mut self) {
+        if self.live {
+            self.rates = aequalis::currency::load();
+            self.local_currency = aequalis::currency::local().ok().flatten().map(|local| local.code);
+        }
+    }
+
+    /// The search's keys: typing edits the query, ↑ ↓ choose, Enter writes the unit or the currency.
     fn search_key(&mut self, key: Key) {
         let Some(Overlay::Search(s)) = &mut self.overlay else { return };
         let found = search::matches(self.config, &s.query).len();
@@ -311,9 +327,9 @@ impl<'a> App<'a> {
             Key::Down | Key::Tab if found > 0 => s.selected = (s.selected + 1) % found,
             Key::Up | Key::BackTab if found > 0 => s.selected = (s.selected + found - 1) % found,
             Key::Enter => {
-                let chosen = search::matches(self.config, &s.query).get(s.selected).map(|(_, u)| u.symbol);
+                let chosen = search::matches(self.config, &s.query).get(s.selected).map(|found| found.written().to_string());
                 if let Some(unit) = chosen {
-                    let line = picker::place_unit(&self.line.text(), self.line.cursor(), unit);
+                    let line = picker::place_unit(&self.line.text(), self.line.cursor(), &unit);
                     self.line.set(&line);
                     self.overlay = None;
                 }
@@ -651,6 +667,7 @@ pub fn run(config: &Config, opts: &Options) -> ExitCode {
 
     let mut app = App::new(config, opts);
     app.system_clipboard = true;
+    app.live = true;
     app.refresh_online();
     // Notices (the `notify` refresh policies): in the status bar at the start.
     let notices = aequalis::notify::current();

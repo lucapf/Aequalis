@@ -560,8 +560,7 @@ fn convert(amount: &str, money: &[Piece], ctx: &Context) -> Result<Converted, Er
             false => "no exchange rates: they were never downloaded, and the offline setting is on".to_string(),
         }));
     };
-    let per_dollar = |code: &str| if code == "USD" { Some(1.0) } else { ctx.rates.get(&rate_name(code)).map(|s| s.value) };
-    let (a, b) = match (per_dollar(from), per_dollar(to)) {
+    let (a, b) = match (per_dollar(&ctx.rates, from), per_dollar(&ctx.rates, to)) {
         (Some(a), Some(b)) => (a, b),
         (None, _) => return Err(Error::NoRates(format!("no exchange rate for the {} ({from})", name(from)))),
         (_, None) => return Err(Error::NoRates(format!("no exchange rate for the {} ({to})", name(to)))),
@@ -697,6 +696,20 @@ pub fn path() -> Option<PathBuf> {
 pub fn load() -> Arc<Data> {
     static RATES: crate::files::Cached<Data> = crate::files::Cached::new();
     path().and_then(|path| RATES.get(&path, || Some(crate::online::load_from(&path)))).unwrap_or_default()
+}
+
+/// How many of `code` one US dollar buys, from the stored rates.
+fn per_dollar(rates: &Data, code: &str) -> Option<f64> {
+    if code == "USD" {
+        Some(1.0)
+    } else {
+        rates.get(&rate_name(code)).map(|s| s.value)
+    }
+}
+
+/// How many `to` one `from` buys, from the stored `rates`; `None` when either has no rate.
+pub fn rate(rates: &Data, from: &str, to: &str) -> Option<f64> {
+    Some(per_dollar(rates, to)? / per_dollar(rates, from)?)
 }
 
 /// Its name in the file: `USD/EUR`, how many of it one US dollar buys.
@@ -1039,6 +1052,17 @@ mod tests {
             assert!(matches!(with(input, Some("EUR")), Some(Err(Error::Usage(_))) | None), "{input}");
         }
         assert_eq!(with("12 usd eur chf", Some("EUR")).unwrap(), Err(Error::Usage(SHAPE.into())));
+    }
+
+    #[test]
+    fn rate_between_two_currencies() {
+        let r = rates();
+        assert_eq!(rate(&r, "USD", "EUR"), Some(0.8945));
+        assert_eq!(rate(&r, "EUR", "USD"), Some(1.0 / 0.8945));
+        assert_eq!(rate(&r, "EUR", "EUR"), Some(1.0));
+        assert_eq!(rate(&r, "EUR", "JPY"), Some(158.6 / 0.8945));
+        assert_eq!(rate(&r, "EUR", "KPW"), None, "no rate for one of them");
+        assert_eq!(rate(&Data::default(), "USD", "EUR"), None, "no rates at all");
     }
 
     #[test]
