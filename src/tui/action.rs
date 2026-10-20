@@ -50,11 +50,12 @@ pub struct Tool {
 }
 
 /// The toolbar, left to right.
-pub const TOOLBAR: [Tool; 5] = [
+pub const TOOLBAR: [Tool; 6] = [
     Tool { fkey: 2, alt: 'm', label: "Measures", short: "Meas", action: Action::Open(Panel::Measures) },
     Tool { fkey: 3, alt: 'c', label: "Currencies", short: "Curr", action: Action::Open(Panel::Currencies) },
     Tool { fkey: 4, alt: 't', label: "Trivia", short: "Triv", action: Action::Open(Panel::Trivia) },
     Tool { fkey: 5, alt: 'h', label: "History", short: "Hist", action: Action::FocusHistory },
+    Tool { fkey: 9, alt: 'b', label: "Keys", short: "Keys", action: Action::ToggleKeypad },
     Tool { fkey: 10, alt: 's', label: "⚙", short: "⚙", action: Action::Open(Panel::Settings) },
 ];
 
@@ -151,7 +152,6 @@ impl<'a> App<'a> {
         }
         match key {
             Key::F(1) => Some(Action::Help),
-            Key::F(9) => Some(Action::ToggleKeypad),
             Key::F(n) => TOOLBAR.iter().find(|t| t.fkey == n).map(|t| t.action),
             Key::Ctrl('k') => Some(Action::Open(Panel::Search)),
             Key::Alt(c) => match c.to_ascii_lowercase() {

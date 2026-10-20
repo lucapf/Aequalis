@@ -2,7 +2,7 @@
 //! styled cells, so the picker and the help can be drawn over the sections.
 //!
 //! ```text
-//!  F2 Measures  F3 Currencies  F4 Trivia  F5 History  F10 ⚙                    ● online
+//!  F2 Measures  F3 Currencies  F4 Trivia  F5 History  F9 Keys  F10 ⚙           ● online
 //! ──────────────────────────────────────────────────────────────────────────────────
 //!    10 km mi            = 6.2137 mi
 //!    (10+12-3)/4Km Mi    = 2.9515 mi
@@ -237,6 +237,14 @@ fn toolbar(app: &App, canvas: &mut Canvas) {
         let lit = match tool.action {
             Action::Open(panel) => panel.is(&app.overlay),
             Action::FocusHistory => app.history.selected().is_some(),
+            // Lit while the keypad is what the band shows.
+            Action::ToggleKeypad => {
+                app.keypad != Keypad::Hidden
+                    && !matches!(
+                        &app.overlay,
+                        Some(Overlay::Measures(_) | Overlay::Picker(_) | Overlay::Currencies(_) | Overlay::Trivia(_) | Overlay::Search(_))
+                    )
+            }
             _ => false,
         };
         let (key, name) = parts(tool, tier);
@@ -1071,7 +1079,7 @@ const HELP: &[(&str, &str)] = &[
     ("  F1  Alt-?", "this help"),
     ("  Alt-A", "about: version, memory, last online sync"),
     ("  Ctrl-K", "search the units and the currencies"),
-    ("  F9", "the keypad under the request: Basic, Sci, hidden"),
+    ("  F9  Alt-B", "the keypad under the request: Basic, Sci, hidden"),
     ("  the same key again", "closes the window"),
     ("The history in focus (F5)", ""),
     ("  ↑/↓", "choose an entry"),
@@ -1197,7 +1205,7 @@ mod tests {
         assert_eq!(lines.len(), 14);
         // The toolbar, then a rule, the history as a scrollback (newest at the bottom), a rule,
         // the request line, its result and suggestions, a rule, the status line.
-        assert!(lines[0].starts_with(" F2 Measures  F3 Currencies  F4 Trivia  F5 History  F10 ⚙ "), "{}", lines[0]);
+        assert!(lines[0].starts_with(" F2 Measures  F3 Currencies  F4 Trivia  F5 History  F9 Keys  F10 ⚙ "), "{}", lines[0]);
         assert!(lines[1].chars().all(|c| c == '─'), "{}", lines[1]);
         assert!(lines[2..7].iter().all(|l| !l.contains("km")), "{lines:?}");
         assert!(lines[7].starts_with("    10 km mi      = 6.2137 mi"), "{}", lines[7]);
@@ -1217,7 +1225,7 @@ mod tests {
     fn toolbar() {
         // The online indicator at the right; the open window lit (the style, not the text).
         let (lines, _) = screen("", 12, 100);
-        assert!(lines[0].starts_with(" F2 Measures  F3 Currencies  F4 Trivia  F5 History  F10 ⚙ "), "{}", lines[0]);
+        assert!(lines[0].starts_with(" F2 Measures  F3 Currencies  F4 Trivia  F5 History  F9 Keys  F10 ⚙ "), "{}", lines[0]);
         assert!(lines[0].contains('●') || lines[0].contains('○'), "{}", lines[0]);
         let lit = |keys: &str, cols: usize| {
             let config = Config::default();
@@ -1231,17 +1239,26 @@ mod tests {
         assert_eq!(lit("<A-c>", 100), [" F3 Currencies"]);
         assert_eq!(lit("<F4>", 100), [" F4 Trivia"]);
         assert_eq!(lit("<F10>", 100), [" F10 ⚙"]);
+        // The keypad's key is lit while the keypad is shown: it says how to bring it, and back.
+        assert_eq!(lit("<F9>", 100), [" F9 Keys"]);
+        assert_eq!(lit("<A-b><A-b>", 100), [" F9 Keys"], "Basic, then Sci");
+        assert!(lit("<F9><F9><F9>", 100).is_empty(), "hidden again");
+        assert!(lit("<F9><F2>", 100).iter().all(|l| l != " F9 Keys"), "a panel has taken the band");
         assert_eq!(lit("1\n<F5>", 100), [" F5 History"], "the history in focus");
         assert!(lit("<F1>", 100).is_empty(), "the help is not on the toolbar");
         // The Measures' unit keys are the Measures'.
         assert_eq!(lit("<F2>L", 100), [" F2 Measures"]);
+        // At 80 columns the full names and the online indicator both fit.
+        let (lines, _) = screen("", 12, 80);
+        assert!(lines[0].starts_with(" F2 Measures  F3 Currencies  F4 Trivia  F5 History  F9 Keys  F10 ⚙"), "{}", lines[0]);
+        assert!(lines[0].contains('●') || lines[0].contains('○'), "the indicator at 80 columns: {}", lines[0]);
         // Narrower: the short names, then the keys alone.
         let (lines, _) = screen("", 12, 60);
-        assert!(lines[0].starts_with(" F2 Measures  F3 Currencies  F4 Trivia  F5 History  F10 ⚙"), "{}", lines[0]);
+        assert!(lines[0].starts_with(" F2 Meas  F3 Curr  F4 Triv  F5 Hist  F9 Keys  F10 ⚙"), "{}", lines[0]);
         let (lines, _) = screen("", 12, 50);
-        assert!(lines[0].starts_with(" F2 Meas  F3 Curr  F4 Triv  F5 Hist  F10 ⚙"), "{}", lines[0]);
+        assert!(lines[0].starts_with(" F2  F3  F4  F5  F9  F10"), "{}", lines[0]);
         let (lines, _) = screen("", 12, 40);
-        assert!(lines[0].starts_with(" F2  F3  F4  F5  F10"), "{}", lines[0]);
+        assert!(lines[0].starts_with(" F2  F3  F4  F5  F9  F10"), "{}", lines[0]);
     }
 
     #[test]
@@ -1620,12 +1637,14 @@ mod tests {
             plain(&render(&app, 12, cols).lines[0])
         };
         // Top right, on the toolbar's line; "not synced" before the first sync.
-        assert!(top(Status::Checking, 80).ends_with(" ○ not synced"), "{}", top(Status::Checking, 80));
-        assert!(top(Status::Online, 80).ends_with(" ● online"));
-        assert!(top(Status::Offline, 80).ends_with(" ● offline"));
-        assert!(top(Status::Forced, 80).ends_with(" ● offline (forced)"));
+        assert!(top(Status::Checking, 100).ends_with(" ○ not synced"), "{}", top(Status::Checking, 100));
+        assert!(top(Status::Online, 100).ends_with(" ● online"));
+        assert!(top(Status::Offline, 100).ends_with(" ● offline"));
+        assert!(top(Status::Forced, 100).ends_with(" ● offline (forced)"));
+        // At 80 columns the toolbar leaves room for the short ones.
+        assert!(top(Status::Online, 80).ends_with(" ● online"), "{}", top(Status::Online, 80));
+        assert!(top(Status::Forced, 80).ends_with(" ● offline"), "{}", top(Status::Forced, 80));
         // Narrow: the short label, else none.
-        assert!(top(Status::Forced, 72).ends_with(" ● offline"), "{}", top(Status::Forced, 72));
         assert!(top(Status::Forced, 40).ends_with(" ● offline"), "{}", top(Status::Forced, 40));
     }
 
@@ -1768,14 +1787,14 @@ mod tests {
         let opts = Options { positional: Vec::new(), precision: 4, silent: false, verbose: false };
         let mut app = App::new(&config, &opts);
         app.keypad = Keypad::Basic;
-        // The lit key, and the lit tab of the keypad (Basic).
+        // The lit key, the lit tab of the keypad (Basic), and the toolbar's Keys.
         let lit = |frame: &Frame| frame.lines.iter().map(|l| l.matches("\x1b[1;30;43m").count()).sum::<usize>();
         for digit in "0123456789".chars() {
             app.handle(Key::Char(digit));
             let frame = render(&app, 24, 80);
             let with_digit: Vec<_> = frame.lines.iter().filter(|l| l.contains(&format!("\x1b[1;30;43m  {digit}  "))).collect();
             assert_eq!(with_digit.len(), 1, "{digit} lit");
-            assert_eq!(lit(&frame), 2, "only {digit} and the tab lit");
+            assert_eq!(lit(&frame), 3, "only {digit}, the tab and the toolbar's Keys lit");
         }
         // The operators, as typed, and Backspace and Enter.
         for (typed, key) in [('x', '×'), ('/', '÷'), ('-', '−'), ('+', '+'), ('(', '(')] {

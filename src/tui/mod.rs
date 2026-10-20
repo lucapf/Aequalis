@@ -4,7 +4,7 @@
 //! F10 Settings), the history of expressions and results as a scrollback, the request line with
 //! its live result and suggestions, the band (the keypad when asked for, or the panel of a
 //! window, which takes the rows it needs), and a status line. There are no modes: typing always edits
-//! the request. Every toolbar entry has an Alt letter too (Alt+M, C, T, H, S), for terminals that
+//! the request. Every toolbar entry has an Alt letter too (Alt+M, C, T, H, B, S), for terminals that
 //! keep the function keys; F1 / Alt+? is the help, Ctrl+K searches the units and the currencies, F9 shows the
 //! keypad (Basic, then Sci) and hides it, Alt+Y copies the result, Alt+N writes `now`, Ctrl+Q quits. ↑ ↓ recall earlier requests
 //! as in a shell; F5 puts the history in focus (↑ ↓ choose, Enter recalls, Alt+Y copies, Del
@@ -781,8 +781,8 @@ mod tests {
             assert_eq!(app.global_keymap(Key::Alt(t.alt)), Some(t.action), "{}", t.label);
             assert_eq!(app.global_keymap(Key::Alt(t.alt.to_ascii_uppercase())), Some(t.action), "Alt+Shift works too");
             assert!(TOOLBAR[i + 1..].iter().all(|o| o.fkey != t.fkey && o.alt != t.alt), "{} shares a key", t.label);
-            // Not F1 (help), F9 (keypad) or an Alt letter of another command.
-            assert!(![1, 9].contains(&t.fkey) && !['a', 'n', 'y', 'k', 'q'].contains(&t.alt), "{}", t.label);
+            // Not F1 (help) or an Alt letter of another command.
+            assert!(![1].contains(&t.fkey) && !['a', 'n', 'y', 'k', 'q'].contains(&t.alt), "{}", t.label);
         }
         for (key, panel, is) in [
             (Key::F(2), Panel::Measures, (|o: &Option<Overlay>| matches!(o, Some(Overlay::Measures(_)))) as fn(&Option<Overlay>) -> bool),
