@@ -121,30 +121,22 @@ pub struct Entry {
     pub result: Result<String, String>,
 }
 
-/// Evaluated expressions, oldest first, capped at `cap` entries. Browsing highlights one; the bar
-/// is not changed (Enter writes the expression into it, `C` copies the result).
+/// Evaluated expressions, oldest first, capped at `cap` entries. The History panel lists them.
 pub struct History {
     entries: VecDeque<Entry>,
     cap: usize,
-    /// The entry highlighted while browsing.
-    pos: Option<usize>,
 }
 
 impl History {
     pub fn new(cap: usize) -> Self {
-        History { entries: VecDeque::new(), cap, pos: None }
+        History { entries: VecDeque::new(), cap }
     }
 
     pub fn entries(&self) -> &VecDeque<Entry> {
         &self.entries
     }
 
-    pub fn selected(&self) -> Option<usize> {
-        self.pos
-    }
-
     pub fn push(&mut self, entry: Entry) {
-        self.pos = None;
         if self.cap == 0 {
             return;
         }
@@ -154,35 +146,9 @@ impl History {
         self.entries.push_back(entry);
     }
 
-    /// The entry highlighted, if browsing.
-    pub fn highlighted(&self) -> Option<&Entry> {
-        self.entries.get(self.pos?)
-    }
-
-    /// Highlights the next older entry (the newest first); stays on the oldest.
-    pub fn up(&mut self) {
-        self.pos = match self.pos {
-            None if self.entries.is_empty() => None,
-            None => Some(self.entries.len() - 1),
-            Some(p) => Some(p.saturating_sub(1)),
-        };
-    }
-
-    /// Highlights the next newer entry; after the newest, none (browsing ends).
-    pub fn down(&mut self) {
-        self.pos = self.pos.and_then(|p| (p + 1 < self.entries.len()).then_some(p + 1));
-    }
-
-    pub fn stop_browsing(&mut self) {
-        self.pos = None;
-    }
-
-    /// Removes the highlighted entry; the one after it is highlighted, else the new last, else
-    /// browsing ends.
-    pub fn remove_highlighted(&mut self) {
-        let Some(p) = self.pos else { return };
-        self.entries.remove(p);
-        self.pos = (!self.entries.is_empty()).then(|| p.min(self.entries.len() - 1));
+    /// Removes the entry at `index` (oldest first).
+    pub fn remove(&mut self, index: usize) {
+        self.entries.remove(index);
     }
 }
 
@@ -264,57 +230,16 @@ mod tests {
     }
 
     #[test]
-    fn browse_highlights() {
-        let mut h = History::new(10);
-        h.up();
-        assert_eq!(h.selected(), None, "nothing to browse");
-        for e in ["1+1", "10 km mi", "2^8"] {
-            h.push(entry(e));
-        }
-        let shown = |h: &History| h.highlighted().map(|e| e.input.clone());
-        h.up();
-        assert_eq!(shown(&h).as_deref(), Some("2^8"));
-        h.up();
-        h.up();
-        h.up();
-        assert_eq!((shown(&h).as_deref(), h.selected()), (Some("1+1"), Some(0)), "stays on the oldest");
-        h.down();
-        assert_eq!(shown(&h).as_deref(), Some("10 km mi"));
-        h.down();
-        h.down();
-        assert_eq!(h.selected(), None, "after the newest: none");
-        h.down();
-        assert_eq!(h.selected(), None);
-    }
-
-    #[test]
-    fn remove_highlighted_entry() {
+    fn remove_an_entry() {
         let mut h = History::new(10);
         for e in ["a", "b", "c"] {
             h.push(entry(e));
         }
-        h.remove_highlighted();
-        assert_eq!(h.entries().len(), 3, "nothing highlighted: nothing removed");
-        h.up();
-        h.up();
-        h.remove_highlighted();
         let inputs = |h: &History| h.entries().iter().map(|e| e.input.clone()).collect::<Vec<_>>();
-        assert_eq!((inputs(&h), h.highlighted().map(|e| e.input.as_str())), (vec!["a".into(), "c".into()], Some("c")));
-        h.remove_highlighted();
-        assert_eq!((inputs(&h), h.highlighted().map(|e| e.input.as_str())), (vec!["a".into()], Some("a")));
-        h.remove_highlighted();
-        assert_eq!((h.entries().len(), h.selected()), (0, None));
-    }
-
-    #[test]
-    fn push_ends_browsing() {
-        let mut h = History::new(10);
-        h.push(entry("1"));
-        h.up();
-        h.push(entry("2"));
-        assert_eq!(h.selected(), None);
-        h.up();
-        assert_eq!(h.highlighted().map(|e| e.input.as_str()), Some("2"));
+        h.remove(1);
+        assert_eq!(inputs(&h), ["a", "c"]);
+        h.remove(5);
+        assert_eq!(h.entries().len(), 2, "no such entry: nothing removed");
     }
 
     #[test]

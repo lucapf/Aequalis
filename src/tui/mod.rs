@@ -19,6 +19,7 @@ mod action;
 mod clipboard;
 mod currencies;
 mod editor;
+mod history_panel;
 mod keys;
 mod measures;
 mod picker;
@@ -64,6 +65,8 @@ pub enum Overlay {
     Trivia(trivia::View),
     /// `/`: searching the units.
     Search(search::Search),
+    /// F5: the requests evaluated, to recall, copy or remove.
+    History(history_panel::View),
     /// `A`: the logo, the version, memory, the last online sync.
     About,
     /// `O`: the settings.
@@ -216,7 +219,7 @@ impl<'a> App<'a> {
 
     /// Whether the keyboard is on screen (not hidden, a terminal tall enough, no window over it).
     fn keyboard_shown(&self) -> bool {
-        self.keypad != Keypad::Hidden && self.screen.0 >= render::KEYPAD_FROM && !matches!(self.overlay, Some(Overlay::Measures(_) | Overlay::Picker(_) | Overlay::Currencies(_) | Overlay::Trivia(_) | Overlay::Search(_)))
+        self.keypad != Keypad::Hidden && self.screen.0 >= render::KEYPAD_FROM && !matches!(self.overlay, Some(Overlay::Measures(_) | Overlay::Picker(_) | Overlay::Currencies(_) | Overlay::Trivia(_) | Overlay::Search(_) | Overlay::History(_)))
     }
 
     /// The layout the keyboard opens on: Sci when it fits with the shortcuts, else Basic.
@@ -530,14 +533,10 @@ impl<'a> App<'a> {
         self.pressed = match (key, &self.overlay) {
             (Key::Char('x'), None) => Some('*'),
             (Key::Char(c), None) => Some(c),
-            (Key::Enter, None) if self.history.selected().is_none() => Some('='),
+            (Key::Enter, None) => Some('='),
             (Key::Backspace, None) => Some('⌫'),
             _ => None,
         };
-        // Browsing the history (F5, then ↑ ↓): its own keys first.
-        if self.overlay.is_none() && self.history.selected().is_some() && self.browse_key(key) {
-            return;
-        }
         if self.overlay.is_none() && self.keyboard_key(key) {
             return;
         }
@@ -547,6 +546,7 @@ impl<'a> App<'a> {
             Some(Overlay::Currencies(_)) => self.currencies_key(key),
             Some(Overlay::Trivia(_)) => self.trivia_key(key),
             Some(Overlay::Search(_)) => self.search_key(key),
+            Some(Overlay::History(_)) => self.history_key(key),
             Some(Overlay::Settings(ref mut view)) => {
                 if !settings::key(view, key) {
                     self.overlay = None;
@@ -636,33 +636,59 @@ impl<'a> App<'a> {
         }
     }
 
-    /// The keys while an entry of the history is in focus (F5): ↑ ↓ choose, Enter writes its
-    /// request into the line, Del removes it, Esc leaves the focus. Any other key leaves the focus
-    /// and does what it does (`false`).
-    fn browse_key(&mut self, key: Key) -> bool {
+    /// The History panel's keys: typing filters, ↑ ↓ choose (Ctrl+P, Ctrl+N too), Enter writes the
+    /// request into the line, Del removes it, Esc closes.
+    fn history_key(&mut self, key: Key) {
+        let Some(Overlay::History(v)) = &mut self.overlay else { return };
+        let found = history_panel::matches(&self.history, &v.query);
         match key {
-            Key::Up | Key::Ctrl('p') => self.history.up(),
-            Key::Down | Key::Ctrl('n') => self.history.down(),
+            Key::Esc => self.overlay = None,
+            Key::Char(c) => {
+                v.query.push(c);
+                v.selected = 0;
+            }
+            Key::Backspace => {
+                v.query.pop();
+                v.selected = 0;
+            }
+            Key::Down | Key::Tab | Key::Ctrl('n') if !found.is_empty() => v.selected = (v.selected + 1) % found.len(),
+            Key::Up | Key::BackTab | Key::Ctrl('p') if !found.is_empty() => v.selected = (v.selected + found.len() - 1) % found.len(),
             Key::Enter => {
-                if let Some(input) = self.history.highlighted().map(|e| e.input.clone()) {
-                    self.line.set(&input);
+                if let Some(&i) = found.get(v.selected) {
+                    self.recall_entry(i);
                 }
-                self.history.stop_browsing();
             }
-            Key::Delete => self.history.remove_highlighted(),
-            Key::Esc => self.history.stop_browsing(),
-            _ => {
-                self.history.stop_browsing();
-                return false;
+            Key::Delete => {
+                if let Some(&i) = found.get(v.selected) {
+                    self.history.remove(i);
+                    v.selected = v.selected.min(found.len().saturating_sub(2));
+                }
             }
+            _ => {}
         }
-        true
     }
 
-    /// Alt+Y: the highlighted entry's result, else the answer of the line, else the last one in
+    /// Entry `i` of the history (oldest first): its request into the line, the panel closed.
+    fn recall_entry(&mut self, i: usize) {
+        if let Some(input) = self.history.entries().get(i).map(|e| e.input.clone()) {
+            self.recall = None;
+            self.line.set(&input);
+            self.overlay = None;
+        }
+    }
+
+    /// The entry the History panel has chosen (oldest first).
+    fn chosen_entry(&self) -> Option<usize> {
+        match &self.overlay {
+            Some(Overlay::History(v)) => history_panel::matches(&self.history, &v.query).get(v.selected).copied(),
+            _ => None,
+        }
+    }
+
+    /// Alt+Y: the chosen entry's result (in the History panel), else the answer of the line, else the last one in
     /// the history, to the clipboard.
     fn copy_answer(&mut self) {
-        let result = match self.history.highlighted().map(|e| e.result.clone()) {
+        let result = match self.chosen_entry().and_then(|i| self.history.entries().get(i)).map(|e| e.result.clone()) {
             Some(Ok(result)) => result,
             Some(Err(_)) => return self.status = Some((StatusKind::Warning, "nothing to copy: that entry is an error".into())),
             None => match self.preview() {
@@ -1107,7 +1133,7 @@ mod tests {
         app.handle(Key::Alt('y'));
         assert_eq!(app.copied, None);
         assert!(matches!(&app.status, Some((StatusKind::Warning, m)) if m.contains("nothing to copy")));
-        // In focus, Alt+Y copies the entry's result.
+        // In the History panel Alt+Y copies the chosen entry's result.
         app.handle(Key::Esc);
         typed(&mut app, "2^8");
         app.handle(Key::Enter);
@@ -1115,9 +1141,9 @@ mod tests {
         app.handle(Key::Alt('y'));
         assert_eq!(app.copied.as_deref(), Some("256"));
         assert_eq!(app.status, Some((StatusKind::Note, "copied 256".into())));
-        // In focus, `c` is not a command: it leaves the focus and is typed.
+        // In the panel typing filters: `c` is not a command.
         app.handle(Key::Char('c'));
-        assert_eq!((app.history.selected(), app.line.text()), (None, "c".to_string()));
+        assert!(matches!(&app.overlay, Some(Overlay::History(v)) if v.query == "c"));
     }
 
     #[test]
@@ -1139,7 +1165,7 @@ mod tests {
     }
 
     #[test]
-    fn evaluate_and_the_history_in_focus() {
+    fn evaluate_and_the_history_panel() {
         let config = Config::default();
         let opts = options(&config);
         let mut app = App::new(&config, &opts);
@@ -1149,33 +1175,32 @@ mod tests {
         assert!(app.line.is_empty());
         assert_eq!(app.history.entries()[0], Entry { input: "10 km mi".into(), result: Ok("6.2137 mi".into()) });
 
-        // F5 puts the newest entry in focus; the line is not changed.
+        // F5 opens the History panel; the line is not changed. Alt+Y copies the result of the entry
+        // chosen (the newest first), to the clipboard in a real session; the panel stays.
         app.handle(Key::F(5));
-        assert_eq!((app.history.selected(), app.line.text()), (Some(0), String::new()));
-        // Alt+Y copies its result (to the clipboard in a real session); the focus stays.
+        assert!(matches!(app.overlay, Some(Overlay::History(_))) && app.line.text().is_empty());
         app.handle(Key::Alt('y'));
         assert_eq!(app.copied.as_deref(), Some("6.2137 mi"));
         assert_eq!(app.status, Some((StatusKind::Note, "copied 6.2137 mi".into())));
-        assert_eq!(app.history.selected(), Some(0));
-        // F5 again, or Esc, leaves it; so does ↓ past the newest.
+        assert!(app.overlay.is_some());
+        // F5 again, or Esc, closes it.
         app.handle(Key::F(5));
-        assert_eq!(app.history.selected(), None);
+        assert!(app.overlay.is_none());
         app.handle(Key::F(5));
         app.handle(Key::Esc);
-        assert_eq!(app.history.selected(), None);
+        assert!(app.overlay.is_none());
+        // Typing filters (it is not the line's text); Enter writes the request into the line,
+        // without evaluating it, and closes the panel.
         app.handle(Key::F(5));
-        app.handle(Key::Down);
-        assert_eq!(app.history.selected(), None);
-        // A key that is not a focus key leaves it and does what it does: here, typing.
-        app.handle(Key::F(5));
-        typed(&mut app, "5");
-        assert_eq!((app.history.selected(), app.line.text()), (None, "5".to_string()));
-        app.handle(Key::Ctrl('u'));
-        // Enter writes the entry's request into the line, without evaluating it.
-        app.handle(Key::F(5));
+        typed(&mut app, "zzz");
         app.handle(Key::Enter);
-        assert_eq!(app.line.text(), "10 km mi");
-        assert_eq!((app.history.selected(), app.history.entries().len()), (None, 1));
+        assert!(app.line.is_empty() && app.overlay.is_some(), "nothing matches: nothing to recall");
+        for _ in 0..3 {
+            app.handle(Key::Backspace);
+        }
+        typed(&mut app, "km");
+        app.handle(Key::Enter);
+        assert_eq!((app.line.text().as_str(), app.overlay.is_none(), app.history.entries().len()), ("10 km mi", true, 1));
         // Edit and evaluate again: a new entry, the old one is unchanged.
         app.handle(Key::Backspace);
         app.handle(Key::Backspace);
@@ -1183,16 +1208,17 @@ mod tests {
         app.handle(Key::Enter);
         let results: Vec<_> = app.history.entries().iter().map(|e| e.result.clone()).collect();
         assert_eq!(results, [Ok("6.2137 mi".to_string()), Ok("32808.399 ft".to_string())]);
-        // Del removes the entry in focus.
+        // ↑ ↓ choose (the newest first); Del removes the entry chosen.
         app.handle(Key::F(5));
+        app.handle(Key::Down);
         app.handle(Key::Delete);
         assert_eq!(app.history.entries().len(), 1);
-        assert_eq!(app.history.selected(), Some(0));
+        assert_eq!(app.history.entries()[0].result, Ok("32808.399 ft".to_string()), "the older one went");
         app.handle(Key::Delete);
-        assert!(app.history.entries().is_empty() && app.history.selected().is_none());
-        // F5 with nothing to focus does nothing.
-        app.handle(Key::F(5));
-        assert_eq!(app.history.selected(), None);
+        assert!(app.history.entries().is_empty());
+        // Nothing to show: the panel says so, and Enter does nothing.
+        app.handle(Key::Enter);
+        assert!(app.overlay.is_some() && app.line.is_empty());
     }
 
     #[test]
@@ -1209,7 +1235,7 @@ mod tests {
         typed(&mut app, "draft");
         // ↑ replaces the line with the newest request, then older ones; the oldest stays.
         app.handle(Key::Up);
-        assert_eq!((app.line.text(), app.history.selected()), ("2^8".to_string(), None));
+        assert_eq!(app.line.text(), "2^8");
         app.handle(Key::Up);
         assert_eq!(app.line.text(), "10 km mi");
         app.handle(Key::Up);
@@ -1262,10 +1288,10 @@ mod tests {
         app.handle(Key::F(2));
         app.handle(Key::Esc);
         assert!(app.overlay.is_none() && app.line.text() == "10 km m" && app.status.is_some());
-        // The history in focus.
+        // The History panel.
         app.handle(Key::F(5));
         app.handle(Key::Esc);
-        assert!(app.history.selected().is_none() && app.line.text() == "10 km m");
+        assert!(app.overlay.is_none() && app.line.text() == "10 km m");
         // The Tab cycle: Esc ends it and keeps the word it chose.
         app.handle(Key::Tab);
         assert_eq!(app.line.text(), "10 km mm");
@@ -1929,7 +1955,7 @@ mod tests {
         assert!(app.overlay.is_none() && app.line.text() == "draft" && !app.quit);
         app.handle(Key::F(5));
         app.handle(Key::Ctrl('c'));
-        assert!(app.history.selected().is_none() && app.line.text() == "draft" && !app.quit);
+        assert!(app.overlay.is_none() && app.line.text() == "draft" && !app.quit);
         app.handle(Key::Ctrl('c'));
         assert!(app.line.is_empty() && !app.quit);
         app.handle(Key::Up);

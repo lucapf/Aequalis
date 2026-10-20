@@ -219,6 +219,10 @@ pub fn render(app: &App, rows: usize, cols: usize) -> Frame {
             cursor = None;
         }
         Some(Overlay::Trivia(v)) => trivia(app, v, &mut canvas, area),
+        Some(Overlay::History(v)) => {
+            history_panel(app, v, &mut canvas, area);
+            cursor = None;
+        }
         Some(Overlay::Search(s)) => {
             search(app, s, &mut canvas, area);
             cursor = None;
@@ -268,13 +272,12 @@ fn toolbar(app: &App, canvas: &mut Canvas) {
     for tool in &TOOLBAR {
         let lit = match tool.action {
             Action::Open(panel) => panel.is(&app.overlay),
-            Action::FocusHistory => app.history.selected().is_some(),
             // Lit while the keypad is what the band shows.
             Action::ToggleKeypad => {
                 app.keypad != Keypad::Hidden
                     && !matches!(
                         &app.overlay,
-                        Some(Overlay::Measures(_) | Overlay::Picker(_) | Overlay::Currencies(_) | Overlay::Trivia(_) | Overlay::Search(_))
+                        Some(Overlay::Measures(_) | Overlay::Picker(_) | Overlay::Currencies(_) | Overlay::Trivia(_) | Overlay::Search(_) | Overlay::History(_))
                     )
             }
             _ => false,
@@ -331,9 +334,8 @@ fn history(app: &App, canvas: &mut Canvas, top: usize, height: usize) {
     let first_row = top + 1 + inner - (end - start);
     for (i, entry) in entries.range(start..end).enumerate() {
         let row = first_row + i;
-        let selected = app.history.selected() == Some(start + i);
-        let mut col = canvas.put_within(row, 2, right, if selected { "› " } else { "  " }, Style::Bold);
-        let input_style = if selected { Style::Inverse } else { Style::Plain };
+        let mut col = canvas.put_within(row, 2, right, "  ", Style::Bold);
+        let input_style = Style::Plain;
         // The request recalls into the line; the result is copied.
         let from = col - 2;
         col = canvas.put_within(row, col, right, &format!("{:<width$}", entry.input), input_style);
@@ -423,6 +425,7 @@ fn band_rows(app: &App, rows: usize) -> usize {
         Some(Overlay::Picker(p)) => unit_keys_rows(app, p),
         Some(Overlay::Currencies(v)) => list_rows(aequalis::currency::search(&v.query).len()),
         Some(Overlay::Search(s)) => list_rows(super::search::matches(app.config, &s.query).len()),
+        Some(Overlay::History(v)) => list_rows(super::history_panel::matches(&app.history, &v.query).len()),
         Some(Overlay::Trivia(v)) => trivia_rows(v),
         _ if app.keypad != Keypad::Hidden && rows >= KEYPAD_FROM => KEYPAD_ROWS,
         _ => 1,
@@ -619,10 +622,6 @@ fn hints(canvas: &mut Canvas, row: usize, end: usize, items: &[(&str, &str)], fr
 fn status(app: &App, canvas: &mut Canvas, row: usize) {
     let cols = canvas.cols;
     let (badge, keys): (&str, &[(&str, &str)]) = match &app.overlay {
-        // The history in focus.
-        None if app.history.selected().is_some() => {
-            (" HISTORY ", &[("↑↓", "choose"), ("Enter", "recall"), ("Alt+Y", "copy result"), ("Del", "remove"), ("<Esc>", "back")])
-        }
         // The keyboard has the focus (F9, Tab).
         None if app.focus.is_some() && app.keyboard_shown() => match app.focus {
             Some(Part::Units | Part::Money) => (" KEYS ", &[("Tab", "next"), ("Shift+Tab", "previous"), ("↑↓ ←→", "choose"), ("Enter", "write"), ("<Esc>", "back")]),
@@ -635,6 +634,7 @@ fn status(app: &App, canvas: &mut Canvas, row: usize) {
         Some(Overlay::Help(_)) => (" HELP ", &[("↑↓", "scroll"), ("<Esc>", "close")]),
         Some(Overlay::Settings(v)) if v.edit.is_some() => (" SETTINGS ", &[("type", "value"), ("Enter", "save"), ("<Esc>", "cancel")]),
         Some(Overlay::Settings(_)) => (" SETTINGS ", &[("↑↓", "choose"), ("Enter ←→", "change"), ("d", "default"), ("<Esc>", "close")]),
+        Some(Overlay::History(_)) => (" HISTORY ", &[("type", "filter"), ("↑↓", "choose"), ("Enter", "recall"), ("Alt+Y", "copy result"), ("Del", "remove"), ("<Esc>", "back")]),
         Some(Overlay::Search(_)) => (" SEARCH ", &[("type", "search"), ("↑↓", "choose"), ("Enter", "write"), ("<Esc>", "back")]),
         Some(Overlay::Currencies(_)) => (" CURRENCIES ", &[("type", "search"), ("↑↓", "choose"), ("Enter", "write"), ("<Esc>", "back")]),
         Some(Overlay::Measures(_)) => (" MEASURES ", &[("↑↓ j k", "choose"), ("letter Enter", "open"), ("<Esc>", "back")]),
@@ -1036,6 +1036,53 @@ fn measures(app: &App, v: &super::measures::View, canvas: &mut Canvas, area: Are
     }
 }
 
+/// The History panel: the filter line, then the requests, newest first, each with its result and
+/// the buttons that recall it (↩), copy its result (⧉) and remove it (✕).
+fn history_panel(app: &App, v: &super::history_panel::View, canvas: &mut Canvas, area: Area) {
+    let found = super::history_panel::matches(&app.history, &v.query);
+    let Area { top, left, width, height } = area;
+    let right = left + width - 1;
+    canvas.boxed(top, left, height, width, "History");
+    let col = canvas.put_within(top + 1, left + 2, right, "/ ", Style::Yellow);
+    let col = canvas.put_within(top + 1, col, right, &v.query, Style::Bold);
+    canvas.put_within(top + 1, col, right, "▏", Style::Yellow);
+    canvas.cells[top + 2][left + 1..right].fill(('─', Style::Dim));
+    canvas.cells[top + 2][left] = ('├', Style::Dim);
+    canvas.cells[top + 2][right] = ('┤', Style::Dim);
+    let visible = height - 4;
+    if found.is_empty() {
+        let what = if app.history.entries().is_empty() { "nothing evaluated yet" } else { "no request matches" };
+        canvas.put_within(top + 3, left + 2, right, what, Style::Dim);
+        return;
+    }
+    let buttons = 9;
+    let input_width = found.iter().map(|&i| app.history.entries()[i].input.chars().count()).max().unwrap_or(0).min(width / 2);
+    let offset = v.selected.saturating_sub(visible.saturating_sub(1));
+    for (n, &i) in found.iter().enumerate().skip(offset).take(visible) {
+        let row = top + 3 + n - offset;
+        let entry = &app.history.entries()[i];
+        let lit = n == v.selected;
+        // The whole row recalls; the result and the two buttons at the right are over it.
+        canvas.hit(row, left + 1, width - 2, Target::Pick(n));
+        if lit {
+            canvas.cells[row][left + 1..right].fill((' ', Style::Lit));
+        }
+        let text_limit = right.saturating_sub(buttons + 1);
+        let mut col = canvas.put_within(row, left + 1, text_limit, &format!(" {:<input_width$}  ", entry.input), if lit { Style::Lit } else { Style::Plain });
+        let from = col;
+        col = match &entry.result {
+            Ok(result) => canvas.put_within(row, col, text_limit, &format!("= {result}"), if lit { Style::Lit } else { Style::Bold }),
+            Err(msg) => canvas.put_within(row, col, text_limit, &format!("✗ {msg}"), if lit { Style::Lit } else { Style::Red }),
+        };
+        canvas.hit(row, from, col - from, Target::EntryResult(i));
+        let at = right - buttons;
+        for (k, (glyph, target)) in [("↩", Target::Entry(i)), ("⧉", Target::EntryResult(i)), ("✕", Target::Remove(i))].into_iter().enumerate() {
+            canvas.put_within(row, at + 3 * k + 1, right, glyph, if lit { Style::Lit } else { Style::Yellow });
+            canvas.hit(row, at + 3 * k, 3, target);
+        }
+    }
+}
+
 /// The Currencies: the search line, then the currencies matching it (code, symbol, name).
 /// The rows of a search panel: the query, a rule, up to 8 matches, the borders.
 fn list_rows(found: usize) -> usize {
@@ -1246,7 +1293,7 @@ const HELP: &[(&str, &str)] = &[
     ("  F2  Alt-M", "Measures: the unit classes, then their units"),
     ("  F3  Alt-C", "Currencies: search by code, name or country"),
     ("  F4  Alt-T", "Trivia: useful values with a description"),
-    ("  F5  Alt-H", "the history in focus (see below)"),
+    ("  F5  Alt-H", "History: recall, copy, remove a request"),
     ("  F10  Alt-S", "Settings"),
     ("  F1  Alt-?", "this help"),
     ("  Alt-A", "about: version, memory, last online sync"),
@@ -1258,10 +1305,10 @@ const HELP: &[(&str, &str)] = &[
     ("  Alt-1…5  Alt-6…0", "write one of your units / currencies, as listed"),
     ("", "beside the keypad; the used ones stay (Settings)"),
     ("  the same key again", "closes the window"),
-    ("The history in focus (F5)", ""),
-    ("  ↑/↓", "choose an entry"),
+    ("History (F5)", ""),
+    ("  type  ↑/↓", "filter, choose a request (newest first)"),
     ("  Enter  Alt-Y  Del", "recall it, copy its result, remove it"),
-    ("  Esc", "back (any other key goes back and acts)"),
+    ("  ↩  ⧉  ✕  (click)", "the same; a click on the result copies it"),
     ("Measures", ""),
     ("  ↑/↓  j/k", "choose a class (Length, Temperature, …)"),
     ("  Enter  or its letter", "its units (D: Earth distance, then the places)"),
@@ -1465,10 +1512,10 @@ mod tests {
         assert!(lines[11].ends_with("Alt+Y copy result · Ctrl+Q quit") || lines[11].ends_with("Ctrl+Q quit"), "{}", lines[11]);
         let (lines, _) = screen("10 km kg\n", 12, 60);
         assert!(lines[11].starts_with(" error: cannot convert `km` to `kg`: different kinds of unit"), "{}", lines[11]);
-        // The history in focus: its own keys and badge.
+        // The History panel: its own keys and badge.
         let (lines, _) = screen("1+1\n<F5>", 12, 100);
         assert!(
-            lines[11].starts_with(" HISTORY ") && lines[11].ends_with("↑↓ choose · Enter recall · Alt+Y copy result · Del remove · <Esc> back"),
+            lines[11].starts_with(" HISTORY ") && lines[11].ends_with("Enter recall · Alt+Y copy result · Del remove · <Esc> back"),
             "{}",
             lines[11]
         );
@@ -1959,7 +2006,10 @@ mod tests {
         for text in texts {
             let frame = render(&app, size.0, size.1);
             let plain: Vec<String> = frame.lines.iter().map(|l| plain(l)).collect();
-            let (row, line) = plain.iter().enumerate().find(|(_, l)| l.contains(text)).unwrap_or_else(|| panic!("no `{text}` on screen:\n{}", plain.join("\n")));
+            // `last:text` is the last line with it (a panel under the history that shows the same).
+            let (last, text) = text.strip_prefix("last:").map_or((false, *text), |t| (true, t));
+            let mut found = plain.iter().enumerate().filter(|(_, l)| l.contains(text));
+            let (row, line) = if last { found.next_back() } else { found.next() }.unwrap_or_else(|| panic!("no `{text}` on screen:\n{}", plain.join("\n")));
             let col = line[..line.find(text).unwrap()].chars().count();
             app.hits = frame.hits;
             app.handle(Key::Mouse(super::super::keys::Mouse { kind: super::super::keys::MouseKind::Down(super::super::keys::Button::Left), row, col }));
@@ -2094,6 +2144,37 @@ mod tests {
         // The answer is kept whole when the left side is long: it is cut instead.
         let (lines, _) = screen("(1+2+3+4+5+6+7+8)/7+(1+2+3+4+5+6)", 12, 60);
         assert!(lines[9].ends_with("⧉") && lines[9].contains("= "), "{}", lines[9]);
+    }
+
+    #[test]
+    fn the_history_panel() {
+        let config = Config::default();
+        let opts = OPTS;
+        let (lines, _) = screen("1+1\n10 km mi\n2^8\n<F5>", 20, 90);
+        let text = lines.join("\n");
+        assert!(text.contains("┌─ History"), "{text}");
+        // Newest first, with the buttons at the right.
+        let rows: Vec<&String> = lines.iter().filter(|l| l.contains(" = ")).collect();
+        let panel: Vec<&String> = lines.iter().skip_while(|l| !l.contains("┌─ History")).filter(|l| l.contains("= ")).collect();
+        assert!(panel[0].contains("2^8") && panel[1].contains("10 km mi") && panel[2].contains("1+1"), "{rows:?}");
+        assert!(panel[0].contains("↩") && panel[0].contains("⧉") && panel[0].contains("✕"), "{}", panel[0]);
+        // Typing filters.
+        let (lines, _) = screen("1+1\n10 km mi\n2^8\n<F5>km", 20, 90);
+        let panel: Vec<&String> = lines.iter().skip_while(|l| !l.contains("┌─ History")).filter(|l| l.contains("= ")).collect();
+        assert_eq!(panel.len(), 1, "{panel:?}");
+        // Clicks: a row recalls; the result and ⧉ copy; ✕ removes.
+        let app = clicked(&config, &opts, "1+1\n10 km mi\n<F5>", (20, 90), &["last: 10 km mi"]);
+        assert!(app.overlay.is_none() && app.line.text() == "10 km mi", "{}", app.line.text());
+        let app = clicked(&config, &opts, "1+1\n10 km mi\n<F5>", (20, 90), &["last:= 6.2137 mi"]);
+        assert_eq!(app.copied.as_deref(), Some("6.2137 mi"));
+        let app = clicked(&config, &opts, "1+1\n10 km mi\n<F5>", (20, 90), &["⧉"]);
+        assert_eq!(app.copied.as_deref(), Some("6.2137 mi"));
+        let app = clicked(&config, &opts, "1+1\n10 km mi\n<F5>", (20, 90), &["✕"]);
+        assert_eq!(app.history.entries().len(), 1);
+        assert!(app.overlay.is_some(), "the panel stays for the next one");
+        // Empty: it says so.
+        let (lines, _) = screen("<F5>", 20, 90);
+        assert!(lines.join("\n").contains("nothing evaluated yet"));
     }
 
     #[test]

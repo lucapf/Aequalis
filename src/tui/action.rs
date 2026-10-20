@@ -3,7 +3,7 @@
 
 use super::keys::{Button, Key, Mouse, MouseKind};
 use super::render::Hit;
-use super::{currencies, measures, search, settings, trivia, App, Keypad, Overlay, Part, StatusKind, SCROLL_STEP};
+use super::{currencies, history_panel, measures, search, settings, trivia, App, Keypad, Overlay, Part, StatusKind, SCROLL_STEP};
 
 /// A window of the toolbar (and Ctrl+K).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -14,6 +14,8 @@ pub enum Panel {
     Settings,
     /// Ctrl+K: searching the units.
     Search,
+    /// F5: the requests evaluated.
+    History,
 }
 
 impl Panel {
@@ -24,6 +26,7 @@ impl Panel {
             Panel::Trivia => Overlay::Trivia(trivia::View::new()),
             Panel::Settings => Overlay::Settings(settings::View::default()),
             Panel::Search => Overlay::Search(search::Search::default()),
+            Panel::History => Overlay::History(super::history_panel::View::default()),
         }
     }
 
@@ -36,6 +39,7 @@ impl Panel {
                 | (Panel::Trivia, Some(Overlay::Trivia(_)))
                 | (Panel::Settings, Some(Overlay::Settings(_)))
                 | (Panel::Search, Some(Overlay::Search(_)))
+                | (Panel::History, Some(Overlay::History(_)))
         )
     }
 }
@@ -55,7 +59,7 @@ pub const TOOLBAR: [Tool; 6] = [
     Tool { fkey: 2, alt: 'm', label: "Measures", short: "Meas", action: Action::Open(Panel::Measures) },
     Tool { fkey: 3, alt: 'c', label: "Currencies", short: "Curr", action: Action::Open(Panel::Currencies) },
     Tool { fkey: 4, alt: 't', label: "Trivia", short: "Triv", action: Action::Open(Panel::Trivia) },
-    Tool { fkey: 5, alt: 'h', label: "History", short: "Hist", action: Action::FocusHistory },
+    Tool { fkey: 5, alt: 'h', label: "History", short: "Hist", action: Action::Open(Panel::History) },
     Tool { fkey: 9, alt: 'b', label: "Keys", short: "Keys", action: Action::ToggleKeypad },
     Tool { fkey: 10, alt: 's', label: "⚙", short: "⚙", action: Action::Open(Panel::Settings) },
 ];
@@ -71,6 +75,8 @@ pub enum Target {
     Entry(usize),
     /// A history entry's result: copied.
     EntryResult(usize),
+    /// A history entry, removed (in the History panel).
+    Remove(usize),
     /// The request line, whose first column shows the character at this offset.
     Line(usize),
     /// A suggestion under the line (the n-th): the word completed with it.
@@ -119,8 +125,6 @@ pub enum Action {
     ScrollDown,
     /// A window opened, or closed when it is the one open.
     Open(Panel),
-    /// The history in focus, or back out of it.
-    FocusHistory,
     Help,
     About,
     ToggleKeypad,
@@ -234,6 +238,7 @@ impl<'a> App<'a> {
             Some(Overlay::Picker(p)) => p.selected = n,
             Some(Overlay::Currencies(v)) => v.selected = n,
             Some(Overlay::Search(s)) => s.selected = n,
+            Some(Overlay::History(v)) => v.selected = n,
             Some(Overlay::Trivia(v)) if v.popup.is_none() => v.selected = n,
             Some(Overlay::Choice(_, selected)) => *selected = n,
             // The settings: a row being typed in is left as it is.
@@ -281,11 +286,11 @@ impl<'a> App<'a> {
                     Part::Units | Part::Money => {}
                 }
             }
-            Target::Entry(i) => {
-                if let Some(input) = self.history.entries().get(i).map(|e| e.input.clone()) {
-                    self.history.stop_browsing();
-                    self.recall = None;
-                    self.line.set(&input);
+            Target::Entry(i) => self.recall_entry(i),
+            Target::Remove(i) => {
+                self.history.remove(i);
+                if let Some(Overlay::History(v)) = &mut self.overlay {
+                    v.selected = v.selected.min(history_panel::matches(&self.history, &v.query).len().saturating_sub(1));
                 }
             }
             Target::EntryResult(i) => match self.history.entries().get(i).map(|e| e.result.clone()) {
@@ -368,19 +373,11 @@ impl<'a> App<'a> {
                     self.refresh_money();
                 }
             }
-            Action::FocusHistory => {
-                (self.overlay, self.focus) = (None, None);
-                if self.history.selected().is_some() {
-                    self.history.stop_browsing();
-                } else {
-                    self.history.up();
-                }
-            }
             Action::Help => self.overlay = if matches!(self.overlay, Some(Overlay::Help(_))) { None } else { Some(Overlay::Help(0)) },
             Action::About => self.overlay = if matches!(self.overlay, Some(Overlay::About)) { None } else { Some(Overlay::About) },
             Action::ToggleKeypad => {
                 // A panel in the band gives way to the keyboard; with the keyboard shown, F9 hides it.
-                let was_panel = matches!(self.overlay, Some(Overlay::Measures(_) | Overlay::Picker(_) | Overlay::Currencies(_) | Overlay::Trivia(_) | Overlay::Search(_)));
+                let was_panel = matches!(self.overlay, Some(Overlay::Measures(_) | Overlay::Picker(_) | Overlay::Currencies(_) | Overlay::Trivia(_) | Overlay::Search(_) | Overlay::History(_)));
                 self.overlay = if was_panel { None } else { self.overlay.take() };
                 if self.keypad != Keypad::Hidden && !was_panel {
                     (self.keypad, self.focus) = (Keypad::Hidden, None);
@@ -421,9 +418,7 @@ impl<'a> App<'a> {
                 if self.overlay.take().is_some() || cycling || self.focus.take().is_some() {
                     return;
                 }
-                if self.history.selected().is_some() {
-                    self.history.stop_browsing();
-                } else if !self.line.is_empty() {
+                if !self.line.is_empty() {
                     self.clear_line();
                 } else {
                     self.quit = true;

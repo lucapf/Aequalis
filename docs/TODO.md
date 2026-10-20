@@ -35,7 +35,9 @@ panel), status; no modes.
       ambiguous date; a click outside a window closes it; the wheel moves through the window open.
       `tui.mouse` (default on) and Alt+O; Shift+drag still selects text. On Windows Quick Edit is
       turned off while the mouse is on (untested on a real console: see the CI job `windows-tui`).
-      Left: the suggestion chips, the result aligned at the right, a History panel.
+      The suggestions are buttons (`[ mi ]`) and the answer is at the right edge (`= 6.2137 mi ⧉`, a click
+      copies it). F5 is a History panel (all requests, newest first, filtered by typing; ↩ ⧉ ✕ or
+      Enter / Alt+Y / Del) in place of the old history focus mode.
 - [ ] 5. `src/find.rs` in the core and the Ctrl+K palette (units, currencies, cities, trivia,
       settings, history).
 - [ ] 6. Compact (< 60 columns) and Wide (≥ 100) layouts.
