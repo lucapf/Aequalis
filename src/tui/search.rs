@@ -5,4 +5,3 @@ pub struct Search {
     pub query: String,
     pub selected: usize,
 }
-

@@ -178,9 +178,8 @@ mod tests {
     fn earlier_requests_newest_first() {
         let history = vec![("10 km mi".to_string(), "6.2137 mi".to_string()), ("5 km ft".to_string(), "16404 ft".to_string())];
         let sources = Sources { history: &history, country: None };
-        let past = |q: &str| -> Vec<String> {
-            search(&Config::default(), q, &sources).into_iter().filter(|f| f.kind == Kind::History).map(|f| f.written).collect()
-        };
+        let past =
+            |q: &str| -> Vec<String> { search(&Config::default(), q, &sources).into_iter().filter(|f| f.kind == Kind::History).map(|f| f.written).collect() };
         assert_eq!(past("5 km"), ["5 km ft"]);
         assert_eq!(past(""), ["5 km ft", "10 km mi"], "newest first");
         assert!(search(&Config::default(), "", &sources).iter().all(|f| f.kind != Kind::City), "no cities for an empty query");

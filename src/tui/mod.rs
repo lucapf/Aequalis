@@ -251,7 +251,12 @@ impl<'a> App<'a> {
 
     /// Whether the keyboard is on screen (not hidden, a terminal tall enough, no window over it).
     fn keyboard_shown(&self) -> bool {
-        self.keypad != Keypad::Hidden && self.screen.0 >= render::KEYPAD_FROM && !matches!(self.overlay, Some(Overlay::Measures(_) | Overlay::Picker(_) | Overlay::Currencies(_) | Overlay::Trivia(_) | Overlay::Search(_) | Overlay::History(_)))
+        self.keypad != Keypad::Hidden
+            && self.screen.0 >= render::KEYPAD_FROM
+            && !matches!(
+                self.overlay,
+                Some(Overlay::Measures(_) | Overlay::Picker(_) | Overlay::Currencies(_) | Overlay::Trivia(_) | Overlay::Search(_) | Overlay::History(_))
+            )
     }
 
     /// The columns the keyboard has: its column beside the board in the Wide layout (big keys),
@@ -343,7 +348,7 @@ impl<'a> App<'a> {
 
     /// The currency the board values the others in: the setting, else the local currency.
     pub(super) fn base_currency(&self) -> Option<String> {
-        aequalis::settings::current().base_currency().map(str::to_string).or_else(|| self.local_currency.map(str::to_string))
+        aequalis::settings::current().currency().map(str::to_string).or_else(|| self.local_currency.map(str::to_string))
     }
 
     /// The board's currencies against the base.
@@ -584,8 +589,7 @@ impl<'a> App<'a> {
                 return Rc::clone(found);
             }
         }
-        let history: Vec<(String, String)> =
-            self.history.entries().iter().map(|e| (e.input.clone(), e.result.clone().unwrap_or_else(|m| m))).collect();
+        let history: Vec<(String, String)> = self.history.entries().iter().map(|e| (e.input.clone(), e.result.clone().unwrap_or_else(|m| m))).collect();
         let sources = aequalis::find::Sources { history: &history, country: self.country.as_deref() };
         let found = Rc::new(aequalis::find::search(self.config, query, &sources));
         *self.found.borrow_mut() = Some((query.to_string(), past, Rc::clone(&found)));
@@ -659,9 +663,7 @@ impl<'a> App<'a> {
                 self.overlay = None;
             }
             Kind::Setting => {
-                let selected = aequalis::settings::KEYS.iter().position(|k| k.key == found.written).unwrap_or(0);
-                let view = settings::View { selected, ..settings::View::default() };
-                self.overlay = Some(Overlay::Settings(view));
+                self.overlay = Some(Overlay::Settings(settings::View::at(&found.written)));
             }
             Kind::History => {
                 self.recall = None;
@@ -1165,8 +1167,7 @@ mod tests {
         app.handle(Key::Ctrl('k'));
         typed(&mut app, "precision");
         app.handle(Key::Enter);
-        let row = aequalis::settings::KEYS.iter().position(|k| k.key == "precision").unwrap();
-        assert!(matches!(&app.overlay, Some(Overlay::Settings(v)) if v.selected == row));
+        assert!(matches!(&app.overlay, Some(Overlay::Settings(v)) if matches!(v.row(), Some(settings::Row::Setting(k)) if k.key == "precision")));
         // An earlier request comes back into the line.
         let mut app = App::new(&config, &opts);
         typed(&mut app, "10 km mi");

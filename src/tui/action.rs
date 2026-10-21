@@ -115,6 +115,8 @@ pub enum Action {
     Clear,
     /// Alt+O: the mouse reported to the program, or left to the terminal for selecting text.
     ToggleMouse,
+    /// Alt+L: the board's list moved between the currencies and the measures.
+    ToggleBoard,
     Backspace,
     Delete,
     Left,
@@ -210,6 +212,7 @@ impl<'a> App<'a> {
                 'y' => Some(Action::Copy),
                 'k' => Some(Action::KillToEnd),
                 'o' => Some(Action::ToggleMouse),
+                'l' => Some(Action::ToggleBoard),
                 'q' => Some(Action::Quit),
                 // Alt+1…5 the units, Alt+6…9 and Alt+0 the currencies.
                 '1'..='9' => Some(Action::Shortcut(c as usize - '1' as usize)),
@@ -243,12 +246,22 @@ impl<'a> App<'a> {
             MouseKind::Down(Button::Left) => {
                 let hit = self.hits.iter().rev().find(|h| h.contains(mouse.row, mouse.col)).copied();
                 let on_board_item = hit.is_none_or(|h| {
-                    matches!(h.target, Target::BoardUnit(..) | Target::BoardMoney(_) | Target::BoardClock(_) | Target::BoardClass(_) | Target::BoardScroll(_) | Target::BoardJump(_))
+                    matches!(
+                        h.target,
+                        Target::BoardUnit(..)
+                            | Target::BoardMoney(_)
+                            | Target::BoardClock(_)
+                            | Target::BoardClass(_)
+                            | Target::BoardScroll(_)
+                            | Target::BoardJump(_)
+                    )
                 });
                 match hit {
                     // A press on the board (on a button or on nothing) may start a drag of the list,
                     // as a finger does: a click only when released where it was pressed.
-                    _ if on_board && on_board_item => self.pressed_on = Some(Press { hit, row: mouse.row, col: mouse.col, scroll: self.board_scroll, dragged: false }),
+                    _ if on_board && on_board_item => {
+                        self.pressed_on = Some(Press { hit, row: mouse.row, col: mouse.col, scroll: self.board_scroll, dragged: false })
+                    }
                     Some(hit) => self.click(hit, mouse.col),
                     None => {}
                 }
@@ -283,6 +296,15 @@ impl<'a> App<'a> {
     /// How many entries the board's list has: the currencies and the classes.
     fn board_len(&self) -> usize {
         1 + self.config.categories.len()
+    }
+
+    /// The board's list at the currencies (true) or at the first class (false).
+    fn jump_board(&mut self, currencies: bool) {
+        let classes = super::board::classes(self.config, &self.usage);
+        let items = super::board::items(&classes, &self.usage);
+        if let Some(at) = items.iter().position(|i| matches!(i, super::board::Item::Currencies) == currencies) {
+            self.board_scroll = at;
+        }
     }
 
     /// The board's list moved by `by` entries.
@@ -375,20 +397,22 @@ impl<'a> App<'a> {
             Target::BoardClock(i) => {
                 if let Some(city) = self.clocks().get(i).map(|c| c.city.clone()) {
                     let mut text = self.line.text();
-                    text = if text.trim().is_empty() { "now ".to_string() } else if text.ends_with(' ') { text } else { format!("{text} ") };
+                    text = if text.trim().is_empty() {
+                        "now ".to_string()
+                    } else if text.ends_with(' ') {
+                        text
+                    } else {
+                        format!("{text} ")
+                    };
                     self.line.set(&format!("{text}{city} "));
                 }
             }
             Target::BoardScroll(by) => self.scroll_board(by),
-            Target::BoardJump(currencies) => {
-                let classes = super::board::classes(self.config, &self.usage);
-                let items = super::board::items(&classes, &self.usage);
-                if let Some(at) = items.iter().position(|i| matches!(i, super::board::Item::Currencies) == currencies) {
-                    self.board_scroll = at;
-                }
-            }
+            Target::BoardJump(currencies) => self.jump_board(currencies),
             Target::BoardClass(i) => {
-                if let Some(index) = super::board::classes(self.config, &self.usage).get(i).and_then(|c| self.config.categories.iter().position(|k| k.name == c.name)) {
+                if let Some(index) =
+                    super::board::classes(self.config, &self.usage).get(i).and_then(|c| self.config.categories.iter().position(|k| k.name == c.name))
+                {
                     self.overlay = Some(Overlay::Picker(super::picker::Picker::new(self.config, index, self.system)));
                 }
             }
@@ -442,6 +466,12 @@ impl<'a> App<'a> {
                     if self.mouse_on { "mouse on: Shift+drag selects text".into() } else { "mouse off: the terminal selects text (Alt+O: on)".into() },
                 ));
             }
+            Action::ToggleBoard => {
+                let classes = super::board::classes(self.config, &self.usage);
+                let items = super::board::items(&classes, &self.usage);
+                let on_money = items.get(self.board_scroll).is_none_or(|i| matches!(i, super::board::Item::Currencies));
+                self.jump_board(!on_money);
+            }
             Action::Backspace => self.line.backspace(),
             Action::Delete => self.line.delete(),
             Action::Left => self.line.left(),
@@ -470,7 +500,10 @@ impl<'a> App<'a> {
             Action::About => self.overlay = if matches!(self.overlay, Some(Overlay::About)) { None } else { Some(Overlay::About) },
             Action::ToggleKeypad => {
                 // A panel in the band gives way to the keyboard; with the keyboard shown, F9 hides it.
-                let was_panel = matches!(self.overlay, Some(Overlay::Measures(_) | Overlay::Picker(_) | Overlay::Currencies(_) | Overlay::Trivia(_) | Overlay::Search(_) | Overlay::History(_)));
+                let was_panel = matches!(
+                    self.overlay,
+                    Some(Overlay::Measures(_) | Overlay::Picker(_) | Overlay::Currencies(_) | Overlay::Trivia(_) | Overlay::Search(_) | Overlay::History(_))
+                );
                 self.overlay = if was_panel { None } else { self.overlay.take() };
                 if self.keypad != Keypad::Hidden && !was_panel {
                     (self.keypad, self.focus) = (Keypad::Hidden, None);

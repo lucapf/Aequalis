@@ -51,73 +51,92 @@ pub enum Kind {
 }
 
 /// A setting: its key, default, kind, and what it does.
+#[derive(Debug, PartialEq)]
 pub struct Key {
     pub key: &'static str,
     pub default: &'static str,
     pub kind: Kind,
+    /// Left for the Advanced view of a settings screen; the others are the few most people use.
+    pub advanced: bool,
     pub about: &'static str,
 }
+
+/// Settings that earlier versions had; a file that still holds them loads all the same.
+const RETIRED: &[&str] = &["tui.base_currency"];
 
 const REFRESH: &[&str] = &["silent", "notify", "manual"];
 
 /// Every setting, in the order they are shown.
 pub const KEYS: &[Key] = &[
-    Key { key: "offline", default: "false", kind: Kind::Bool, about: "no network at all: online data stays as last downloaded" },
-    Key { key: "cities.enabled", default: "true", kind: Kind::Bool, about: "distances between any city (the city archive), not only capitals" },
+    Key { key: "offline", advanced: false, default: "false", kind: Kind::Bool, about: "no network at all: online data stays as last downloaded" },
+    Key { key: "cities.enabled", advanced: true, default: "true", kind: Kind::Bool, about: "distances between any city (the city archive), not only capitals" },
     Key {
         key: "cities.refresh",
+        advanced: true,
         default: "manual",
         kind: Kind::Choice(REFRESH),
         about: "the city archive: silent, notify (a notice when a new one is out) or manual",
     },
-    Key { key: "cities.interval", default: "30d", kind: Kind::Duration, about: "how often the city archive is checked (silent, notify)" },
-    Key { key: "cities.url", default: crate::cities::URL, kind: Kind::Url, about: "where the city archive is downloaded from (a mirror, a file://)" },
-    Key { key: "rates.refresh", default: "silent", kind: Kind::Choice(REFRESH), about: "the exchange rates: silent, notify or manual" },
-    Key { key: "rates.interval", default: "24h", kind: Kind::Duration, about: "how old the exchange rates may be" },
+    Key { key: "cities.interval", advanced: true, default: "30d", kind: Kind::Duration, about: "how often the city archive is checked (silent, notify)" },
+    Key {
+        key: "cities.url",
+        advanced: true,
+        default: crate::cities::URL,
+        kind: Kind::Url,
+        about: "where the city archive is downloaded from (a mirror, a file://)",
+    },
+    Key { key: "rates.refresh", advanced: true, default: "silent", kind: Kind::Choice(REFRESH), about: "the exchange rates: silent, notify or manual" },
+    Key { key: "rates.interval", advanced: true, default: "24h", kind: Kind::Duration, about: "how old the exchange rates may be" },
     Key {
         key: "live.refresh",
+        advanced: true,
         default: "manual",
         kind: Kind::Choice(REFRESH),
         about: "the Trivia's live values (Voyagers, satellites): silent, notify or manual",
     },
-    Key { key: "live.interval", default: "24h", kind: Kind::Duration, about: "how old the live values may be" },
-    Key { key: "currency.local", default: "auto", kind: Kind::Currency, about: "the local currency, for `12 usd` (auto: the time zone's country)" },
+    Key { key: "live.interval", advanced: true, default: "24h", kind: Kind::Duration, about: "how old the live values may be" },
+    Key {
+        key: "currency.local",
+        advanced: false,
+        default: "auto",
+        kind: Kind::Currency,
+        about: "the local currency, for `12 usd` (auto: the time zone's country)",
+    },
     Key {
         key: "distance.unit",
+        advanced: false,
         default: "auto",
         kind: Kind::Choice(&["auto", "km", "mi"]),
         about: "the unit of `Rome Paris` (auto: miles where the device is imperial)",
     },
-    Key { key: "precision", default: "4", kind: Kind::Precision, about: "decimal places of numbers, 0-15 (--precision for one request)" },
-    Key { key: "format.date", default: crate::time::HUMAN_DATE, kind: Kind::Format, about: "how dates are shown" },
-    Key { key: "format.datetime", default: crate::time::HUMAN_DATETIME, kind: Kind::Format, about: "how dates with a time are shown" },
+    Key { key: "precision", advanced: false, default: "4", kind: Kind::Precision, about: "decimal places of numbers, 0-15 (--precision for one request)" },
+    Key { key: "format.date", advanced: true, default: crate::time::HUMAN_DATE, kind: Kind::Format, about: "how dates are shown" },
+    Key { key: "format.datetime", advanced: true, default: crate::time::HUMAN_DATETIME, kind: Kind::Format, about: "how dates with a time are shown" },
     // Only the interactive mode's: the app (`ffi::settings`) doesn't list the `tui.` keys.
     Key {
         key: "tui.keyboard",
+        advanced: true,
         default: "auto",
         kind: Kind::Choice(&["auto", "true", "false"]),
         about: "the interactive mode starts with its keyboard on screen (auto: when the screen is wide enough for the board; F9 shows and hides it)",
     },
     Key {
-        key: "tui.base_currency",
-        default: "auto",
-        kind: Kind::Currency,
-        about: "the currency the board's currencies are valued in (auto: the local currency)",
-    },
-    Key {
         key: "tui.mouse",
+        advanced: true,
         default: "true",
         kind: Kind::Bool,
         about: "the interactive mode takes mouse clicks (off: the terminal selects text; Alt+O switches it for a session)",
     },
     Key {
         key: "tui.favourite_units",
+        advanced: true,
         default: "",
         kind: Kind::Favourites,
         about: "the units of the keypad's shortcuts (Alt+1…5) with their hits; kept as you use them (empty: the defaults)",
     },
     Key {
         key: "tui.favourite_currencies",
+        advanced: true,
         default: "",
         kind: Kind::Favourites,
         about: "the currencies of the keypad's shortcuts (Alt+6…0) with their hits; kept as you use them (empty: the defaults)",
@@ -213,11 +232,6 @@ impl Settings {
         }
     }
 
-    /// The currency the board values the others in, when set (not `auto`).
-    pub fn base_currency(&self) -> Option<&str> {
-        Some(self.get("tui.base_currency")).filter(|c| *c != "auto")
-    }
-
     /// The interactive mode takes the mouse (on unless turned off).
     pub fn mouse(&self) -> bool {
         self.get("tui.mouse") == "true"
@@ -250,6 +264,10 @@ impl Settings {
         let doc = crate::json::parse(text).map_err(|e| format!("settings: {e}"))?;
         let mut settings = Settings::default();
         for (key, value) in doc.members() {
+            // A setting this version no longer has: left in the file by an older one.
+            if RETIRED.contains(&key.as_str()) {
+                continue;
+            }
             let text = match (value.str(), value.number(), value.boolean()) {
                 (Some(s), _, _) => s.to_string(),
                 (_, Some(n), _) => format!("{n}"),
@@ -390,6 +408,19 @@ pub fn change_in(path: &Path, key: &str, value: Option<&str>) -> Result<Settings
     Ok(settings)
 }
 
+/// Every setting put back to its default, in the settings file at `path` (the settings in effect
+/// follow when it is the one in use).
+pub fn reset_in(path: &Path) -> Result<Settings, String> {
+    let settings = Settings::default();
+    save_to(path, &settings).map_err(|e| format!("cannot write {}: {e}", path.display()))?;
+    if self::path().as_deref() == Some(path) {
+        if let Ok(mut cell) = cell().write() {
+            *cell = Ok(Arc::new(settings.clone()));
+        }
+    }
+    Ok(settings)
+}
+
 /// `aequalis --settings --json`: every setting with its value, default, kind (`bool`, `choice` and its
 /// options, or `text`: typed) and what it does, for the widget's Settings section.
 pub fn json(settings: &Settings) -> String {
@@ -446,6 +477,25 @@ mod tests {
         assert_eq!(back.favourites(true), "usd:2,EUR:0", "kept in the file");
         s.set("tui.favourite_currencies", None).unwrap();
         assert_eq!(s.favourites(true), "", "cleared: the defaults again");
+    }
+
+    #[test]
+    fn four_basic_settings_the_rest_advanced() {
+        let basic: Vec<&str> = KEYS.iter().filter(|k| !k.advanced).map(|k| k.key).collect();
+        assert_eq!(basic, ["offline", "currency.local", "distance.unit", "precision"]);
+    }
+
+    #[test]
+    fn reset_puts_every_setting_back_and_old_keys_load() {
+        let dir = std::env::temp_dir().join(format!("aequalis-settings-reset-{}", std::process::id()));
+        let file = dir.join("settings.json");
+        change_in(&file, "precision", Some("7")).unwrap();
+        change_in(&file, "cities.refresh", Some("silent")).unwrap();
+        assert_eq!(reset_in(&file).unwrap(), Settings::default());
+        assert_eq!(load_from(&file).unwrap(), Settings::default());
+        // A file written by an earlier version still holds the retired key.
+        assert_eq!(Settings::from_json(r#"{"tui.base_currency": "EUR", "precision": 2}"#).unwrap().precision(), 2);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

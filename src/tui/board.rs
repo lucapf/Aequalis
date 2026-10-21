@@ -82,13 +82,12 @@ pub enum Item {
     Class(usize),
 }
 
-/// The list the board scrolls: the currencies and the classes, the one used most first; the
-/// currencies lead when nothing is used (or as often as another), then the classes in their order.
-pub fn items(classes: &[Class], usage: &Usage) -> Vec<Item> {
-    let money: u64 = usage.top(Kind::Currency, usize::MAX).iter().map(|(_, n)| n).sum();
-    let mut items: Vec<(u64, Item)> = std::iter::once((money, Item::Currencies)).chain(classes.iter().enumerate().map(|(i, c)| (c.total, Item::Class(i)))).collect();
-    items.sort_by_key(|(total, _)| std::cmp::Reverse(*total));
-    items.into_iter().map(|(_, item)| item).collect()
+/// The list the board scrolls: the currencies always first (what the board opens at), then the
+/// classes, the one used most first (the classes in their order when nothing is used).
+pub fn items(classes: &[Class], _usage: &Usage) -> Vec<Item> {
+    let mut by_use: Vec<(usize, u64)> = classes.iter().enumerate().map(|(i, c)| (i, c.total)).collect();
+    by_use.sort_by_key(|(_, total)| std::cmp::Reverse(*total));
+    std::iter::once(Item::Currencies).chain(by_use.into_iter().map(|(i, _)| Item::Class(i))).collect()
 }
 
 /// A currency of the board and what one of it is in the base currency (when the rate is known).
@@ -226,19 +225,22 @@ mod tests {
         let mut usage = Usage::default();
         let order = |usage: &Usage| {
             let classes = classes(&config, usage);
-            items(&classes, usage).into_iter().take(3).map(|i| match i {
-                Item::Currencies => "Currencies".to_string(),
-                Item::Class(c) => classes[c].name.to_string(),
-            }).collect::<Vec<_>>()
+            items(&classes, usage)
+                .into_iter()
+                .take(3)
+                .map(|i| match i {
+                    Item::Currencies => "Currencies".to_string(),
+                    Item::Class(c) => classes[c].name.to_string(),
+                })
+                .collect::<Vec<_>>()
         };
         // Nothing used: the currencies, then the classes in their order.
         assert_eq!(order(&usage), ["Currencies", "Date & Time", "Bits & Bytes"]);
-        // The most used first: a class, then the currencies once they are used as much.
+        // The currencies stay first; then the most used class.
         for _ in 0..3 {
             usage.hit(Kind::Unit, "kg");
         }
-        usage.hit(Kind::Currency, "EUR");
-        assert_eq!(order(&usage), ["Mass", "Currencies", "Date & Time"]);
+        assert_eq!(order(&usage), ["Currencies", "Mass", "Date & Time"]);
     }
 
     #[test]
@@ -288,4 +290,3 @@ mod tests {
         assert_eq!(clock("New York", "19 Oct 26 8:30 PM GMT-4 New York", early).unwrap().day, "−1d");
     }
 }
-

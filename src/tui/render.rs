@@ -239,13 +239,8 @@ fn panel_open(app: &App) -> bool {
 }
 
 /// The Basic keys of the big keyboard, five rows of five, and the Sci keys beside them, five of two.
-const BIG_BASIC: [[&str; 5]; 5] = [
-    ["(", ")", "%", "÷", "C"],
-    ["7", "8", "9", "×", "⌫"],
-    ["4", "5", "6", "−", "←"],
-    ["1", "2", "3", "+", "→"],
-    ["0", ".", "to", "␣", "⏎"],
-];
+const BIG_BASIC: [[&str; 5]; 5] =
+    [["(", ")", "%", "÷", "C"], ["7", "8", "9", "×", "⌫"], ["4", "5", "6", "−", "←"], ["1", "2", "3", "+", "→"], ["0", ".", "to", "␣", "⏎"]];
 const BIG_SCI: [[&str; 2]; 5] = [["sin", "cos"], ["tan", "√"], ["ln", "log"], ["π", "e"], ["^", "°"]];
 
 /// The big keyboard, for a finger: keys three rows high, its tabs on the first row. Every key is
@@ -306,7 +301,11 @@ const CLASS_NAME: usize = 16;
 /// (`┌─USD────┐`); its middle row is for the caller.
 fn big_button(canvas: &mut Canvas, y: usize, x: usize, width: usize, title: &str) {
     let inner = width - 2;
-    let top = if title.is_empty() { format!("┌{}┐", "─".repeat(inner)) } else { format!("┌─{title}{}┐", "─".repeat(inner.saturating_sub(title.chars().count() + 1))) };
+    let top = if title.is_empty() {
+        format!("┌{}┐", "─".repeat(inner))
+    } else {
+        format!("┌─{title}{}┐", "─".repeat(inner.saturating_sub(title.chars().count() + 1)))
+    };
     canvas.put(y, x, &top, Style::Dim);
     canvas.put(y + 1, x, "│", Style::Dim);
     canvas.put(y + 1, x + width - 1, "│", Style::Dim);
@@ -433,7 +432,7 @@ fn board_view(app: &App, canvas: &mut Canvas, area: Area) {
                 let money = app.board_money();
                 let title = match app.base_currency() {
                     Some(base) => format!("Currencies in {base}"),
-                    None => "Currencies  (set tui.base_currency for values)".to_string(),
+                    None => "Currencies  (set currency.local for values)".to_string(),
                 };
                 canvas.put_within(y, left + 1, right, &title, Style::Bold);
                 let tiles_per_row = ((width.saturating_sub(1)) / (TILE + 1)).max(1);
@@ -613,7 +612,9 @@ fn toolbar(app: &App, canvas: &mut Canvas) {
                 app.keypad != Keypad::Hidden
                     && !matches!(
                         &app.overlay,
-                        Some(Overlay::Measures(_) | Overlay::Picker(_) | Overlay::Currencies(_) | Overlay::Trivia(_) | Overlay::Search(_) | Overlay::History(_))
+                        Some(
+                            Overlay::Measures(_) | Overlay::Picker(_) | Overlay::Currencies(_) | Overlay::Trivia(_) | Overlay::Search(_) | Overlay::History(_)
+                        )
                     )
             }
             _ => false,
@@ -965,7 +966,9 @@ fn status(app: &App, canvas: &mut Canvas, row: usize) {
     let (badge, keys): (&str, &[(&str, &str)]) = match &app.overlay {
         // The keyboard has the focus (F9, Tab).
         None if app.focus.is_some() && app.keyboard_shown() => match app.focus {
-            Some(Part::Units | Part::Money) => (" KEYS ", &[("Tab", "next"), ("Shift+Tab", "previous"), ("↑↓ ←→", "choose"), ("Enter", "write"), ("<Esc>", "back")]),
+            Some(Part::Units | Part::Money) => {
+                (" KEYS ", &[("Tab", "next"), ("Shift+Tab", "previous"), ("↑↓ ←→", "choose"), ("Enter", "write"), ("<Esc>", "back")])
+            }
             _ => (" KEYS ", &[("Tab", "next"), ("Shift+Tab", "previous"), ("type", "as usual"), ("<Esc>", "back")]),
         },
         Some(Overlay::Choice(..)) => (" CHOOSE ", &[("↑↓ j k 1-9", "reading"), ("Enter", "confirm"), ("<Esc>", "back")]),
@@ -974,8 +977,12 @@ fn status(app: &App, canvas: &mut Canvas, row: usize) {
         Some(Overlay::About) => (" ABOUT ", &[("<Esc>", "close")]),
         Some(Overlay::Help(_)) => (" HELP ", &[("↑↓", "scroll"), ("<Esc>", "close")]),
         Some(Overlay::Settings(v)) if v.edit.is_some() => (" SETTINGS ", &[("type", "value"), ("Enter", "save"), ("<Esc>", "cancel")]),
-        Some(Overlay::Settings(_)) => (" SETTINGS ", &[("↑↓", "choose"), ("Enter ←→", "change"), ("d", "default"), ("<Esc>", "close")]),
-        Some(Overlay::History(_)) => (" HISTORY ", &[("type", "filter"), ("↑↓", "choose"), ("Enter", "recall"), ("Alt+Y", "copy result"), ("Del", "remove"), ("<Esc>", "back")]),
+        Some(Overlay::Settings(_)) => {
+            (" SETTINGS ", &[("↑↓", "choose"), ("Enter ←→", "change"), ("d", "default"), ("a", "advanced"), ("R", "reset"), ("<Esc>", "close")])
+        }
+        Some(Overlay::History(_)) => {
+            (" HISTORY ", &[("type", "filter"), ("↑↓", "choose"), ("Enter", "recall"), ("Alt+Y", "copy result"), ("Del", "remove"), ("<Esc>", "back")])
+        }
         Some(Overlay::Search(_)) => (" SEARCH ", &[("type", "search"), ("↑↓", "choose"), ("Enter", "write"), ("<Esc>", "back")]),
         Some(Overlay::Currencies(_)) => (" CURRENCIES ", &[("type", "search"), ("↑↓", "choose"), ("Enter", "write"), ("<Esc>", "back")]),
         Some(Overlay::Measures(_)) => (" MEASURES ", &[("↑↓ j k", "choose"), ("letter Enter", "open"), ("<Esc>", "back")]),
@@ -1520,20 +1527,22 @@ fn choice(canvas: &mut Canvas, rows: usize, a: &aequalis::time::Ambiguity, selec
 
 /// `O`: the settings, their values (changed ones bold), what the chosen one does, the download.
 fn settings_window(canvas: &mut Canvas, rows: usize, view: &super::settings::View) {
+    use super::settings::Row;
     use aequalis::settings::KEYS;
     let current = &view.settings;
     let key_width = KEYS.iter().map(|k| k.key.len()).max().unwrap_or(0);
-    let lines = super::settings::rows() + 5;
+    let list = view.rows();
+    let lines = list.len() + 5;
     let (top, left, width, height) = centred(canvas, rows, 78, lines, "⚙ Settings");
     modal_hits(canvas, rows, (top, left, width, height));
     let right = left + width - 2;
     let visible = height.saturating_sub(5);
     let offset = view.selected.saturating_sub(visible.saturating_sub(1));
-    for (row, i) in (top + 1..).zip((0..super::settings::rows()).skip(offset).take(visible)) {
+    for (row, i) in (top + 1..).zip((0..list.len()).skip(offset).take(visible)) {
         let chosen = i == view.selected;
         canvas.hit(row, left + 1, width - 2, Target::Pick(i));
-        let text = match KEYS.get(i) {
-            Some(k) => {
+        let text = match list[i] {
+            Row::Setting(k) => {
                 let value = match (&view.edit, chosen) {
                     (Some(typed), true) => format!("{typed}▏"),
                     _ if k.kind == aequalis::settings::Kind::Favourites && current.get(k.key).is_empty() => "(none yet: the defaults)".to_string(),
@@ -1541,28 +1550,36 @@ fn settings_window(canvas: &mut Canvas, rows: usize, view: &super::settings::Vie
                 };
                 format!(" {:<key_width$}  {value}", k.key)
             }
+            Row::Advanced if view.advanced => " Show fewer settings".to_string(),
+            Row::Advanced => match view.hidden_changes() {
+                0 => " Show the advanced settings…".to_string(),
+                n => format!(" Show the advanced settings…  ({n} changed)"),
+            },
+            Row::Reset => format!(" {}", super::settings::RESET),
             // Whether the city archive is there, how big and recent.
-            None => match aequalis::cities::meta() {
+            Row::Download => match aequalis::cities::meta() {
                 Some(m) => format!(" {}  (city archive: {} cities of {})", super::settings::DOWNLOAD, m.count, aequalis::time::human_day(m.built_at)),
                 None => format!(" {}  (city archive: not downloaded)", super::settings::DOWNLOAD),
             },
         };
-        let style = match (chosen, KEYS.get(i)) {
+        let style = match (chosen, list[i]) {
             (true, _) => Style::Lit,
-            (false, Some(k)) if current.get(k.key) != k.default => Style::Bold,
-            (false, Some(_)) => Style::Plain,
-            (false, None) => Style::Yellow,
+            (false, Row::Setting(k)) if current.get(k.key) != k.default => Style::Bold,
+            (false, Row::Setting(_)) => Style::Plain,
+            (false, Row::Reset) => Style::Red,
+            (false, _) => Style::Yellow,
         };
         canvas.put_within(row, left + 1, right, &text, style);
     }
     let sep = top + height - 4;
     canvas.cells[sep][left + 1..left + width - 1].fill(('─', Style::Dim));
-    let about = KEYS
-        .get(view.selected)
-        .map_or("the city archive, the exchange rates, the live values (aequalis --sync)".to_string(), |k| match k.default.is_empty() {
-            true => format!("{} (d clears)", k.about),
-            false => format!("{} (default: {})", k.about, k.default),
-        });
+    let about = match list.get(view.selected) {
+        Some(Row::Setting(k)) if k.default.is_empty() => format!("{} (d clears)", k.about),
+        Some(Row::Setting(k)) => format!("{} (default: {})", k.about, k.default),
+        Some(Row::Advanced) => "the settings for the downloads, the formats, the mouse and the shortcuts (a)".to_string(),
+        Some(Row::Reset) => "every setting back to its default, the advanced ones too (R; Enter twice)".to_string(),
+        _ => "the city archive, the exchange rates, the live values (aequalis --sync)".to_string(),
+    };
     canvas.put_within(sep + 1, left + 2, right, &about, Style::Dim);
     if let Some(msg) = &view.message {
         canvas.put_within(sep + 2, left + 2, right, msg, Style::Green);
@@ -1650,6 +1667,7 @@ const HELP: &[(&str, &str)] = &[
     ("  Ctrl-K", "search units, currencies, settings, trivia,"),
     ("", "cities, earlier requests; Enter uses it"),
     ("  Alt-O", "mouse on/off (off: the terminal selects text)"),
+    ("  Alt-L", "board: Currencies / Measures"),
     ("Wide screens (from 120 columns)", ""),
     ("  the board", "clocks, units per class, currencies;"),
     ("", "a button writes it; used ones are lit"),
@@ -1869,11 +1887,7 @@ mod tests {
         assert!(lines[11].starts_with(" error: cannot convert `km` to `kg`: different kinds of unit"), "{}", lines[11]);
         // The History panel: its own keys and badge.
         let (lines, _) = screen("1+1\n<F5>", 12, 100);
-        assert!(
-            lines[11].starts_with(" HISTORY ") && lines[11].ends_with("Enter recall · Alt+Y copy result · Del remove · <Esc> back"),
-            "{}",
-            lines[11]
-        );
+        assert!(lines[11].starts_with(" HISTORY ") && lines[11].ends_with("Enter recall · Alt+Y copy result · Del remove · <Esc> back"), "{}", lines[11]);
         // The Tab suggestions show while typing, whatever came before.
         let (lines, _) = screen("10 km m", 12, 80);
         assert!(lines.join("\n").contains("Tab:"));
@@ -2354,7 +2368,7 @@ mod tests {
 
     #[test]
     fn settings_list_the_shortcuts() {
-        let (lines, _) = screen("<F10>", 40, 100);
+        let (lines, _) = screen("<F10>a", 40, 100);
         let text = lines.join("\n");
         assert!(text.contains("tui.favourite_units") && text.contains("tui.favourite_currencies"), "{text}");
         assert!(text.contains("(none yet: the defaults)"), "{text}");
@@ -2656,6 +2670,11 @@ mod tests {
         assert_eq!(app.board_scroll, 1, "the first class");
         mouse_at(&mut app, size, "[ Currencies ]", MouseKind::Down(Button::Left));
         mouse_at(&mut app, size, "[ Currencies ]", MouseKind::Up);
+        assert_eq!(app.board_scroll, 0);
+        // The keyboard does the same: Alt+L moves between the two.
+        app.handle(Key::Alt('l'));
+        assert_eq!(app.board_scroll, 1);
+        app.handle(Key::Alt('l'));
         assert_eq!(app.board_scroll, 0);
     }
 

@@ -10,9 +10,9 @@ pub mod completion;
 pub mod config;
 pub mod convert;
 pub mod currency;
+pub mod favourites;
 #[cfg(feature = "ffi")]
 pub mod ffi;
-pub mod favourites;
 pub mod files;
 pub mod find;
 pub mod geo;

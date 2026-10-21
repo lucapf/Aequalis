@@ -1,18 +1,19 @@
-//! The Settings window (`O`, or Settings in the top bar): every setting (`settings.rs`) with its
-//! value, changed in place and saved at once, and the downloads by hand.
+//! The Settings window (`O`, or Settings in the top bar): the few settings most people use, with
+//! their value, changed in place and saved at once; `a` (or its row) shows the advanced ones too;
+//! the standard settings come back with Reset, and the downloads by hand.
 //!
 //! ↑↓ (j k) choose; a yes/no or a choice changes with Enter, Space or ← →; the others (durations,
 //! numbers, formats, the currency, the address) are typed in an edit line, Enter saves, Esc
-//! cancels; `d` puts back the default. The last row downloads all the online data in the
-//! background (`aequalis --sync`).
+//! cancels; `d` puts back the default of one. `R` is the Reset row (Enter twice). The last row
+//! downloads all the online data in the background (`aequalis --sync`).
 
-use aequalis::settings::{self, Kind, Settings, KEYS};
+use aequalis::settings::{self, Key as Setting, Kind, Settings, KEYS};
 use std::path::PathBuf;
 
 /// The window's state.
 #[derive(Debug, Clone, PartialEq)]
 pub struct View {
-    /// The row chosen: a setting (`KEYS`), then the download.
+    /// The row chosen (see `rows`).
     pub selected: usize,
     /// The value being typed, for a setting typed in.
     pub edit: Option<String>,
@@ -21,13 +22,54 @@ pub struct View {
     /// The settings file changed (the one in use), and its settings as last read or saved.
     pub file: PathBuf,
     pub settings: Settings,
+    /// The advanced settings are listed too.
+    pub advanced: bool,
+    /// Reset was asked for once: the next Enter does it.
+    pub confirm_reset: bool,
+}
+
+/// A row of the window.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Row {
+    Setting(&'static Setting),
+    /// Shows or hides the advanced settings.
+    Advanced,
+    /// Every setting back to its default.
+    Reset,
+    Download,
 }
 
 impl View {
     /// The window on the settings file at `file`.
     pub fn on(file: PathBuf) -> View {
         let settings = settings::load_from(&file).unwrap_or_default();
-        View { selected: 0, edit: None, message: None, file, settings }
+        View { selected: 0, edit: None, message: None, file, settings, advanced: false, confirm_reset: false }
+    }
+
+    /// The window on the setting `key` (the advanced ones listed when it is one).
+    pub fn at(key: &str) -> View {
+        let mut view = View::default();
+        view.advanced = KEYS.iter().any(|k| k.key == key && k.advanced);
+        view.selected = view.rows().iter().position(|r| matches!(r, Row::Setting(k) if k.key == key)).unwrap_or(0);
+        view
+    }
+
+    /// The rows: the settings shown, then show / hide the advanced ones, Reset and the download.
+    pub fn rows(&self) -> Vec<Row> {
+        let settings = KEYS.iter().filter(|k| self.advanced || !k.advanced).map(Row::Setting);
+        settings.chain([Row::Advanced, Row::Reset, Row::Download]).collect()
+    }
+
+    pub fn row(&self) -> Option<Row> {
+        self.rows().get(self.selected).copied()
+    }
+
+    /// How many advanced settings are not at their default, while they are hidden.
+    pub fn hidden_changes(&self) -> usize {
+        if self.advanced {
+            return 0;
+        }
+        KEYS.iter().filter(|k| k.advanced && self.settings.get(k.key) != k.default).count()
     }
 }
 
@@ -38,13 +80,9 @@ impl Default for View {
     }
 }
 
-/// The row after the settings: everything online, downloaded again.
+/// The row that downloads everything.
 pub const DOWNLOAD: &str = "Download everything now";
-
-/// How many rows: the settings, then the download.
-pub fn rows() -> usize {
-    KEYS.len() + 1
-}
+pub const RESET: &str = "Reset to the standard settings";
 
 /// What a key does; `false` when the window closes (Esc).
 pub fn key(view: &mut View, key: crate::tui::keys::Key) -> bool {
@@ -66,27 +104,56 @@ pub fn key(view: &mut View, key: crate::tui::keys::Key) -> bool {
         }
         return true;
     }
+    // Reset asks once more; anything but Enter on it cancels.
+    let asked = std::mem::take(&mut view.confirm_reset);
+    let rows = view.rows().len();
     match key {
         Key::Esc | Key::Char('q') => return false,
-        Key::Up | Key::Char('k') => view.selected = (view.selected + rows() - 1) % rows(),
-        Key::Down | Key::Char('j') | Key::Tab => view.selected = (view.selected + 1) % rows(),
+        Key::Up | Key::Char('k') => view.selected = (view.selected + rows - 1) % rows,
+        Key::Down | Key::Char('j') | Key::Tab => view.selected = (view.selected + 1) % rows,
         Key::Left | Key::Char('h') => step(view, false),
         Key::Right | Key::Char('l') | Key::Char(' ') => step(view, true),
-        Key::Enter => match KEYS.get(view.selected) {
-            Some(k) if matches!(k.kind, Kind::Bool | Kind::Choice(_)) => step(view, true),
-            Some(k) => view.edit = Some(view.settings.get(k.key).to_string()),
-            None => download(view),
+        Key::Enter => match view.row() {
+            Some(Row::Setting(k)) if matches!(k.kind, Kind::Bool | Kind::Choice(_)) => step(view, true),
+            Some(Row::Setting(k)) => view.edit = Some(view.settings.get(k.key).to_string()),
+            Some(Row::Advanced) => toggle_advanced(view),
+            Some(Row::Reset) if asked => reset(view),
+            Some(Row::Reset) => {
+                view.confirm_reset = true;
+                view.message = Some("Enter again puts every setting back to its default (the board's usage stays)".into());
+            }
+            Some(Row::Download) => download(view),
+            None => {}
         },
+        Key::Char('a') => toggle_advanced(view),
+        Key::Char('R') => view.selected = rows - 2,
         // `d`: back to the default.
-        Key::Char('d') if view.selected < KEYS.len() => save(view, None),
+        Key::Char('d') if matches!(view.row(), Some(Row::Setting(_))) => save(view, None),
         _ => {}
     }
     true
 }
 
+/// The advanced settings shown or hidden; the row chosen stays the same one when it can.
+fn toggle_advanced(view: &mut View) {
+    let chosen = view.row();
+    view.advanced = !view.advanced;
+    view.selected = chosen.and_then(|c| view.rows().iter().position(|r| *r == c)).unwrap_or(view.rows().len() - 3);
+}
+
+fn reset(view: &mut View) {
+    view.message = Some(match settings::reset_in(&view.file) {
+        Ok(saved) => {
+            view.settings = saved;
+            "every setting is back to its default (restart the interactive mode for the precision)".to_string()
+        }
+        Err(e) => e,
+    });
+}
+
 /// A yes/no or a choice: the next (or previous) value.
 fn step(view: &mut View, forward: bool) {
-    let Some(k) = KEYS.get(view.selected) else { return };
+    let Some(Row::Setting(k)) = view.row() else { return };
     let value = view.settings.get(k.key);
     let next = match k.kind {
         Kind::Bool => if value == "true" { "false" } else { "true" }.to_string(),
@@ -101,7 +168,7 @@ fn step(view: &mut View, forward: bool) {
 }
 
 fn save(view: &mut View, value: Option<&str>) {
-    let Some(k) = KEYS.get(view.selected) else { return };
+    let Some(Row::Setting(k)) = view.row() else { return };
     view.message = Some(match settings::change_in(&view.file, k.key, value) {
         Ok(saved) => {
             view.settings = saved;
@@ -156,8 +223,10 @@ mod tests {
         View::on(file)
     }
 
-    fn row(key: &str) -> usize {
-        KEYS.iter().position(|k| k.key == key).unwrap()
+    /// Selects the row of the setting `key` (the advanced ones shown).
+    fn row(v: &mut View, key: &str) {
+        v.advanced = true;
+        v.selected = v.rows().iter().position(|r| matches!(r, Row::Setting(k) if k.key == key)).unwrap();
     }
 
     fn saved(v: &View, key: &str) -> String {
@@ -168,7 +237,7 @@ mod tests {
     fn moving_around() {
         let mut v = view("moving");
         assert!(key(&mut v, Key::Up));
-        assert_eq!(v.selected, rows() - 1, "circular");
+        assert_eq!(v.selected, v.rows().len() - 1, "circular");
         key(&mut v, Key::Down);
         assert_eq!(v.selected, 0);
         assert!(!key(&mut v, Key::Esc), "Esc closes");
@@ -177,13 +246,13 @@ mod tests {
     #[test]
     fn yes_no_and_choices_change_in_place() {
         let mut v = view("choices");
-        v.selected = row("cities.enabled");
+        row(&mut v, "cities.enabled");
         key(&mut v, Key::Enter);
         assert_eq!((saved(&v, "cities.enabled").as_str(), v.message.as_deref()), ("false", Some("saved: cities.enabled = false")));
         key(&mut v, Key::Char(' '));
         assert_eq!(saved(&v, "cities.enabled"), "true");
         // A choice: forward and back, circular.
-        v.selected = row("cities.refresh");
+        row(&mut v, "cities.refresh");
         key(&mut v, Key::Right);
         assert_eq!(saved(&v, "cities.refresh"), "silent", "manual → silent (circular)");
         key(&mut v, Key::Left);
@@ -197,7 +266,7 @@ mod tests {
     #[test]
     fn typed_values_are_checked() {
         let mut v = view("typed");
-        v.selected = row("rates.interval");
+        row(&mut v, "rates.interval");
         key(&mut v, Key::Enter);
         assert_eq!(v.edit.as_deref(), Some("24h"), "the value to edit");
         for _ in 0..3 {
@@ -220,7 +289,7 @@ mod tests {
         key(&mut v, Key::Esc);
         assert_eq!((v.edit.as_deref(), saved(&v, "rates.interval").as_str()), (None, "90m"));
         // The precision says when it applies.
-        v.selected = row("precision");
+        row(&mut v, "precision");
         key(&mut v, Key::Enter);
         key(&mut v, Key::Backspace);
         key(&mut v, Key::Char('2'));
@@ -231,8 +300,48 @@ mod tests {
     #[test]
     fn no_download_offline() {
         let mut v = view("download");
-        v.selected = KEYS.len();
+        v.selected = v.rows().len() - 1;
         key(&mut v, Key::Enter);
         assert_eq!(v.message.as_deref(), Some("the offline setting is on: no download"));
+    }
+
+    #[test]
+    fn it_opens_on_the_few_and_shows_the_rest_on_request() {
+        let mut v = view("advanced");
+        let keys = |v: &View| v.rows().iter().filter(|r| matches!(r, Row::Setting(_))).count();
+        assert_eq!((keys(&v), v.rows().len()), (4, 7), "4 settings, Advanced, Reset, Download");
+        v.selected = v.rows().len() - 3;
+        key(&mut v, Key::Enter);
+        assert_eq!((v.advanced, keys(&v)), (true, KEYS.len()));
+        assert!(matches!(v.row(), Some(Row::Advanced)), "the row stays chosen");
+        key(&mut v, Key::Char('a'));
+        assert_eq!((v.advanced, keys(&v)), (false, 4));
+        // Ctrl+K on an advanced setting lists them.
+        assert!(View::at("rates.interval").advanced && !View::at("precision").advanced);
+        assert!(matches!(View::at("rates.interval").row(), Some(Row::Setting(k)) if k.key == "rates.interval"));
+    }
+
+    #[test]
+    fn reset_asks_twice_and_puts_every_default_back() {
+        let mut v = view("reset");
+        row(&mut v, "rates.interval");
+        key(&mut v, Key::Char('x'));
+        key(&mut v, Key::Char('R'));
+        assert!(matches!(v.row(), Some(Row::Reset)));
+        key(&mut v, Key::Enter);
+        assert!(v.confirm_reset && v.message.as_deref().is_some_and(|m| m.contains("Enter again")));
+        // Another key cancels.
+        key(&mut v, Key::Up);
+        key(&mut v, Key::Down);
+        key(&mut v, Key::Enter);
+        assert!(v.confirm_reset, "asked again, not done");
+        assert_eq!(saved(&v, "offline"), "true");
+        key(&mut v, Key::Enter);
+        assert_eq!((saved(&v, "offline").as_str(), v.settings.get("offline")), ("false", "false"));
+        // The hidden ones changed are told.
+        let mut v = view("hidden");
+        settings::change_in(&v.file, "cities.refresh", Some("silent")).unwrap();
+        v.settings = settings::load_from(&v.file).unwrap();
+        assert_eq!(v.hidden_changes(), 1);
     }
 }

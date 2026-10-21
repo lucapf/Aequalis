@@ -49,9 +49,13 @@ panel), status; no modes.
 - [x] 6b. The board (Wide, from 120 columns): the pane at the right always holds clocks, every unit
       class with its five most used units (boxes three rows high, used ones lit; one row per class
       when the screen is short), and the five most used currencies (the most traded ones to start:
-      USD EUR JPY GBP CNY) valued in `tui.base_currency` (auto: the local currency). From 150
+      USD EUR JPY GBP CNY) valued in the local currency (`currency.local`). From 150
       columns the big keyboard (keys three rows high, with C ← → to ␣ for a pad without a keyboard)
       sits at its left; `tui.keyboard` is auto / true / false. The usage is counted in `usage.json`.
+- [x] 6c. Simpler settings: the Settings window opens on four settings (offline, currency.local,
+      distance.unit, precision); `a` / a row shows the advanced ones; Reset to the standard settings
+      (Enter twice, `R`); `tui.base_currency` is gone (the board uses `currency.local`), old files load.
+      Android's settings screen can use `Key.advanced` and `settings::reset_in` later.
 - [ ] 7. Docs, help, dead-code cleanup.
 
 ## Android app
