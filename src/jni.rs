@@ -6,7 +6,8 @@
 //! No `jni` crate: the few JNI functions used are taken from the function table every `JNIEnv`
 //! points to, by their place in it (fixed by the JNI specification, `jni.h`).
 
-use std::ffi::c_void;
+use std::cell::Cell;
+use std::ffi::{c_char, c_void, CStr};
 
 /// `JNIEnv *`: a pointer to the pointer to the function table.
 type Env = *mut *const *const c_void;
@@ -15,10 +16,25 @@ type Class = *mut c_void;
 type ByteArray = *mut c_void;
 
 // Places in the JNI function table (`struct JNINativeInterface`).
+const EXCEPTION_CLEAR: usize = 17;
+const DELETE_LOCAL_REF: usize = 23;
+const GET_OBJECT_CLASS: usize = 31;
+const GET_METHOD_ID: usize = 33;
+const CALL_BOOLEAN_METHOD_A: usize = 39;
 const GET_ARRAY_LENGTH: usize = 171;
 const NEW_BYTE_ARRAY: usize = 176;
 const GET_BYTE_ARRAY_REGION: usize = 200;
 const SET_BYTE_ARRAY_REGION: usize = 208;
+const EXCEPTION_CHECK: usize = 228;
+
+/// `jvalue`: an argument of a call into Java (8 bytes, as its `jlong`).
+#[repr(C)]
+union Value {
+    object: *mut c_void,
+    int: i32,
+    boolean: u8,
+    long: i64,
+}
 
 /// The JNI function at `index` of `env`'s table, as the function type `F`.
 ///
@@ -149,7 +165,8 @@ pub unsafe extern "system" fn Java_io_lucapf_aequalis_Core_suggest(env: Env, _cl
 
 /// `Core.lists(which)`: the lists for the keyboard's panels and Settings, as the C interface gives
 /// them: `measures` (the unit classes and their units), `currencies`, `trivia`, `settings`; and
-/// `about`, `memory` (what the core holds, `ffi::memory`).
+/// `about`, `memory` (what the core holds, `ffi::memory`), `online` (online or offline, and the age
+/// of the last sync, `ffi::online`).
 ///
 /// # Safety
 /// Called by the JVM only: `env` is its `JNIEnv *`, the arrays its references, valid in this call.
@@ -162,7 +179,8 @@ pub unsafe extern "system" fn Java_io_lucapf_aequalis_Core_lists(env: Env, _clas
         Some("settings") => crate::ffi::settings(),
         Some("about") => crate::ffi::about(),
         Some("memory") => crate::ffi::memory(),
-        _ => error("lists: measures, currencies, trivia, settings, about or memory"),
+        Some("online") => crate::ffi::online(),
+        _ => error("lists: measures, currencies, trivia, settings, about, memory or online"),
     };
     unsafe { to_java(env, &reply) }
 }
@@ -193,4 +211,79 @@ pub unsafe extern "system" fn Java_io_lucapf_aequalis_Core_seed(env: Env, _class
     let cities = unsafe { text(env, cities) }.filter(|c| !c.is_empty());
     let reply = crate::ffi::seed(rates.as_deref(), cities.as_deref().map(std::path::Path::new));
     unsafe { to_java(env, &reply) }
+}
+
+/// `Core.reset()`: every setting back to its default (`ffi::reset`).
+///
+/// # Safety
+/// Called by the JVM only: `env` is its `JNIEnv *`, valid in this call.
+#[no_mangle]
+pub unsafe extern "system" fn Java_io_lucapf_aequalis_Core_reset(env: Env, _class: Class) -> ByteArray {
+    unsafe { to_java(env, &crate::ffi::reset()) }
+}
+
+thread_local! {
+    /// The Java side of the sync running on this thread (`Core.sync`): its `JNIEnv *` and the
+    /// `Core` object, whose `fetch` downloads.
+    static JAVA: Cell<Option<(Env, Class)>> = const { Cell::new(None) };
+}
+
+/// `Core.sync(auto)`: downloads the online data (`ffi::sync`), in this thread: everything, or with
+/// `auto` what the refresh settings say. Each download is `Core.fetch`'s, in Kotlin (a phone has no
+/// `curl`).
+///
+/// # Safety
+/// Called by the JVM only: `env` is its `JNIEnv *`, `core` the `Core` object, valid in this call.
+#[no_mangle]
+pub unsafe extern "system" fn Java_io_lucapf_aequalis_Core_sync(env: Env, core: Class, auto: u8) -> ByteArray {
+    crate::ffi::aequalis_set_fetcher(fetch);
+    JAVA.set(Some((env, core)));
+    let reply = crate::ffi::sync(auto != 0);
+    JAVA.set(None);
+    unsafe { to_java(env, &reply) }
+}
+
+/// The app's downloader (`ffi::Fetch`): `Core.fetch(url, to, seconds, strict)`, through the Java
+/// side of the sync running on this thread; `false` outside one, or when Java threw.
+extern "C" fn fetch(url: *const c_char, to: *const c_char, seconds: u32, strict: bool) -> bool {
+    let Some((env, core)) = JAVA.get() else { return false };
+    // Safety: `url` and `to` are `AppFetcher`'s NUL-terminated strings; `env` and `core` are this
+    // thread's, from `Core.sync`, which is still running.
+    unsafe {
+        let (Ok(url), Ok(to)) = (CStr::from_ptr(url).to_str(), CStr::from_ptr(to).to_str()) else { return false };
+        let class_of: extern "system" fn(Env, Class) -> Class = function(env, GET_OBJECT_CLASS);
+        let method_of: extern "system" fn(Env, Class, *const c_char, *const c_char) -> *mut c_void = function(env, GET_METHOD_ID);
+        let call: extern "system" fn(Env, Class, *mut c_void, *const Value) -> u8 = function(env, CALL_BOOLEAN_METHOD_A);
+        let delete: extern "system" fn(Env, *mut c_void) = function(env, DELETE_LOCAL_REF);
+        let class = class_of(env, core);
+        let method = method_of(env, class, c"fetch".as_ptr(), c"([B[BIZ)Z".as_ptr());
+        delete(env, class);
+        if method.is_null() {
+            thrown(env);
+            return false;
+        }
+        let (url, to) = (to_java(env, url), to_java(env, to));
+        let seconds = i32::try_from(seconds).unwrap_or(i32::MAX);
+        let args = [Value { object: url }, Value { object: to }, Value { int: seconds }, Value { boolean: u8::from(strict) }];
+        let saved = call(env, core, method, args.as_ptr()) != 0;
+        delete(env, url);
+        delete(env, to);
+        saved && !thrown(env)
+    }
+}
+
+/// Whether Java threw (cleared: the call just failed).
+///
+/// # Safety
+/// `env` comes from Java, in this thread.
+unsafe fn thrown(env: Env) -> bool {
+    unsafe {
+        let check: extern "system" fn(Env) -> u8 = function(env, EXCEPTION_CHECK);
+        let clear: extern "system" fn(Env) = function(env, EXCEPTION_CLEAR);
+        let thrown = check(env) != 0;
+        if thrown {
+            clear(env);
+        }
+        thrown
+    }
 }

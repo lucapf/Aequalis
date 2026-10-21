@@ -169,7 +169,9 @@ impl crate::http::Fetcher for AppFetcher {
     fn get(&self, url: &str, seconds: u32, strict: bool) -> Option<Vec<u8>> {
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let path = std::env::temp_dir().join(format!("aequalis-fetch-{}-{n}", std::process::id()));
+        // In aequalis's folder: an app's temporary folder (`TMPDIR`) may not be set, or writable.
+        let dir = crate::files::dir().unwrap_or_else(std::env::temp_dir);
+        let path = dir.join(format!("aequalis-fetch-{}-{n}", std::process::id()));
         let body = self.call(url, &path, seconds, strict).then(|| std::fs::read(&path).ok()).flatten();
         let _ = std::fs::remove_file(&path);
         body
@@ -337,11 +339,34 @@ pub unsafe extern "C" fn aequalis_seed(rates: *const c_char, cities: *const c_ch
 /// `aequalis --sync --json`.
 #[no_mangle]
 pub extern "C" fn aequalis_sync(auto: bool) -> *mut c_char {
+    give(sync(auto))
+}
+
+/// `aequalis_sync`'s reply: what was synced (`result`, a line each) and what failed (`warnings`).
+pub fn sync(auto: bool) -> String {
     // The groups that failed: the reply's warnings, after the others had their turn.
     let result = crate::online::sync(auto)
         .map(|report| crate::Output { stdout: report.done.join("\n"), warnings: report.failed, ..crate::Output::default() })
         .map_err(|e| crate::CliError::Convert(crate::convert::ConvertError::Domain(e)));
-    give(reply::result(&result, &crate::notify::current()))
+    reply::result(&result, &crate::notify::current())
+}
+
+/// Online or offline, and how long ago the online data was last synced (`aequalis --online
+/// --json`): `{"status":"online","synced":"2h"}`, `synced` left out when it never was.
+pub fn online() -> String {
+    let status = Object::new().str("status", crate::network::status().label());
+    match crate::network::synced_ago() {
+        Some(ago) => status.str("synced", &ago).finish(),
+        None => status.finish(),
+    }
+}
+
+/// Every setting back to its default (`aequalis --reset-settings`): `{"ok":true}` or the error.
+pub fn reset() -> String {
+    match crate::settings::path().ok_or_else(|| "no settings folder".to_string()).and_then(|p| crate::settings::reset_in(&p)) {
+        Ok(_) => Object::new().num("ok", true).finish(),
+        Err(e) => Object::new().num("ok", false).str("error", &e).finish(),
+    }
 }
 
 /// The Trivia: `{"sections":[{"name":…,"entries":[{"name","short","description","value",
@@ -685,5 +710,15 @@ mod tests {
         assert!(settings.contains(r#""key":"offline""#), "{settings}");
         let bad = CString::new("no.such.key").unwrap();
         assert!(call(|| unsafe { aequalis_set(bad.as_ptr(), std::ptr::null()) }).contains(r#""ok":false"#));
+    }
+
+    #[test]
+    fn online_for_the_app() {
+        let doc = json::parse(&online()).unwrap();
+        let status = doc.get("status").and_then(|v| v.str()).unwrap();
+        assert!(["online", "offline", "offline (forced)", "not synced"].contains(&status), "{status}");
+        if let Some(ago) = doc.get("synced") {
+            assert!(ago.str().is_some_and(|a| !a.is_empty()));
+        }
     }
 }

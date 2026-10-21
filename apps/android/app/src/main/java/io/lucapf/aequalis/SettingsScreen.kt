@@ -3,134 +3,316 @@ package io.lucapf.aequalis
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
 import io.lucapf.aequalis.ui.theme.Appearance
 import io.lucapf.aequalis.ui.theme.DarkMode
 import io.lucapf.aequalis.ui.theme.Skin
 import io.lucapf.aequalis.ui.theme.backdrop
 import io.lucapf.aequalis.ui.theme.colorScheme
 import io.lucapf.aequalis.ui.theme.isDark
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
-/** Every setting, changed in place and saved at once (the core checks each value). */
+/** The width of the keys' column: the values, and their lists, start after it (as the widget's). */
+private val KEY_WIDTH = 140.dp
+
+/**
+ * Every setting, laid out as the Omarchy widget's (omarchy-widget/Panel.qml): a row each, its key
+ * (in the accent when changed; tapped, what it does) and its value. A yes/no changes with a tap;
+ * a choice and the currency open their list under the row, the currency's filtered as you type;
+ * the others are typed (Done saves). `default` puts back the default. Only the settings most
+ * people use until Advanced; then Reset (tapped twice) and Sync. Online or offline, and the age of
+ * the last sync, under the title.
+ */
 @Composable
 fun SettingsScreen(close: () -> Unit, openAbout: () -> Unit, modifier: Modifier = Modifier) {
     BackHandler(onBack = close)
+    val scope = rememberCoroutineScope()
     // Read again after each change: the core normalises the value (`ON` is `true`).
     var settings by remember { mutableStateOf(Core.settings()) }
+    var online by remember { mutableStateOf<Online?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
+    var advanced by remember { mutableStateOf(false) }
+    var picking by remember { mutableStateOf<String?>(null) }
+    var confirmReset by remember { mutableStateOf(false) }
+    var syncing by remember { mutableStateOf(false) }
+    val refreshOnline = { scope.launch { online = withContext(Dispatchers.Default) { Core.online() } } }
+    LaunchedEffect(Unit) { refreshOnline() }
     val change = { key: String, value: String ->
         message = Core.change(key, value)
         settings = Core.settings()
+        picking = null
+        // The offline setting is the status's too.
+        refreshOnline()
+        Unit
     }
+    val reset = {
+        if (!confirmReset) {
+            confirmReset = true
+            message = "Tap again to reset everything"
+        } else {
+            confirmReset = false
+            message = Core.resetSettings() ?: "Every setting is back to its default"
+            settings = Core.settings()
+            refreshOnline()
+        }
+        Unit
+    }
+    val sync = {
+        if (!syncing) {
+            syncing = true
+            message = "Syncing…"
+            scope.launch {
+                message = withContext(Dispatchers.IO) { Core.download(auto = false) }.ifBlank { null }
+                syncing = false
+                refreshOnline()
+            }
+        }
+        Unit
+    }
+    val shown = settings.filter { advanced || !it.advanced }
+    val hiddenChanged = settings.count { it.advanced && it.value != it.default }
     Column(modifier.fillMaxSize().imePadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = close) { Icon(BackIcon, contentDescription = "Back") }
-            Text("Settings", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+            Column(Modifier.weight(1f)) {
+                Text("Settings", style = MaterialTheme.typography.titleLarge)
+                online?.let {
+                    Text(
+                        "● " + statusText(it),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (it.status == "online") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
             TextButton(onClick = openAbout) {
                 Icon(InfoIcon, contentDescription = null, modifier = Modifier.padding(end = 6.dp).size(18.dp))
                 Text("About")
             }
         }
-        message?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 16.dp)) }
-        LazyColumn {
-            item(key = "appearance") {
-                AppearanceRow()
-                HorizontalDivider()
+        LazyColumn(contentPadding = PaddingValues(vertical = 8.dp)) {
+            item(key = "appearance") { AppearanceRows(picking) { picking = if (picking == it) null else it } }
+            items(shown, key = { it.key }) { s ->
+                SettingRow(s, open = picking == s.key, toggle = { picking = if (picking == s.key) null else s.key }, change = change)
             }
-            items(settings, key = { it.key }) { s ->
-                SettingRow(s, change)
-                HorizontalDivider()
+            item(key = "buttons") {
+                FlowRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { advanced = !advanced }) {
+                        Text(if (advanced) "Fewer" else if (hiddenChanged > 0) "Advanced ($hiddenChanged changed)" else "Advanced")
+                    }
+                    OutlinedButton(onClick = reset) { Text(if (confirmReset) "Reset: sure?" else "Reset") }
+                    OutlinedButton(onClick = sync, enabled = !syncing) { Text("Sync") }
+                }
+                message?.let {
+                    Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 16.dp))
+                }
             }
         }
     }
 }
 
-/** The app's look (its own preferences, `Appearance`): light or dark, and the skin, each skin shown
- *  by a swatch of its background and accent. */
+/** `online (2h old)`, `offline (forced, 2d old)`, `online (just synced)`, `never synced`. */
+internal fun statusText(online: Online): String {
+    val age = when (online.synced) {
+        null -> "never synced"
+        "now" -> "just synced"
+        else -> "${online.synced} old"
+    }
+    return when (online.status) {
+        "offline (forced)" -> "offline (forced, $age)"
+        "not synced" -> age
+        else -> "${online.status} ($age)"
+    }
+}
+
+/** A value as shown: `auto (AED)` where auto stands for something on this phone. */
+internal fun shownValue(value: String, auto: String?): String = if (value == "auto" && auto != null) "auto ($auto)" else value
+
+/** The list of a choice or of the currency: (value, label), `auto` as it stands (`auto (km)`), the
+ *  currencies with their name; filtered by what is typed, at most 8. */
+internal fun pickChoices(s: Setting, typed: String): List<Pair<String, String>> {
+    val all = if (s.currencies.isNotEmpty()) {
+        listOf("auto" to shownValue("auto", s.auto)) + s.currencies.map { (code, name) -> code to "$code  $name" }
+    } else {
+        s.options.map { it to shownValue(it, s.auto) }
+    }
+    val wanted = typed.trim().lowercase()
+    return all.filter { it.second.lowercase().contains(wanted) }.take(8)
+}
+
+/** The app's look (its own preferences, `Appearance`), as two more rows: light or dark, and the
+ *  skin, each skin shown by a swatch of its background and accent. */
 @Composable
-private fun AppearanceRow() {
+private fun AppearanceRows(picking: String?, toggle: (String) -> Unit) {
     val context = LocalContext.current
     val dark = isDark()
-    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text("appearance", style = MaterialTheme.typography.titleSmall)
-        Text("Light or dark, and the colours", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            DarkMode.entries.forEach { m -> FilterChip(selected = Appearance.mode == m, onClick = { Appearance.choose(mode = m) }, label = { Text(m.label) }) }
+    KeyRow("appearance", Appearance.mode != DarkMode.System, "Light or dark, or as the phone is", onDefault = { Appearance.choose(mode = DarkMode.System) }, value = {
+        ValueButton(Appearance.mode.label + "  ▾") { toggle("appearance") }
+    }) {
+        if (picking == "appearance") {
+            PickList(DarkMode.entries.map { it.name to it.label }, Appearance.mode.name) { name -> Appearance.choose(mode = DarkMode.valueOf(name)); toggle("appearance") }
         }
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Skin.entries.forEach { skin ->
+    }
+    KeyRow("skin", Appearance.skin != Skin.Device, "The colours", onDefault = { Appearance.choose(skin = Skin.Device) }, value = {
+        ValueButton(Appearance.skin.label + "  ▾") { toggle("skin") }
+    }) {
+        if (picking == "skin") {
+            PickList(Skin.entries.map { it.name to it.label }, Appearance.skin.name, leading = { name ->
+                val skin = Skin.valueOf(name)
                 val scheme = colorScheme(context, skin, dark)
-                FilterChip(
-                    selected = Appearance.skin == skin,
-                    onClick = { Appearance.choose(skin = skin) },
-                    label = { Text(skin.label) },
-                    leadingIcon = {
-                        Box(Modifier.size(18.dp).clip(CircleShape).background(backdrop(skin, dark, scheme)).border(4.dp, scheme.primary, CircleShape).clearAndSetSemantics {})
-                    },
-                )
-            }
+                Box(Modifier.padding(end = 8.dp).size(16.dp).clip(CircleShape).background(backdrop(skin, dark, scheme)).border(4.dp, scheme.primary, CircleShape).clearAndSetSemantics {})
+            }) { name -> Appearance.choose(skin = Skin.valueOf(name)); toggle("skin") }
         }
     }
 }
 
 @Composable
-private fun SettingRow(s: Setting, change: (String, String) -> Unit) {
-    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(s.key, style = MaterialTheme.typography.titleSmall)
-                Text(s.about, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            if (s.kind == "bool") {
-                Switch(checked = s.value == "true", onCheckedChange = { change(s.key, it.toString()) })
-            }
+private fun SettingRow(s: Setting, open: Boolean, toggle: () -> Unit, change: (String, String) -> Unit) {
+    val typed = s.kind == "text" && s.currencies.isEmpty()
+    KeyRow(s.key, s.value != s.default, "${s.about} (default: ${s.default})", onDefault = { change(s.key, "") }, value = {
+        when {
+            typed -> TypedValue(s.value) { change(s.key, it) }
+            s.kind == "bool" -> ValueButton(s.value) { change(s.key, if (s.value == "true") "false" else "true") }
+            else -> ValueButton(shownValue(s.value, s.auto) + "  ▾", toggle)
         }
-        when (s.kind) {
-            "choice" -> FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                s.options.forEach { o -> FilterChip(selected = s.value == o, onClick = { change(s.key, o) }, label = { Text(o) }) }
-            }
-            // Free text (an address, a date pattern, a currency): the phone's keyboard, then Save.
-            "text" -> {
-                var draft by remember(s.value) { mutableStateOf(s.value) }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedTextField(draft, onValueChange = { draft = it }, singleLine = true, modifier = Modifier.weight(1f))
-                    TextButton(onClick = { change(s.key, draft) }, enabled = draft != s.value) { Text("Save") }
-                    TextButton(onClick = { change(s.key, "") }, enabled = s.value != s.default) { Text("Default") }
+    }) {
+        if (open) {
+            var filter by remember { mutableStateOf("") }
+            val choices = pickChoices(s, filter)
+            val pick = { value: String -> change(s.key, value) }
+            if (s.currencies.isNotEmpty()) {
+                val focus = remember { FocusRequester() }
+                Field(filter, { filter = it }, Modifier.padding(start = KEY_WIDTH, end = 16.dp).fillMaxWidth().focusRequester(focus), placeholder = "type to filter") {
+                    choices.firstOrNull()?.let { pick(it.first) }
                 }
+                LaunchedEffect(Unit) { focus.requestFocus() }
+            }
+            PickList(choices, s.value, pick = pick)
+        }
+    }
+}
+
+/** A row: the key (the accent when changed; tapped, `about`), its value, `default` when changed;
+ *  then what opens under it. */
+@Composable
+private fun KeyRow(key: String, changed: Boolean, about: String, onDefault: () -> Unit, value: @Composable RowScope.() -> Unit, below: @Composable () -> Unit) {
+    var showAbout by remember { mutableStateOf(false) }
+    Column(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+        Row(Modifier.padding(start = 16.dp, end = 8.dp).heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                key,
+                color = if (changed) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.width(KEY_WIDTH - 16.dp).clickable { showAbout = !showAbout },
+            )
+            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, content = value)
+            if (changed) TextButton(onClick = onDefault) { Text("default") }
+        }
+        if (showAbout) {
+            Text(about, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 4.dp))
+        }
+        below()
+    }
+}
+
+@Composable
+private fun ValueButton(text: String, onClick: () -> Unit) {
+    OutlinedButton(onClick = onClick, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
+        Text(text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+/** A typed value (an address, a date pattern, a duration): Done saves it. */
+@Composable
+private fun TypedValue(value: String, save: (String) -> Unit) {
+    var draft by remember(value) { mutableStateOf(value) }
+    Field(draft, { draft = it }, Modifier.fillMaxWidth()) { if (draft != value) save(draft) }
+}
+
+/** A one-line field as compact as the value buttons; `done`: the keyboard's Done. */
+@Composable
+private fun Field(text: String, onChange: (String) -> Unit, modifier: Modifier = Modifier, placeholder: String = "", done: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    BasicTextField(
+        text,
+        onChange,
+        modifier,
+        singleLine = true,
+        textStyle = MaterialTheme.typography.bodyMedium.copy(color = colors.onSurface),
+        cursorBrush = SolidColor(colors.primary),
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+        keyboardActions = KeyboardActions(onDone = { done() }),
+        decorationBox = { inner ->
+            Box(Modifier.border(1.dp, colors.outline, RoundedCornerShape(8.dp)).padding(horizontal = 12.dp, vertical = 10.dp)) {
+                if (text.isEmpty()) Text(placeholder, style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
+                inner()
+            }
+        },
+    )
+}
+
+/** The list under a row, from the values' column: (value, label), the current one outlined. */
+@Composable
+private fun PickList(choices: List<Pair<String, String>>, current: String, leading: (@Composable (String) -> Unit)? = null, pick: (String) -> Unit) {
+    Column(Modifier.padding(start = KEY_WIDTH - 12.dp, end = 16.dp, bottom = 4.dp)) {
+        choices.forEach { (value, label) ->
+            val chosen = value == current
+            val shape = RoundedCornerShape(8.dp)
+            Row(
+                Modifier.fillMaxWidth().clip(shape).then(if (chosen) Modifier.border(1.dp, MaterialTheme.colorScheme.primary, shape) else Modifier)
+                    .clickable { pick(value) }.padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                leading?.invoke(value)
+                Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis, color = if (chosen) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
             }
         }
     }

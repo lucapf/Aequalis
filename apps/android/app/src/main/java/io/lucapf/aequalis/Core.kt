@@ -4,8 +4,11 @@ import android.content.Context
 import android.icu.util.LocaleData
 import android.icu.util.ULocale
 import android.os.Build
+import androidx.annotation.Keep
 import org.json.JSONObject
 import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
 import java.text.DecimalFormatSymbols
 import java.util.Locale
 import java.util.TimeZone
@@ -54,8 +57,24 @@ data class TriviaEntry(
 
 data class TriviaSection(val name: String, val entries: List<TriviaEntry>)
 
-/** A setting: its key, value and default; `kind` is `bool`, `choice` (one of `options`) or `text`. */
-data class Setting(val key: String, val value: String, val default: String, val kind: String, val options: List<String>, val about: String)
+/** A setting: its key, value and default; `kind` is `bool`, `choice` (one of `options`) or `text`.
+ *  `advanced`: shown only under Advanced; `auto`: what `auto` stands for on this phone (`AED`,
+ *  `km`); `currencies`: the currency's list, (code, name), the most used first. */
+data class Setting(
+    val key: String,
+    val value: String,
+    val default: String,
+    val kind: String,
+    val options: List<String>,
+    val about: String,
+    val advanced: Boolean = false,
+    val auto: String? = null,
+    val currencies: List<Pair<String, String>> = emptyList(),
+)
+
+/** Online or offline (`online`, `offline`, `offline (forced)`, `not synced`), and how long ago the
+ *  online data was last synced (`2h`; null: never). */
+data class Online(val status: String, val synced: String?)
 
 /** What the screen shows of a reply: the core decides it (`json::view`, src/json.rs). */
 enum class Show { Result, Hint, Question, Error, None }
@@ -97,13 +116,15 @@ object Core {
     }
 
     // Implemented in Rust (src/jni.rs): `Java_io_lucapf_aequalis_Core_init`, `…_eval`, `…_suggest`,
-    // `…_lists`, `…_set`, `…_seed`.
+    // `…_lists`, `…_set`, `…_seed`, `…_reset`, `…_sync`.
     private external fun init(config: ByteArray): ByteArray
     private external fun eval(request: ByteArray, submitted: Boolean): ByteArray
     private external fun suggest(before: ByteArray): ByteArray
     private external fun lists(which: ByteArray): ByteArray
     private external fun set(key: ByteArray, value: ByteArray): ByteArray
     private external fun seed(rates: ByteArray, cities: ByteArray): ByteArray
+    private external fun reset(): ByteArray
+    private external fun sync(auto: Boolean): ByteArray
 
     private val launched = java.util.concurrent.atomic.AtomicBoolean(false)
 
@@ -130,6 +151,8 @@ object Core {
             start(app)
             android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
             seedShipped(app)
+            // What the refresh settings say is due (the exchange rates, after a day).
+            download(auto = true)
         }.start()
     }
 
@@ -275,7 +298,58 @@ object Core {
 
     /** Every setting, in order. */
     fun settings(): List<Setting> = list("settings").getJSONArray("settings").objects { s ->
-        Setting(s.getString("key"), s.getString("value"), s.getString("default"), s.getString("kind"), s.getJSONArray("options").strings(), s.getString("about"))
+        Setting(
+            s.getString("key"), s.getString("value"), s.getString("default"), s.getString("kind"), s.getJSONArray("options").strings(), s.getString("about"),
+            advanced = s.optBoolean("advanced"),
+            auto = s.optString("auto").ifEmpty { null },
+            currencies = s.optJSONArray("currencies")?.objects { it.getString("code") to it.getString("name") }.orEmpty(),
+        )
+    }
+
+    /** Online or offline, and the age of the last sync. */
+    fun online(): Online = list("online").let { Online(it.optString("status"), it.optString("synced").ifEmpty { null }) }
+
+    /** Every setting back to its default; the error, or null. */
+    fun resetSettings(): String? {
+        started.await()
+        val reply = JSONObject(reset().decodeToString())
+        return if (reply.optBoolean("ok")) null else reply.optString("error")
+    }
+
+    /** Downloads the online data, in this thread (seconds: off the main thread): everything, or with
+     *  `auto` what is due. What was synced, then what failed, a line each; or the error. */
+    fun download(auto: Boolean): String {
+        started.await()
+        val reply = JSONObject(sync(auto).decodeToString())
+        if (!reply.optBoolean("ok")) return reply.optString("error")
+        val failed = reply.optJSONArray("warnings")?.strings().orEmpty()
+        return (listOf(reply.optString("result")) + failed).filter { it.isNotBlank() }.joinToString("\n")
+    }
+
+    /**
+     * A download for the core (src/jni.rs calls it, in the thread of `sync`): `url` saved into the
+     * file `to` within `seconds`; with `strict`, an HTTP error is a failure. Both are UTF-8.
+     */
+    @Keep
+    fun fetch(url: ByteArray, to: ByteArray, seconds: Int, strict: Boolean): Boolean = try {
+        val connection = URL(url.decodeToString()).openConnection() as HttpURLConnection
+        connection.connectTimeout = seconds * 1000
+        connection.readTimeout = seconds * 1000
+        try {
+            val code = connection.responseCode
+            if (strict && code >= 400) {
+                false
+            } else {
+                val file = File(to.decodeToString())
+                file.parentFile?.mkdirs()
+                (if (code >= 400) connection.errorStream else connection.inputStream)?.use { input -> file.outputStream().use { input.copyTo(it) } }
+                true
+            }
+        } finally {
+            connection.disconnect()
+        }
+    } catch (e: java.io.IOException) {
+        false
     }
 
     /** Changes a setting and saves it (`""`: its default); the error, or null. */

@@ -55,7 +55,12 @@ panel), status; no modes.
 - [x] 6c. Simpler settings: the Settings window opens on four settings (offline, currency.local,
       distance.unit, precision); `a` / a row shows the advanced ones; Reset to the standard settings
       (Enter twice, `R`); `tui.base_currency` is gone (the board uses `currency.local`), old files load.
-      Android's settings screen can use `Key.advanced` and `settings::reset_in` later.
+      Android's settings screen uses them too (6d).
+- [x] 6d. Android's Settings laid out as the Omarchy widget's: key, value (a tap for yes/no; a list
+      under the row for a choice and the currency, the currency's filtered as you type; `auto (AED)`),
+      `default` when changed; Advanced (N changed), Reset (twice), Sync; `online (2h old)` under the
+      title. The app downloads at last: `Core.sync` (src/jni.rs) has the core call `Core.fetch`
+      (Kotlin, `HttpURLConnection`) for each download; what is due is synced at start.
 - [ ] 7. Docs, help, dead-code cleanup.
 
 ## Android app
