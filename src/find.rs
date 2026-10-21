@@ -116,9 +116,9 @@ fn units(config: &Config, q: &str, add: &mut impl FnMut(usize, Found)) {
 /// tier.
 fn currencies(q: &str, add: &mut impl FnMut(usize, Found)) {
     for c in crate::currency::search(q) {
-        let names: Vec<&str> = std::iter::once(c.code.as_str()).chain(c.symbols.iter().map(String::as_str)).collect();
-        let s = score(q, &names, &[c.name.as_str()]).unwrap_or(3);
-        add(s, Found { kind: Kind::Currency, written: c.code.clone(), name: c.name.clone(), about: String::new() });
+        let names: Vec<&str> = std::iter::once(c.code).chain(c.symbols.iter().copied()).collect();
+        let s = score(q, &names, &[c.name]).unwrap_or(3);
+        add(s, Found { kind: Kind::Currency, written: c.code.to_string(), name: c.name.to_string(), about: String::new() });
     }
 }
 

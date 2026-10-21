@@ -486,7 +486,7 @@ pub fn json_where(settings: &Settings, keep: impl Fn(&Key) -> bool) -> String {
             let item = match k.kind {
                 Kind::Currency => {
                     let all: Vec<String> =
-                        crate::currency::all().iter().map(|c| crate::json::Object::new().str("code", &c.code).str("name", &c.name).finish()).collect();
+                        crate::currency::all().iter().map(|c| crate::json::Object::new().str("code", c.code).str("name", c.name).finish()).collect();
                     item.list("currencies", &all)
                 }
                 _ => item,

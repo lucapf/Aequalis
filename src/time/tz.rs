@@ -4,7 +4,8 @@
 //! (`set_source`: on Windows, the registry). And the cities that name them: every country's capital and
 //! major cities (`Paris`, `New York`, `Tokyo`), or a zone's own name (`Europe/Paris`).
 
-use super::{civil_from_days, days_from_civil, days_in_month, unaccented, weekday};
+pub(crate) use super::names::{key, squeeze, CITIES};
+use super::{civil_from_days, days_from_civil, days_in_month, weekday};
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
@@ -442,299 +443,6 @@ pub struct City {
     pub tz: &'static Tz,
 }
 
-/// Every country's capital, and major cities: (name, zone). Zones with an older name too: `A|B`,
-/// tried in order.
-const CITIES: &[(&str, &str)] = &[
-    // Europe
-    ("Amsterdam", "Europe/Amsterdam"),
-    ("Andorra la Vella", "Europe/Andorra"),
-    ("Athens", "Europe/Athens"),
-    ("Belgrade", "Europe/Belgrade"),
-    ("Berlin", "Europe/Berlin"),
-    ("Bern", "Europe/Zurich"),
-    ("Bratislava", "Europe/Bratislava"),
-    ("Brussels", "Europe/Brussels"),
-    ("Bucharest", "Europe/Bucharest"),
-    ("Budapest", "Europe/Budapest"),
-    ("Chisinau", "Europe/Chisinau"),
-    ("Copenhagen", "Europe/Copenhagen"),
-    ("Dublin", "Europe/Dublin"),
-    ("Helsinki", "Europe/Helsinki"),
-    ("Kyiv", "Europe/Kyiv|Europe/Kiev"),
-    ("Kiev", "Europe/Kyiv|Europe/Kiev"),
-    ("Lisbon", "Europe/Lisbon"),
-    ("Ljubljana", "Europe/Ljubljana"),
-    ("London", "Europe/London"),
-    ("Luxembourg", "Europe/Luxembourg"),
-    ("Madrid", "Europe/Madrid"),
-    ("Minsk", "Europe/Minsk"),
-    ("Monaco", "Europe/Monaco"),
-    ("Moscow", "Europe/Moscow"),
-    ("Nicosia", "Asia/Nicosia"),
-    ("Oslo", "Europe/Oslo"),
-    ("Paris", "Europe/Paris"),
-    ("Podgorica", "Europe/Podgorica"),
-    ("Prague", "Europe/Prague"),
-    ("Pristina", "Europe/Belgrade"),
-    ("Reykjavik", "Atlantic/Reykjavik"),
-    ("Riga", "Europe/Riga"),
-    ("Rome", "Europe/Rome"),
-    ("San Marino", "Europe/San_Marino"),
-    ("Sarajevo", "Europe/Sarajevo"),
-    ("Skopje", "Europe/Skopje"),
-    ("Sofia", "Europe/Sofia"),
-    ("Stockholm", "Europe/Stockholm"),
-    ("Tallinn", "Europe/Tallinn"),
-    ("Tirana", "Europe/Tirane"),
-    ("Vaduz", "Europe/Vaduz"),
-    ("Valletta", "Europe/Malta"),
-    ("Vatican City", "Europe/Vatican"),
-    ("Vienna", "Europe/Vienna"),
-    ("Vilnius", "Europe/Vilnius"),
-    ("Warsaw", "Europe/Warsaw"),
-    ("Zagreb", "Europe/Zagreb"),
-    ("Ankara", "Europe/Istanbul"),
-    ("Tbilisi", "Asia/Tbilisi"),
-    ("Yerevan", "Asia/Yerevan"),
-    ("Baku", "Asia/Baku"),
-    // Asia
-    ("Abu Dhabi", "Asia/Dubai"),
-    ("Amman", "Asia/Amman"),
-    ("Ashgabat", "Asia/Ashgabat"),
-    ("Astana", "Asia/Almaty"),
-    ("Baghdad", "Asia/Baghdad"),
-    ("Bandar Seri Begawan", "Asia/Brunei"),
-    ("Bangkok", "Asia/Bangkok"),
-    ("Beijing", "Asia/Shanghai"),
-    ("Beirut", "Asia/Beirut"),
-    ("Bishkek", "Asia/Bishkek"),
-    ("Colombo", "Asia/Colombo"),
-    ("Sri Jayawardenepura Kotte", "Asia/Colombo"),
-    ("Damascus", "Asia/Damascus"),
-    ("Dhaka", "Asia/Dhaka"),
-    ("Dili", "Asia/Dili"),
-    ("Doha", "Asia/Qatar"),
-    ("Dushanbe", "Asia/Dushanbe"),
-    ("Hanoi", "Asia/Ho_Chi_Minh|Asia/Saigon"),
-    ("Islamabad", "Asia/Karachi"),
-    ("Jakarta", "Asia/Jakarta"),
-    ("Jerusalem", "Asia/Jerusalem"),
-    ("Kabul", "Asia/Kabul"),
-    ("Kathmandu", "Asia/Kathmandu|Asia/Katmandu"),
-    ("Kuala Lumpur", "Asia/Kuala_Lumpur"),
-    ("Kuwait City", "Asia/Kuwait"),
-    ("Male", "Indian/Maldives"),
-    ("Manama", "Asia/Bahrain"),
-    ("Manila", "Asia/Manila"),
-    ("Muscat", "Asia/Muscat"),
-    ("Naypyidaw", "Asia/Yangon|Asia/Rangoon"),
-    ("New Delhi", "Asia/Kolkata|Asia/Calcutta"),
-    ("Phnom Penh", "Asia/Phnom_Penh"),
-    ("Pyongyang", "Asia/Pyongyang"),
-    ("Riyadh", "Asia/Riyadh"),
-    ("Sanaa", "Asia/Aden"),
-    ("Seoul", "Asia/Seoul"),
-    ("Singapore", "Asia/Singapore"),
-    ("Taipei", "Asia/Taipei"),
-    ("Tashkent", "Asia/Tashkent"),
-    ("Tehran", "Asia/Tehran"),
-    ("Thimphu", "Asia/Thimphu"),
-    ("Tokyo", "Asia/Tokyo"),
-    ("Ulaanbaatar", "Asia/Ulaanbaatar"),
-    ("Vientiane", "Asia/Vientiane"),
-    // Africa
-    ("Abuja", "Africa/Lagos"),
-    ("Accra", "Africa/Accra"),
-    ("Addis Ababa", "Africa/Addis_Ababa"),
-    ("Algiers", "Africa/Algiers"),
-    ("Antananarivo", "Indian/Antananarivo"),
-    ("Asmara", "Africa/Asmara"),
-    ("Bamako", "Africa/Bamako"),
-    ("Bangui", "Africa/Bangui"),
-    ("Banjul", "Africa/Banjul"),
-    ("Bissau", "Africa/Bissau"),
-    ("Brazzaville", "Africa/Brazzaville"),
-    ("Cairo", "Africa/Cairo"),
-    ("Conakry", "Africa/Conakry"),
-    ("Dakar", "Africa/Dakar"),
-    ("Djibouti", "Africa/Djibouti"),
-    ("Dodoma", "Africa/Dar_es_Salaam"),
-    ("Freetown", "Africa/Freetown"),
-    ("Gaborone", "Africa/Gaborone"),
-    ("Gitega", "Africa/Bujumbura"),
-    ("Harare", "Africa/Harare"),
-    ("Juba", "Africa/Juba"),
-    ("Kampala", "Africa/Kampala"),
-    ("Khartoum", "Africa/Khartoum"),
-    ("Kigali", "Africa/Kigali"),
-    ("Kinshasa", "Africa/Kinshasa"),
-    ("Libreville", "Africa/Libreville"),
-    ("Lilongwe", "Africa/Blantyre"),
-    ("Lome", "Africa/Lome"),
-    ("Luanda", "Africa/Luanda"),
-    ("Lusaka", "Africa/Lusaka"),
-    ("Malabo", "Africa/Malabo"),
-    ("Maputo", "Africa/Maputo"),
-    ("Maseru", "Africa/Maseru"),
-    ("Mbabane", "Africa/Mbabane"),
-    ("Mogadishu", "Africa/Mogadishu"),
-    ("Monrovia", "Africa/Monrovia"),
-    ("Moroni", "Indian/Comoro"),
-    ("Nairobi", "Africa/Nairobi"),
-    ("N'Djamena", "Africa/Ndjamena"),
-    ("Niamey", "Africa/Niamey"),
-    ("Nouakchott", "Africa/Nouakchott"),
-    ("Ouagadougou", "Africa/Ouagadougou"),
-    ("Port Louis", "Indian/Mauritius"),
-    ("Porto-Novo", "Africa/Porto-Novo"),
-    ("Praia", "Atlantic/Cape_Verde"),
-    ("Pretoria", "Africa/Johannesburg"),
-    ("Rabat", "Africa/Casablanca"),
-    ("São Tomé", "Africa/Sao_Tome"),
-    ("Tripoli", "Africa/Tripoli"),
-    ("Tunis", "Africa/Tunis"),
-    ("Victoria", "Indian/Mahe"),
-    ("Windhoek", "Africa/Windhoek"),
-    ("Yamoussoukro", "Africa/Abidjan"),
-    ("Yaoundé", "Africa/Douala"),
-    // Americas
-    ("Washington", "America/New_York"),
-    ("Ottawa", "America/Toronto"),
-    ("Mexico City", "America/Mexico_City"),
-    ("Guatemala City", "America/Guatemala"),
-    ("Belmopan", "America/Belize"),
-    ("San Salvador", "America/El_Salvador"),
-    ("Tegucigalpa", "America/Tegucigalpa"),
-    ("Managua", "America/Managua"),
-    ("San José", "America/Costa_Rica"),
-    ("Panama City", "America/Panama"),
-    ("Havana", "America/Havana"),
-    ("Kingston", "America/Jamaica"),
-    ("Port-au-Prince", "America/Port-au-Prince"),
-    ("Santo Domingo", "America/Santo_Domingo"),
-    ("Nassau", "America/Nassau"),
-    ("Bridgetown", "America/Barbados"),
-    ("Port of Spain", "America/Port_of_Spain"),
-    ("Castries", "America/St_Lucia"),
-    ("Kingstown", "America/St_Vincent"),
-    ("Saint George's", "America/Grenada"),
-    ("Roseau", "America/Dominica"),
-    ("Saint John's", "America/Antigua"),
-    ("Basseterre", "America/St_Kitts"),
-    ("Bogotá", "America/Bogota"),
-    ("Caracas", "America/Caracas"),
-    ("Quito", "America/Guayaquil"),
-    ("Lima", "America/Lima"),
-    ("La Paz", "America/La_Paz"),
-    ("Sucre", "America/La_Paz"),
-    ("Santiago", "America/Santiago"),
-    ("Buenos Aires", "America/Argentina/Buenos_Aires"),
-    ("Montevideo", "America/Montevideo"),
-    ("Asunción", "America/Asuncion"),
-    ("Brasília", "America/Sao_Paulo"),
-    ("Georgetown", "America/Guyana"),
-    ("Paramaribo", "America/Paramaribo"),
-    // Oceania
-    ("Canberra", "Australia/Sydney"),
-    ("Wellington", "Pacific/Auckland"),
-    ("Port Moresby", "Pacific/Port_Moresby"),
-    ("Suva", "Pacific/Fiji"),
-    ("Honiara", "Pacific/Guadalcanal"),
-    ("Port Vila", "Pacific/Efate"),
-    ("Apia", "Pacific/Apia"),
-    ("Nuku'alofa", "Pacific/Tongatapu"),
-    ("Tarawa", "Pacific/Tarawa"),
-    ("Majuro", "Pacific/Majuro"),
-    ("Palikir", "Pacific/Pohnpei|Pacific/Ponape"),
-    ("Ngerulmud", "Pacific/Palau"),
-    ("Funafuti", "Pacific/Funafuti"),
-    ("Yaren", "Pacific/Nauru"),
-    // Major cities
-    ("New York", "America/New_York"),
-    ("Boston", "America/New_York"),
-    ("Miami", "America/New_York"),
-    ("Atlanta", "America/New_York"),
-    ("Chicago", "America/Chicago"),
-    ("Houston", "America/Chicago"),
-    ("Dallas", "America/Chicago"),
-    ("Denver", "America/Denver"),
-    ("Phoenix", "America/Phoenix"),
-    ("Los Angeles", "America/Los_Angeles"),
-    ("San Francisco", "America/Los_Angeles"),
-    ("Seattle", "America/Los_Angeles"),
-    ("Las Vegas", "America/Los_Angeles"),
-    ("Anchorage", "America/Anchorage"),
-    ("Honolulu", "Pacific/Honolulu"),
-    ("Toronto", "America/Toronto"),
-    ("Montreal", "America/Toronto"),
-    ("Vancouver", "America/Vancouver"),
-    ("São Paulo", "America/Sao_Paulo"),
-    ("Rio de Janeiro", "America/Sao_Paulo"),
-    ("Sydney", "Australia/Sydney"),
-    ("Melbourne", "Australia/Melbourne"),
-    ("Brisbane", "Australia/Brisbane"),
-    ("Perth", "Australia/Perth"),
-    ("Adelaide", "Australia/Adelaide"),
-    ("Auckland", "Pacific/Auckland"),
-    ("Shanghai", "Asia/Shanghai"),
-    ("Hong Kong", "Asia/Hong_Kong"),
-    ("Mumbai", "Asia/Kolkata|Asia/Calcutta"),
-    ("Kolkata", "Asia/Kolkata|Asia/Calcutta"),
-    ("Bangalore", "Asia/Kolkata|Asia/Calcutta"),
-    ("Karachi", "Asia/Karachi"),
-    ("Dubai", "Asia/Dubai"),
-    ("Istanbul", "Europe/Istanbul"),
-    ("Osaka", "Asia/Tokyo"),
-    ("Ho Chi Minh City", "Asia/Ho_Chi_Minh|Asia/Saigon"),
-    ("Tel Aviv", "Asia/Jerusalem"),
-    ("Lagos", "Africa/Lagos"),
-    ("Johannesburg", "Africa/Johannesburg"),
-    ("Cape Town", "Africa/Johannesburg"),
-    ("Casablanca", "Africa/Casablanca"),
-    ("Milan", "Europe/Rome"),
-    ("Barcelona", "Europe/Madrid"),
-    ("Munich", "Europe/Berlin"),
-    ("Frankfurt", "Europe/Berlin"),
-    ("Zurich", "Europe/Zurich"),
-    ("Geneva", "Europe/Zurich"),
-    ("Saint Petersburg", "Europe/Moscow"),
-    // Cities of the other time zones of countries with several (`countries.json`).
-    ("Halifax", "America/Halifax"),
-    ("St. John's", "America/St_Johns"),
-    ("Winnipeg", "America/Winnipeg"),
-    ("Regina", "America/Regina"),
-    ("Edmonton", "America/Edmonton"),
-    ("Cancún", "America/Cancun"),
-    ("Mazatlán", "America/Mazatlan"),
-    ("Tijuana", "America/Tijuana"),
-    ("Manaus", "America/Manaus"),
-    ("Rio Branco", "America/Rio_Branco"),
-    ("Fernando de Noronha", "America/Noronha"),
-    ("Kaliningrad", "Europe/Kaliningrad"),
-    ("Samara", "Europe/Samara"),
-    ("Yekaterinburg", "Asia/Yekaterinburg"),
-    ("Omsk", "Asia/Omsk"),
-    ("Novosibirsk", "Asia/Novosibirsk"),
-    ("Krasnoyarsk", "Asia/Krasnoyarsk"),
-    ("Irkutsk", "Asia/Irkutsk"),
-    ("Yakutsk", "Asia/Yakutsk"),
-    ("Vladivostok", "Asia/Vladivostok"),
-    ("Magadan", "Asia/Magadan"),
-    ("Petropavlovsk-Kamchatsky", "Asia/Kamchatka"),
-    ("Darwin", "Australia/Darwin"),
-    ("Makassar", "Asia/Makassar|Asia/Ujung_Pandang"),
-    ("Jayapura", "Asia/Jayapura"),
-    ("Hovd", "Asia/Hovd"),
-    ("Hanga Roa", "Pacific/Easter"),
-    ("Kiritimati", "Pacific/Kiritimati"),
-    ("Kanton", "Pacific/Kanton|Pacific/Enderbury"),
-    ("Ponta Delgada", "Atlantic/Azores"),
-    ("Las Palmas", "Atlantic/Canary"),
-    ("Puerto Ayora", "Pacific/Galapagos"),
-    ("Lubumbashi", "Africa/Lubumbashi"),
-    ("Weno", "Pacific/Chuuk|Pacific/Truk"),
-];
-
 // ---------------------------------------------------------------- countries
 
 /// A country (`src/data/countries.json`): its names, and a city per time zone, the most
@@ -742,104 +450,53 @@ const CITIES: &[(&str, &str)] = &[
 #[derive(Debug)]
 pub struct Country {
     /// ISO 3166 code: `IT`.
-    pub code: String,
-    pub name: String,
-    pub aliases: Vec<String>,
-    pub cities: Vec<String>,
+    pub code: &'static str,
+    pub name: &'static str,
+    pub aliases: &'static [&'static str],
+    pub cities: &'static [&'static str],
     /// Its currency's ISO 4217 code (`EUR`).
-    pub currency: String,
+    pub currency: &'static str,
 }
-
-const COUNTRIES: &str = include_str!("../data/countries.json");
 
 pub fn countries() -> &'static [Country] {
-    static TABLE: OnceLock<Vec<Country>> = OnceLock::new();
-    TABLE.get_or_init(|| {
-        let mut doc = crate::json::parse(COUNTRIES).expect("src/data/countries.json is valid JSON");
-        let mut table: Vec<Country> = doc
-            .take("countries")
-            .into_array()
-            .into_iter()
-            .filter_map(|mut c| {
-                Some(Country {
-                    code: c.take("code").into_string().unwrap_or_default(),
-                    name: c.take("name").into_string()?,
-                    aliases: c.take("aliases").into_strings(),
-                    cities: c.take("cities").into_strings(),
-                    currency: c.take("currency").into_string().unwrap_or_default(),
-                })
-            })
-            .collect();
-        // Kept for the life of the process: no spare room.
-        table.shrink_to_fit();
-        table
-    })
+    COUNTRY_TABLE
 }
 
-/// The built-in names, normalised once (`squeeze`): every lookup is then a hash lookup instead of
-/// a scan that normalises each name again.
+/// The built-in names, normalised (`squeeze`) and sorted by `build.rs`: a lookup is a binary
+/// search, nothing is built when the program starts.
 struct Names {
     /// Each city's normalised name, in `CITIES` order (misspellings are measured against them).
-    city_keys: Vec<String>,
-    /// The cities in the order of `city_keys`, the first of a name first: a name is found by a
-    /// binary search, without a second copy of the names as a hash map would keep.
-    city_order: Vec<u16>,
+    city_keys: &'static [&'static str],
+    /// The cities in the order of `city_keys`, the first of a name first (`find`).
+    city_order: &'static [u16],
     /// The same with their spaces (`key`), for the prefixes typed (suggestions).
-    city_words: Vec<String>,
+    city_words: &'static [&'static str],
     /// Each country's name as `key` writes it, in `countries()` order.
-    country_words: Vec<String>,
+    country_words: &'static [&'static str],
     /// Every country name and alias, normalised, with the country's index.
-    country_keys: Vec<(String, usize)>,
+    country_keys: &'static [(&'static str, u16)],
     /// `country_keys` in the order of their names, as `city_order`.
-    country_order: Vec<u16>,
-    /// A country's ISO code (`IT`) → its index in `countries()`.
-    codes: HashMap<&'static str, usize>,
-    /// A time zone → the country it belongs to (the first whose cities are in it).
-    zones: HashMap<&'static str, usize>,
+    country_order: &'static [u16],
+    /// A country's ISO code (`IT`) → its index in `countries()`, by code.
+    codes: &'static [(&'static str, u16)],
+    /// A time zone → the country it belongs to (the first whose cities are in it), by zone.
+    zones: &'static [(&'static str, u16)],
     /// The most words in a city name (`Sri Jayawardenepura Kotte`) and in a country name (`Saint
     /// Vincent and the Grenadines`).
     longest_city: usize,
     longest_country: usize,
 }
 
+// `COUNTRY_TABLE` and `NAMES`, written by `build.rs` (build/tables.rs).
+include!(concat!(env!("OUT_DIR"), "/countries.rs"));
+
 fn names() -> &'static Names {
-    static NAMES: OnceLock<Names> = OnceLock::new();
-    NAMES.get_or_init(|| {
-        // Each name normalised once: its words counted, then squeezed.
-        let city_words: Vec<String> = CITIES.iter().map(|(n, _)| key(n)).collect();
-        let longest_city = city_words.iter().map(|k| k.split(' ').count()).max().unwrap_or(1);
-        let city_keys: Vec<String> = city_words.iter().map(|k| k.replace(' ', "")).collect();
-        let country_words: Vec<String> = countries().iter().map(|c| key(&c.name)).collect();
-        let city_order = sorted(city_keys.len(), |i| &city_keys[i]);
-        let mut country_keys = Vec::new();
-        let mut codes = HashMap::new();
-        let mut zones = HashMap::new();
-        let mut longest_country = 1;
-        for (i, c) in countries().iter().enumerate() {
-            codes.entry(c.code.as_str()).or_insert(i);
-            for name in std::iter::once(&c.name).chain(&c.aliases) {
-                let k = key(name);
-                longest_country = longest_country.max(k.split(' ').count());
-                country_keys.push((k.replace(' ', ""), i));
-            }
-            for city in &c.cities {
-                if let Some(ci) = find(&city_order, |i| &city_keys[i], &squeeze(city)) {
-                    for zone in CITIES[ci].1.split('|') {
-                        zones.entry(zone).or_insert(i);
-                    }
-                }
-            }
-        }
-        let country_order = sorted(country_keys.len(), |i| &country_keys[i].0);
-        Names { longest_city, longest_country, city_keys, city_order, city_words, country_keys, country_order, country_words, codes, zones }
-    })
+    &NAMES
 }
 
-/// The positions `0..n` in the order of their names, the first of equal names first (stable).
-fn sorted<'a>(n: usize, name: impl Fn(usize) -> &'a str) -> Vec<u16> {
-    let mut order: Vec<u16> = (0..n).map(|i| u16::try_from(i).expect("a few hundred names")).collect();
-    order.sort_by(|&a, &b| name(a.into()).cmp(name(b.into())));
-    order
+/// The value of `wanted` in a table of names sorted by `build.rs`.
+fn lookup(table: &[(&str, u16)], wanted: &str) -> Option<usize> {
+    table.binary_search_by(|(k, _)| (*k).cmp(wanted)).ok().map(|at| usize::from(table[at].1))
 }
 
 /// The first position (of `sorted`'s `order`) whose name is `wanted`.
@@ -851,24 +508,19 @@ fn find<'a>(order: &[u16], name: impl Fn(usize) -> &'a str, wanted: &str) -> Opt
 /// The country whose ISO code is `code` (`IT`), when it is one of `countries.json` (no
 /// territories: Bermuda, the Cayman Islands…).
 pub fn country_by_code(code: &str) -> Option<&'static Country> {
-    names().codes.get(code).map(|&i| &countries()[i])
-}
-
-/// A name as compared, spaces aside too: `New York`, `new-york` and `NewYork` are `newyork`.
-pub(crate) fn squeeze(name: &str) -> String {
-    key(name).replace(' ', "")
+    lookup(names().codes, code).map(|i| &countries()[i])
 }
 
 /// The country a name gives (any case, accents optional, spaces and dots aside: `usa`, `U.S.`,
 /// `Turkiye`).
 pub fn country(name: &str) -> Option<&'static Country> {
     let names = names();
-    find(&names.country_order, |i| &names.country_keys[i].0, &squeeze(name)).map(|k| &countries()[names.country_keys[k].1])
+    find(names.country_order, |i| names.country_keys[i].0, &squeeze(name)).map(|k| &countries()[usize::from(names.country_keys[k].1)])
 }
 
 /// The country a time zone belongs to (`Europe/Rome`: Italy), from its cities.
 pub fn zone_country(zone: &str) -> Option<&'static Country> {
-    names().zones.get(zone).map(|&i| &countries()[i])
+    lookup(names().zones, zone).map(|i| &countries()[i])
 }
 
 /// How far a misspelt name is from a place's names (Levenshtein, case, accents and spaces aside).
@@ -910,7 +562,7 @@ pub fn near_countries(name: &str) -> Vec<&'static Country> {
     if len < 3 {
         return Vec::new();
     }
-    let candidates = names().country_keys.iter().map(|(k, i)| (k.as_str(), *i));
+    let candidates = names().country_keys.iter().map(|&(k, i)| (k, usize::from(i)));
     let Some((d, mut found)) = nearest(&wanted, candidates, 2) else { return Vec::new() };
     if len <= d + 2 {
         return Vec::new();
@@ -921,7 +573,7 @@ pub fn near_countries(name: &str) -> Vec<&'static Country> {
 
 /// Every country name and alias, normalised (`squeeze`), with its country: for misspellings.
 pub(crate) fn country_keys() -> impl Iterator<Item = (&'static str, &'static Country)> {
-    names().country_keys.iter().map(|(k, i)| (k.as_str(), &countries()[*i]))
+    names().country_keys.iter().map(|&(k, i)| (k, &countries()[usize::from(i)]))
 }
 
 /// The number of words of the longest country name (`Saint Vincent and the Grenadines`).
@@ -929,37 +581,10 @@ pub fn longest_country() -> usize {
     names().longest_country
 }
 
-/// A city name as compared: lowercase, no accents, `- _ . '` as spaces, one space between words.
-/// One pass, one allocation: every lookup normalises its text.
-pub(crate) fn key(name: &str) -> String {
-    let mut out = String::with_capacity(name.len());
-    let mut space = false;
-    let mut push = |c: char| {
-        if c.is_whitespace() || matches!(c, '-' | '_' | '.' | '\'' | '’') {
-            space = !out.is_empty();
-        } else {
-            if space {
-                out.push(' ');
-                space = false;
-            }
-            out.push(c);
-        }
-    };
-    for c in name.chars() {
-        // ASCII (most names) without the Unicode tables.
-        if c.is_ascii() {
-            push(c.to_ascii_lowercase());
-        } else {
-            c.to_lowercase().map(unaccented).for_each(&mut push);
-        }
-    }
-    out
-}
-
 /// The index in `CITIES` of the city a name gives.
 fn city_index(name: &str) -> Option<usize> {
     let names = names();
-    find(&names.city_order, |i| &names.city_keys[i], &squeeze(name))
+    find(names.city_order, |i| names.city_keys[i], &squeeze(name))
 }
 
 /// The city a name gives (any case, accents optional: `new york`, `Sao Paulo`), or a zone's own
@@ -995,12 +620,12 @@ pub fn place_name(name: &str) -> Option<&'static str> {
 
 /// The places' names as shown, each with that name as `key` writes it (`New York`, `new york`).
 pub fn place_words() -> impl Iterator<Item = (&'static str, &'static str)> {
-    CITIES.iter().zip(&names().city_words).map(|((n, _), k)| (*n, k.as_str()))
+    CITIES.iter().zip(names().city_words).map(|((n, _), k)| (*n, *k))
 }
 
 /// The countries' names as shown, each with that name as `key` writes it.
 pub fn country_words() -> impl Iterator<Item = (&'static str, &'static str)> {
-    countries().iter().zip(&names().country_words).map(|(c, k)| (c.name.as_str(), k.as_str()))
+    countries().iter().zip(names().country_words).map(|(c, k)| (c.name, *k))
 }
 
 /// The built-in cities nearest a misspelt name, within 2 letters, as indexes in `CITIES`; none
@@ -1010,7 +635,7 @@ fn near_indexes(name: &str) -> Vec<usize> {
     if wanted.chars().count() < 3 {
         return Vec::new();
     }
-    let candidates = names().city_keys.iter().enumerate().map(|(i, k)| (k.as_str(), i));
+    let candidates = names().city_keys.iter().enumerate().map(|(i, k)| (*k, i));
     nearest(&wanted, candidates, 2).map_or_else(Vec::new, |(_, found)| found)
 }
 
@@ -1218,9 +843,35 @@ mod tests {
     }
 
     #[test]
+    fn built_tables_match_their_data() {
+        // `build.rs` wrote them: the countries of `countries.json`, the names as `key` writes them.
+        let doc = crate::json::parse(include_str!("../data/countries.json")).unwrap();
+        let data = doc.get("countries").unwrap().array();
+        assert_eq!(countries().len(), data.len());
+        for (c, d) in countries().iter().zip(data) {
+            let text = |k: &str| d.get(k).and_then(|v| v.str()).unwrap_or_default();
+            let list = |k: &str| d.get(k).map(|v| v.strings()).unwrap_or_default();
+            assert_eq!((c.code, c.name, c.currency), (text("code"), text("name"), text("currency")));
+            let owned = |l: &[&str]| l.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+            assert_eq!((owned(c.aliases), owned(c.cities)), (list("aliases"), list("cities")), "{}", c.name);
+            for name in std::iter::once(c.name).chain(c.aliases.iter().copied()) {
+                assert!(country(name).is_some_and(|found| found.code == c.code || squeeze(found.name) == squeeze(name)), "{name}");
+            }
+        }
+        let names = names();
+        for (i, (name, _)) in CITIES.iter().enumerate() {
+            assert_eq!((names.city_keys[i], names.city_words[i]), (squeeze(name).as_str(), key(name).as_str()));
+            assert_eq!(place_name(name).map(squeeze), Some(squeeze(name)), "{name}");
+        }
+        assert!(names.codes.windows(2).all(|w| w[0].0 < w[1].0) && names.zones.windows(2).all(|w| w[0].0 < w[1].0), "sorted, once each");
+        assert_eq!(zone_country("Europe/Rome").map(|c| c.code), Some("IT"));
+        assert_eq!(country_by_code("JP").map(|c| c.name), Some("Japan"));
+    }
+
+    #[test]
     fn names_found_by_binary_search() {
         let names = ["paris", "rome", "paris", "lima", "rome"];
-        let order = sorted(names.len(), |i| names[i]);
+        let order = super::super::names::sorted(names.len(), |i| names[i]);
         let found = |wanted: &str| find(&order, |i| names[i], wanted);
         // The first of equal names, as the first insert into a hash map kept it.
         assert_eq!((found("paris"), found("rome"), found("lima")), (Some(0), Some(1), Some(3)));

@@ -559,8 +559,52 @@ Coverage (`scripts/coverage.py`):
 
 | What | Why not now |
 |---|---|
-| The tables built at compile time (`build.rs`: the names normalised by the build) | about 1.1 ms of the 1.5–1.8 ms of a request in a fresh process (the Omarchy widget starts one per keystroke); a change in how the data is built |
+| The tables built at compile time | done on `build-tables` (§11) |
 | The date detection still allocates 160–380 times per request (each reading tried in turn) | microseconds; a rewrite of the detection |
 | Code no test runs: the clipboard, desktop notifications, the process-wide setters (`files::set_dir`, `tz::set_source`, `set_zoneinfo`, `http::register`, `time::fixed_now`: the first call wins, so a test would set them for every other one), the C entry points that start the app (`aequalis_init`, `aequalis_seed`, `aequalis_sync`) | a process per test, or the platforms' own test runs |
 | The Android app: Gradle not run; `ExampleInstrumentedTest` is a template too, and needs a device | |
 | `Cargo.lock` is still ignored (§2.15) | |
+
+## 11. The tables at build time, 21 Oct 2026
+
+Branch `build-tables`. What §10 left open: every process built the same tables from the data
+files, about 0.9 ms of the 1.5 ms of a request in a fresh process (the Omarchy widget starts one
+per keystroke).
+
+**How.** `build.rs` runs `build/tables.rs`, which reads `src/data/*.json` with the library's own
+JSON reader (`src/json.rs`, included as it is) and takes the unit table from `src/config.rs`;
+normalises every name with the library's own functions (`src/time/names.rs`: `key`, `squeeze`,
+the built-in `CITIES`, `EURO_AREA`, `sorted`: shared, so a name looked up is written as the
+tables write it); and writes Rust statics into `OUT_DIR`, which the library `include!`s:
+
+| File | Statics | Read by |
+|---|---|---|
+| `countries.rs` | `COUNTRY_TABLE`, `NAMES` (places' and countries' names, by name; countries by code and by zone) | `time/tz.rs` |
+| `currencies.rs` | `CURRENCY_TABLE`, `INDEX` (codes, names, abbreviations, symbols, the euro area, the misspelling forms) | `currency.rs` |
+| `places.rs` | `PLACES` (coordinates) | `geo.rs` |
+| `units.rs` | `UNITS_EXACT`, `UNITS_LOWER` (every unit by symbol and alias) | `convert.rs` |
+
+The hash maps are slices sorted by name, found by binary search (the first of equal names wins,
+as the maps' first insert did). `Country` and `Currency` hold `&'static str` and static slices.
+Still built at run time: the trivia (only its own requests) and the currency catalog (searches and
+suggestions). Two tests compare the tables with the data files and with `key` and `squeeze` at run
+time, and find every name, word, symbol and abbreviation of every currency again.
+
+**Measured** (a fresh process per request, `bench.py`, best of 2 × 40):
+
+| Request | Before | After |
+|---|---|---|
+| `12+4/2`, `12 usd eur`, `sqrt 16`… | 1.50–1.56 ms | 0.58–0.64 ms |
+| `10:00AM Paris to New York` | 1.70 ms | 0.76 ms |
+| `10:00am jappan romme` | 1.79 ms | 0.99 ms |
+| `--trivia` | 2.40 ms | 2.41 ms |
+| `--version` | 0.53 ms | 0.58 ms |
+| peak memory | 3.9–4.5 MB | 3.8–4.3 MB |
+
+**The cost:** the binary is 1.29 → 1.52 MB (+232 KB). The tables hold about 6,800 pointers
+(`.data.rel.ro` +130 KB), each with a relocation the loader applies at start (`.rela.dyn` +151 KB:
+the 0.05 ms of `--version`), less the JSON text and the code that parsed it (−43 KB). Storing the
+names as positions in one text would remove most of it, at the price of methods instead of fields
+for `Country` and `Currency`; `-z pack-relative-relocs` would shrink the relocations, but needs
+glibc 2.36 (Ubuntu 22.04 has 2.35).
+

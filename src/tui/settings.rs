@@ -85,7 +85,7 @@ impl View {
         match k.kind {
             Kind::Choice(options) => options.iter().map(|o| shown(o)).filter(matches).collect(),
             Kind::Currency => {
-                let all = currency::search(&typed).into_iter().map(|c| (c.code.clone(), format!("{}  {}", c.code, c.name)));
+                let all = currency::search(&typed).into_iter().map(|c| (c.code.to_string(), format!("{}  {}", c.code, c.name)));
                 Some(shown("auto")).filter(matches).into_iter().chain(all).collect()
             }
             _ => Vec::new(),

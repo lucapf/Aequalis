@@ -1524,7 +1524,7 @@ fn currencies(v: &super::currencies::View, canvas: &mut Canvas, area: Area) {
     let offset = v.selected.saturating_sub(visible.saturating_sub(1));
     for (i, c) in found.iter().enumerate().skip(offset).take(visible) {
         let style = if i == v.selected { Style::Lit } else { Style::Plain };
-        let symbol = c.symbols.first().map_or("", String::as_str);
+        let symbol = c.symbols.first().copied().unwrap_or("");
         let text = format!(" {}  {:<4} {} ", c.code, symbol, c.name);
         canvas.put_within(top + 3 + i - offset, left + 1, right, &text, style);
         canvas.hit(top + 3 + i - offset, left + 1, width - 2, Target::Pick(i));

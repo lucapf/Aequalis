@@ -1,6 +1,5 @@
 //! The single configuration object: unit tables, aliases and output defaults.
 
-use std::collections::HashMap;
 use std::sync::OnceLock;
 
 /// A unit is converted through its category's base unit:
@@ -87,40 +86,13 @@ pub struct Config {
     pub max_precision: usize,
     /// Entries kept in the interactive mode's history (the oldest are dropped).
     pub max_history: usize,
-    /// Every unit by name (`Config::unit_names`), built on first use.
-    unit_names: OnceLock<UnitNames>,
-}
-
-/// The units by symbol and alias, as (category, unit) indexes: written exactly, and in lower case
-/// for the categories where case does not matter. The first unit with a name wins.
-pub struct UnitNames {
-    pub exact: HashMap<&'static str, (usize, usize)>,
-    pub lower: HashMap<String, (usize, usize)>,
 }
 
 impl Config {
-    /// The process's configuration, built once with its tables (the unit names): the data is
-    /// constant, so every caller shares it instead of building its own.
+    /// The process's configuration: the data is constant, so every caller shares it.
     pub fn shared() -> &'static Config {
         static SHARED: OnceLock<Config> = OnceLock::new();
         SHARED.get_or_init(Config::default)
-    }
-
-    pub fn unit_names(&self) -> &UnitNames {
-        self.unit_names.get_or_init(|| {
-            let mut names = UnitNames { exact: HashMap::new(), lower: HashMap::new() };
-            for (c, category) in self.categories.iter().enumerate() {
-                for (u, unit) in category.units.iter().enumerate() {
-                    for name in std::iter::once(unit.symbol).chain(unit.aliases.iter().copied()) {
-                        names.exact.entry(name).or_insert((c, u));
-                        if !category.case_sensitive {
-                            names.lower.entry(name.to_lowercase()).or_insert((c, u));
-                        }
-                    }
-                }
-            }
-            names
-        })
     }
 }
 
@@ -189,7 +161,7 @@ use Prefix::{Iec, Si};
 
 impl Default for Config {
     fn default() -> Self {
-        Config { categories: CATEGORIES, default_precision: 4, max_precision: 15, max_history: 500, unit_names: OnceLock::new() }
+        Config { categories: CATEGORIES, default_precision: 4, max_precision: 15, max_history: 500 }
     }
 }
 

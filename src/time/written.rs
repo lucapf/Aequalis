@@ -190,20 +190,6 @@ pub(super) fn fold(word: &str) -> String {
     word.chars().flat_map(char::to_lowercase).map(unaccented).collect()
 }
 
-/// A lower-case letter without its accent: `é` → `e`.
-pub(crate) fn unaccented(c: char) -> char {
-    match c {
-        'à' | 'á' | 'â' | 'ã' | 'ä' => 'a',
-        'ç' => 'c',
-        'è' | 'é' | 'ê' | 'ë' => 'e',
-        'ì' | 'í' | 'î' | 'ï' => 'i',
-        'ñ' => 'n',
-        'ò' | 'ó' | 'ô' | 'õ' | 'ö' => 'o',
-        'ù' | 'ú' | 'û' | 'ü' => 'u',
-        c => c,
-    }
-}
-
 /// Whether `a` and `b` are at most one edit apart: a letter added, removed, changed, or two
 /// neighbours swapped.
 pub(super) fn one_edit_apart(a: &[u8], b: &[u8]) -> bool {

@@ -792,9 +792,9 @@ pub(super) fn countries_in(config: &Config, input: &str) -> Option<Result<(Strin
     while let Some((at, n, span, country)) = next_country(config, &words, i) {
         out.extend(words[i..at].iter().map(|w| w.to_string()));
         i = at;
-        if let [one] = &country.cities[..] {
+        if let [one] = country.cities {
             named.push(format!("{} is {one}", country.name));
-            out.push(one.clone());
+            out.push(one.to_string());
             i += n;
             continue;
         }
@@ -811,15 +811,15 @@ pub(super) fn countries_in(config: &Config, input: &str) -> Option<Result<(Strin
                     (h, 0) => format!("GMT{}{h}", if offset < 0 { '-' } else { '+' }),
                     (h, m) => format!("GMT{}{h}:{m:02}", if offset < 0 { '-' } else { '+' }),
                 };
-                let request = [&out.iter().map(String::as_str).collect::<Vec<_>>()[..], &[city.as_str()][..], &words[i + n..]].concat().join(" ");
-                Some(Choice { pattern: city.clone(), date: format!("{gmt} · {}", tz.name), request })
+                let request = [&out.iter().map(String::as_str).collect::<Vec<_>>()[..], &[*city][..], &words[i + n..]].concat().join(" ");
+                Some(Choice { pattern: city.to_string(), date: format!("{gmt} · {}", tz.name), request })
             })
             .collect::<Vec<_>>();
         // None of its zones installed: its first city, which then says which zone is missing,
         // as `now Tokyo` does; a question needs choices (bug 011).
         if choices.is_empty() {
             named.push(format!("{} is {}", country.name, country.cities[0]));
-            out.push(country.cities[0].clone());
+            out.push(country.cities[0].to_string());
             i += n;
             continue;
         }
@@ -875,18 +875,18 @@ pub(super) struct NearPlace {
 pub(super) fn near_places(text: &str) -> Vec<NearPlace> {
     let cities = tz::near(text).into_iter().map(|c| NearPlace { name: c.name.to_string(), zone: c.tz.name.to_string(), country: false });
     let countries = tz::near_countries(text).into_iter().map(|c| {
-        let zone = match &c.cities[..] {
-            [one] => tz::city(one).and_then(Result::ok).map_or_else(|| one.clone(), |city| city.tz.name.to_string()),
+        let zone = match c.cities {
+            [one] => tz::city(one).and_then(Result::ok).map_or_else(|| one.to_string(), |city| city.tz.name.to_string()),
             _ => "several time zones".to_string(),
         };
-        NearPlace { name: c.name.clone(), zone, country: true }
+        NearPlace { name: c.name.to_string(), zone, country: true }
     });
     // Only the nearest, cities and countries together: `Tokio` is Tokyo (1 letter), not Togo (2).
     let all: Vec<(usize, NearPlace)> = cities
         .chain(countries)
         .map(|p| {
             let names: Vec<&str> = match tz::country(&p.name) {
-                Some(c) if p.country => std::iter::once(c.name.as_str()).chain(c.aliases.iter().map(String::as_str)).collect(),
+                Some(c) if p.country => std::iter::once(c.name).chain(c.aliases.iter().copied()).collect(),
                 _ => vec![p.name.as_str()],
             };
             (tz::distance(text, &names), p)

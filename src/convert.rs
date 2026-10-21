@@ -44,17 +44,22 @@ impl fmt::Display for ConvertError {
     }
 }
 
+// `UNITS_EXACT` and `UNITS_LOWER`, written by `build.rs` (build/tables.rs): every unit by symbol
+// and alias, as (category, unit) indexes, sorted by name; written exactly, and in lower case for
+// the categories where case does not matter. The first unit with a name wins.
+include!(concat!(env!("OUT_DIR"), "/units.rs"));
+
 /// Exact match first; then case-insensitive, skipping case-sensitive (data) categories.
 pub fn find_unit<'a>(config: &'a Config, name: &str) -> Option<(&'a Category, &'a Unit)> {
-    let names = config.unit_names();
+    let find = |table: &[(&str, (u8, u8))], wanted: &str| table.binary_search_by(|(k, _)| (*k).cmp(wanted)).ok().map(|at| table[at].1);
     // In lower case already (most words typed): looked up as it is, without a copy.
     let lower = || match name.chars().any(char::is_uppercase) {
-        true => names.lower.get(&name.to_lowercase()),
-        false => names.lower.get(name),
+        true => find(UNITS_LOWER, &name.to_lowercase()),
+        false => find(UNITS_LOWER, name),
     };
-    let &(c, u) = names.exact.get(name).or_else(lower)?;
-    let category = &config.categories[c];
-    Some((category, &category.units[u]))
+    let (c, u) = find(UNITS_EXACT, name).or_else(lower)?;
+    let category = &config.categories[usize::from(c)];
+    Some((category, &category.units[usize::from(u)]))
 }
 
 /// A unit reduced to SI: `value` of it is `value * factor + offset` in the SI units of `dims`.

@@ -8,14 +8,12 @@
 //! distance 41.9,12.5 to 48.86N 2.35E
 //! ```
 //!
-//! The places' coordinates are in `src/data/places.json`, compiled in.
+//! The places' coordinates are in `src/data/places.json`, written into the program by `build.rs`.
 
 use crate::cities::City;
 use crate::config::Config;
 use crate::convert;
-use crate::json;
 use crate::numbers::{self, NumberFormat};
-use std::sync::OnceLock;
 
 /// A point on the Earth: latitude and longitude in degrees (north and east positive).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -31,32 +29,13 @@ pub struct Place {
     pub point: Point,
 }
 
-const PLACES: &str = include_str!("data/places.json");
-
-/// The places' coordinates, by name as shown.
-fn places() -> &'static [(String, Point)] {
-    static PLACES_TABLE: OnceLock<Vec<(String, Point)>> = OnceLock::new();
-    PLACES_TABLE.get_or_init(|| {
-        let mut doc = json::parse(PLACES).expect("src/data/places.json is valid JSON");
-        let mut table: Vec<(String, Point)> = doc
-            .take("places")
-            .into_members()
-            .into_iter()
-            .filter_map(|(name, v)| match v.array() {
-                [lat, lon] => Some((name, Point { lat: lat.number()?, lon: lon.number()? })),
-                _ => None,
-            })
-            .collect();
-        // Kept for the life of the process: no spare room.
-        table.shrink_to_fit();
-        table
-    })
-}
+// `PLACES`, written by `build.rs` (build/tables.rs).
+include!(concat!(env!("OUT_DIR"), "/places.rs"));
 
 /// The coordinates of a known place (`Rome`, `new york`, `Bogota`).
 pub fn known(name: &str) -> Option<Place> {
     let shown = crate::time::tz::place_name(name)?;
-    let point = places().iter().find(|(n, _)| n == shown)?.1;
+    let point = PLACES.iter().find(|(n, _)| *n == shown)?.1;
     Some(Place { name: shown.to_string(), point })
 }
 
@@ -203,7 +182,7 @@ pub struct Device {
 
 /// The ISO code of the device time zone's country (`IT` for Europe/Rome), to offer its cities first.
 pub fn local_country() -> Option<String> {
-    crate::time::tz::zone_country(crate::time::device_zone()?).map(|c| c.code.clone())
+    crate::time::tz::zone_country(crate::time::device_zone()?).map(|c| c.code.to_string())
 }
 
 /// `request`, with the city archive `store` (if any), and the `device` asked for once there are two

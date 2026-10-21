@@ -133,8 +133,8 @@ fn currencies(prefix: &str, besides: Option<&str>) -> (Vec<String>, Vec<String>)
     let mut labels = Vec::new();
     for c in crate::currency::all() {
         let fits = typed.is_empty() || crate::currency::starts_with(c, &typed);
-        if fits && Some(c.code.as_str()) != source {
-            names.push(c.code.clone());
+        if fits && Some(c.code) != source {
+            names.push(c.code.to_string());
             labels.push(format!("{} - {}", c.code, c.name));
         }
         if names.len() == MAX {
@@ -213,8 +213,8 @@ fn misspelt_places(typed: &str, start: usize) -> Option<Suggestions> {
         found.push((tz(typed, &[name]), name.to_string(), name.to_string()));
     }
     for country in crate::time::tz::near_countries(typed) {
-        let names: Vec<&str> = std::iter::once(country.name.as_str()).chain(country.aliases.iter().map(String::as_str)).collect();
-        found.push((tz(typed, &names), country.name.clone(), country.name.clone()));
+        let names: Vec<&str> = std::iter::once(country.name).chain(country.aliases.iter().copied()).collect();
+        found.push((tz(typed, &names), country.name.to_string(), country.name.to_string()));
     }
     let best = found.iter().map(|f| f.0).min()?;
     let (mut names, mut labels): (Vec<String>, Vec<String>) = (Vec::new(), Vec::new());

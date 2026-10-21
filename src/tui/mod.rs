@@ -528,11 +528,11 @@ impl<'a> App<'a> {
             Key::Down | Key::Tab if found > 0 => v.selected = (v.selected + 1) % found,
             Key::Up | Key::BackTab if found > 0 => v.selected = (v.selected + found - 1) % found,
             Key::Enter => {
-                if let Some(code) = aequalis::currency::search(&v.query).get(v.selected).map(|c| c.code.clone()) {
-                    let line = picker::place_unit(&self.line.text(), self.line.cursor(), &code);
+                if let Some(code) = aequalis::currency::search(&v.query).get(v.selected).map(|c| c.code) {
+                    let line = picker::place_unit(&self.line.text(), self.line.cursor(), code);
                     self.line.set(&line);
                     self.overlay = None;
-                    self.used(&code, true);
+                    self.used(code, true);
                 }
             }
             _ => {}

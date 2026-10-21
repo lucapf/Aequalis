@@ -20,8 +20,8 @@ pub fn string(s: &str) -> String {
     out
 }
 
-fn strings(items: &[String]) -> String {
-    format!("[{}]", items.iter().map(|s| string(s)).collect::<Vec<_>>().join(","))
+fn strings<T: AsRef<str>>(items: &[T]) -> String {
+    format!("[{}]", items.iter().map(|s| string(s.as_ref())).collect::<Vec<_>>().join(","))
 }
 
 /// A JSON object, written member by member (escaping the keys and strings):
@@ -69,7 +69,7 @@ impl Object {
         }
     }
 
-    pub fn strs(self, key: &str, values: &[String]) -> Object {
+    pub fn strs<T: AsRef<str>>(self, key: &str, values: &[T]) -> Object {
         self.raw(key, &strings(values))
     }
 

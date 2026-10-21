@@ -21,6 +21,7 @@
 //! answer), `tz` (zones, cities, countries), `sys` (the C library). This file holds the types they
 //! share and the tests.
 
+mod names;
 mod sys;
 pub(crate) mod tz;
 
@@ -153,6 +154,7 @@ pub use calendar::*;
 pub use format::*;
 pub use iso::*;
 use math::*;
+use names::unaccented;
 pub use request::*;
 pub use written::*;
 
@@ -444,7 +446,7 @@ mod tests {
         assert!(tz::countries().len() >= 190);
         for c in tz::countries() {
             assert!(!c.cities.is_empty(), "{}", c.name);
-            for city in &c.cities {
+            for city in c.cities {
                 assert!(tz::place_name(city).is_some(), "{}: {city}", c.name);
                 assert!(crate::geo::known(city).is_some(), "{}: {city} has no coordinates", c.name);
             }
@@ -557,7 +559,7 @@ mod tests {
         for category in Config::default().categories {
             for unit in category.units {
                 for name in std::iter::once(&unit.symbol).chain(unit.aliases.iter()) {
-                    let country = tz::country(name).map(|c| c.name.as_str());
+                    let country = tz::country(name).map(|c| c.name);
                     // `us` (microsecond) is also the United States: the unit wins (`countries_in`).
                     assert!(country.is_none() || *name == "us", "unit `{name}` reads as {country:?}");
                 }

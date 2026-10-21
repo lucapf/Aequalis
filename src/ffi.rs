@@ -503,10 +503,10 @@ pub fn currencies() -> String {
     let list: Vec<String> = crate::currency::all()
         .iter()
         .map(|c| {
-            let users = crate::currency::users(&c.code);
-            let names: Vec<String> = users.iter().map(|k| k.name.clone()).collect();
-            let aliases: Vec<String> = users.iter().flat_map(|k| k.aliases.iter().cloned()).collect();
-            Object::new().str("code", &c.code).str("name", &c.name).strs("symbols", &c.symbols).strs("countries", &names).strs("aliases", &aliases).finish()
+            let users = crate::currency::users(c.code);
+            let names: Vec<&str> = users.iter().map(|k| k.name).collect();
+            let aliases: Vec<&str> = users.iter().flat_map(|k| k.aliases.iter().copied()).collect();
+            Object::new().str("code", c.code).str("name", c.name).strs("symbols", c.symbols).strs("countries", &names).strs("aliases", &aliases).finish()
         })
         .collect();
     Object::new().list("currencies", &list).finish()

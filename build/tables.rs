@@ -1,0 +1,233 @@
+//! The tables of names, written at build time as Rust statics into `OUT_DIR`, which the library
+//! `include!`s: the countries and the built-in places, normalised and sorted to be searched by name
+//! (`time/tz.rs`); the currencies and their index (`currency.rs`); the places' coordinates
+//! (`geo.rs`). Every process used to parse the data files and build them (about 1 ms each); now
+//! the binary holds them ready, read-only. The names are normalised with the library's own
+//! functions (`src/time/names.rs`), so a name looked up is written as the tables write it.
+
+use crate::config::Config;
+use crate::json::{self, Value};
+use crate::names::{key, sorted, squeeze, CITIES, EURO_AREA};
+use std::collections::BTreeMap;
+use std::path::Path;
+
+/// Writes `countries.rs`, `currencies.rs` and `places.rs` into `out`.
+pub fn write(out: &Path) {
+    let read = |name: &str| {
+        let text = std::fs::read_to_string(format!("src/data/{name}.json")).unwrap_or_else(|e| panic!("src/data/{name}.json: {e}"));
+        json::parse(&text).unwrap_or_else(|e| panic!("src/data/{name}.json: {e}"))
+    };
+    let save = |name: &str, text: String| std::fs::write(out.join(name), text).unwrap_or_else(|e| panic!("{name}: {e}"));
+    save("countries.rs", countries_rs(&countries(read("countries"))));
+    save("currencies.rs", currencies_rs(&currencies(read("currencies"))));
+    save("places.rs", places_rs(read("places")));
+    save("units.rs", units_rs());
+}
+
+/// `UNITS_EXACT` and `UNITS_LOWER` (`convert.rs`): every unit by symbol and alias, the first unit
+/// with a name winning, as (category, unit); in lower case only where case does not matter.
+fn units_rs() -> String {
+    let (mut exact, mut lower) = (BTreeMap::new(), BTreeMap::new());
+    for (c, category) in Config::default().categories.iter().enumerate() {
+        for (u, unit) in category.units.iter().enumerate() {
+            let at = format!("({}, {})", u8::try_from(c).expect("a few classes"), u8::try_from(u).expect("a few units"));
+            for name in std::iter::once(unit.symbol).chain(unit.aliases.iter().copied()) {
+                exact.entry(name.to_string()).or_insert_with(|| at.clone());
+                if !category.case_sensitive {
+                    lower.entry(name.to_lowercase()).or_insert_with(|| at.clone());
+                }
+            }
+        }
+    }
+    format!("static UNITS_EXACT: &[(&str, (u8, u8))] = {};\nstatic UNITS_LOWER: &[(&str, (u8, u8))] = {};\n", pairs(exact), pairs(lower))
+}
+
+/// A string literal.
+fn lit(text: &str) -> String {
+    format!("{text:?}")
+}
+
+/// A slice of string literals.
+fn lits<T: AsRef<str>>(list: &[T]) -> String {
+    format!("&[{}]", list.iter().map(|t| lit(t.as_ref())).collect::<Vec<_>>().join(", "))
+}
+
+/// A slice of (name, number) pairs.
+fn pairs<T: std::fmt::Display>(list: impl IntoIterator<Item = (String, T)>) -> String {
+    format!("&[{}]", list.into_iter().map(|(k, v)| format!("({}, {v})", lit(&k))).collect::<Vec<_>>().join(", "))
+}
+
+/// A slice of (name, positions) pairs, sorted by name.
+fn lists(map: &BTreeMap<String, Vec<u16>>) -> String {
+    let item = |(k, v): (&String, &Vec<u16>)| format!("({}, &{v:?})", lit(k));
+    format!("&[{}]", map.iter().map(item).collect::<Vec<_>>().join(", "))
+}
+
+fn position(i: usize) -> u16 {
+    u16::try_from(i).expect("a few hundred names")
+}
+
+struct Country {
+    code: String,
+    name: String,
+    aliases: Vec<String>,
+    cities: Vec<String>,
+    currency: String,
+}
+
+fn countries(mut doc: Value) -> Vec<Country> {
+    let text = |c: &mut Value, k: &str| c.take(k).into_string().unwrap_or_default();
+    doc.take("countries")
+        .into_array()
+        .into_iter()
+        .map(|mut c| Country {
+            code: text(&mut c, "code"),
+            name: text(&mut c, "name"),
+            aliases: c.take("aliases").into_strings(),
+            cities: c.take("cities").into_strings(),
+            currency: text(&mut c, "currency"),
+        })
+        .filter(|c| !c.name.is_empty())
+        .collect()
+}
+
+/// `COUNTRY_TABLE` and `NAMES` (`time/tz.rs`).
+fn countries_rs(countries: &[Country]) -> String {
+    let mut out = String::from("/// The countries of `src/data/countries.json`, in its order (`build.rs`).\nstatic COUNTRY_TABLE: &[Country] = &[\n");
+    for c in countries {
+        let (code, name, currency) = (lit(&c.code), lit(&c.name), lit(&c.currency));
+        out += &format!("    Country {{ code: {code}, name: {name}, aliases: {}, cities: {}, currency: {currency} }},\n", lits(&c.aliases), lits(&c.cities));
+    }
+    out + "];\n\n" + &names_rs(countries)
+}
+
+/// `NAMES`: the places' and the countries' names normalised, sorted to be found by name; the
+/// countries by ISO code and by time zone.
+fn names_rs(countries: &[Country]) -> String {
+    let city_words: Vec<String> = CITIES.iter().map(|(n, _)| key(n)).collect();
+    let longest_city = city_words.iter().map(|k| k.split(' ').count()).max().unwrap_or(1);
+    let city_keys: Vec<String> = city_words.iter().map(|k| k.replace(' ', "")).collect();
+    let country_words: Vec<String> = countries.iter().map(|c| key(&c.name)).collect();
+    let (mut country_keys, mut codes, mut zones) = (Vec::new(), BTreeMap::new(), BTreeMap::new());
+    let mut longest_country = 1;
+    for (i, c) in countries.iter().enumerate() {
+        codes.entry(c.code.clone()).or_insert(position(i));
+        for name in std::iter::once(&c.name).chain(&c.aliases) {
+            let k = key(name);
+            longest_country = longest_country.max(k.split(' ').count());
+            country_keys.push((k.replace(' ', ""), position(i)));
+        }
+        // A zone belongs to the first country with a city in it.
+        for city in &c.cities {
+            if let Some(ci) = city_keys.iter().position(|k| *k == squeeze(city)) {
+                for zone in CITIES[ci].1.split('|') {
+                    zones.entry(zone.to_string()).or_insert(position(i));
+                }
+            }
+        }
+    }
+    let city_order = sorted(city_keys.len(), |i| &city_keys[i]);
+    let country_order = sorted(country_keys.len(), |i| &country_keys[i].0);
+    format!(
+        "static NAMES: Names = Names {{\n    city_keys: {},\n    city_order: &{city_order:?},\n    city_words: {},\n    country_words: {},\n    country_keys: {},\n    country_order: &{country_order:?},\n    codes: {},\n    zones: {},\n    longest_city: {longest_city},\n    longest_country: {longest_country},\n}};\n",
+        lits(&city_keys),
+        lits(&city_words),
+        lits(&country_words),
+        pairs(country_keys),
+        pairs(codes),
+        pairs(zones),
+    )
+}
+
+struct Currency {
+    code: String,
+    name: String,
+    words: Vec<String>,
+    symbols: Vec<String>,
+    abbreviations: Vec<String>,
+}
+
+fn currencies(mut doc: Value) -> Vec<Currency> {
+    let text = |c: &mut Value, k: &str| c.take(k).into_string().unwrap_or_default();
+    doc.take("currencies")
+        .into_array()
+        .into_iter()
+        .map(|mut c| Currency {
+            code: text(&mut c, "code"),
+            name: text(&mut c, "name"),
+            words: c.take("words").into_strings(),
+            symbols: c.take("symbols").into_strings(),
+            abbreviations: c.take("abbreviations").into_strings(),
+        })
+        .filter(|c| !c.code.is_empty() && !c.name.is_empty())
+        .collect()
+}
+
+/// `CURRENCY_TABLE` and `INDEX` (`currency.rs`).
+fn currencies_rs(currencies: &[Currency]) -> String {
+    let mut out =
+        String::from("/// The currencies of `src/data/currencies.json`, the most used first (`build.rs`).\nstatic CURRENCY_TABLE: &[Currency] = &[\n");
+    for c in currencies {
+        let (code, name) = (lit(&c.code), lit(&c.name));
+        let (words, symbols, abbreviations) = (lits(&c.words), lits(&c.symbols), lits(&c.abbreviations));
+        out += &format!("    Currency {{ code: {code}, name: {name}, words: {words}, symbols: {symbols}, abbreviations: {abbreviations} }},\n");
+    }
+    out + "];\n\n" + &index_rs(currencies)
+}
+
+/// `INDEX`: the ways currencies are written, normalised and sorted to be found by name.
+fn index_rs(currencies: &[Currency]) -> String {
+    let (mut codes, mut names, mut abbreviations, mut symbols) = (BTreeMap::new(), BTreeMap::new(), BTreeMap::new(), BTreeMap::new());
+    let mut forms: Vec<(String, u16)> = Vec::new();
+    // Each currency once per name, in the order of the currencies.
+    let add = |map: &mut BTreeMap<String, Vec<u16>>, k: String, i: u16| {
+        if !k.is_empty() {
+            let list = map.entry(k).or_default();
+            if list.last() != Some(&i) {
+                list.push(i);
+            }
+        }
+    };
+    for (i, c) in currencies.iter().enumerate() {
+        let i = position(i);
+        codes.entry(c.code.clone()).or_insert(i);
+        for form in std::iter::once(&c.name).chain(&c.words) {
+            let k = key(form);
+            // For misspellings: names and words of 4 letters or more, squeezed, and their plurals.
+            if form.chars().count() >= 4 {
+                let squeezed = k.replace(' ', "");
+                forms.push((format!("{squeezed}s"), i));
+                forms.push((squeezed, i));
+            }
+            add(&mut names, k, i);
+        }
+        for a in &c.abbreviations {
+            add(&mut abbreviations, key(a), i);
+        }
+        for symbol in &c.symbols {
+            add(&mut symbols, symbol.to_lowercase(), i);
+        }
+    }
+    let euro_area: Vec<String> = EURO_AREA.iter().map(|r| key(r)).collect();
+    format!(
+        "static INDEX: Index = Index {{\n    codes: {},\n    names: {},\n    abbreviations: {},\n    symbols: {},\n    euro_area: {},\n    forms: {},\n}};\n",
+        pairs(codes),
+        lists(&names),
+        lists(&abbreviations),
+        lists(&symbols),
+        lits(&euro_area),
+        pairs(forms),
+    )
+}
+
+/// `PLACES` (`geo.rs`): the places' coordinates, by name as shown.
+fn places_rs(mut doc: Value) -> String {
+    let mut out = String::from("/// The coordinates of `src/data/places.json` (`build.rs`).\nstatic PLACES: &[(&str, Point)] = &[\n");
+    for (name, v) in doc.take("places").into_members() {
+        if let [lat, lon] = v.array() {
+            let (lat, lon) = (lat.number().expect("a latitude"), lon.number().expect("a longitude"));
+            out += &format!("    ({}, Point {{ lat: {lat:?}, lon: {lon:?} }}),\n", lit(&name));
+        }
+    }
+    out + "];\n"
+}
