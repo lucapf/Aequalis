@@ -2,11 +2,12 @@
 //! their value, changed in place and saved at once; `a` (or its row) shows the advanced ones too;
 //! the standard settings come back with Reset, and the downloads by hand.
 //!
-//! ↑↓ (j k) choose; a yes/no or a choice changes with Enter, Space or ← →; the others (durations,
-//! numbers, formats, the currency, the address) are typed in an edit line, Enter saves, Esc
-//! cancels; `d` puts back the default of one. `R` is the Reset row (Enter twice). The last row
+//! ↑↓ (j k) choose; a yes/no changes with Enter, Space or ← →; a choice with ← →, or Enter opens
+//! its list (the currency's too: typing filters it, Enter saves); the others (durations, numbers,
+//! formats, the address) are typed in an edit line, Enter saves, Esc cancels; `d` puts back the default of one. `R` is the Reset row (Enter twice). The last row
 //! downloads all the online data in the background (`aequalis --sync`).
 
+use aequalis::currency;
 use aequalis::settings::{self, Key as Setting, Kind, Settings, KEYS};
 use std::path::PathBuf;
 
@@ -26,6 +27,16 @@ pub struct View {
     pub advanced: bool,
     /// Reset was asked for once: the next Enter does it.
     pub confirm_reset: bool,
+    /// The list of a choice or of the currencies, open under its row.
+    pub list: Option<List>,
+}
+
+/// The values to pick from, filtered by what is typed.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct List {
+    pub query: String,
+    /// Into `View::choices`.
+    pub selected: usize,
 }
 
 /// A row of the window.
@@ -43,7 +54,7 @@ impl View {
     /// The window on the settings file at `file`.
     pub fn on(file: PathBuf) -> View {
         let settings = settings::load_from(&file).unwrap_or_default();
-        View { selected: 0, edit: None, message: None, file, settings, advanced: false, confirm_reset: false }
+        View { selected: 0, edit: None, message: None, file, settings, advanced: false, confirm_reset: false, list: None }
     }
 
     /// The window on the setting `key` (the advanced ones listed when it is one).
@@ -64,6 +75,23 @@ impl View {
         self.rows().get(self.selected).copied()
     }
 
+    /// The list open: (value, label), `auto` as it stands (`auto (km)`); for the currency, `auto`
+    /// then every currency, ranked by what is typed (code, name, country).
+    pub fn choices(&self) -> Vec<(String, String)> {
+        let (Some(Row::Setting(k)), Some(list)) = (self.row(), &self.list) else { return Vec::new() };
+        let typed = list.query.trim().to_lowercase();
+        let shown = |o: &str| (o.to_string(), settings::shown(k.key, o));
+        let matches = |(_, label): &(String, String)| label.to_lowercase().contains(&typed);
+        match k.kind {
+            Kind::Choice(options) => options.iter().map(|o| shown(o)).filter(matches).collect(),
+            Kind::Currency => {
+                let all = currency::search(&typed).into_iter().map(|c| (c.code.clone(), format!("{}  {}", c.code, c.name)));
+                Some(shown("auto")).filter(matches).into_iter().chain(all).collect()
+            }
+            _ => Vec::new(),
+        }
+    }
+
     /// How many advanced settings are not at their default, while they are hidden.
     pub fn hidden_changes(&self) -> usize {
         if self.advanced {
@@ -81,8 +109,8 @@ impl Default for View {
 }
 
 /// The row that downloads everything.
-pub const DOWNLOAD: &str = "Download everything now";
-pub const RESET: &str = "Reset to the standard settings";
+pub const DOWNLOAD: &str = "Sync";
+pub const RESET: &str = "Reset";
 
 /// What a key does; `false` when the window closes (Esc).
 pub fn key(view: &mut View, key: crate::tui::keys::Key) -> bool {
@@ -104,6 +132,37 @@ pub fn key(view: &mut View, key: crate::tui::keys::Key) -> bool {
         }
         return true;
     }
+    // Picking from a list.
+    if let Some(list) = &mut view.list {
+        match key {
+            Key::Esc => view.list = None,
+            Key::Up => list.selected = list.selected.saturating_sub(1),
+            Key::Down | Key::Tab => list.selected += 1,
+            Key::Backspace => {
+                list.query.pop();
+                list.selected = 0;
+            }
+            Key::Char(c) => {
+                list.query.push(c);
+                list.selected = 0;
+            }
+            Key::Enter => {
+                let selected = list.selected;
+                let picked = view.choices().get(selected).map(|(value, _)| value.clone());
+                view.list = None;
+                if let Some(value) = picked {
+                    save(view, Some(&value));
+                }
+                return true;
+            }
+            _ => {}
+        }
+        let last = view.choices().len().saturating_sub(1);
+        if let Some(list) = &mut view.list {
+            list.selected = list.selected.min(last);
+        }
+        return true;
+    }
     // Reset asks once more; anything but Enter on it cancels.
     let asked = std::mem::take(&mut view.confirm_reset);
     let rows = view.rows().len();
@@ -114,13 +173,14 @@ pub fn key(view: &mut View, key: crate::tui::keys::Key) -> bool {
         Key::Left | Key::Char('h') => step(view, false),
         Key::Right | Key::Char('l') | Key::Char(' ') => step(view, true),
         Key::Enter => match view.row() {
-            Some(Row::Setting(k)) if matches!(k.kind, Kind::Bool | Kind::Choice(_)) => step(view, true),
+            Some(Row::Setting(k)) if k.kind == Kind::Bool => step(view, true),
+            Some(Row::Setting(k)) if matches!(k.kind, Kind::Choice(_) | Kind::Currency) => open_list(view),
             Some(Row::Setting(k)) => view.edit = Some(view.settings.get(k.key).to_string()),
             Some(Row::Advanced) => toggle_advanced(view),
             Some(Row::Reset) if asked => reset(view),
             Some(Row::Reset) => {
                 view.confirm_reset = true;
-                view.message = Some("Enter again puts every setting back to its default (the board's usage stays)".into());
+                view.message = Some("Enter again to reset everything".into());
             }
             Some(Row::Download) => download(view),
             None => {}
@@ -134,6 +194,15 @@ pub fn key(view: &mut View, key: crate::tui::keys::Key) -> bool {
     true
 }
 
+/// The list of the setting chosen, on its value.
+fn open_list(view: &mut View) {
+    let Some(Row::Setting(k)) = view.row() else { return };
+    view.list = Some(List::default());
+    let value = view.settings.get(k.key).to_string();
+    let at = view.choices().iter().position(|(v, _)| *v == value).unwrap_or(0);
+    view.list = Some(List { query: String::new(), selected: at });
+}
+
 /// The advanced settings shown or hidden; the row chosen stays the same one when it can.
 fn toggle_advanced(view: &mut View) {
     let chosen = view.row();
@@ -145,7 +214,7 @@ fn reset(view: &mut View) {
     view.message = Some(match settings::reset_in(&view.file) {
         Ok(saved) => {
             view.settings = saved;
-            "every setting is back to its default (restart the interactive mode for the precision)".to_string()
+            "reset: every setting is back to its default".to_string()
         }
         Err(e) => e,
     });
@@ -184,7 +253,7 @@ fn save(view: &mut View, value: Option<&str>) {
 /// Starts the download of everything in the background.
 fn download(view: &mut View) {
     if view.settings.offline() {
-        view.message = Some("the offline setting is on: no download".into());
+        view.message = Some("offline setting on: no sync".into());
         return;
     }
     #[cfg(windows)]
@@ -204,7 +273,7 @@ fn download(view: &mut View) {
             .ok()
     });
     view.message = Some(match started {
-        Some(_) => "downloading everything in the background".to_string(),
+        Some(_) => "syncing in the background".to_string(),
         None => "could not start the download".into(),
     });
 }
@@ -264,6 +333,37 @@ mod tests {
     }
 
     #[test]
+    fn lists_for_the_currency_and_the_choices() {
+        let mut v = view("lists");
+        // The currency: Enter opens the list on its value (auto, as it stands), typing filters it.
+        row(&mut v, "currency.local");
+        key(&mut v, Key::Enter);
+        assert_eq!((v.list.as_ref().map(|l| l.selected), v.choices()[0].0.as_str()), (Some(0), "auto"));
+        assert!(v.choices()[0].1.starts_with("auto"), "{:?}", v.choices()[0]);
+        for c in "dirham".chars() {
+            key(&mut v, Key::Char(c));
+        }
+        assert_eq!(v.choices()[0].0, "AED", "{:?}", v.choices());
+        key(&mut v, Key::Enter);
+        assert_eq!((v.list.is_none(), saved(&v, "currency.local").as_str()), (true, "AED"));
+        // Esc closes it, nothing saved.
+        key(&mut v, Key::Enter);
+        key(&mut v, Key::Down);
+        key(&mut v, Key::Esc);
+        assert_eq!((v.list.is_none(), saved(&v, "currency.local").as_str()), (true, "AED"));
+        // A choice: its values, `auto` as it stands; ← → still step without the list.
+        row(&mut v, "distance.unit");
+        key(&mut v, Key::Enter);
+        let values: Vec<String> = v.choices().into_iter().map(|(value, _)| value).collect();
+        assert_eq!(values, ["auto", "km", "mi"]);
+        key(&mut v, Key::Down);
+        key(&mut v, Key::Enter);
+        assert_eq!(saved(&v, "distance.unit"), "km");
+        key(&mut v, Key::Right);
+        assert_eq!(saved(&v, "distance.unit"), "mi");
+    }
+
+    #[test]
     fn typed_values_are_checked() {
         let mut v = view("typed");
         row(&mut v, "rates.interval");
@@ -302,7 +402,7 @@ mod tests {
         let mut v = view("download");
         v.selected = v.rows().len() - 1;
         key(&mut v, Key::Enter);
-        assert_eq!(v.message.as_deref(), Some("the offline setting is on: no download"));
+        assert_eq!(v.message.as_deref(), Some("offline setting on: no sync"));
     }
 
     #[test]

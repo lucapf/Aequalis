@@ -323,8 +323,11 @@ impl<'a> App<'a> {
             Some(Overlay::History(v)) => v.selected = n,
             Some(Overlay::Trivia(v)) if v.popup.is_none() => v.selected = n,
             Some(Overlay::Choice(_, selected)) => *selected = n,
-            // The settings: a row being typed in is left as it is.
-            Some(Overlay::Settings(v)) if v.edit.is_none() => v.selected = n,
+            // The settings: a row being typed in is left as it is; with a list open, its n-th value.
+            Some(Overlay::Settings(v)) if v.edit.is_none() => match &mut v.list {
+                Some(list) => list.selected = n,
+                None => v.selected = n,
+            },
             _ => return,
         }
         self.handle(Key::Enter);

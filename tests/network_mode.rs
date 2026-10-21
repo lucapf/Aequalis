@@ -81,6 +81,7 @@ fn forced_offline() {
     assert_eq!(text(&aequalis(OFFLINE, &dir, &["--online"])), "offline (forced)");
     let json = text(&aequalis(OFFLINE, &dir, &["--json", "--online"]));
     assert!(json.starts_with(r#"{"ok":true,"result":"offline (forced)""#), "{json}");
+    assert!(!json.contains("synced"), "never synced: {json}");
     // The trivia: no network, estimates at once; no sync started (no lock, no file).
     let started = Instant::now();
     let out = text(&aequalis(OFFLINE, &dir, &["--trivia"]));
@@ -109,6 +110,9 @@ fn fresh_data_is_used_offline() {
         format!(r#"{{"format":1,"synced_at":{old},"attempted_at":{t},"ok":false,"values":{{"Starlink":{{"value":12345,"at":{old}}}}}}}"#, old = t - 100);
     let dir = config("failed", &failed, &rates(t - 1000, true));
     assert_eq!(text(&aequalis(&[], &dir, &["--online"])), "offline");
+    // With --json, how long ago the last complete sync was.
+    let json = text(&aequalis(&[], &dir, &["--json", "--online"]));
+    assert!(json.contains(r#""synced":"1m""#), "{json}");
 }
 
 #[test]

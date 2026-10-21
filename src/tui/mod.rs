@@ -442,6 +442,11 @@ impl<'a> App<'a> {
         aequalis::network::status_of(&self.online, self.forced_offline)
     }
 
+    /// How long ago the online data was last synced (`2h`; `None`: never).
+    pub fn synced_ago(&self) -> Option<String> {
+        aequalis::network::since_sync(&self.online)
+    }
+
     /// Reloads the online data when its file changed (the background sync wrote it): `true` then,
     /// for a redraw.
     pub fn refresh_online(&mut self) -> bool {
@@ -1075,9 +1080,15 @@ pub fn run(config: &Config, opts: &Options) -> ExitCode {
     let mut stdout = std::io::stdout();
     let (mut pending, mut buf) = (Vec::new(), [0u8; 256]);
     let (mut drawn, mut dirty, mut clear, mut hangups) = (None, true, true, 0);
+    let mut synced_shown = None;
     while !app.quit {
         app.keep_online_fresh();
         dirty |= app.refresh_online();
+        // The toolbar's age of the last sync (`2h`) changes with the clock too.
+        let synced = app.synced_ago();
+        if synced != synced_shown {
+            (dirty, synced_shown) = (true, synced);
+        }
         if app.mouse_on != mouse_reported {
             term::mouse(app.mouse_on);
             mouse_reported = app.mouse_on;

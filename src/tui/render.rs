@@ -633,13 +633,27 @@ fn toolbar(app: &App, canvas: &mut Canvas) {
         Status::Offline | Status::Forced => ("●", Style::Yellow),
         Status::Checking => ("○", Style::Dim),
     };
-    // The label, else a short one (`offline (forced)` → `offline`), else nothing.
+    // The label with the age of the last sync (`online (2h old)`), else a short one (`offline
+    // (forced)` → `offline`), else nothing.
     let short = match status {
         Status::Forced => "offline",
         Status::Checking => "…",
         _ => status.label(),
     };
-    for label in [status.label(), short] {
+    let age = match app.synced_ago() {
+        _ if status == Status::Checking => None,
+        Some(age) if age == "now" => Some("just synced".to_string()),
+        Some(age) => Some(format!("{age} old")),
+        None => Some("never synced".to_string()),
+    };
+    let full = match (status, &age) {
+        (Status::Forced, Some(age)) => format!("offline (forced, {age})"),
+        (_, Some(age)) => format!("{} ({age})", status.label()),
+        (_, None) => status.label().to_string(),
+    };
+    let with_age = age.map_or(short.to_string(), |age| format!("{short} ({age})"));
+    let labels = [full, with_age, status.label().to_string(), short.to_string()];
+    for label in labels {
         let text = format!(" {dot} {label} ");
         let start = cols.saturating_sub(1 + text.chars().count());
         if start > col {
@@ -977,6 +991,7 @@ fn status(app: &App, canvas: &mut Canvas, row: usize) {
         Some(Overlay::About) => (" ABOUT ", &[("<Esc>", "close")]),
         Some(Overlay::Help(_)) => (" HELP ", &[("↑↓", "scroll"), ("<Esc>", "close")]),
         Some(Overlay::Settings(v)) if v.edit.is_some() => (" SETTINGS ", &[("type", "value"), ("Enter", "save"), ("<Esc>", "cancel")]),
+        Some(Overlay::Settings(v)) if v.list.is_some() => (" SETTINGS ", &[("type", "filter"), ("↑↓", "choose"), ("Enter", "save"), ("<Esc>", "cancel")]),
         Some(Overlay::Settings(_)) => {
             (" SETTINGS ", &[("↑↓", "choose"), ("Enter ←→", "change"), ("d", "default"), ("a", "advanced"), ("R", "reset"), ("<Esc>", "close")])
         }
@@ -1546,21 +1561,17 @@ fn settings_window(canvas: &mut Canvas, rows: usize, view: &super::settings::Vie
                 let value = match (&view.edit, chosen) {
                     (Some(typed), true) => format!("{typed}▏"),
                     _ if k.kind == aequalis::settings::Kind::Favourites && current.get(k.key).is_empty() => "(none yet: the defaults)".to_string(),
-                    _ => current.get(k.key).to_string(),
+                    _ => aequalis::settings::shown(k.key, current.get(k.key)),
                 };
                 format!(" {:<key_width$}  {value}", k.key)
             }
-            Row::Advanced if view.advanced => " Show fewer settings".to_string(),
+            Row::Advanced if view.advanced => " Fewer".to_string(),
             Row::Advanced => match view.hidden_changes() {
-                0 => " Show the advanced settings…".to_string(),
-                n => format!(" Show the advanced settings…  ({n} changed)"),
+                0 => " Advanced".to_string(),
+                n => format!(" Advanced ({n} changed)"),
             },
             Row::Reset => format!(" {}", super::settings::RESET),
-            // Whether the city archive is there, how big and recent.
-            Row::Download => match aequalis::cities::meta() {
-                Some(m) => format!(" {}  (city archive: {} cities of {})", super::settings::DOWNLOAD, m.count, aequalis::time::human_day(m.built_at)),
-                None => format!(" {}  (city archive: not downloaded)", super::settings::DOWNLOAD),
-            },
+            Row::Download => format!(" {}", super::settings::DOWNLOAD),
         };
         let style = match (chosen, list[i]) {
             (true, _) => Style::Lit,
@@ -1576,13 +1587,37 @@ fn settings_window(canvas: &mut Canvas, rows: usize, view: &super::settings::Vie
     let about = match list.get(view.selected) {
         Some(Row::Setting(k)) if k.default.is_empty() => format!("{} (d clears)", k.about),
         Some(Row::Setting(k)) => format!("{} (default: {})", k.about, k.default),
-        Some(Row::Advanced) => "the settings for the downloads, the formats, the mouse and the shortcuts (a)".to_string(),
-        Some(Row::Reset) => "every setting back to its default, the advanced ones too (R; Enter twice)".to_string(),
-        _ => "the city archive, the exchange rates, the live values (aequalis --sync)".to_string(),
+        Some(Row::Advanced) => "downloads, formats, mouse, shortcuts (a)".to_string(),
+        Some(Row::Reset) => "every setting to its default (R, Enter twice)".to_string(),
+        _ => "download rates, cities and live values now".to_string(),
     };
     canvas.put_within(sep + 1, left + 2, right, &about, Style::Dim);
     if let Some(msg) = &view.message {
         canvas.put_within(sep + 2, left + 2, right, msg, Style::Green);
+    }
+    // A list open: under the value of its row (above it when there is no room), what is typed
+    // then the values, the chosen one lit.
+    if let Some(list) = &view.list {
+        let choices = view.choices();
+        let shown = choices.len().clamp(1, 8);
+        let height = shown + 3;
+        let row = top + 1 + view.selected.saturating_sub(offset);
+        let list_left = (left + key_width + 3).min(canvas.cols.saturating_sub(34));
+        let list_width = 32.min(canvas.cols - list_left);
+        let list_top = if row + 1 + height <= rows { row + 1 } else { row.saturating_sub(height) };
+        canvas.boxed(list_top, list_left, height, list_width, "");
+        canvas.hit_rect(list_top, list_left, list_width, height, Target::Inside);
+        let inner = list_left + list_width - 2;
+        canvas.put_within(list_top + 1, list_left + 2, inner, &format!("{}▏", list.query), Style::Plain);
+        if choices.is_empty() {
+            canvas.put_within(list_top + 2, list_left + 2, inner, "no match", Style::Dim);
+        }
+        let first = list.selected.saturating_sub(shown - 1);
+        for (line, i) in (list_top + 2..).zip((first..choices.len()).take(shown)) {
+            canvas.hit(line, list_left + 1, list_width - 2, Target::Pick(i));
+            let style = if i == list.selected { Style::Lit } else { Style::Plain };
+            canvas.put_within(line, list_left + 1, inner + 1, &format!(" {:<w$}", choices[i].1, w = list_width - 3), style);
+        }
     }
 }
 
@@ -2240,16 +2275,17 @@ mod tests {
             app.forced_offline = status == Status::Forced;
             app.online = match status {
                 Status::Checking | Status::Forced => Data::default(),
-                Status::Online => Data { attempted_at: Some(1), ok: true, ..Data::default() },
+                Status::Online => Data { attempted_at: Some(1), ok: true, synced_at: Some(aequalis::time::unix_now() - 7_300), ..Data::default() },
                 Status::Offline => Data { attempted_at: Some(1), ok: false, ..Data::default() },
             };
             plain(&render(&app, 12, cols).lines[0])
         };
         // Top right, on the toolbar's line; "not synced" before the first sync.
         assert!(top(Status::Checking, 100).ends_with(" ○ not synced"), "{}", top(Status::Checking, 100));
-        assert!(top(Status::Online, 100).ends_with(" ● online"));
-        assert!(top(Status::Offline, 100).ends_with(" ● offline"));
-        assert!(top(Status::Forced, 100).ends_with(" ● offline (forced)"));
+        // With how long ago the last sync was.
+        assert!(top(Status::Online, 120).ends_with(" ● online (2h old)"), "{}", top(Status::Online, 120));
+        assert!(top(Status::Offline, 120).ends_with(" ● offline (never synced)"), "{}", top(Status::Offline, 120));
+        assert!(top(Status::Forced, 120).ends_with(" ● offline (forced, never synced)"), "{}", top(Status::Forced, 120));
         // At 80 columns the toolbar leaves room for the short ones.
         assert!(top(Status::Online, 80).ends_with(" ● online"), "{}", top(Status::Online, 80));
         assert!(top(Status::Forced, 80).ends_with(" ● offline"), "{}", top(Status::Forced, 80));

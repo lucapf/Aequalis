@@ -18,7 +18,8 @@ import qs.Ui
 // which gets the focus; it is disabled while that terminal is open. Clicking the title shows
 // About: the logo, the tagline, the memory footprint (the last request's peak, the open TUI, the
 // binary), the version and the last online sync (`aequalis --about`). The header shows online
-// or offline (`aequalis --online`), forced by the offline setting (`aequalis --set offline=true`).
+// or offline (`aequalis --online`), forced by the offline setting (`aequalis --set offline=true`),
+// and how long ago the online data was last synced.
 // Notices (a new city archive, out-of-date data, from `--json`) come with a Download button.
 Panel {
   id: root
@@ -66,6 +67,8 @@ Panel {
   // Online or offline (`aequalis --online`): "checking", "online", "offline" or "offline (forced)"
   // (the offline setting). Checked when the popup opens and every 30 s.
   property string netStatus: "checking"
+  // How long ago the online data was last synced (`2h`, from the same reply; "": never).
+  property string syncedAgo: ""
   // Notices from `aequalis --online --json` (the city archive not downloaded, out-of-date data), each
   // with a Download button; refreshed with the online state and after a download.
   property var notices: []
@@ -73,6 +76,15 @@ Panel {
   // `aequalis --set`; the message is what the last change or download said.
   property bool showSettings: false
   property var settingsList: []
+  // Only the few settings most people use, until "Advanced" is clicked (the `tui.` ones are the
+  // interactive mode's).
+  property bool showAdvanced: false
+  readonly property var shownSettings: settingsList.filter(function (s) {
+    return s.key.indexOf("tui.") !== 0 && (root.showAdvanced || !s.advanced)
+  })
+  readonly property int hiddenChanged: settingsList.filter(function (s) {
+    return s.key.indexOf("tui.") !== 0 && s.advanced && s.value !== s["default"]
+  }).length
   property string settingsMessage: ""
   onShowSettingsChanged: if (root.showSettings) { root.showMemory = false; root.refreshSettings() }
   property int tuiKb: -1      // -1: the TUI is not running
@@ -157,6 +169,47 @@ Panel {
     setProc.running = true
   }
 
+  // Every setting back to its default (`aequalis --reset-settings`), asked for twice.
+  property bool confirmReset: false
+  function resetAll() {
+    if (!root.confirmReset) { root.confirmReset = true; root.settingsMessage = "Click again to reset everything"; return }
+    root.confirmReset = false
+    setProc.command = [root.command, "--reset-settings"]
+    setProc.running = true
+  }
+
+  // `online (2h old)`, `offline (forced, 2d old)`: the state and the age of the last sync.
+  function netStatusText() {
+    if (root.netStatus === "checking") return "checking"
+    var age = root.syncedAgo === "" ? "never synced" : root.syncedAgo === "now" ? "just synced" : root.syncedAgo + " old"
+    return root.netStatus === "offline (forced)" ? "offline (forced, " + age + ")" : root.netStatus + " (" + age + ")"
+  }
+
+  // A value as shown: `auto (EUR)` where auto stands for something on this machine (the JSON's `auto`).
+  function shownValue(s) {
+    return s.value === "auto" && s.auto ? "auto (" + s.auto + ")" : s.value
+  }
+
+  // The setting whose list is open under its row (a choice, the currency), and what is typed to
+  // filter it.
+  property string picking: ""
+  property string pickFilter: ""
+  function togglePick(key) {
+    root.pickFilter = ""
+    root.picking = root.picking === key ? "" : key
+  }
+
+  // The list of a choice or of the currencies: {value, label}, `auto` as it stands (`auto (km)`),
+  // the currencies with their name; filtered by what is typed, at most 8.
+  function pickChoices(s) {
+    var all = s.currencies
+      ? [{ value: "auto", label: root.shownValue({ value: "auto", auto: s.auto }) }].concat(
+          s.currencies.map(function (c) { return { value: c.code, label: c.code + "  " + c.name } }))
+      : s.options.map(function (o) { return { value: o, label: root.shownValue({ value: o, auto: s.auto }) } })
+    var typed = root.pickFilter.trim().toLowerCase()
+    return all.filter(function (c) { return c.label.toLowerCase().indexOf(typed) !== -1 }).slice(0, 8)
+  }
+
   // A yes/no or a choice: the next value.
   function nextValue(s) {
     if (s.kind === "bool") return s.value === "true" ? "false" : "true"
@@ -167,7 +220,7 @@ Panel {
   // `aequalis --sync` (everything) in the background; the notices follow when it ends.
   function download() {
     if (syncProc.running) return
-    root.settingsMessage = "Downloading everything…"
+    root.settingsMessage = "Syncing…"
     syncProc.command = [root.command, "--sync"]
     syncProc.running = true
   }
@@ -280,6 +333,7 @@ Panel {
         var reply = null
         try { reply = JSON.parse(String(text || "")) } catch (e) {}
         root.netStatus = reply && reply.result ? reply.result : "offline"
+        root.syncedAgo = reply && reply.synced ? reply.synced : ""
         root.notices = reply && reply.notices ? reply.notices : []
       }
     }
@@ -452,7 +506,7 @@ Panel {
             id: netIndicator
             anchors.verticalCenter: parent.verticalCenter
             rightPadding: Style.space(6)
-            text: (root.netStatus === "online" ? "● " : root.netStatus === "checking" ? "○ " : "● ") + root.netStatus
+            text: (root.netStatus === "online" ? "● " : root.netStatus === "checking" ? "○ " : "● ") + root.netStatusText()
             color: root.netStatus === "online" ? Color.accent : Color.muted
             font.family: Style.font.family
             font.pixelSize: Style.font.caption
@@ -548,7 +602,11 @@ Panel {
         }
 
         Repeater {
-          model: root.settingsList
+          model: root.shownSettings
+          Column {
+          width: parent.width
+          spacing: Style.space(2)
+
           Item {
             width: parent.width
             implicitHeight: Math.max(keyText.implicitHeight, valueControl.implicitHeight)
@@ -582,21 +640,21 @@ Panel {
               anchors.right: resetButton.left
               anchors.rightMargin: Style.space(4)
               anchors.verticalCenter: parent.verticalCenter
-              implicitHeight: modelData.kind === "text" ? typed.implicitHeight : picked.implicitHeight
+              implicitHeight: modelData.kind === "text" && !modelData.currencies ? typed.implicitHeight : picked.implicitHeight
 
+              // A yes/no changes with a click; a choice and the currency open their list.
               Button {
                 id: picked
-                visible: modelData.kind !== "text"
+                visible: modelData.kind !== "text" || !!modelData.currencies
                 bordered: true
-                text: modelData.value
+                text: root.shownValue(modelData) + (modelData.kind === "bool" ? "" : "  ▾")
                 fontSize: Style.font.caption
-                tooltipText: "Click: " + root.nextValue(modelData)
-                onClicked: root.setValue(modelData.key, root.nextValue(modelData))
+                onClicked: modelData.kind === "bool" ? root.setValue(modelData.key, root.nextValue(modelData)) : root.togglePick(modelData.key)
               }
 
               TextField {
                 id: typed
-                visible: modelData.kind === "text"
+                visible: modelData.kind === "text" && !modelData.currencies
                 width: parent.width
                 text: modelData.value
                 onAccepted: root.setValue(modelData.key, text)
@@ -613,11 +671,54 @@ Panel {
               onClicked: root.setValue(modelData.key, null)
             }
           }
+
+          // The list, under the row: the currency's is filtered as you type (code, name).
+          Column {
+            id: pickList
+            visible: root.picking === modelData.key
+            x: Style.space(150)
+            width: parent.width - x
+            spacing: Style.space(2)
+
+            TextField {
+              id: pickField
+              visible: !!modelData.currencies
+              width: parent.width
+              placeholderText: "type to filter"
+              onTextChanged: root.pickFilter = text
+              onVisibleChanged: if (visible) { text = ""; forceActiveFocus() }
+              onAccepted: {
+                var first = root.pickChoices(modelData)[0]
+                if (first) { root.setValue(modelData.key, first.value); root.picking = "" }
+              }
+              Keys.onEscapePressed: root.picking = ""
+            }
+
+            Repeater {
+              model: root.picking === modelData.key ? root.pickChoices(modelData) : []
+              Button {
+                text: modelData.label
+                fontSize: Style.font.caption
+                bordered: modelData.value === pickList.currentValue
+                onClicked: { root.setValue(pickList.settingKey, modelData.value); root.picking = "" }
+              }
+            }
+
+            readonly property string settingKey: modelData.key
+            readonly property string currentValue: modelData.value
+          }
+          }
         }
 
         Row {
           spacing: Style.space(6)
-          Button { text: "Download everything"; fontSize: Style.font.caption; onClicked: root.download() }
+          Button {
+            text: root.showAdvanced ? "Fewer" : (root.hiddenChanged > 0 ? "Advanced (" + root.hiddenChanged + " changed)" : "Advanced")
+            fontSize: Style.font.caption
+            onClicked: root.showAdvanced = !root.showAdvanced
+          }
+          Button { text: root.confirmReset ? "Reset: sure?" : "Reset"; fontSize: Style.font.caption; onClicked: root.resetAll() }
+          Button { text: "Sync"; fontSize: Style.font.caption; onClicked: root.download() }
         }
 
         Text {
@@ -728,7 +829,7 @@ Panel {
             font.pixelSize: Style.font.caption
           }
           Button {
-            text: "Download"
+            text: "Sync"
             fontSize: Style.font.caption
             onClicked: root.download()
           }
@@ -737,7 +838,7 @@ Panel {
 
       Text {
         visible: syncProc.running
-        text: "Downloading… (" + root.settingsMessage.replace(/^Downloading /, "").replace(/…$/, "") + ")"
+        text: "Syncing…"
         color: Color.muted
         font.family: Style.font.family
         font.pixelSize: Style.font.caption

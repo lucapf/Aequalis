@@ -30,6 +30,38 @@ pub enum DistanceUnit {
     Mi,
 }
 
+impl DistanceUnit {
+    /// `km` or `mi`: `Auto` is miles where the device is imperial, else kilometres.
+    pub fn unit(self) -> &'static str {
+        match self {
+            DistanceUnit::Km => "km",
+            DistanceUnit::Mi => "mi",
+            DistanceUnit::Auto => match crate::locale::device_system() {
+                crate::config::System::Imperial => "mi",
+                _ => "km",
+            },
+        }
+    }
+}
+
+/// What `auto` stands for on this device, for the settings that have it: the currency of the time
+/// zone's country (`AED`), the unit of a distance (`km`); `None` for the others, or when unknown.
+pub fn auto_value(key: &str) -> Option<&'static str> {
+    match key {
+        "currency.local" => crate::currency::local_from(None, crate::time::device_zone()).ok().flatten().map(|l| l.code),
+        "distance.unit" => Some(DistanceUnit::Auto.unit()),
+        _ => None,
+    }
+}
+
+/// A value as shown: `auto (AED)` where `auto` stands for something on this device, else as it is.
+pub fn shown(key: &str, value: &str) -> String {
+    match auto_value(key).filter(|_| value == "auto") {
+        Some(meant) => format!("auto ({meant})"),
+        None => value.to_string(),
+    }
+}
+
 /// What a setting holds, to check a value and to edit it.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Kind {
@@ -438,15 +470,28 @@ pub fn json_where(settings: &Settings, keep: impl Fn(&Key) -> bool) -> String {
                 Kind::Choice(options) => ("choice", options),
                 _ => ("text", &[]),
             };
-            crate::json::Object::new()
+            let item = crate::json::Object::new()
                 .str("key", k.key)
                 .str("value", settings.get(k.key))
                 .str("default", k.default)
                 .str("kind", kind)
                 .strs("options", &options.iter().map(|o| o.to_string()).collect::<Vec<_>>())
                 .str("about", k.about)
-                .num("advanced", k.advanced)
-                .finish()
+                .num("advanced", k.advanced);
+            let item = match auto_value(k.key) {
+                Some(meant) => item.str("auto", meant),
+                None => item,
+            };
+            // A currency is picked from all of them (code and name), the most used first.
+            let item = match k.kind {
+                Kind::Currency => {
+                    let all: Vec<String> =
+                        crate::currency::all().iter().map(|c| crate::json::Object::new().str("code", &c.code).str("name", &c.name).finish()).collect();
+                    item.list("currencies", &all)
+                }
+                _ => item,
+            };
+            item.finish()
         })
         .collect();
     crate::json::Object::new().str("file", &path_text()).list("settings", &items).finish()
@@ -484,6 +529,24 @@ mod tests {
     fn four_basic_settings_the_rest_advanced() {
         let basic: Vec<&str> = KEYS.iter().filter(|k| !k.advanced).map(|k| k.key).collect();
         assert_eq!(basic, ["offline", "currency.local", "distance.unit", "precision"]);
+    }
+
+    #[test]
+    fn auto_shows_what_it_stands_for() {
+        let unit = DistanceUnit::Auto.unit();
+        assert!(unit == "km" || unit == "mi");
+        assert_eq!(shown("distance.unit", "auto"), format!("auto ({unit})"));
+        assert_eq!(shown("distance.unit", "km"), "km");
+        assert_eq!(shown("precision", "4"), "4");
+        // The JSON says it, and lists the currencies to pick from (code and name) for currency.local only.
+        let doc = crate::json::parse(&json(&Settings::default())).unwrap();
+        let settings = doc.get("settings").unwrap().array();
+        let item = |key: &str| settings.iter().find(|s| s.get("key").and_then(|k| k.str()) == Some(key)).unwrap();
+        assert_eq!(item("distance.unit").get("auto").and_then(|a| a.str()), Some(unit));
+        let currencies = item("currency.local").get("currencies").unwrap().array();
+        assert_eq!(currencies.len(), crate::currency::all().len());
+        assert_eq!(currencies[0].get("code").and_then(|c| c.str()), Some("USD"));
+        assert!(item("precision").get("auto").is_none() && item("precision").get("currencies").is_none());
     }
 
     #[test]

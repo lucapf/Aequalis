@@ -327,6 +327,8 @@ pub struct Output {
     pub check: Option<String>,
     /// For a currency result: how old the rates are (`2d`), for a UI to say it.
     pub rates_age: Option<String>,
+    /// For `--online`: how long ago the online data was last synced (`2h`; `None`: never).
+    pub synced: Option<String>,
 }
 
 impl From<String> for Output {
@@ -414,8 +416,12 @@ pub fn parse_options<'a>(config: &Config, args: &'a [String]) -> Result<Parsed<'
             "--list" => return Ok(Parsed::Info(list(config).into())),
             "--trivia" => return Ok(Parsed::Info(trivia::list(config, precision).into())),
             "--about" => return Ok(Parsed::Info(about::text().into())),
-            // For the widget and scripts: `online`, `offline` or `offline (forced)`.
-            "--online" => return Ok(Parsed::Info(network::status().label().to_string().into())),
+            // For the widget and scripts: `online`, `offline` or `offline (forced)`; with --json,
+            // how long ago the last sync was (`synced`).
+            "--online" => {
+                let status = Output { synced: network::synced_ago(), ..Output::from(network::status().label().to_string()) };
+                return Ok(Parsed::Info(status));
+            }
             "-s" | "--silent" => silent = true,
             "-v" | "--verbose" => verbose = true,
             "--autocompletion" => {
@@ -468,6 +474,7 @@ pub fn convert_request(config: &Config, opts: &Options, tokens: &[&str]) -> Resu
                 check: c.check.filter(|_| !opts.silent),
                 formatted: false,
                 rates_age: Some(c.age),
+                synced: None,
             }),
             Err(e) => Err(e.into()),
         };

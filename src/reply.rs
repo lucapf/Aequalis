@@ -33,9 +33,13 @@ fn outcome(result: &Result<Output, CliError>) -> String {
     match result {
         Ok(out) => {
             let reply = Object::new().num("ok", true).str("result", &out.stdout).strs("notes", &out.notes).strs("warnings", &out.warnings);
-            // A currency result: how old its rates are (`2d`).
-            match &out.rates_age {
-                Some(age) => reply.str("rates_age", age).finish(),
+            // A currency result: how old its rates are (`2d`); `--online`: how long ago the last sync was.
+            let reply = match &out.rates_age {
+                Some(age) => reply.str("rates_age", age),
+                None => reply,
+            };
+            match &out.synced {
+                Some(ago) => reply.str("synced", ago).finish(),
                 None => reply.finish(),
             }
         }

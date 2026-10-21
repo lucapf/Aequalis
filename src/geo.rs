@@ -183,18 +183,7 @@ pub enum Error {
 /// word `distance`, only when both sides are places (`10:00 Rome Paris` is a time request). The
 /// result and, for `-v`, notes on the places used. `None` if `input` is not one.
 pub fn request(config: &Config, input: &str, precision: usize) -> Option<Result<(String, Vec<String>), Error>> {
-    let device = || Device {
-        format: numbers::device().clone(),
-        unit: match crate::settings::current().distance_unit() {
-            crate::settings::DistanceUnit::Km => "km",
-            crate::settings::DistanceUnit::Mi => "mi",
-            crate::settings::DistanceUnit::Auto => match crate::locale::device_system() {
-                crate::config::System::Imperial => "mi",
-                _ => "km",
-            },
-        },
-        local: local_country(),
-    };
+    let device = || Device { format: numbers::device().clone(), unit: crate::settings::current().distance_unit().unit(), local: local_country() };
     request_in(config, input, precision, &device, crate::cities::store().as_deref())
 }
 
