@@ -21,6 +21,34 @@ jobs:
       - name: Test the C interface (the Android app's)
         run: cargo test --features ffi --lib ffi
 
+  # Clippy wherever the code compiles. A Linux build compiles neither the Windows code nor the
+  # Android bridge (`src/jni.rs`): their warnings and errors went unseen. Checking another target
+  # needs only its standard library (no linker, no NDK), so one Linux job does them all. Any
+  # warning fails it.
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy
+          rustup default stable
+          rustup target add x86_64-pc-windows-msvc aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
+      - name: Linux
+        run: |
+          cargo clippy --workspace --all-targets -- -D warnings
+          cargo clippy --workspace --all-targets --no-default-features -- -D warnings
+          cargo clippy --workspace --all-targets --features ffi -- -D warnings
+      - name: Windows
+        # The command line and the tray app (apps/windows), as the windows job builds them.
+        run: cargo clippy --target x86_64-pc-windows-msvc --workspace --all-targets -- -D warnings
+      - name: Android
+        # The library as scripts/build-android.sh builds it, for each of the app's ABIs.
+        run: |
+          for target in aarch64-linux-android armv7-linux-androideabi x86_64-linux-android; do
+            cargo clippy --target "$target" --lib --no-default-features --features ffi -- -D warnings
+          done
+
   # Windows (MSVC). Windows has no IANA zone database of its own: the tests get one from the
   # `tzdata` package on PyPI (the same TZif files as /usr/share/zoneinfo), through `TZDIR`.
   windows:
