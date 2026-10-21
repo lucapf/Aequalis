@@ -93,12 +93,19 @@ class MainActivity : ComponentActivity() {
         Appearance.load(applicationContext)
         // The history, read in the background: the empty screen shows its latest entries.
         History.load(applicationContext)
+        // The window started in the splash's green (themes.xml); from now on, as a rotation or a
+        // theme change shows it, the app's own background.
+        window.setBackgroundDrawableResource(R.color.background)
         enableEdgeToEdge()
+        // The splash on a cold start only: not when Android brings back a screen it had stopped.
+        val splash = !Splash.played && savedInstanceState == null
         setContent {
             AequalisTheme {
                 // Transparent: the theme draws the skin's background behind everything.
                 Surface(Modifier.fillMaxSize(), color = Color.Transparent, contentColor = MaterialTheme.colorScheme.onSurface) { AequalisApp() }
             }
+            var splashing by remember { mutableStateOf(splash) }
+            if (splashing) SplashScreen(done = { Splash.played = true; splashing = false })
         }
     }
 

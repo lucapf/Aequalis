@@ -1,9 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <!-- The window Android shows as soon as the app is launched, before its first frame: in the
-         app's background colour (light here, dark in values-night), so the start shows no white
-         screen. Material 3's own background, the classic skin's and the phone's before Android 12. -->
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- The window Android shows as soon as the app is launched, before its first frame: the
+         splash's green (iconset/), which the splash (Splash.kt) starts from, so the start shows
+         no white screen. Android 12+ shows its own splash first: the same green, without an
+         icon (the splash draws the q). Once started, MainActivity puts the app's background back
+         (@color/background), for a rotation or a theme change. -->
     <style name="Theme.Aequalis" parent="android:Theme.Material.Light.NoActionBar">
-        <item name="android:windowBackground">@color/background</item>
+        <item name="android:windowBackground">@color/ic_launcher_background</item>
+        <item name="android:windowSplashScreenBackground" tools:targetApi="31">@color/ic_launcher_background</item>
+        <item name="android:windowSplashScreenAnimatedIcon" tools:targetApi="31">@android:color/transparent</item>
     </style>
 </resources>

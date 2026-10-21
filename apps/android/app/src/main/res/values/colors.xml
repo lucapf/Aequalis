@@ -7,7 +7,7 @@
     <color name="teal_700">#FF018786</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
-    <!-- Material 3's light background (PaletteTokens.Neutral98): the window before the first frame
-         (themes.xml). -->
+    <!-- Material 3's light background (PaletteTokens.Neutral98): the window's, once the app has
+         started (MainActivity; before, the splash's green, themes.xml). -->
     <color name="background">#FFFEF7FF</color>
 </resources>
