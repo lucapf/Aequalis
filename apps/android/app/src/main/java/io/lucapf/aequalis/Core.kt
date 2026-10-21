@@ -82,9 +82,11 @@ enum class Show { Result, Hint, Question, Error, None }
 /** The core's answer to a request, ready to show: nothing in it is worked out here. */
 data class Reply(
     val show: Show = Show.None,
-    /** With `Show.Result`: the result, and its value for Copy and Share (`7.4565`). */
+    /** With `Show.Result`: the result, its value for Copy (`7.4565`), and the whole expression
+     *  for Copy and Share (`12 AED = 3.27 USD`). */
     val result: String? = null,
     val value: String? = null,
+    val expression: String? = null,
     /** The hint, the question or the error. */
     val message: String = "",
     val choices: List<Choice> = emptyList(),
@@ -219,6 +221,7 @@ object Core {
             },
             result = text("result"),
             value = text("value"),
+            expression = text("expression"),
             message = json.optString("message"),
             choices = json.optJSONArray("choices")?.objects { Choice(it.getString("label"), it.getString("detail"), it.getString("request")) }.orEmpty(),
             default = text("default"),

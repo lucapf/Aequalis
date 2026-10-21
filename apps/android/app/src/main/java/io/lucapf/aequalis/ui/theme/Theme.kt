@@ -13,9 +13,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
-/** Whether the app is dark now: the mode chosen in Settings, or the phone's. */
+/** Whether the app is dark now: the mode chosen in Settings, or the phone's; the Aequalis skin
+ *  always (its green). */
 @Composable
-fun isDark(): Boolean = when (Appearance.mode) {
+fun isDark(): Boolean = Appearance.skin == Skin.Aequalis || when (Appearance.mode) {
     DarkMode.System -> isSystemInDarkTheme()
     DarkMode.Light -> false
     DarkMode.Dark -> true

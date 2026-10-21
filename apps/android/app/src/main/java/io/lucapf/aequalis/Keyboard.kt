@@ -86,7 +86,8 @@ enum class Mode { Text, Basic, Scientific }
  * and constants beside them.
  */
 @Composable
-fun AequalisKeyboard(mode: Mode, onKey: (Key) -> Unit, modifier: Modifier = Modifier) {
+fun AequalisKeyboard(mode: Mode, onKey: (Key) -> Unit, modifier: Modifier = Modifier, open: Panel? = null) {
+    // `open`: a panel docked beside the keyboard (a large screen), whose tabs replace the panel keys.
     Surface(color = MaterialTheme.colorScheme.surfaceContainer, modifier = modifier) {
         Column(
             Modifier.fillMaxWidth().navigationBarsPadding().height(KeyboardHeight).padding(4.dp),
@@ -97,7 +98,8 @@ fun AequalisKeyboard(mode: Mode, onKey: (Key) -> Unit, modifier: Modifier = Modi
                 // Clearing has its own key: no gesture on ⌫ wipes the request by surprise.
                 KeyButton("C", weight = 0.8f, tone = Tone.Action) { onKey(Key.Clear) }
                 switches(mode).forEach { (label, to) -> KeyButton(label, weight = 1.2f, tone = Tone.Action, small = true) { onKey(Key.Switch(to)) } }
-                PanelKeys(onKey)
+                // Beside a docked panel its tabs choose: no keys for them here.
+                if (open == null) PanelKeys(onKey) else Spacer(Modifier.weight(4f))
             }
             when (mode) {
                 Mode.Text -> Letters(onKey)

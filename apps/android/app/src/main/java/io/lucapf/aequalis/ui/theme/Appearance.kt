@@ -18,6 +18,8 @@ enum class DarkMode(val label: String) { System("System"), Light("Light"), Dark(
  *  gradient behind everything. Each has a light and a dark version. */
 enum class Skin(val label: String) {
     Device("Device"),
+    /** The iconset's colours (iconset/README.txt): green, ivory, orange; always dark (green). */
+    Aequalis("Aequalis"),
     Classic("Classic"),
     Ocean("Ocean"),
     Sunset("Sunset"),
@@ -53,12 +55,20 @@ object Appearance {
     }
 }
 
+/** The iconset's colours (iconset/README.txt). */
+val GREEN = Color(0xFF1F5B45)
+val IVORY = Color(0xFFF7F0E6)
+val GOLD = Color(0xFFF2B84B)
+val ORANGE = Color(0xFFE8742B)
+
 /** A skin's colours: the accent (⏎, links, the cursor), the operator keys, the other keys, and
  *  the gradient behind the screen (top to bottom). */
 private class Palette(val accent: Color, val onAccent: Color, val operator: Color, val onOperator: Color, val key: Color, val action: Color, val top: Color, val bottom: Color)
 
 private fun palette(skin: Skin, dark: Boolean): Palette? = when (skin) {
     Skin.Device, Skin.Classic -> null
+    // Orange ⏎ and accents, ivory operators, lighter green keys, on the icon's green.
+    Skin.Aequalis -> Palette(ORANGE, IVORY, IVORY, GREEN, Color(0xFF2B6E55), Color(0xFF256450), GREEN, Color(0xFF184A38))
     Skin.Ocean -> if (dark) {
         Palette(Color(0xFF4FC3F7), Color(0xFF00283A), Color(0xFF0B4F6C), Color(0xFFCDEBFF), Color(0xFF16384A), Color(0xFF102C3B), Color(0xFF001521), Color(0xFF00344A))
     } else {
@@ -93,6 +103,27 @@ fun colorScheme(context: Context, skin: Skin, dark: Boolean): ColorScheme {
             darkColorScheme(primary = Purple80, secondary = PurpleGrey80, tertiary = Pink80)
         } else {
             lightColorScheme(primary = Purple40, secondary = PurpleGrey40, tertiary = Pink40)
+        }
+        // Ivory text on green, whatever the mode.
+        Skin.Aequalis -> {
+            val p = palette(skin, true)!!
+            darkColorScheme().copy(
+                primary = p.accent,
+                onPrimary = p.onAccent,
+                secondaryContainer = p.operator,
+                onSecondaryContainer = p.onOperator,
+                surfaceContainerHighest = p.key,
+                surfaceContainerHigh = p.action,
+                surfaceContainer = Color.Black.copy(alpha = 0.18f),
+                surface = Color.Transparent,
+                background = Color.Transparent,
+                onSurface = IVORY,
+                onBackground = IVORY,
+                onSurfaceVariant = IVORY.copy(alpha = 0.72f),
+                outline = IVORY.copy(alpha = 0.45f),
+                outlineVariant = IVORY.copy(alpha = 0.2f),
+                error = Color(0xFFFFB4A1),
+            )
         }
         else -> {
             val p = palette(skin, dark)!!

@@ -378,6 +378,8 @@ fn pieces(config: &Config, input: &str) -> Vec<Piece> {
 #[derive(Debug, PartialEq)]
 pub struct Converted {
     pub result: String,
+    /// The amount and the currency it is in, as shown (`12 AED`): the expression's left side.
+    pub from: String,
     /// How old the rates are, for people (`2d`: `age`).
     pub age: String,
     /// When countries stand for currencies, the currencies used (`describe`): shown always.
@@ -533,7 +535,8 @@ fn convert(amount: &str, money: &[Piece], ctx: &Context) -> Result<Converted, Er
     }
     // Countries written for currencies: which ones were used, to check.
     let check = sides(money, Some(to));
-    Ok(Converted { result: format!("{} {to}", crate::convert::fixed(result, 2)), age: age(ctx.now - day), check, notes, warnings })
+    let result = format!("{} {to}", crate::convert::fixed(result, 2));
+    Ok(Converted { result, from: format!("{amount} {from}"), age: age(ctx.now - day), check, notes, warnings })
 }
 
 /// An age for people, in its largest whole unit: `less than 1h`, `5h`, `2d`, `3w`, `4m`, `1y`.

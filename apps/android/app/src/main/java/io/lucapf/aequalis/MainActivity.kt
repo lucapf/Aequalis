@@ -40,6 +40,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -47,6 +48,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
+import androidx.compose.material3.VerticalDivider
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -79,6 +84,10 @@ import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.dp
 import io.lucapf.aequalis.ui.theme.Appearance
 import io.lucapf.aequalis.ui.theme.AequalisTheme
+import io.lucapf.aequalis.ui.theme.GREEN
+import io.lucapf.aequalis.ui.theme.IVORY
+import io.lucapf.aequalis.ui.theme.Skin
+import io.lucapf.aequalis.ui.theme.isDark
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -250,7 +259,8 @@ fun AequalisApp() {
             Key.Settings -> settings = true
         }
     }
-    val workspace = @Composable { landscape: Boolean, modifier: Modifier ->
+    val suggest = { s: Suggestion -> change(edit.word(s.write, Core.maxInput, offered.start.coerceAtMost(edit.cursor))) }
+    val workspace = @Composable { landscape: Boolean, modifier: Modifier, recent: Boolean ->
         Workspace(
             edit, reply, offered, landscape, modifier,
             // In landscape the request line is drawn apart, across the whole width.
@@ -261,11 +271,12 @@ fun AequalisApp() {
             onCopy = { value -> copy(value); keepShown() },
             onShare = { value -> share(value); keepShown() },
             choose = { request -> edit = Edit(request, request.length); submitted = true; keep(request, null) },
-            suggest = { s -> change(edit.word(s.write, Core.maxInput, offered.start.coerceAtMost(edit.cursor))) },
+            suggest = suggest,
             openSettings = { settings = true },
             recall = recall,
             copyResult = { value -> copy(value) },
             openHistory = { panel = Panel.History },
+            recent = recent,
         )
     }
     val showPanel = @Composable { open: Panel, size: Modifier, wide: Boolean ->
@@ -275,19 +286,48 @@ fun AequalisApp() {
         )
     }
 
-    if (LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE) {
+    // The window's size class (Material's: compact under 600 dp wide): a large window (a foldable
+    // open, a tablet), the keys at a phone's size and a panel always beside them.
+    val configuration = LocalConfiguration.current
+    if (configuration.screenWidthDp >= 600 && configuration.screenHeightDp >= 480) {
+        // The panel beside the keys: History at first, the tab chosen kept (folding and unfolding
+        // too). Its key on the keyboard picks it; what it writes leaves it open.
+        var docked by rememberSaveable { mutableStateOf(Panel.History) }
+        val pick = { key: Key -> if (key is Key.Open) docked = key.panel else onKey(key) }
+        // Two equal panes: on a foldable they meet at the fold, nothing to tap across it.
+        Row(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
+            Column(Modifier.weight(1f).fillMaxHeight(), horizontalAlignment = Alignment.CenterHorizontally) {
+                workspace(false, Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp), false)
+                AequalisKeyboard(mode, pick, Modifier.widthIn(max = 480.dp), open = docked)
+            }
+            VerticalDivider()
+            Box(Modifier.weight(1f).fillMaxHeight()) {
+                PanelView(
+                    docked, write = { change(edit.word(it, Core.maxInput)) }, close = {}, openLink = { page = it }, unitClass = reply?.unitClass,
+                    recall = recall, copy = { value -> copy(value) }, share = share, size = Modifier.fillMaxSize(),
+                    docked = true, select = { docked = it },
+                )
+            }
+        }
+        return
+    }
+    if (configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
         // Landscape: the toolbar on the left; the request across the rest of the width; under it the
         // answer and the letters, and on the right the digits (Sci above them) or a panel. Keys at
         // about their portrait size; letters and digits both shown, so no 123 mode.
         Row(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
             SideToolbar(onKey, open = panel)
             Column(Modifier.weight(1f).fillMaxHeight()) {
-                RequestLine(edit, onCursor = { edit = edit.copy(cursor = it) }, onPaste = paste, compact = true, modifier = Modifier.padding(start = 8.dp, top = 6.dp, end = 8.dp))
+                // The request, and the words offered beside it: the result keeps the room under it.
+                Row(Modifier.padding(start = 8.dp, top = 6.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    RequestLine(edit, onCursor = { edit = edit.copy(cursor = it) }, onPaste = paste, compact = true, modifier = Modifier.weight(1f))
+                    if (offered.items.isNotEmpty()) SuggestionRow(offered, suggest, Modifier.widthIn(max = 320.dp).padding(start = 8.dp))
+                }
                 when (val open = panel) {
                     // A panel: the whole space under the request, its levels side by side.
                     null -> Row(Modifier.weight(1f)) {
                         Column(Modifier.weight(1f).fillMaxHeight()) {
-                            workspace(true, Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp))
+                            workspace(true, Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), true)
                             LetterPad(onKey)
                         }
                         NumberPad(scientific = mode == Mode.Scientific, onKey, Modifier.align(Alignment.Bottom))
@@ -300,7 +340,7 @@ fun AequalisApp() {
     }
     // The phone's keyboard (the Currencies' search): the panel over it, the screen above smaller.
     Column(Modifier.fillMaxSize().imePadding()) {
-        workspace(false, Modifier.weight(1f).statusBarsPadding().padding(horizontal = 16.dp))
+        workspace(false, Modifier.weight(1f).statusBarsPadding().padding(horizontal = 16.dp), true)
         // The keyboard, or a panel in its place.
         when (val open = panel) {
             null -> AequalisKeyboard(mode, onKey)
@@ -330,6 +370,8 @@ fun Workspace(
     recall: (String) -> Unit,
     copyResult: (String) -> Unit,
     openHistory: () -> Unit,
+    // The latest entries under an empty request: not when the History is open beside it.
+    recent: Boolean = true,
 ) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(if (landscape) 4.dp else 12.dp)) {
         if (!landscape) {
@@ -337,13 +379,19 @@ fun Workspace(
             var memory by rememberSaveable { mutableStateOf(false) }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.weight(1f)) {
-                    Text(
-                        "Aequalis",
-                        style = MaterialTheme.typography.titleLarge,
+                    // The mark (Splash.kt) for the name: the q ivory on the Aequalis skin (as the
+                    // icon), else green, lighter on a dark screen.
+                    AequalisMark(
+                        q = when {
+                            Appearance.skin == Skin.Aequalis -> IVORY
+                            isDark() -> Color(0xFF8FD3B0)
+                            else -> GREEN
+                        },
                         modifier = Modifier
                             .clip(RoundedCornerShape(8.dp))
                             .clickable(onClickLabel = if (memory) "Hide the memory use" else "Show the memory use") { memory = !memory }
-                            .padding(horizontal = 4.dp, vertical = 2.dp),
+                            .padding(horizontal = 4.dp, vertical = 4.dp)
+                            .size(width = 34.dp, height = 32.dp),
                     )
                 }
                 IconButton(onClick = openSettings) { Icon(SettingsIcon, contentDescription = "Settings", tint = MaterialTheme.colorScheme.primary) }
@@ -360,26 +408,27 @@ fun Workspace(
             reply?.grouping?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             when {
                 // Nothing written yet: the latest entries of the history, to use again.
-                edit.text.isEmpty() -> Recent(recall, copyResult, openHistory)
+                edit.text.isEmpty() -> if (recent) Recent(recall, copyResult, openHistory)
                 reply == null -> {}
                 // What shows, the core decides: nothing but a result while a word is being typed.
                 else -> when (reply.show) {
                     Show.Result -> Column {
                         val result = reply.result.orEmpty()
                         val value = reply.value ?: result
+                        val whole = reply.expression ?: result
                         // Copy and Share beside the result (landscape has no room for a row under it).
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            // A tap or a long press copies it, as the buttons beside it.
+                            // A tap copies the value, a long press the whole expression.
                             Text(
                                 result,
                                 style = if (landscape) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.headlineMedium,
                                 modifier = Modifier.weight(1f)
-                                    .combinedClickable(onClickLabel = "Copy", onClick = { onCopy(value) }, onLongClickLabel = "Copy", onLongClick = { onCopy(value) }),
+                                    .combinedClickable(onClickLabel = "Copy the value", onClick = { onCopy(value) }, onLongClickLabel = "Copy the expression", onLongClick = { onCopy(whole) }),
                             )
                             // With a currency, how old its rates are.
                             reply.rates?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                            IconButton(onClick = { onCopy(value) }) { Icon(CopyIcon, contentDescription = "Copy") }
-                            IconButton(onClick = { onShare(value) }) { Icon(ShareIcon, contentDescription = "Share") }
+                            CopyMenu(value, whole, onCopy)
+                            IconButton(onClick = { onShare(whole) }) { Icon(ShareIcon, contentDescription = "Share") }
                         }
                         // The notes and warnings that come with it.
                         reply.details.forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -400,11 +449,40 @@ fun Workspace(
                 }
             }
         }
-        // The words offered for the word at the cursor: one tap writes it, then a space. The chips can
-        // still be the previous word's for a moment: their start, at most the cursor.
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 4.dp)) {
-            items(offered.items) { s ->
-                SuggestionChip(onClick = { suggest(s) }, label = { Text(s.label) })
+        // Landscape: beside the request line instead, the short room above the keys all the result's.
+        if (!landscape) SuggestionRow(offered, suggest, Modifier.padding(bottom = 4.dp))
+    }
+}
+
+/** The words offered for the word at the cursor: one tap writes it, then a space. The chips can
+ *  still be the previous word's for a moment: their start, at most the cursor. */
+@Composable
+fun SuggestionRow(offered: Suggestions, suggest: (Suggestion) -> Unit, modifier: Modifier = Modifier) {
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = modifier) {
+        items(offered.items) { s ->
+            SuggestionChip(onClick = { suggest(s) }, label = { Text(s.label) })
+        }
+    }
+}
+
+/** Copy: a menu of the two ways, each as it will be copied: the value (`3.27`), the whole
+ *  expression (`12 AED = 3.27 USD`). */
+@Composable
+private fun CopyMenu(value: String, whole: String, copy: (String) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { open = true }) { Icon(CopyIcon, contentDescription = "Copy") }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            listOf("Value" to value, "Expression" to whole).distinctBy { it.second }.forEach { (label, text) ->
+                DropdownMenuItem(
+                    text = {
+                        Column {
+                            Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(text, style = MaterialTheme.typography.bodyLarge)
+                        }
+                    },
+                    onClick = { open = false; copy(text) },
+                )
             }
         }
     }

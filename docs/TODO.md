@@ -61,6 +61,12 @@ panel), status; no modes.
       `default` when changed; Advanced (N changed), Reset (twice), Sync; `online (2h old)` under the
       title. The app downloads at last: `Core.sync` (src/jni.rs) has the core call `Core.fetch`
       (Kotlin, `HttpURLConnection`) for each download; what is due is synced at start.
+- [x] 6e. Large screens (a foldable open, tablets; Material's window classes: at least 600 dp wide
+      and 480 dp high): the supporting-pane layout. The request, the result and the keyboard (at a
+      phone's width, at most 480 dp) on the left; a panel always open on the right, its tabs
+      History · Measures · Currencies · Trivia, what it writes leaving it open; the panes meet at
+      the fold. Phones, portrait and landscape, unchanged. Later: the tabletop posture
+      (`androidx.window`): the result above the fold, the keys below.
 - [ ] 7. Docs, help, dead-code cleanup.
 
 ## Android app

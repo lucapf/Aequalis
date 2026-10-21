@@ -120,7 +120,12 @@ fn shown(request: &str, submitted: bool, result: &Result<Output, CliError>) -> S
     let o = match result {
         Ok(out) => {
             let details: Vec<String> = out.warnings.iter().chain(&out.notes).cloned().collect();
-            let o = Object::new().str("show", "result").str("value", &value_of(&out.stdout)).str("copy", &copy_of(&out.stdout)).strs("details", &details);
+            let o = Object::new()
+                .str("show", "result")
+                .str("value", &value_of(&out.stdout))
+                .str("copy", &copy_of(&out.stdout))
+                .str("expression", &expression(request, out))
+                .strs("details", &details);
             match &out.rates_age {
                 Some(age) => o.str("rates", &format!("rates {age} old")),
                 None => o,
@@ -173,6 +178,18 @@ pub fn value_of(result: &str) -> String {
     let parts: Vec<&str> = result.split(' ').collect();
     let number = parts.len() == 2 && parts[0].starts_with(|c: char| c.is_ascii_digit() || c == '-' || c == '.');
     if number { parts[0] } else { result }.to_string()
+}
+
+/// The whole expression, for Copy: `12 AED = 3.27 USD`, `12+4/2 = 14`; what was converted as the
+/// core shows it, else the request as written (`now Tokyo = …`). A result that already says both
+/// sides (a time in a city, `… = …`) as it is.
+pub fn expression(request: &str, out: &Output) -> String {
+    let result = out.stdout.trim();
+    if result.contains(" = ") {
+        return result.to_string();
+    }
+    let left = out.from.as_deref().unwrap_or(request).split_whitespace().collect::<Vec<_>>().join(" ");
+    format!("{left} = {result}")
 }
 
 /// What the Omarchy widget copies of a result: the unit kept (`6.2137 mi`), a format's name left out
@@ -270,6 +287,15 @@ mod tests {
 
     /// What a UI shows: only a result while a word is being typed; after a space or Enter, the
     /// hint, the question or the error, ready to show.
+    #[test]
+    fn the_whole_expression_to_copy() {
+        let whole = |request: &str| member(&view(request, true), "expression").unwrap();
+        assert_eq!(whole("10 kilometres mi"), "10 km = 6.2137 mi");
+        assert_eq!(whole("12+4/2"), "12+4/2 = 14");
+        assert_eq!(whole("100 + 20 sqft m2"), "100 + 20 ft2 = 11.1484 m2");
+        assert_eq!(member(&view("10 km mi", true), "value").as_deref(), Some("6.2137"));
+    }
+
     #[test]
     fn view_says_what_to_show() {
         let show = |request: &str, submitted: bool| member(&view(request, submitted), "show").unwrap();

@@ -42,6 +42,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.PrimaryTabRow
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -91,6 +93,10 @@ fun PanelView(
     // Landscape: each level a column beside the previous one (the classes, then a class's units;
     // the sections, their values, a value's details), the item chosen highlighted.
     wide: Boolean = false,
+    // A large screen: the panel always open beside the keys, the panels as tabs (`select`), no
+    // close; a class or a section opened has its title bar, to go back.
+    docked: Boolean = false,
+    select: (Panel) -> Unit = {},
 ) {
     // The second level (a class, a section), when one is open, and in the Trivia a third, a value's
     // details: the back gesture goes up one level.
@@ -103,12 +109,20 @@ fun PanelView(
             else -> close()
         }
     }
-    BackHandler(onBack = up)
+    // Docked, at its first level: nothing to close, the back gesture is the app's.
+    BackHandler(enabled = !docked || opened != null, onBack = up)
     Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
         Column(Modifier.navigationBarsPadding().then(size)) {
+            if (docked) {
+                PrimaryTabRow(selectedTabIndex = panel.ordinal, containerColor = Color.Transparent) {
+                    Panel.entries.forEach { p ->
+                        Tab(selected = p == panel, onClick = { select(p) }, text = { Text(p.name, maxLines = 1) }, icon = { Icon(p.icon, contentDescription = null) })
+                    }
+                }
+            }
             // Wide (landscape), no title bar: the toolbar's key of the panel is lit and closes it, the
             // back gesture goes up a level.
-            if (!wide) Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (!wide && (!docked || opened != null)) Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 val back = when {
                     detail != null -> "Back to $opened"
                     opened != null -> "Back to ${panel.name}"
@@ -125,9 +139,9 @@ fun PanelView(
                 }
                 icon?.let { Icon(it, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(end = 8.dp).size(20.dp)) }
                 Text(detail ?: opened ?: panel.name, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                IconButton(onClick = close) { Icon(CloseIcon, contentDescription = "Close") }
+                if (!docked) IconButton(onClick = close) { Icon(CloseIcon, contentDescription = "Close") }
             }
-            if (!wide) HorizontalDivider()
+            if (!wide && !docked) HorizontalDivider()
             // Another class or section: its own values, no detail of the previous one.
             val open = { name: String -> opened = name; detail = null }
             when (panel) {

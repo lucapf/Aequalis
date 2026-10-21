@@ -30,13 +30,11 @@ import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import io.lucapf.aequalis.ui.theme.GOLD
+import io.lucapf.aequalis.ui.theme.GREEN
+import io.lucapf.aequalis.ui.theme.IVORY
+import io.lucapf.aequalis.ui.theme.ORANGE
 import kotlinx.coroutines.delay
-
-/** The splash's colours (iconset/README.txt). */
-private val GREEN = Color(0xFF1F5B45)
-private val IVORY = Color(0xFFF7F0E6)
-private val GOLD = Color(0xFFF2B84B)
-private val ORANGE = Color(0xFFE8742B)
 
 // The q and the two arrows, in the SVG's 1024 × 1024 (iconset/splash/aequalis-splash-animated.svg).
 private const val Q_OUTLINE = "M 468 220 A 260 260 0 0 1 716 402 L 716 220 L 816 220 L 816 750 A 50 50 0 0 1 716 750 L 716 558 A 260 260 0 0 1 468 740 A 260 260 0 0 1 468 220 Z"
@@ -86,7 +84,7 @@ fun SplashScreen(done: () -> Unit) {
 }
 
 /** The SVG's paths, parsed once. */
-private class SplashShapes {
+internal class SplashShapes {
     val fill = path(Q_OUTLINE + Q_HOLE).apply { fillType = PathFillType.EvenOdd }
     val outline = path(Q_OUTLINE)
     val measure = PathMeasure().apply { setPath(outline, false) }
@@ -130,4 +128,27 @@ internal fun keyframes(t: Float, times: FloatArray, values: FloatArray, easings:
     val local = if (span <= 0f) 1f else (t - times[i - 1]) / span
     val eased = easings.getOrElse(i - 1) { LinearEasing }.transform(local.coerceIn(0f, 1f))
     return values[i - 1] + (values[i] - values[i - 1]) * eased
+}
+
+/**
+ * The mark alone (the q and its arrows), for the main screen's title: no background, cut close
+ * around the letter. The q in `q` (the splash's green; a lighter one on a dark screen), the arrows
+ * gold.
+ */
+@Composable
+fun AequalisMark(q: Color, modifier: Modifier = Modifier) {
+    val shapes = remember { SplashShapes() }
+    Canvas(modifier.semantics { contentDescription = "Aequalis" }) {
+        // The q's bounds in the SVG: x 208 to 816, y 220 to 800 (the stem's round end).
+        val scale = minOf(size.width / 608f, size.height / 580f)
+        withTransform({
+            translate((size.width - 608f * scale) / 2, (size.height - 580f * scale) / 2)
+            scale(scale, scale, Offset.Zero)
+            translate(-208f, -220f)
+        }) {
+            drawPath(shapes.fill, q)
+            drawPath(shapes.right, GOLD)
+            drawPath(shapes.left, GOLD)
+        }
+    }
 }

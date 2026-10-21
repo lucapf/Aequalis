@@ -329,6 +329,9 @@ pub struct Output {
     pub rates_age: Option<String>,
     /// For `--online`: how long ago the online data was last synced (`2h`; `None`: never).
     pub synced: Option<String>,
+    /// What was converted or calculated, as shown (`12 AED`, `10 km`, `12+4/2`): the left side of
+    /// the whole expression a UI copies (`12 AED = 3.27 USD`); `None`: the request as written.
+    pub from: Option<String>,
 }
 
 impl From<String> for Output {
@@ -504,6 +507,7 @@ fn money(opts: &Options, c: currency::Converted) -> Output {
         formatted: false,
         rates_age: Some(c.age),
         synced: None,
+        from: Some(c.from),
     }
 }
 
@@ -522,12 +526,14 @@ fn calculation(config: &Config, opts: &Options, input: &str) -> Result<Output, C
         true => Vec::new(),
         false => vec![format!("evaluated as {}", expr.grouped())],
     };
+    // The number or the calculation as written (`12+4/2`, `100 + 20`).
+    let written = input[..input.len() - rest.len()].trim();
     let words: Vec<&str> = rest.split_whitespace().collect();
     // `to`, `in` or `->` between the units (`1000 ly to yd`); a last `in` is the inch (`10 ft in`).
     let waiting = |w: &str| currency::connector(w) && !w.eq_ignore_ascii_case("in");
     // No unit, or the `num` target (`2026-12-02 num`): the number.
     if matches!(words[..], [] | [_]) && words.iter().all(|w| config::is_number_word(w)) {
-        return Ok(Output { stdout: convert::format_value(value, opts.precision), notes, ..Output::default() });
+        return Ok(Output { stdout: convert::format_value(value, opts.precision), notes, from: Some(written.to_string()), ..Output::default() });
     }
     let (from, to) = match words[..] {
         // A unit so far (`10 km`, `10 km to`): the target comes next; for a compound one (`m/s^2`) no
@@ -544,11 +550,15 @@ fn calculation(config: &Config, opts: &Options, input: &str) -> Result<Output, C
         _ => return usage(EXPECTED),
     };
     let (result, target) = convert::convert(config, value, from, to).map_err(CliError::Convert)?;
-    let warnings = match (opts.silent, convert::find_unit(config, from), target.unit) {
+    let source = convert::find_unit(config, from);
+    let warnings = match (opts.silent, source, target.unit) {
         (false, Some((_, from_unit)), Some(to_unit)) => convert::warnings(from_unit, to_unit),
         _ => Vec::new(),
     };
-    Ok(Output { stdout: format!("{} {}", convert::format_value(result, opts.precision), target.symbol), warnings, notes, ..Output::default() })
+    // The unit by its symbol (`kilometres` → `km`); a compound one (`m/s^2`) as written.
+    let from = format!("{written} {}", source.map_or(from, |(_, unit)| unit.symbol));
+    let stdout = format!("{} {}", convert::format_value(result, opts.precision), target.symbol);
+    Ok(Output { stdout, warnings, notes, from: Some(from), ..Output::default() })
 }
 
 /// How a calculation is grouped, every operation in brackets (`12+4/2` → `(12 + (4 / 2))`), for a
