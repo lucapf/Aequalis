@@ -115,52 +115,12 @@ pub const RESET: &str = "Reset";
 /// What a key does; `false` when the window closes (Esc).
 pub fn key(view: &mut View, key: crate::tui::keys::Key) -> bool {
     use crate::tui::keys::Key;
-    // Typing a value.
-    if let Some(text) = &mut view.edit {
-        match key {
-            Key::Esc => view.edit = None,
-            Key::Enter => {
-                let value = text.clone();
-                view.edit = None;
-                save(view, Some(&value));
-            }
-            Key::Backspace => {
-                text.pop();
-            }
-            Key::Char(c) => text.push(c),
-            _ => {}
-        }
+    if view.edit.is_some() {
+        edit_key(view, key);
         return true;
     }
-    // Picking from a list.
-    if let Some(list) = &mut view.list {
-        match key {
-            Key::Esc => view.list = None,
-            Key::Up => list.selected = list.selected.saturating_sub(1),
-            Key::Down | Key::Tab => list.selected += 1,
-            Key::Backspace => {
-                list.query.pop();
-                list.selected = 0;
-            }
-            Key::Char(c) => {
-                list.query.push(c);
-                list.selected = 0;
-            }
-            Key::Enter => {
-                let selected = list.selected;
-                let picked = view.choices().get(selected).map(|(value, _)| value.clone());
-                view.list = None;
-                if let Some(value) = picked {
-                    save(view, Some(&value));
-                }
-                return true;
-            }
-            _ => {}
-        }
-        let last = view.choices().len().saturating_sub(1);
-        if let Some(list) = &mut view.list {
-            list.selected = list.selected.min(last);
-        }
+    if view.list.is_some() {
+        list_key(view, key);
         return true;
     }
     // Reset asks once more; anything but Enter on it cancels.
@@ -192,6 +152,58 @@ pub fn key(view: &mut View, key: crate::tui::keys::Key) -> bool {
         _ => {}
     }
     true
+}
+
+/// Typing a value: Enter saves it, Esc cancels.
+fn edit_key(view: &mut View, key: crate::tui::keys::Key) {
+    use crate::tui::keys::Key;
+    let Some(text) = &mut view.edit else { return };
+    match key {
+        Key::Esc => view.edit = None,
+        Key::Enter => {
+            let value = text.clone();
+            view.edit = None;
+            save(view, Some(&value));
+        }
+        Key::Backspace => {
+            text.pop();
+        }
+        Key::Char(c) => text.push(c),
+        _ => {}
+    }
+}
+
+/// Picking from a list: typing filters it, ↑ ↓ choose, Enter saves the value chosen, Esc closes it.
+fn list_key(view: &mut View, key: crate::tui::keys::Key) {
+    use crate::tui::keys::Key;
+    let Some(list) = &mut view.list else { return };
+    match key {
+        Key::Esc => view.list = None,
+        Key::Up => list.selected = list.selected.saturating_sub(1),
+        Key::Down | Key::Tab => list.selected += 1,
+        Key::Backspace => {
+            list.query.pop();
+            list.selected = 0;
+        }
+        Key::Char(c) => {
+            list.query.push(c);
+            list.selected = 0;
+        }
+        Key::Enter => {
+            let selected = list.selected;
+            let picked = view.choices().get(selected).map(|(value, _)| value.clone());
+            view.list = None;
+            if let Some(value) = picked {
+                save(view, Some(&value));
+            }
+            return;
+        }
+        _ => {}
+    }
+    let last = view.choices().len().saturating_sub(1);
+    if let Some(list) = &mut view.list {
+        list.selected = list.selected.min(last);
+    }
 }
 
 /// The list of the setting chosen, on its value.

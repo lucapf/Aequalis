@@ -96,8 +96,11 @@ fn error(message: &str) -> String {
 
 /// `Core.init(config)`, once, first: what the app knows about the device, as `aequalis_init`'s JSON
 /// (`{"dir": …, "zone": …, "zoneinfo": …, "decimal": …, …}`). Returns `{"ok":true,"max_input":512}` or the error.
+///
+/// # Safety
+/// Called by the JVM only: `env` is its `JNIEnv *`, the arrays its references, valid in this call.
 #[no_mangle]
-pub extern "system" fn Java_io_lucapf_aequalis_Core_init(env: Env, _class: Class, config: ByteArray) -> ByteArray {
+pub unsafe extern "system" fn Java_io_lucapf_aequalis_Core_init(env: Env, _class: Class, config: ByteArray) -> ByteArray {
     let reply = match unsafe { text(env, config) }.map(|t| crate::ffi::parse_init(&t)) {
         Some(Ok(init)) => {
             crate::ffi::start(&init);
@@ -111,8 +114,11 @@ pub extern "system" fn Java_io_lucapf_aequalis_Core_init(env: Env, _class: Class
 
 /// `Core.eval(request, submitted)`: the reply as the app shows it (`reply::view`): what to show, its
 /// message, the value to copy, the choices of an ambiguous request. `submitted` is a `jboolean`.
+///
+/// # Safety
+/// Called by the JVM only: `env` is its `JNIEnv *`, the arrays its references, valid in this call.
 #[no_mangle]
-pub extern "system" fn Java_io_lucapf_aequalis_Core_eval(env: Env, _class: Class, request: ByteArray, submitted: u8) -> ByteArray {
+pub unsafe extern "system" fn Java_io_lucapf_aequalis_Core_eval(env: Env, _class: Class, request: ByteArray, submitted: u8) -> ByteArray {
     // Too long: refused before its bytes are even copied.
     if unsafe { too_many_bytes(env, request) } {
         return unsafe { to_java(env, &crate::ffi::too_long()) };
@@ -126,8 +132,11 @@ pub extern "system" fn Java_io_lucapf_aequalis_Core_eval(env: Env, _class: Class
 
 /// `Core.suggest(before)`: suggestions for the word being typed at the end of `before` (the text up
 /// to the cursor), from its third character (`ffi::suggest`).
+///
+/// # Safety
+/// Called by the JVM only: `env` is its `JNIEnv *`, the arrays its references, valid in this call.
 #[no_mangle]
-pub extern "system" fn Java_io_lucapf_aequalis_Core_suggest(env: Env, _class: Class, before: ByteArray) -> ByteArray {
+pub unsafe extern "system" fn Java_io_lucapf_aequalis_Core_suggest(env: Env, _class: Class, before: ByteArray) -> ByteArray {
     if unsafe { too_many_bytes(env, before) } {
         return unsafe { to_java(env, crate::ffi::NO_SUGGESTIONS) };
     }
@@ -141,8 +150,11 @@ pub extern "system" fn Java_io_lucapf_aequalis_Core_suggest(env: Env, _class: Cl
 /// `Core.lists(which)`: the lists for the keyboard's panels and Settings, as the C interface gives
 /// them: `measures` (the unit classes and their units), `currencies`, `trivia`, `settings`; and
 /// `about`, `memory` (what the core holds, `ffi::memory`).
+///
+/// # Safety
+/// Called by the JVM only: `env` is its `JNIEnv *`, the arrays its references, valid in this call.
 #[no_mangle]
-pub extern "system" fn Java_io_lucapf_aequalis_Core_lists(env: Env, _class: Class, which: ByteArray) -> ByteArray {
+pub unsafe extern "system" fn Java_io_lucapf_aequalis_Core_lists(env: Env, _class: Class, which: ByteArray) -> ByteArray {
     let reply = match unsafe { text(env, which) }.as_deref() {
         Some("measures") => crate::ffi::measures(),
         Some("currencies") => crate::ffi::currencies(),
@@ -157,8 +169,11 @@ pub extern "system" fn Java_io_lucapf_aequalis_Core_lists(env: Env, _class: Clas
 
 /// `Core.set(key, value)`: changes a setting and saves it (an empty value: its default), as
 /// `aequalis --set key=value`: `{"ok":true,"key":…,"value":…}` or the error.
+///
+/// # Safety
+/// Called by the JVM only: `env` is its `JNIEnv *`, the arrays its references, valid in this call.
 #[no_mangle]
-pub extern "system" fn Java_io_lucapf_aequalis_Core_set(env: Env, _class: Class, key: ByteArray, value: ByteArray) -> ByteArray {
+pub unsafe extern "system" fn Java_io_lucapf_aequalis_Core_set(env: Env, _class: Class, key: ByteArray, value: ByteArray) -> ByteArray {
     let reply = match (unsafe { text(env, key) }, unsafe { text(env, value) }) {
         (Some(key), Some(value)) => crate::ffi::set(&key, Some(value.as_str()).filter(|v| !v.is_empty())),
         _ => error("set: a key and a value"),
@@ -169,8 +184,11 @@ pub extern "system" fn Java_io_lucapf_aequalis_Core_set(env: Env, _class: Class,
 /// `Core.seed(rates, cities)`: the data shipped with the app (`ffi::seed`): ExchangeRate-API's
 /// answer (empty: none) and the path of the city archive's JSON file (empty: none). Off the main
 /// thread: installing the archive takes a second or two.
+///
+/// # Safety
+/// Called by the JVM only: `env` is its `JNIEnv *`, the arrays its references, valid in this call.
 #[no_mangle]
-pub extern "system" fn Java_io_lucapf_aequalis_Core_seed(env: Env, _class: Class, rates: ByteArray, cities: ByteArray) -> ByteArray {
+pub unsafe extern "system" fn Java_io_lucapf_aequalis_Core_seed(env: Env, _class: Class, rates: ByteArray, cities: ByteArray) -> ByteArray {
     let rates = unsafe { text(env, rates) }.filter(|r| !r.is_empty());
     let cities = unsafe { text(env, cities) }.filter(|c| !c.is_empty());
     let reply = crate::ffi::seed(rates.as_deref(), cities.as_deref().map(std::path::Path::new));

@@ -119,6 +119,7 @@ mod tests {
         }
         // All freed; the peak stays.
         assert_eq!((counting.held(), counting.peak()), (0, 6000));
+        assert_eq!((Counting::default().held(), Counting::default().peak()), (0, 0));
     }
 
     #[test]

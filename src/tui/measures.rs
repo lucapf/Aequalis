@@ -109,7 +109,7 @@ mod tests {
         keys.dedup();
         assert_eq!(keys.len(), items.len(), "the letters differ");
         // Every class in the table, an upper-case letter and 4 or 5 buttons per row each.
-        for c in &config.categories {
+        for c in config.categories {
             let (key, columns) = class(c);
             assert!(key.is_ascii_uppercase() && (4..=5).contains(&columns), "{}: not in CLASSES", c.name);
         }

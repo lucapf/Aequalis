@@ -19,6 +19,13 @@ fn set_show_and_reset() {
     assert!(json.contains(r#"{"key":"currency.local","value":"CHF","default":"auto","kind":"text","options":[]"#), "{json}");
     assert!(json.contains(r#"{"key":"cities.refresh","value":"manual","default":"manual","kind":"choice","options":["silent","notify","manual"]"#), "{json}");
     assert!(json.contains(r#""key":"offline","value":"true","default":"false","kind":"bool""#), "{json}");
+    // What `auto` stands for here, and the currencies to pick the local one from.
+    assert!(json.contains(r#""key":"distance.unit","value":"auto""#) && json.contains(r#""auto":"km""#) || json.contains(r#""auto":"mi""#), "{json}");
+    assert!(json.contains(r#""currencies":[{"code":"USD","name":"US dollar"}"#), "{json}");
+    // `--reset-settings`: every default back.
+    assert_eq!(common::out(&common::aequalis(&dir, &["--reset-settings"])), "every setting is back to its default");
+    let shown = common::out(&common::aequalis(&dir, &["--settings"]));
+    assert!(shown.contains("currency.local   auto\n") && shown.contains("offline          false\n"), "{shown}");
 }
 
 #[test]

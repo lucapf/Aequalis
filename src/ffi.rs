@@ -524,6 +524,15 @@ mod tests {
     }
 
     #[test]
+    fn lists_through_the_c_interface() {
+        assert_eq!(call(|| aequalis_measures()), measures());
+        assert_eq!(call(|| aequalis_currencies()), currencies());
+        // The Trivia's values move with the clock: the same entries.
+        let entries = |text: &str| json::parse(text).unwrap().get("sections").map(|s| s.array().len());
+        assert_eq!(entries(&call(|| aequalis_trivia())), entries(&trivia()));
+    }
+
+    #[test]
     fn requests_answer_as_the_command_line() {
         let request = CString::new("10 km mi").unwrap();
         let reply = call(|| unsafe { aequalis_eval(request.as_ptr()) });

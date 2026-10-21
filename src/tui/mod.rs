@@ -74,6 +74,14 @@ pub enum Overlay {
     Settings(settings::View),
 }
 
+impl Overlay {
+    /// A panel: it takes the band under the line (or the pane at the right), where the keyboard
+    /// would be; the other windows are drawn over the screen.
+    pub fn is_panel(&self) -> bool {
+        matches!(self, Overlay::Measures(_) | Overlay::Picker(_) | Overlay::Currencies(_) | Overlay::Trivia(_) | Overlay::Search(_) | Overlay::History(_))
+    }
+}
+
 /// The keyboard of the band: the calculator keys, with the functions beside them in Sci.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Keypad {
@@ -251,12 +259,7 @@ impl<'a> App<'a> {
 
     /// Whether the keyboard is on screen (not hidden, a terminal tall enough, no window over it).
     fn keyboard_shown(&self) -> bool {
-        self.keypad != Keypad::Hidden
-            && self.screen.0 >= render::KEYPAD_FROM
-            && !matches!(
-                self.overlay,
-                Some(Overlay::Measures(_) | Overlay::Picker(_) | Overlay::Currencies(_) | Overlay::Trivia(_) | Overlay::Search(_) | Overlay::History(_))
-            )
+        self.keypad != Keypad::Hidden && self.screen.0 >= render::KEYPAD_FROM && !self.overlay.as_ref().is_some_and(Overlay::is_panel)
     }
 
     /// The columns the keyboard has: its column beside the board in the Wide layout (big keys),
@@ -718,51 +721,65 @@ impl<'a> App<'a> {
             Some(Overlay::Trivia(_)) => self.trivia_key(key),
             Some(Overlay::Search(_)) => self.search_key(key),
             Some(Overlay::History(_)) => self.history_key(key),
-            Some(Overlay::Settings(ref mut view)) => {
-                if !settings::key(view, key) {
-                    self.overlay = None;
-                }
-                if self.live {
-                    self.load_shortcuts();
-                }
-                // The offline setting may have changed: the indicator follows.
-                self.forced_offline = aequalis::network::mode() == aequalis::network::Mode::Offline;
-            }
+            Some(Overlay::Settings(_)) => self.settings_key(key),
             Some(Overlay::About) => {
                 if matches!(key, Key::Esc | Key::Enter | Key::Char('a' | 'A' | 'q')) {
                     self.overlay = None;
                 }
             }
-            Some(Overlay::Choice(ref a, ref mut selected)) => {
-                let n = a.choices.len();
-                match key {
-                    Key::Up | Key::Char('k') => *selected = (*selected + n - 1) % n,
-                    Key::Down | Key::Char('j') | Key::Tab => *selected = (*selected + 1) % n,
-                    Key::Char(c @ '1'..='9') if (c as usize - '1' as usize) < n => *selected = c as usize - '1' as usize,
-                    // The chosen pattern is written into the expression, which is evaluated.
-                    Key::Enter => {
-                        let request = a.choices[*selected].request.clone();
-                        self.overlay = None;
-                        self.line.set(&request);
-                        self.submit();
-                    }
-                    Key::Esc => self.overlay = None,
-                    _ => {}
-                }
-            }
-            Some(Overlay::Help(ref mut scroll)) => match key {
-                Key::Esc | Key::Enter | Key::Char('e' | 'E' | 'q' | '?') => self.overlay = None,
-                Key::Down | Key::Char('j') => *scroll += 1,
-                Key::Up | Key::Char('k') => *scroll = scroll.saturating_sub(1),
-                Key::PageDown => *scroll += SCROLL_STEP,
-                Key::PageUp => *scroll = scroll.saturating_sub(SCROLL_STEP),
-                _ => {}
-            },
+            Some(Overlay::Choice(..)) => self.choice_key(key),
+            Some(Overlay::Help(_)) => self.help_key(key),
             None => {
                 if let Some(action) = self.keymap(key) {
                     self.apply(action);
                 }
             }
+        }
+    }
+
+    /// The Settings window's keys (`settings::key`); Esc closes it. The shortcuts and the offline
+    /// indicator follow what was changed.
+    fn settings_key(&mut self, key: Key) {
+        let Some(Overlay::Settings(view)) = &mut self.overlay else { return };
+        if !settings::key(view, key) {
+            self.overlay = None;
+        }
+        if self.live {
+            self.load_shortcuts();
+        }
+        self.forced_offline = aequalis::network::mode() == aequalis::network::Mode::Offline;
+    }
+
+    /// The help's keys: ↑ ↓ and the pages scroll it; Esc, Enter or its letters close it.
+    fn help_key(&mut self, key: Key) {
+        let Some(Overlay::Help(scroll)) = &mut self.overlay else { return };
+        match key {
+            Key::Esc | Key::Enter | Key::Char('e' | 'E' | 'q' | '?') => self.overlay = None,
+            Key::Down | Key::Char('j') => *scroll += 1,
+            Key::Up | Key::Char('k') => *scroll = scroll.saturating_sub(1),
+            Key::PageDown => *scroll += SCROLL_STEP,
+            Key::PageUp => *scroll = scroll.saturating_sub(SCROLL_STEP),
+            _ => {}
+        }
+    }
+
+    /// A question's keys: ↑ ↓ (circular) or a digit choose; Enter writes the chosen request in
+    /// the line and evaluates it; Esc closes it.
+    fn choice_key(&mut self, key: Key) {
+        let Some(Overlay::Choice(a, selected)) = &mut self.overlay else { return };
+        let n = a.choices.len();
+        match key {
+            Key::Up | Key::Char('k') => *selected = (*selected + n - 1) % n,
+            Key::Down | Key::Char('j') | Key::Tab => *selected = (*selected + 1) % n,
+            Key::Char(c @ '1'..='9') if (c as usize - '1' as usize) < n => *selected = c as usize - '1' as usize,
+            Key::Enter => {
+                let request = a.choices[*selected].request.clone();
+                self.overlay = None;
+                self.line.set(&request);
+                self.submit();
+            }
+            Key::Esc => self.overlay = None,
+            _ => {}
         }
     }
 
@@ -1052,12 +1069,36 @@ pub fn run(config: &Config, opts: &Options) -> ExitCode {
         term::leave();
         default_hook(info);
     }));
+    let mut app = session(config, opts);
+    let mut screen = Screen { drawn: None, dirty: true, clear: true, mouse: false, synced: None };
+    let mut input = Input { pending: Vec::new(), buf: [0; 256], hangups: 0 };
+    let mut stdout = std::io::stdout();
+    while !app.quit {
+        screen.update(&mut app, &mut stdout);
+        match input.read() {
+            Typed::Keys(keys) => {
+                for key in keys {
+                    app.handle(key);
+                }
+                screen.clear = std::mem::take(&mut app.redraw);
+                screen.dirty = true;
+            }
+            Typed::Nothing => {}
+            Typed::Closed => break,
+        }
+    }
+    drop(guard);
+    ExitCode::SUCCESS
+}
 
+/// The app of a session at the terminal: the device's system and number format, the settings
+/// (shortcuts, keyboard, mouse), the usage; the notices (the `notify` refresh policies) in the
+/// status bar at the start.
+fn session<'a>(config: &'a Config, opts: &'a Options<'a>) -> App<'a> {
     let mut app = App::new(config, opts);
     app.system_clipboard = true;
     app.live = true;
     app.refresh_online();
-    // Notices (the `notify` refresh policies): in the status bar at the start.
     let notices = aequalis::notify::current();
     if !notices.is_empty() {
         app.status = Some((StatusKind::Note, notices.join(" · ")));
@@ -1068,64 +1109,89 @@ pub fn run(config: &Config, opts: &Options) -> ExitCode {
     app.load_shortcuts();
     app.usage = aequalis::usage::load();
     app.refresh_money();
-    // The keypad as the `tui.keyboard` setting says (F9 shows, changes and hides it).
+    // The keypad as the `tui.keyboard` setting says (F9 shows, changes and hides it): on screen
+    // from the start when asked for, or (auto) when the screen has the room for the board and the
+    // keyboard side by side.
     app.screen = term::size().unwrap_or((24, 80));
-    // On screen from the start when asked for, or (auto) when the screen has the room for the board
-    // and the keyboard side by side.
     let both = render::wide_split(app.screen.0, app.screen.1).is_some();
     app.keypad = if aequalis::settings::current().keyboard().unwrap_or(both) { app.best_layout() } else { Keypad::Hidden };
     // The mouse as the `tui.mouse` setting says (Alt+O switches it for the session).
     app.mouse_on = aequalis::settings::current().mouse();
-    let mut mouse_reported = false;
-    let mut stdout = std::io::stdout();
-    let (mut pending, mut buf) = (Vec::new(), [0u8; 256]);
-    let (mut drawn, mut dirty, mut clear, mut hangups) = (None, true, true, 0);
-    let mut synced_shown = None;
-    while !app.quit {
+    app
+}
+
+/// What the terminal shows: the size last drawn, whether the app changed since, whether the next
+/// frame clears the terminal first; the mouse reporting set, and the sync age shown.
+struct Screen {
+    drawn: Option<(usize, usize)>,
+    dirty: bool,
+    clear: bool,
+    mouse: bool,
+    synced: Option<String>,
+}
+
+impl Screen {
+    /// The online data read again if a sync changed it, the mouse reporting as the app wants it,
+    /// and the frame drawn again when something changed: the app, the size, the toolbar's age of
+    /// the last sync (`2h`, which changes with the clock too).
+    fn update(&mut self, app: &mut App, stdout: &mut std::io::Stdout) {
         app.keep_online_fresh();
-        dirty |= app.refresh_online();
-        // The toolbar's age of the last sync (`2h`) changes with the clock too.
+        self.dirty |= app.refresh_online();
         let synced = app.synced_ago();
-        if synced != synced_shown {
-            (dirty, synced_shown) = (true, synced);
+        if synced != self.synced {
+            (self.dirty, self.synced) = (true, synced);
         }
-        if app.mouse_on != mouse_reported {
+        if app.mouse_on != self.mouse {
             term::mouse(app.mouse_on);
-            mouse_reported = app.mouse_on;
+            self.mouse = app.mouse_on;
         }
         let size = term::size().unwrap_or((24, 80));
         app.screen = size;
-        if dirty || drawn != Some(size) {
-            let frame = render::render(&app, size.0, size.1);
-            let _ = stdout.write_all(frame.to_ansi(clear || drawn != Some(size)).as_bytes());
+        if self.dirty || self.drawn != Some(size) {
+            let frame = render::render(app, size.0, size.1);
+            let _ = stdout.write_all(frame.to_ansi(self.clear || self.drawn != Some(size)).as_bytes());
             let _ = stdout.flush();
             app.hits = frame.hits;
-            (drawn, dirty, clear) = (Some(size), false, false);
+            (self.drawn, self.dirty, self.clear) = (Some(size), false, false);
         }
+    }
+}
+
+/// The terminal's input: the bytes of keys not complete yet, and how many reads in a row found
+/// it closed.
+struct Input {
+    pending: Vec<u8>,
+    buf: [u8; 256],
+    hangups: usize,
+}
+
+/// What a read of the terminal gave.
+enum Typed {
+    /// The keys completed by the bytes read (maybe none: half an escape sequence).
+    Keys(Vec<Key>),
+    /// Nothing: raw mode's 0.2 s timeout, or a signal.
+    Nothing,
+    /// The terminal is gone.
+    Closed,
+}
+
+impl Input {
+    fn read(&mut self) -> Typed {
         let started = Instant::now();
-        let n = match term::read(&mut buf) {
+        let n = match term::read(&mut self.buf) {
             Ok(n) => n,
-            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
-            Err(_) => break,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => return Typed::Nothing,
+            Err(_) => return Typed::Closed,
         };
         if n == 0 {
-            hangups = if started.elapsed() < HANGUP { hangups + 1 } else { 0 };
-            if hangups > 3 {
-                break;
-            }
-            continue;
+            self.hangups = if started.elapsed() < HANGUP { self.hangups + 1 } else { 0 };
+            return if self.hangups > 3 { Typed::Closed } else { Typed::Nothing };
         }
-        pending.extend_from_slice(&buf[..n]);
-        let (keys, used) = keys::decode(&pending);
-        pending.drain(..used);
-        for key in keys {
-            app.handle(key);
-        }
-        clear = std::mem::take(&mut app.redraw);
-        dirty = true;
+        self.pending.extend_from_slice(&self.buf[..n]);
+        let (keys, used) = keys::decode(&self.pending);
+        self.pending.drain(..used);
+        Typed::Keys(keys)
     }
-    drop(guard);
-    ExitCode::SUCCESS
 }
 
 #[cfg(test)]

@@ -183,8 +183,8 @@ mod tests {
             for placeholder in ["@UNITS@", "@FLAGS@", "@SHELLS@", "@BIN@"] {
                 assert!(!s.contains(placeholder), "unreplaced {placeholder} in {shell} script");
             }
-            for cat in &config.categories {
-                for u in &cat.units {
+            for cat in config.categories {
+                for u in cat.units {
                     let mut words = s.split(|c: char| !c.is_ascii_alphanumeric() && !"-/".contains(c));
                     assert!(words.any(|w| w == u.symbol), "{shell}: missing {}", u.symbol);
                 }

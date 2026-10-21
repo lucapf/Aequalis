@@ -335,18 +335,46 @@ pub fn read_date(text: &str, fields: Option<Fields>, order: Order) -> Option<Rea
 
 pub(super) fn read_numeric_date(text: &str, fields: Option<Fields>, order: Order) -> Option<Reading> {
     let mut c = Cursor { b: text.trim().as_bytes(), i: 0 };
+    let numbers = three_numbers(&mut c)?;
+    let (by_locale, dates) = date_orders(numbers, fields, order)?;
+    let (chosen, (year, month, day)) = dates[0];
+    let mut civil = Civil { year, month, day, ..Civil::default() };
+    let (clock, offset) = match c.eat(b' ') || c.eat(b'T') || c.eat(b't') {
+        true => read_clock(&mut c, &mut civil)?,
+        false => (Clock::None, None),
+    };
+    if c.i != c.b.len() {
+        return None;
+    }
+    let pattern = Pattern { fields: chosen, clock, tz: offset.is_some() };
+    let readings = dates.into_iter().map(|(fields, (y, m, d))| (Pattern { fields, ..pattern }, y, m, d)).collect();
+    Some(Reading { civil, offset, pattern, by_locale, readings, month_name: None })
+}
+
+/// The three numbers of a written date (`12/04/2026`, `2026-12-04`, `12 4 2026`), each with its
+/// count of digits (1 to 4); the same separator between them.
+fn three_numbers(c: &mut Cursor) -> Option<[(u32, usize); 3]> {
     let field = |c: &mut Cursor| -> Option<(u32, usize)> {
         let n = c.count_digits();
         (1..=4).contains(&n).then(|| (c.digits(n).unwrap(), n))
     };
-    let (a, a_len) = field(&mut c)?;
+    let a = field(c)?;
     let sep = c.peek().filter(|b| b"/.- ".contains(b))?;
     c.i += 1;
-    let (b, b_len) = field(&mut c)?;
+    let b = field(c)?;
     if !c.eat(sep) {
         return None;
     }
-    let (z, z_len) = field(&mut c)?;
+    Some([a, b, field(c)?])
+}
+
+/// A date read in one order: the order, and (year, month, day).
+type Dated = (Fields, (i64, u32, u32));
+
+/// The dates three numbers are in the orders they fit: the one chosen first (the first valid one
+/// of `fields`, else in the locale's `order`), then every other order that gives a valid,
+/// different date; and whether the locale's order chose it.
+fn date_orders([(a, a_len), (b, b_len), (z, z_len)]: [(u32, usize); 3], fields: Option<Fields>, order: Order) -> Option<(bool, Vec<Dated>)> {
     let pivot = |y: u32| if y >= 69 { 1900 + i64::from(y) } else { 2000 + i64::from(y) };
     // (year, month, day) in each order, if the lengths fit it.
     let assign = |f: Fields| -> Option<(i64, u32, u32)> {
@@ -371,9 +399,7 @@ pub(super) fn read_numeric_date(text: &str, fields: Option<Fields>, order: Order
     let fitting: Vec<Fields> = candidates.iter().copied().filter(|&f| assign(f).is_some()).collect();
     let chosen = *fitting.iter().find(|&&f| assign(f).is_some_and(valid))?;
     let by_locale = fields.is_none() && chosen == fitting[0] && chosen != Fields::Ymd4;
-    let (year, month, day) = assign(chosen)?;
-    // Every other order that gives a valid, different date.
-    let mut dates = vec![(chosen, (year, month, day))];
+    let mut dates = vec![(chosen, assign(chosen)?)];
     if fields.is_none() {
         for &f in &fitting {
             if let Some(date) = assign(f).filter(|&d| valid(d)) {
@@ -383,70 +409,71 @@ pub(super) fn read_numeric_date(text: &str, fields: Option<Fields>, order: Order
             }
         }
     }
-    let mut civil = Civil { year, month, day, ..Civil::default() };
-    let mut clock = Clock::None;
-    let mut offset = None;
-    if c.eat(b' ') || c.eat(b'T') || c.eat(b't') {
-        while c.eat(b' ') {}
-        let h = c.count_digits();
-        if !(1..=2).contains(&h) {
-            return None;
-        }
-        civil.hour = c.digits(h)?;
-        if !c.eat(b':') {
-            return None;
-        }
-        civil.minute = c.digits(2)?;
-        if c.eat(b':') {
-            civil.second = c.digits(2)?;
-            if c.eat(b'.') || c.eat(b',') {
-                let n = c.count_digits();
-                if n == 0 {
-                    return None;
-                }
-                let frac = std::str::from_utf8(&c.b[c.i..c.i + n]).ok()?;
-                civil.nano = format!("{:0<9}", &frac[..n.min(9)]).parse().ok()?;
-                c.i += n;
-            }
-        }
-        clock = Clock::H24;
-        // AM / PM (also am, a.m., A, P), with or without a space.
-        let save = c.i;
-        while c.eat(b' ') {}
-        let meridiem = match c.peek().map(|b| b.to_ascii_lowercase()) {
-            Some(b'a') => Some(false),
-            Some(b'p') => Some(true),
-            _ => None,
-        };
-        if let Some(pm) = meridiem {
-            c.i += 1;
-            c.eat(b'.');
-            if c.peek().is_some_and(|b| b.eq_ignore_ascii_case(&b'm')) {
-                c.i += 1;
-                c.eat(b'.');
-            }
-            if !(1..=12).contains(&civil.hour) {
-                return None;
-            }
-            civil.hour = civil.hour % 12 + if pm { 12 } else { 0 };
-            clock = Clock::H12;
-        } else {
-            c.i = save;
-        }
-        // 24:00 is the end of the day, as in ISO (not 24:00 PM).
-        let end_of_day = clock == Clock::H24 && civil.hour == 24 && civil.minute == 0 && civil.second == 0 && civil.nano == 0;
-        if (civil.hour > 23 && !end_of_day) || civil.minute > 59 || civil.second > 59 {
-            return None;
-        }
-        while c.eat(b' ') {}
-        offset = parse_zone(&mut c)?;
-    }
-    if c.i != c.b.len() {
+    Some((by_locale, dates))
+}
+
+/// The time after a written date (`15:30`, `3:30:45.5 PM`, `3:20PM`) and its zone (`Z`,
+/// `+02:00`), into `civil`: the clock it is written with, and the zone's offset.
+fn read_clock(c: &mut Cursor, civil: &mut Civil) -> Option<(Clock, Option<i32>)> {
+    while c.eat(b' ') {}
+    let h = c.count_digits();
+    if !(1..=2).contains(&h) {
         return None;
     }
-    let pattern = Pattern { fields: chosen, clock, tz: offset.is_some() };
-    let readings = dates.into_iter().map(|(fields, (y, m, d))| (Pattern { fields, ..pattern }, y, m, d)).collect();
-    Some(Reading { civil, offset, pattern, by_locale, readings, month_name: None })
+    civil.hour = c.digits(h)?;
+    if !c.eat(b':') {
+        return None;
+    }
+    civil.minute = c.digits(2)?;
+    if c.eat(b':') {
+        civil.second = c.digits(2)?;
+        if c.eat(b'.') || c.eat(b',') {
+            let n = c.count_digits();
+            if n == 0 {
+                return None;
+            }
+            let frac = std::str::from_utf8(&c.b[c.i..c.i + n]).ok()?;
+            civil.nano = format!("{:0<9}", &frac[..n.min(9)]).parse().ok()?;
+            c.i += n;
+        }
+    }
+    let clock = match meridiem(c) {
+        Some(pm) if (1..=12).contains(&civil.hour) => {
+            civil.hour = civil.hour % 12 + if pm { 12 } else { 0 };
+            Clock::H12
+        }
+        Some(_) => return None,
+        None => Clock::H24,
+    };
+    // 24:00 is the end of the day, as in ISO (not 24:00 PM).
+    let end_of_day = clock == Clock::H24 && civil.hour == 24 && civil.minute == 0 && civil.second == 0 && civil.nano == 0;
+    if (civil.hour > 23 && !end_of_day) || civil.minute > 59 || civil.second > 59 {
+        return None;
+    }
+    while c.eat(b' ') {}
+    Some((clock, parse_zone(c)?))
+}
+
+/// AM or PM after a time (also am, a.m., A, P), with or without a space: taken, and whether it is
+/// PM; `None` (nothing taken) without one.
+fn meridiem(c: &mut Cursor) -> Option<bool> {
+    let save = c.i;
+    while c.eat(b' ') {}
+    let pm = match c.peek().map(|b| b.to_ascii_lowercase()) {
+        Some(b'a') => false,
+        Some(b'p') => true,
+        _ => {
+            c.i = save;
+            return None;
+        }
+    };
+    c.i += 1;
+    c.eat(b'.');
+    if c.peek().is_some_and(|b| b.eq_ignore_ascii_case(&b'm')) {
+        c.i += 1;
+        c.eat(b'.');
+    }
+    Some(pm)
 }
 
 /// A written date read with an explicit pattern: its order, and its time and zone parts exactly.

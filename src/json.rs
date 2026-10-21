@@ -153,6 +153,48 @@ impl Value {
             _ => &[],
         }
     }
+
+    /// A member of an object taken out of it (`Null` left in its place; `Null` when there is none):
+    /// the tables built from the data files take their strings instead of copying them.
+    pub fn take(&mut self, key: &str) -> Value {
+        match self {
+            Value::Object(members) => members.iter_mut().find(|(k, _)| k == key).map_or(Value::Null, |(_, v)| std::mem::replace(v, Value::Null)),
+            _ => Value::Null,
+        }
+    }
+
+    /// The string itself (`None`: no string).
+    pub fn into_string(self) -> Option<String> {
+        match self {
+            Value::String(s) => Some(s),
+            _ => None,
+        }
+    }
+
+    /// The items themselves (none when it is no array).
+    pub fn into_array(self) -> Vec<Value> {
+        match self {
+            Value::Array(items) => items,
+            _ => Vec::new(),
+        }
+    }
+
+    /// The members themselves, in their order (none when it is no object).
+    pub fn into_members(self) -> Vec<(String, Value)> {
+        match self {
+            Value::Object(members) => members,
+            _ => Vec::new(),
+        }
+    }
+
+    /// The strings of an array, themselves (other items skipped); none when it is no array.
+    pub fn into_strings(self) -> Vec<String> {
+        let items = self.into_array();
+        // Sized exactly: the tables keep these lists for the life of the process.
+        let mut out = Vec::with_capacity(items.iter().filter(|v| matches!(v, Value::String(_))).count());
+        out.extend(items.into_iter().filter_map(Value::into_string));
+        out
+    }
 }
 
 /// Parses a JSON document; the error says where it went wrong.
@@ -209,43 +251,8 @@ impl Reader<'_> {
     fn one_value(&mut self) -> Result<Value, String> {
         self.ws();
         match self.s.get(self.pos) {
-            Some(b'{') => {
-                self.pos += 1;
-                let mut members = Vec::new();
-                if self.eat(b'}') {
-                    return Ok(Value::Object(members));
-                }
-                loop {
-                    self.ws();
-                    let key = self.string()?;
-                    if !self.eat(b':') {
-                        return Err(self.error("`:` expected"));
-                    }
-                    members.push((key, self.value()?));
-                    if self.eat(b'}') {
-                        return Ok(Value::Object(members));
-                    }
-                    if !self.eat(b',') {
-                        return Err(self.error("`,` or `}` expected"));
-                    }
-                }
-            }
-            Some(b'[') => {
-                self.pos += 1;
-                let mut items = Vec::new();
-                if self.eat(b']') {
-                    return Ok(Value::Array(items));
-                }
-                loop {
-                    items.push(self.value()?);
-                    if self.eat(b']') {
-                        return Ok(Value::Array(items));
-                    }
-                    if !self.eat(b',') {
-                        return Err(self.error("`,` or `]` expected"));
-                    }
-                }
-            }
+            Some(b'{') => self.object(),
+            Some(b'[') => self.array(),
             Some(b'"') => self.string().map(Value::String),
             Some(b't') if self.s[self.pos..].starts_with(b"true") => {
                 self.pos += 4;
@@ -259,16 +266,59 @@ impl Reader<'_> {
                 self.pos += 4;
                 Ok(Value::Null)
             }
-            Some(b'-' | b'0'..=b'9') => {
-                let start = self.pos;
-                while self.pos < self.s.len() && matches!(self.s[self.pos], b'-' | b'+' | b'.' | b'e' | b'E' | b'0'..=b'9') {
-                    self.pos += 1;
-                }
-                let text = std::str::from_utf8(&self.s[start..self.pos]).unwrap_or("");
-                text.parse().map(Value::Number).map_err(|_| self.error("bad number"))
-            }
+            Some(b'-' | b'0'..=b'9') => self.number(),
             _ => Err(self.error("a value expected")),
         }
+    }
+
+    /// An object, the reader at its `{`.
+    fn object(&mut self) -> Result<Value, String> {
+        self.pos += 1;
+        let mut members = Vec::new();
+        if self.eat(b'}') {
+            return Ok(Value::Object(members));
+        }
+        loop {
+            self.ws();
+            let key = self.string()?;
+            if !self.eat(b':') {
+                return Err(self.error("`:` expected"));
+            }
+            members.push((key, self.value()?));
+            if self.eat(b'}') {
+                return Ok(Value::Object(members));
+            }
+            if !self.eat(b',') {
+                return Err(self.error("`,` or `}` expected"));
+            }
+        }
+    }
+
+    /// An array, the reader at its `[`.
+    fn array(&mut self) -> Result<Value, String> {
+        self.pos += 1;
+        let mut items = Vec::new();
+        if self.eat(b']') {
+            return Ok(Value::Array(items));
+        }
+        loop {
+            items.push(self.value()?);
+            if self.eat(b']') {
+                return Ok(Value::Array(items));
+            }
+            if !self.eat(b',') {
+                return Err(self.error("`,` or `]` expected"));
+            }
+        }
+    }
+
+    fn number(&mut self) -> Result<Value, String> {
+        let start = self.pos;
+        while self.pos < self.s.len() && matches!(self.s[self.pos], b'-' | b'+' | b'.' | b'e' | b'E' | b'0'..=b'9') {
+            self.pos += 1;
+        }
+        let text = std::str::from_utf8(&self.s[start..self.pos]).unwrap_or("");
+        text.parse().map(Value::Number).map_err(|_| self.error("bad number"))
     }
 
     /// The character of a `\u` escape (the reader is after `\u`), and of a second one after it
@@ -300,6 +350,14 @@ impl Reader<'_> {
             return Err(self.error("a string expected"));
         }
         self.pos += 1;
+        // Most strings have no escape: the run up to the quote, copied once at its size.
+        let s = self.s;
+        let run = s[self.pos..].iter().position(|&b| b == b'"' || b == b'\\').unwrap_or(s.len() - self.pos);
+        if s.get(self.pos + run) == Some(&b'"') {
+            let text = &s[self.pos..self.pos + run];
+            self.pos += run + 1;
+            return std::str::from_utf8(text).map(str::to_string).map_err(|_| self.error("invalid UTF-8"));
+        }
         let mut out = Vec::new();
         loop {
             match self.s.get(self.pos) {
@@ -339,6 +397,21 @@ impl Reader<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn values_taken_from_a_document() {
+        let mut doc = parse(r#"{"a": "plain", "b": "esc\"aped \u00e9", "list": ["x", 1, "y"], "o": {"k": [1.5, 2]}}"#).unwrap();
+        let plain = doc.take("a").into_string().unwrap();
+        assert_eq!((plain.as_str(), plain.capacity()), ("plain", 5), "a string without escapes: copied once, at its size");
+        assert_eq!(doc.take("a"), Value::Null, "taken: Null in its place");
+        assert_eq!(doc.take("b").into_string().as_deref(), Some("esc\"aped é"));
+        assert_eq!(doc.take("list").into_strings(), ["x", "y"], "other items skipped");
+        assert_eq!(doc.take("o").into_members(), [("k".to_string(), Value::Array(vec![Value::Number(1.5), Value::Number(2.0)]))]);
+        assert_eq!(doc.take("missing"), Value::Null);
+        assert_eq!(Value::Number(1.0).into_string(), None);
+        assert!(Value::Null.into_array().is_empty() && Value::Null.into_members().is_empty() && Value::Null.take("a") == Value::Null);
+        assert_eq!(Object::default().finish(), Object::new().finish());
+    }
 
     #[test]
     fn strings_are_escaped() {

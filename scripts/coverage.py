@@ -5,8 +5,9 @@ component `llvm-tools` (`rustup component add llvm-tools`).
 
     scripts/coverage.py [--json out.json] [--uncovered src/file.rs ...]
 
-Builds into target/coverage (separate from the usual builds), runs `cargo test`, merges the
-profiles and prints a table per source file: lines, lines covered, functions covered.
+Builds into target/coverage (separate from the usual builds), runs `cargo test` and, as CI does,
+the C interface's tests (`cargo test --features ffi --lib ffi`: `src/ffi.rs` is measured too),
+merges the profiles and prints a table per source file: lines, lines covered, functions covered.
 Standard library only.
 """
 
@@ -38,20 +39,23 @@ def main():
     env = dict(os.environ, RUSTFLAGS="-C instrument-coverage", CARGO_TARGET_DIR=out,
                LLVM_PROFILE_FILE=os.path.join(prof, "%p-%m.profraw"))
 
-    # The executables: every test binary, and the aequalis binary they run.
-    built = subprocess.run(["cargo", "test", "--no-run", "--message-format=json"], env=env, capture_output=True, text=True)
+    # The executables: every test binary, the aequalis binary they run, and the library's tests
+    # with the C interface.
     objects = []
-    for line in built.stdout.splitlines():
-        try:
-            msg = json.loads(line)
-        except ValueError:
-            continue
-        if msg.get("reason") == "compiler-artifact" and msg.get("executable"):
-            objects.append(msg["executable"])
-    tests = subprocess.run(["cargo", "test", "--quiet"], env=env, capture_output=True, text=True)
-    if tests.returncode != 0:
-        sys.stderr.write(tests.stdout[-3000:] + tests.stderr[-3000:])
-        sys.exit("the tests failed: coverage not measured")
+    for extra in ([], ["--features", "ffi", "--lib"]):
+        built = subprocess.run(["cargo", "test", "--no-run", "--message-format=json", *extra], env=env, capture_output=True, text=True)
+        for line in built.stdout.splitlines():
+            try:
+                msg = json.loads(line)
+            except ValueError:
+                continue
+            if msg.get("reason") == "compiler-artifact" and msg.get("executable") and msg["executable"] not in objects:
+                objects.append(msg["executable"])
+    for run in (["cargo", "test", "--quiet"], ["cargo", "test", "--quiet", "--features", "ffi", "--lib", "ffi"]):
+        tests = subprocess.run(run, env=env, capture_output=True, text=True)
+        if tests.returncode != 0:
+            sys.stderr.write(tests.stdout[-3000:] + tests.stderr[-3000:])
+            sys.exit("the tests failed: coverage not measured")
 
     data = os.path.join(out, "aequalis.profdata")
     subprocess.check_call([os.path.join(tools, "llvm-profdata"), "merge", "-sparse", *glob.glob(os.path.join(prof, "*.profraw")), "-o", data])

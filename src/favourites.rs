@@ -125,6 +125,7 @@ mod tests {
     #[test]
     fn nothing_stored_is_the_defaults() {
         assert_eq!(list("").to_text(), "USD:0,EUR:0,JPY:0,CNY:0,AED:0");
+        assert!(!list("").is_empty() && Favourites::of("", &[]).is_empty());
         assert_eq!(Favourites::of("", &default_units(System::Metric)).to_text(), "km:0,kg:0,l:0,C:0,m:0");
         assert_eq!(Favourites::of(" ", &default_units(System::Imperial)).to_text(), "mi:0,lb:0,gal-us:0,F:0,ft:0");
     }

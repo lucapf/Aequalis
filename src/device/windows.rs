@@ -286,9 +286,13 @@ fn region() -> Option<String> {
 /// The parts of ICU (icu.dll) that match zone names: `ucal_getWindowsTimeZoneID`,
 /// `ucal_getTimeZoneIDForWindowsID`.
 struct Icu {
-    to_windows: unsafe extern "C" fn(*const u16, i32, *mut u16, i32, *mut i32) -> i32,
-    from_windows: unsafe extern "C" fn(*const u16, i32, *const c_char, *mut u16, i32, *mut i32) -> i32,
+    to_windows: ToWindows,
+    from_windows: FromWindows,
 }
+
+/// `ucal_getWindowsTimeZoneID` and `ucal_getTimeZoneIDForWindowsID` (ICU's ucal.h).
+type ToWindows = unsafe extern "C" fn(*const u16, i32, *mut u16, i32, *mut i32) -> i32;
+type FromWindows = unsafe extern "C" fn(*const u16, i32, *const c_char, *mut u16, i32, *mut i32) -> i32;
 
 /// ICU, loaded once from System32 only (never from the current folder).
 fn icu() -> Option<&'static Icu> {
@@ -308,7 +312,10 @@ fn icu() -> Option<&'static Icu> {
             if to_windows.is_null() || from_windows.is_null() {
                 return None;
             }
-            Some(Icu { to_windows: std::mem::transmute(to_windows), from_windows: std::mem::transmute(from_windows) })
+            Some(Icu {
+                to_windows: std::mem::transmute::<*mut c_void, ToWindows>(to_windows),
+                from_windows: std::mem::transmute::<*mut c_void, FromWindows>(from_windows),
+            })
         }
     })
     .as_ref()

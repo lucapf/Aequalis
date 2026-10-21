@@ -681,7 +681,6 @@ Panel {
             spacing: Style.space(2)
 
             TextField {
-              id: pickField
               visible: !!modelData.currencies
               width: parent.width
               placeholderText: "type to filter"

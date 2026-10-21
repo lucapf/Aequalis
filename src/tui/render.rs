@@ -232,10 +232,7 @@ pub(super) fn big_sci_fits(columns: usize) -> bool {
 
 /// Whether a panel (Measures, Currencies, …) is open: it takes the pane.
 fn panel_open(app: &App) -> bool {
-    matches!(
-        &app.overlay,
-        Some(Overlay::Measures(_) | Overlay::Picker(_) | Overlay::Currencies(_) | Overlay::Trivia(_) | Overlay::History(_) | Overlay::Search(_))
-    )
+    app.overlay.as_ref().is_some_and(Overlay::is_panel)
 }
 
 /// The Basic keys of the big keyboard, five rows of five, and the Sci keys beside them, five of two.
@@ -342,24 +339,7 @@ fn board_view(app: &App, canvas: &mut Canvas, area: Area) {
     use super::board::Item;
     let Area { top, left, width, height } = area;
     let right = left + width;
-    let mut y = top;
-    // The clocks: as many as fit, in rows.
-    let clocks = app.clocks();
-    let per = ((width.saturating_sub(1)) / CLOCK_WIDTH).max(1);
-    let allowed_rows = height.saturating_sub(4 + 20 + 1).min(6);
-    let shown = clocks.len().min(per * allowed_rows);
-    if shown > 0 {
-        canvas.put_within(y, left + 1, right, "Clocks", Style::Bold);
-        y += 1;
-        for (i, c) in clocks.iter().take(shown).enumerate() {
-            let x = left + 1 + (i % per) * CLOCK_WIDTH;
-            let row = y + i / per;
-            let text = format!("{:<12}{:>8} {:>4}{:>4}", c.city, c.time, c.difference, c.day);
-            let end = canvas.put_within(row, x, right, &text, Style::Plain);
-            canvas.hit(row, x, end - x, Target::BoardClock(i));
-        }
-        y += shown.div_ceil(per);
-    }
+    let mut y = top + board_clocks(app, canvas, area);
     // The list: a heading, then the entries from the first one scrolled to as far as they fit.
     let classes = super::board::classes(app.config, &app.usage);
     let items = super::board::items(&classes, &app.usage);
@@ -369,97 +349,21 @@ fn board_view(app: &App, canvas: &mut Canvas, area: Area) {
         return;
     }
     let heading = y;
-    // Two buttons jump to the currencies or to the measures; the one the list is at is lit.
-    let on_money = matches!(items[first], Item::Currencies);
-    let mut x = left + 1;
-    for (label, money) in [("Currencies", true), ("Measures", false)] {
-        let text = format!("[ {label} ]");
-        let w = text.chars().count();
-        if x + w > right.saturating_sub(8) {
-            break;
-        }
-        canvas.put(heading, x, &text, if on_money == money { Style::Lit } else { Style::Plain });
-        canvas.hit(heading, x, w, Target::BoardJump(money));
-        x += w + 1;
-    }
+    jump_buttons(canvas, heading, left, right, matches!(items[first], Item::Currencies));
     y += 1;
     let tall = end - y >= 15;
     // How many entries fit; the last row says how many are below when not all do.
-    let fit = |limit: usize| {
-        let (mut used, mut n) = (0, 0);
-        for item in &items[first..] {
-            let h = item_rows(*item, tall, width);
-            if used + h > limit {
-                break;
-            }
-            used += h;
-            n += 1;
-        }
-        n
-    };
+    let fit = |limit: usize| fitting(&items[first..], tall, width, limit);
     let mut drawn = fit(end - y);
     if first + drawn < items.len() {
         drawn = fit(end - y - 1);
     }
     for item in &items[first..first + drawn] {
         let h = item_rows(*item, tall, width);
+        let row = Area { top: y, left, width, height: h };
         match *item {
-            Item::Class(ci) => {
-                let class = &classes[ci];
-                let name_row = if tall { y + 1 } else { y };
-                canvas.put_within(name_row, left + 1, left + CLASS_NAME, &format!("{} {}", class.letter, class.name), Style::Bold);
-                canvas.hit_rect(y, left + 1, CLASS_NAME - 1, h, Target::BoardClass(ci));
-                let mut x = left + 1 + CLASS_NAME;
-                for (bi, b) in class.buttons.iter().enumerate() {
-                    let w = (b.label.chars().count() + 4).max(6);
-                    if x + w > right {
-                        break;
-                    }
-                    let style = if b.used { Style::Lit } else { Style::Plain };
-                    if tall {
-                        big_button(canvas, y, x, w, "");
-                        canvas.put(y + 1, x + 1, &format!("{:^width$}", b.label, width = w - 2), style);
-                    } else {
-                        canvas.put(y, x, "[", Style::Dim);
-                        canvas.put(y, x + 1, &format!(" {} ", b.label), style);
-                        canvas.put(y, x + w - 1, "]", Style::Dim);
-                    }
-                    canvas.hit_rect(y, x, w, h, Target::BoardUnit(ci, bi));
-                    x += w + 1;
-                }
-            }
-            Item::Currencies => {
-                let money = app.board_money();
-                let title = match app.base_currency() {
-                    Some(base) => format!("Currencies in {base}"),
-                    None => "Currencies  (set currency.local for values)".to_string(),
-                };
-                canvas.put_within(y, left + 1, right, &title, Style::Bold);
-                let tiles_per_row = ((width.saturating_sub(1)) / (TILE + 1)).max(1);
-                for (i, m) in money.iter().enumerate() {
-                    let (row, x) = (y + 1 + 3 * (i / tiles_per_row), left + 1 + (i % tiles_per_row) * (TILE + 1));
-                    if !tall {
-                        break;
-                    }
-                    big_button(canvas, row, x, TILE, &m.code);
-                    let value = m.value.clone().unwrap_or_else(|| "–".to_string());
-                    canvas.put(row + 1, x + 1, &format!("{value:^9}"), if m.used { Style::Lit } else { Style::Plain });
-                    canvas.hit_rect(row, x, TILE, 3, Target::BoardMoney(i));
-                }
-                if !tall {
-                    let mut x = left + 1 + CLASS_NAME;
-                    for (i, m) in money.iter().enumerate() {
-                        let text = format!("[ {} {} ]", m.code, m.value.clone().unwrap_or_default());
-                        let w = text.chars().count();
-                        if x + w > right {
-                            break;
-                        }
-                        canvas.put(y, x, &text, if m.used { Style::Lit } else { Style::Plain });
-                        canvas.hit(y, x, w, Target::BoardMoney(i));
-                        x += w + 1;
-                    }
-                }
-            }
+            Item::Class(ci) => board_class(canvas, row, tall, ci, &classes[ci]),
+            Item::Currencies => board_currencies(app, canvas, row, tall),
         }
         y += h;
     }
@@ -473,6 +377,119 @@ fn board_view(app: &App, canvas: &mut Canvas, area: Area) {
         let text = format!("▼ {} more", items.len() - first - drawn);
         canvas.put_within(end - 1, left + 1, right, &text, Style::Yellow);
         canvas.hit(end - 1, left + 1, text.chars().count(), Target::BoardScroll(drawn as isize));
+    }
+}
+
+/// The board's clocks, as many as fit, in rows under a heading: the rows they take.
+fn board_clocks(app: &App, canvas: &mut Canvas, area: Area) -> usize {
+    let Area { top, left, width, height } = area;
+    let right = left + width;
+    let clocks = app.clocks();
+    let per = ((width.saturating_sub(1)) / CLOCK_WIDTH).max(1);
+    let allowed_rows = height.saturating_sub(4 + 20 + 1).min(6);
+    let shown = clocks.len().min(per * allowed_rows);
+    if shown == 0 {
+        return 0;
+    }
+    canvas.put_within(top, left + 1, right, "Clocks", Style::Bold);
+    for (i, c) in clocks.iter().take(shown).enumerate() {
+        let x = left + 1 + (i % per) * CLOCK_WIDTH;
+        let row = top + 1 + i / per;
+        let text = format!("{:<12}{:>8} {:>4}{:>4}", c.city, c.time, c.difference, c.day);
+        let end = canvas.put_within(row, x, right, &text, Style::Plain);
+        canvas.hit(row, x, end - x, Target::BoardClock(i));
+    }
+    1 + shown.div_ceil(per)
+}
+
+/// Two buttons that jump to the currencies or to the measures; the one the list is at is lit.
+fn jump_buttons(canvas: &mut Canvas, row: usize, left: usize, right: usize, on_money: bool) {
+    let mut x = left + 1;
+    for (label, money) in [("Currencies", true), ("Measures", false)] {
+        let text = format!("[ {label} ]");
+        let w = text.chars().count();
+        if x + w > right.saturating_sub(8) {
+            break;
+        }
+        canvas.put(row, x, &text, if on_money == money { Style::Lit } else { Style::Plain });
+        canvas.hit(row, x, w, Target::BoardJump(money));
+        x += w + 1;
+    }
+}
+
+/// How many of `items` fit in `limit` rows.
+fn fitting(items: &[super::board::Item], tall: bool, width: usize, limit: usize) -> usize {
+    let (mut used, mut n) = (0, 0);
+    for item in items {
+        let h = item_rows(*item, tall, width);
+        if used + h > limit {
+            break;
+        }
+        used += h;
+        n += 1;
+    }
+    n
+}
+
+/// A class of the board, in `row`: its name, then its units as buttons (boxes when `tall`).
+fn board_class(canvas: &mut Canvas, row: Area, tall: bool, ci: usize, class: &super::board::Class) {
+    let Area { top: y, left, width, height: h } = row;
+    let right = left + width;
+    let name_row = if tall { y + 1 } else { y };
+    canvas.put_within(name_row, left + 1, left + CLASS_NAME, &format!("{} {}", class.letter, class.name), Style::Bold);
+    canvas.hit_rect(y, left + 1, CLASS_NAME - 1, h, Target::BoardClass(ci));
+    let mut x = left + 1 + CLASS_NAME;
+    for (bi, b) in class.buttons.iter().enumerate() {
+        let w = (b.label.chars().count() + 4).max(6);
+        if x + w > right {
+            break;
+        }
+        let style = if b.used { Style::Lit } else { Style::Plain };
+        if tall {
+            big_button(canvas, y, x, w, "");
+            canvas.put(y + 1, x + 1, &format!("{:^width$}", b.label, width = w - 2), style);
+        } else {
+            canvas.put(y, x, "[", Style::Dim);
+            canvas.put(y, x + 1, &format!(" {} ", b.label), style);
+            canvas.put(y, x + w - 1, "]", Style::Dim);
+        }
+        canvas.hit_rect(y, x, w, h, Target::BoardUnit(ci, bi));
+        x += w + 1;
+    }
+}
+
+/// The currencies of the board, in `row`: valued in the local currency, as tiles (when `tall`) or
+/// on one row.
+fn board_currencies(app: &App, canvas: &mut Canvas, row: Area, tall: bool) {
+    let Area { top: y, left, width, .. } = row;
+    let right = left + width;
+    let money = app.board_money();
+    let title = match app.base_currency() {
+        Some(base) => format!("Currencies in {base}"),
+        None => "Currencies  (set currency.local for values)".to_string(),
+    };
+    canvas.put_within(y, left + 1, right, &title, Style::Bold);
+    if tall {
+        let tiles_per_row = ((width.saturating_sub(1)) / (TILE + 1)).max(1);
+        for (i, m) in money.iter().enumerate() {
+            let (row, x) = (y + 1 + 3 * (i / tiles_per_row), left + 1 + (i % tiles_per_row) * (TILE + 1));
+            big_button(canvas, row, x, TILE, &m.code);
+            let value = m.value.clone().unwrap_or_else(|| "–".to_string());
+            canvas.put(row + 1, x + 1, &format!("{value:^9}"), if m.used { Style::Lit } else { Style::Plain });
+            canvas.hit_rect(row, x, TILE, 3, Target::BoardMoney(i));
+        }
+        return;
+    }
+    let mut x = left + 1 + CLASS_NAME;
+    for (i, m) in money.iter().enumerate() {
+        let text = format!("[ {} {} ]", m.code, m.value.clone().unwrap_or_default());
+        let w = text.chars().count();
+        if x + w > right {
+            break;
+        }
+        canvas.put(y, x, &text, if m.used { Style::Lit } else { Style::Plain });
+        canvas.hit(y, x, w, Target::BoardMoney(i));
+        x += w + 1;
     }
 }
 
@@ -511,81 +528,85 @@ pub fn render(app: &App, rows: usize, cols: usize) -> Frame {
     // From the bottom: the status line; the band (its top rule or border first); the request
     // block above it (a rule, the line, its result and suggestions); the history takes the rest,
     // under a rule.
-    let head = 1;
-    let mut cursor;
-    match pane_width(rows, cols) {
-        // Wide: the history and the request keep the left; what the band holds is in a pane at the
-        // right, as high as the screen between the toolbar and the status line.
-        Some(pane_w) => {
-            let left_w = cols - pane_w - 1;
-            let band_top = rows - 2;
-            let mut left = Canvas::new(rows, left_w);
-            history(app, &mut left, head, band_top - 3 - head);
-            cursor = expression(app, &mut left, band_top - 3);
-            left.rule(band_top);
-            let mut pane = Canvas::new(rows, pane_w);
-            let area = Area { top: 1, left: 0, width: pane_w, height: rows - 2 };
-            if panel_open(app) {
-                band_content(app, &mut pane, area, false, &mut cursor);
-            } else if let (Some((board_w, keyboard_w)), true) = (wide_split(rows, cols), app.keyboard_shown()) {
-                // The big keyboard (the compact one when the screen is not tall enough for it) at the
-                // left and, beside it, the board.
-                let keyboard = Area { width: keyboard_w, ..area };
-                if area.height > BIG_ROWS {
-                    big_keyboard(app, &mut pane, keyboard);
-                } else {
-                    keypad(app, &mut pane, 1);
-                }
-                for row in 1..rows - 1 {
-                    pane.cells[row][keyboard_w] = ('│', Style::Dim);
-                }
-                board_view(app, &mut pane, Area { left: keyboard_w + 1, width: board_w, ..area });
-            } else if !board_shown(app) {
-                keypad(app, &mut pane, 1);
-            } else {
-                board_view(app, &mut pane, area);
-            }
-            for row in 1..rows - 1 {
-                canvas.cells[row][..left_w].copy_from_slice(&left.cells[row]);
-                // A divider for the keyboard; a panel has its own border.
-                canvas.cells[row][left_w] = if panel_open(app) { (' ', Style::Plain) } else { ('│', Style::Dim) };
-                canvas.cells[row][left_w + 1..].copy_from_slice(&pane.cells[row]);
-            }
-            canvas.hits.extend(left.hits);
-            canvas.hits.extend(pane.hits.into_iter().map(|h| Hit { col: h.col + left_w + 1, ..h }));
-        }
+    let mut cursor = match pane_width(rows, cols) {
+        Some(pane_w) => wide(app, &mut canvas, pane_w),
         None => {
             let band = band_rows(app, rows);
             let band_top = rows - 1 - band;
-            history(app, &mut canvas, head, band_top - 3 - head);
-            cursor = expression(app, &mut canvas, band_top - 3);
+            history(app, &mut canvas, HEAD, band_top - 3 - HEAD);
+            let mut cursor = expression(app, &mut canvas, band_top - 3);
             // What the band holds: a panel, else the keypad; with nothing open, only the rule.
             let width = cols.min(PANEL_WIDTH);
             let area = Area { top: band_top, left: (cols - width) / 2, width, height: band };
             band_content(app, &mut canvas, area, band > 1, &mut cursor);
+            cursor
         }
-    }
-    if let Some(Overlay::Trivia(v @ super::trivia::View { popup: Some(scroll), .. })) = &app.overlay {
-        trivia_popup(app, v, &mut canvas, rows, *scroll);
-        cursor = None;
-    }
-    if let Some(Overlay::About) = &app.overlay {
-        about(&mut canvas, rows);
-        cursor = None;
-    }
-    if let Some(Overlay::Settings(view)) = &app.overlay {
-        settings_window(&mut canvas, rows, view);
-        cursor = None;
-    }
-    if let Some(Overlay::Help(scroll)) = &app.overlay {
-        help(&mut canvas, rows, *scroll);
-        cursor = None;
-    }
-    if let Some(Overlay::Choice(a, selected)) = &app.overlay {
-        choice(&mut canvas, rows, a, *selected);
+    };
+    if window(app, &mut canvas, rows) {
         cursor = None;
     }
     Frame { lines: canvas.lines(), cursor, hits: canvas.hits }
+}
+
+/// The rows above the history: the toolbar.
+const HEAD: usize = 1;
+
+/// The Wide layout: the history and the request keep the left; what the band holds is in a pane
+/// at the right, `pane_w` wide, as high as the screen between the toolbar and the status line.
+/// Where the cursor is.
+fn wide(app: &App, canvas: &mut Canvas, pane_w: usize) -> Option<(usize, usize)> {
+    let (rows, cols) = (canvas.cells.len(), canvas.cols);
+    let left_w = cols - pane_w - 1;
+    let band_top = rows - 2;
+    let mut left = Canvas::new(rows, left_w);
+    history(app, &mut left, HEAD, band_top - 3 - HEAD);
+    let mut cursor = expression(app, &mut left, band_top - 3);
+    left.rule(band_top);
+    let mut pane = Canvas::new(rows, pane_w);
+    let area = Area { top: 1, left: 0, width: pane_w, height: rows - 2 };
+    if panel_open(app) {
+        band_content(app, &mut pane, area, false, &mut cursor);
+    } else if let (Some((board_w, keyboard_w)), true) = (wide_split(rows, cols), app.keyboard_shown()) {
+        // The big keyboard (the compact one when the screen is not tall enough for it) at the
+        // left and, beside it, the board.
+        let keyboard = Area { width: keyboard_w, ..area };
+        if area.height > BIG_ROWS {
+            big_keyboard(app, &mut pane, keyboard);
+        } else {
+            keypad(app, &mut pane, 1);
+        }
+        for row in 1..rows - 1 {
+            pane.cells[row][keyboard_w] = ('│', Style::Dim);
+        }
+        board_view(app, &mut pane, Area { left: keyboard_w + 1, width: board_w, ..area });
+    } else if !board_shown(app) {
+        keypad(app, &mut pane, 1);
+    } else {
+        board_view(app, &mut pane, area);
+    }
+    for row in 1..rows - 1 {
+        canvas.cells[row][..left_w].copy_from_slice(&left.cells[row]);
+        // A divider for the keyboard; a panel has its own border.
+        canvas.cells[row][left_w] = if panel_open(app) { (' ', Style::Plain) } else { ('│', Style::Dim) };
+        canvas.cells[row][left_w + 1..].copy_from_slice(&pane.cells[row]);
+    }
+    canvas.hits.extend(left.hits);
+    canvas.hits.extend(pane.hits.into_iter().map(|h| Hit { col: h.col + left_w + 1, ..h }));
+    cursor
+}
+
+/// The window open over the screen, if any (a Trivia popup, About, Settings, the help, a
+/// question): `true` when one is drawn (it takes the cursor).
+fn window(app: &App, canvas: &mut Canvas, rows: usize) -> bool {
+    match &app.overlay {
+        Some(Overlay::Trivia(v @ super::trivia::View { popup: Some(scroll), .. })) => trivia_popup(app, v, canvas, rows, *scroll),
+        Some(Overlay::About) => about(canvas, rows),
+        Some(Overlay::Settings(view)) => settings_window(canvas, rows, view),
+        Some(Overlay::Help(scroll)) => help(canvas, rows, *scroll),
+        Some(Overlay::Choice(a, selected)) => choice(canvas, rows, a, *selected),
+        _ => return false,
+    }
+    true
 }
 
 /// The toolbar: the function key and the name of each window, the open one lit; shorter names,
@@ -608,15 +629,7 @@ fn toolbar(app: &App, canvas: &mut Canvas) {
         let lit = match tool.action {
             Action::Open(panel) => panel.is(&app.overlay),
             // Lit while the keypad is what the band shows.
-            Action::ToggleKeypad => {
-                app.keypad != Keypad::Hidden
-                    && !matches!(
-                        &app.overlay,
-                        Some(
-                            Overlay::Measures(_) | Overlay::Picker(_) | Overlay::Currencies(_) | Overlay::Trivia(_) | Overlay::Search(_) | Overlay::History(_)
-                        )
-                    )
-            }
+            Action::ToggleKeypad => app.keypad != Keypad::Hidden && !panel_open(app),
             _ => false,
         };
         let (key, name) = parts(tool, tier);
@@ -625,7 +638,13 @@ fn toolbar(app: &App, canvas: &mut Canvas) {
         col = canvas.put_within(0, col, cols, &name, if lit { Style::Lit } else { Style::Plain });
         canvas.hit(0, from, col - from, Target::Act(tool.action));
     }
-    // Online or offline, at the right.
+    online_indicator(app, canvas, col);
+}
+
+/// Online or offline, at the right of the toolbar (its tools end at `col`), with the age of the
+/// last sync when it fits.
+fn online_indicator(app: &App, canvas: &mut Canvas, col: usize) {
+    let cols = canvas.cols;
     use aequalis::network::Status;
     let status = app.network_status();
     let (dot, style) = match status {
@@ -924,35 +943,41 @@ fn expression(app: &App, canvas: &mut Canvas, top: usize) -> Option<(usize, usiz
     if let Some(Err(msg)) = &preview {
         col = canvas.put_within(row, col, limit, &format!("· {msg}"), Style::Dim);
     }
-    if let Some((names, selected, cities)) = app.suggestions() {
-        col = canvas.put_within(row, col, limit, "   ", Style::Plain);
-        if selected.is_none() {
-            col = canvas.put_within(row, col, limit, "Tab:", Style::Dim);
-        }
-        // Buttons, `[ mi ]`, when there is room for the brackets; plain words in a narrow window.
-        let buttons = cols >= 60;
-        for (i, name) in names.iter().enumerate() {
-            // Cities have spaces in their labels: `·` between them.
-            match (cities, i, buttons) {
-                (true, 1.., false) => col = canvas.put_within(row, col, limit, " · ", Style::Dim),
-                _ => col = canvas.put_within(row, col, limit, " ", Style::Plain),
-            }
-            let style = if selected == Some(i) { Style::Inverse } else { Style::Plain };
-            let from = col;
-            if buttons {
-                col = canvas.put_within(row, col, limit, "[", Style::Dim);
-                col = canvas.put_within(row, col, limit, &format!(" {name} "), style);
-                col = canvas.put_within(row, col, limit, "]", Style::Dim);
-            } else {
-                col = canvas.put_within(row, col, limit, name, style);
-            }
-            canvas.hit(row, from, col - from, Target::Suggest(i));
-        }
-    }
+    col = suggestions(app, canvas, row, col, limit);
     if let (Some(Ok(_)), Some(currencies)) = (&preview, app.currencies()) {
         canvas.put_within(row, col, limit, &format!("   {currencies}"), Style::Dim);
     }
     Some((top + 1, start + app.line.cursor() - offset))
+}
+
+/// The suggestions for the word at the cursor, from `col` of `row` up to `limit`: buttons
+/// (`[ mi ]`) when there is room for the brackets, plain words in a narrow window. Returns where
+/// they end.
+fn suggestions(app: &App, canvas: &mut Canvas, row: usize, mut col: usize, limit: usize) -> usize {
+    let Some((names, selected, cities)) = app.suggestions() else { return col };
+    col = canvas.put_within(row, col, limit, "   ", Style::Plain);
+    if selected.is_none() {
+        col = canvas.put_within(row, col, limit, "Tab:", Style::Dim);
+    }
+    let buttons = canvas.cols >= 60;
+    for (i, name) in names.iter().enumerate() {
+        // Cities have spaces in their labels: `·` between them.
+        match (cities, i, buttons) {
+            (true, 1.., false) => col = canvas.put_within(row, col, limit, " · ", Style::Dim),
+            _ => col = canvas.put_within(row, col, limit, " ", Style::Plain),
+        }
+        let style = if selected == Some(i) { Style::Inverse } else { Style::Plain };
+        let from = col;
+        if buttons {
+            col = canvas.put_within(row, col, limit, "[", Style::Dim);
+            col = canvas.put_within(row, col, limit, &format!(" {name} "), style);
+            col = canvas.put_within(row, col, limit, "]", Style::Dim);
+        } else {
+            col = canvas.put_within(row, col, limit, name, style);
+        }
+        canvas.hit(row, from, col - from, Target::Suggest(i));
+    }
+    col
 }
 
 /// `<key> what · <key> what`, right-aligned to end before column `end`; returns its first column.
@@ -1057,67 +1082,83 @@ fn unit_keys_rows(app: &App, p: &Picker) -> usize {
 }
 
 fn unit_keys(app: &App, p: &Picker, canvas: &mut Canvas, area: Area) {
-    let Area { top, left, width, height } = area;
-    let right = left + width - 1;
     let category = p.category(app.config);
-    let items = p.items(app.config);
-    let button = category.units.iter().map(|u| u.symbol.chars().count()).max().unwrap_or(1) + 2;
-    let title = format!("{} units", p.title(app.config));
+    canvas.boxed(area.top, area.left, area.height, area.width, &format!("{} units", p.title(app.config)));
+    panel_tabs(canvas, area, p.tabs(app.config));
     // Time's second tab is the table of date formats.
-    let formats = (category.name == aequalis::config::TIME).then(format_rows);
-    canvas.boxed(top, left, height, width, &title);
+    match (category.name == aequalis::config::TIME).then(format_rows) {
+        Some(table) if p.shows_formats(app.config) => format_table(p, canvas, area, &table),
+        _ => unit_buttons(app, p, canvas, area),
+    }
+}
 
-    // The tabs: the one shown is lit.
+/// A panel's tabs on its second row (the one shown lit; a click shows it), and a rule under them.
+fn panel_tabs<'a>(canvas: &mut Canvas, area: Area, tabs: impl IntoIterator<Item = (&'a str, bool)>) {
+    let Area { top, left, width, .. } = area;
+    let right = left + width - 1;
     let mut col = left + 2;
-    for (k, (name, shown)) in p.tabs(app.config).into_iter().enumerate() {
+    for (k, (name, shown)) in tabs.into_iter().enumerate() {
         let from = col;
         col = canvas.put_within(top + 1, col, right, &format!(" {name} "), if shown { Style::Lit } else { Style::Dim });
         canvas.hit(top + 1, from, col - from, Target::Tab(k));
         col = canvas.put_within(top + 1, col, right, " ", Style::Plain);
     }
-    canvas.cells[top + 2][left + 1..right].fill(('─', Style::Dim));
-    canvas.cells[top + 2][left] = ('├', Style::Dim);
-    canvas.cells[top + 2][right] = ('┤', Style::Dim);
-    let first = top + 3;
-    let visible = height - 4;
+    panel_rule(canvas, top + 2, left, right);
+}
 
-    if let (true, Some(table)) = (p.shows_formats(app.config), &formats) {
-        let visible = visible.saturating_sub(1).max(1);
-        let offset = p.cell.0.saturating_sub(visible.saturating_sub(1));
-        let mut chosen = None;
-        for (r, row) in table.iter().enumerate().skip(offset).take(visible) {
-            let y = first + r - offset;
-            canvas.put_within(y, left + 2, right, row.label, Style::Bold);
-            let x0 = left + 2 + FORMAT_LABEL + 1;
-            for (c, (short, word)) in row.cells.iter().enumerate() {
-                let x = x0 + c * (FORMAT_CELL + 1);
-                let selected = (r, c) == p.cell;
-                let end = canvas.put_within(y, x, right, &format!("{short:^FORMAT_CELL$}"), if selected { Style::Lit } else { Style::Plain });
-                canvas.hit(y, x, end - x, Target::Cell(r, c));
-                if c + 1 < row.cells.len() && end < right {
-                    canvas.cells[y][end] = ('│', Style::Dim);
-                }
-                if selected {
-                    chosen = Some((word.clone(), x));
-                }
+/// A rule across a panel, joined to its frame (`├───┤`).
+fn panel_rule(canvas: &mut Canvas, row: usize, left: usize, right: usize) {
+    canvas.cells[row][left + 1..right].fill(('─', Style::Dim));
+    canvas.cells[row][left] = ('├', Style::Dim);
+    canvas.cells[row][right] = ('┤', Style::Dim);
+}
+
+/// Time's Formats tab: the table of date formats, the chosen cell lit, and a footer about it
+/// (its name, now in it and, when it fits, what it is).
+fn format_table(p: &Picker, canvas: &mut Canvas, area: Area, table: &[super::picker::FormatRow]) {
+    let Area { top, left, width, height } = area;
+    let right = left + width - 1;
+    let visible = (height - 4).saturating_sub(1).max(1);
+    let offset = p.cell.0.saturating_sub(visible.saturating_sub(1));
+    let mut chosen = None;
+    for (r, row) in table.iter().enumerate().skip(offset).take(visible) {
+        let y = top + 3 + r - offset;
+        canvas.put_within(y, left + 2, right, row.label, Style::Bold);
+        let x0 = left + 2 + FORMAT_LABEL + 1;
+        for (c, (short, word)) in row.cells.iter().enumerate() {
+            let x = x0 + c * (FORMAT_CELL + 1);
+            let selected = (r, c) == p.cell;
+            let end = canvas.put_within(y, x, right, &format!("{short:^FORMAT_CELL$}"), if selected { Style::Lit } else { Style::Plain });
+            canvas.hit(y, x, end - x, Target::Cell(r, c));
+            if c + 1 < row.cells.len() && end < right {
+                canvas.cells[y][end] = ('│', Style::Dim);
+            }
+            if selected {
+                chosen = Some(word.clone());
             }
         }
-        // The footer: which format, now in it, and (when it fits) what it is.
-        let footer = top + height - 2;
-        if let (Some((word, _)), true) = (chosen, height >= 6) {
-            let [name, what, example] = format_card_lines(&word);
-            let mut col = canvas.put_within(footer, left + 2, right, &name, Style::Bold);
-            col = canvas.put_within(footer, col, right, &format!(" · {}", example.trim_start_matches("now: ")), Style::Green);
-            if col + 3 + what.chars().count() < right {
-                canvas.put_within(footer, col, right, &format!(" · {what}"), Style::Dim);
-            }
-        }
-        return;
     }
+    let footer = top + height - 2;
+    if let (Some(word), true) = (chosen, height >= 6) {
+        let [name, what, example] = format_card_lines(&word);
+        let mut col = canvas.put_within(footer, left + 2, right, &name, Style::Bold);
+        col = canvas.put_within(footer, col, right, &format!(" · {}", example.trim_start_matches("now: ")), Style::Green);
+        if col + 3 + what.chars().count() < right {
+            canvas.put_within(footer, col, right, &format!(" · {what}"), Style::Dim);
+        }
+    }
+}
 
-    // The buttons, and under them one line about the selected unit when there is room.
+/// The units of the tab shown as buttons, all as wide as the category's longest, and under them
+/// one line about the selected unit when there is room.
+fn unit_buttons(app: &App, p: &Picker, canvas: &mut Canvas, area: Area) {
+    let Area { top, left, width, height } = area;
+    let right = left + width - 1;
+    let category = p.category(app.config);
+    let items = p.items(app.config);
+    let button = category.units.iter().map(|u| u.symbol.chars().count()).max().unwrap_or(1) + 2;
     let about = (height >= 7).then(|| top + height - 2);
-    let visible = visible - usize::from(about.is_some());
+    let visible = height - 4 - usize::from(about.is_some());
     let table = p.rows(app.config);
     let offset = Picker::position(&table, p.selected).0.saturating_sub(visible.saturating_sub(1));
     let mut x = left + 1;
@@ -1126,13 +1167,12 @@ fn unit_keys(app: &App, p: &Picker, canvas: &mut Canvas, area: Area) {
         if c == 0 {
             x = left + 1;
         }
-        // All as wide as the category's longest.
         let at = x;
         x += button + 1;
         if r < offset || r >= offset + visible {
             continue;
         }
-        let row = first + r - offset;
+        let row = top + 3 + r - offset;
         let style = if i == p.selected { Style::Lit } else { Style::Bold };
         let end = canvas.put_within(row, at, right, &format!("{:^button$}", unit.symbol), style);
         canvas.hit(row, at, end - at, Target::Pick(i));
@@ -1167,47 +1207,51 @@ fn wrap(text: &str, width: usize) -> Vec<String> {
     lines
 }
 
-/// The Trivia: the sections as tabs, the entries of the one shown (name, value), and the selected
-/// entry's description at the bottom. Top-right in the history, like the unit keys.
 /// The rows of the Trivia: the sections, the entries, and the description of the selected one.
 fn trivia_rows(v: &super::trivia::View) -> usize {
     (v.entries().len().max(1) + 9).min(18)
 }
 
+/// The Trivia: the sections as tabs, the entries of the one shown (name, value), and the selected
+/// entry's description at the bottom. Top-right in the history, like the unit keys.
 fn trivia(app: &App, v: &super::trivia::View, canvas: &mut Canvas, area: Area) {
     let Area { top, left, width, height } = area;
-    let right = left + width - 1;
     canvas.boxed(top, left, height, width, "Trivia");
-    let mut col = left + 2;
-    for (i, name) in aequalis::trivia::sections().iter().enumerate() {
-        let from = col;
-        col = canvas.put_within(top + 1, col, right, &format!(" {name} "), if i == v.section { Style::Lit } else { Style::Dim });
-        canvas.hit(top + 1, from, col - from, Target::Tab(i));
-        col = canvas.put_within(top + 1, col, right, " ", Style::Plain);
-    }
-    let rule = |canvas: &mut Canvas, row: usize| {
-        canvas.cells[row][left + 1..right].fill(('─', Style::Dim));
-        canvas.cells[row][left] = ('├', Style::Dim);
-        canvas.cells[row][right] = ('┤', Style::Dim);
-    };
-    rule(canvas, top + 2);
+    let sections = aequalis::trivia::sections();
+    panel_tabs(canvas, area, sections.iter().enumerate().map(|(i, name)| (*name, i == v.section)));
     // The description: up to 3 lines and one about the value's source, when there is room.
     let footer = if height >= 13 { 4 } else { 0 };
     let visible = height - 4 - if footer > 0 { footer + 1 } else { 0 };
+    trivia_entries(app, v, canvas, Area { top: top + 3, left, width, height: visible });
+    if footer > 0 {
+        let base = top + height - 1 - footer;
+        panel_rule(canvas, base - 1, left, left + width - 1);
+        if let Some(e) = v.entry() {
+            trivia_about(app, e, canvas, Area { top: base, left, width, height: footer });
+        }
+    }
+}
+
+/// A Trivia entry's value at `now`, and how it was obtained when it is live (from the online
+/// data: synced when, from where; or its estimate).
+fn trivia_live(app: &App, e: &aequalis::trivia::Entry, now: i64) -> (Option<aequalis::online::Stored>, String) {
+    let synced = app.online.get(&e.name);
+    let origin = aequalis::trivia::value(app.config, e, synced, now).map(|(_, o)| o).unwrap_or(aequalis::trivia::Origin::Fixed);
+    (synced, aequalis::trivia::origin_text(e, origin).unwrap_or_default())
+}
+
+/// The entries of the Trivia's section, in `area`'s rows: the name, the value (in the device's
+/// number format), the short description; the selected one lit.
+fn trivia_entries(app: &App, v: &super::trivia::View, canvas: &mut Canvas, area: Area) {
+    let Area { top, left, width, height: visible } = area;
+    let right = left + width - 1;
     let entries = v.entries();
     let now = aequalis::time::unix_now();
-    // A live value: from the online data (synced when, from where), or its estimate.
-    let live = |e: &aequalis::trivia::Entry| {
-        let synced = app.online.get(&e.name);
-        let origin = aequalis::trivia::value(app.config, e, synced, now).map(|(_, o)| o).unwrap_or(aequalis::trivia::Origin::Fixed);
-        (synced, aequalis::trivia::origin_text(e, origin).unwrap_or_default())
-    };
-    // Columns: the name, the value (in the device's number format), the short description.
     let values: Vec<String> = entries
         .iter()
         .map(|e| match &e.source {
             aequalis::trivia::Source::Tip(example) => example.clone(),
-            _ => aequalis::trivia::value(app.config, e, live(e).0, now)
+            _ => aequalis::trivia::value(app.config, e, trivia_live(app, e, now).0, now)
                 .map(|(x, _)| aequalis::trivia::shown(app.config, e, x, app.opts.precision, &|n| app.numbers.apply(&n)))
                 .unwrap_or_else(|err| err),
         })
@@ -1216,7 +1260,7 @@ fn trivia(app: &App, v: &super::trivia::View, canvas: &mut Canvas, area: Area) {
     let value_width = values.iter().map(|v| v.chars().count()).max().unwrap_or(0);
     let offset = v.selected.saturating_sub(visible.saturating_sub(1));
     for (i, e) in entries.iter().enumerate().skip(offset).take(visible) {
-        let row = top + 3 + i - offset;
+        let row = top + i - offset;
         let selected = i == v.selected;
         canvas.hit(row, left + 1, width - 2, Target::Pick(i));
         if selected {
@@ -1226,32 +1270,32 @@ fn trivia(app: &App, v: &super::trivia::View, canvas: &mut Canvas, area: Area) {
         let col = canvas.put_within(row, left + 1, right, &text, if selected { Style::Lit } else { Style::Plain });
         // The short description, cut with … when the window is too narrow.
         let room = right.saturating_sub(col + 1);
-        let full = aequalis::trivia::short(e, aequalis::time::unix_now());
+        let full = aequalis::trivia::short(e, now);
         let short: String = match full.chars().count() > room {
             true => full.chars().take(room.saturating_sub(1)).chain(['…']).collect(),
             false => full,
         };
         canvas.put_within(row, col, right, &short, if selected { Style::Lit } else { Style::Dim });
     }
-    if footer == 0 {
-        return;
+}
+
+/// The selected entry's description (3 lines at most), then its launch and where its value comes
+/// from.
+fn trivia_about(app: &App, e: &aequalis::trivia::Entry, canvas: &mut Canvas, area: Area) {
+    let Area { top: base, left, width, .. } = area;
+    let right = left + width - 1;
+    for (i, line) in wrap(&e.description, width - 4).iter().take(3).enumerate() {
+        canvas.put_within(base + i, left + 2, right, line, Style::Plain);
     }
-    let base = top + height - 1 - footer;
-    rule(canvas, base - 1);
-    if let Some(e) = v.entry() {
-        for (i, line) in wrap(&e.description, width - 4).iter().take(3).enumerate() {
-            canvas.put_within(base + i, left + 2, right, line, Style::Plain);
-        }
-        let source = match &e.source {
-            aequalis::trivia::Source::Spacecraft { .. } | aequalis::trivia::Source::Satellites { .. } => live(e).1,
-            aequalis::trivia::Source::Between(..) => "computed from the coordinates".to_string(),
-            aequalis::trivia::Source::Tip(_) => "Enter writes the example".to_string(),
-            aequalis::trivia::Source::Value(_) => String::new(),
-        };
-        let launched = e.launched.as_ref().map(|l| format!("Launched {l}")).unwrap_or_default();
-        let info = [launched, source].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" · ");
-        canvas.put_within(base + 3, left + 2, right, &info, Style::Green);
-    }
+    let source = match &e.source {
+        aequalis::trivia::Source::Spacecraft { .. } | aequalis::trivia::Source::Satellites { .. } => trivia_live(app, e, aequalis::time::unix_now()).1,
+        aequalis::trivia::Source::Between(..) => "computed from the coordinates".to_string(),
+        aequalis::trivia::Source::Tip(_) => "Enter writes the example".to_string(),
+        aequalis::trivia::Source::Value(_) => String::new(),
+    };
+    let launched = e.launched.as_ref().map(|l| format!("Launched {l}")).unwrap_or_default();
+    let info = [launched, source].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" · ");
+    canvas.put_within(base + 3, left + 2, right, &info, Style::Green);
 }
 
 /// The Trivia's popup, titled with the entry's name: its description; its Wikipedia link; then
@@ -1556,23 +1600,6 @@ fn settings_window(canvas: &mut Canvas, rows: usize, view: &super::settings::Vie
     for (row, i) in (top + 1..).zip((0..list.len()).skip(offset).take(visible)) {
         let chosen = i == view.selected;
         canvas.hit(row, left + 1, width - 2, Target::Pick(i));
-        let text = match list[i] {
-            Row::Setting(k) => {
-                let value = match (&view.edit, chosen) {
-                    (Some(typed), true) => format!("{typed}▏"),
-                    _ if k.kind == aequalis::settings::Kind::Favourites && current.get(k.key).is_empty() => "(none yet: the defaults)".to_string(),
-                    _ => aequalis::settings::shown(k.key, current.get(k.key)),
-                };
-                format!(" {:<key_width$}  {value}", k.key)
-            }
-            Row::Advanced if view.advanced => " Fewer".to_string(),
-            Row::Advanced => match view.hidden_changes() {
-                0 => " Advanced".to_string(),
-                n => format!(" Advanced ({n} changed)"),
-            },
-            Row::Reset => format!(" {}", super::settings::RESET),
-            Row::Download => format!(" {}", super::settings::DOWNLOAD),
-        };
         let style = match (chosen, list[i]) {
             (true, _) => Style::Lit,
             (false, Row::Setting(k)) if current.get(k.key) != k.default => Style::Bold,
@@ -1580,7 +1607,7 @@ fn settings_window(canvas: &mut Canvas, rows: usize, view: &super::settings::Vie
             (false, Row::Reset) => Style::Red,
             (false, _) => Style::Yellow,
         };
-        canvas.put_within(row, left + 1, right, &text, style);
+        canvas.put_within(row, left + 1, right, &settings_row(view, list[i], chosen, key_width), style);
     }
     let sep = top + height - 4;
     canvas.cells[sep][left + 1..left + width - 1].fill(('─', Style::Dim));
@@ -1595,29 +1622,57 @@ fn settings_window(canvas: &mut Canvas, rows: usize, view: &super::settings::Vie
     if let Some(msg) = &view.message {
         canvas.put_within(sep + 2, left + 2, right, msg, Style::Green);
     }
-    // A list open: under the value of its row (above it when there is no room), what is typed
-    // then the values, the chosen one lit.
     if let Some(list) = &view.list {
-        let choices = view.choices();
-        let shown = choices.len().clamp(1, 8);
-        let height = shown + 3;
         let row = top + 1 + view.selected.saturating_sub(offset);
-        let list_left = (left + key_width + 3).min(canvas.cols.saturating_sub(34));
-        let list_width = 32.min(canvas.cols - list_left);
-        let list_top = if row + 1 + height <= rows { row + 1 } else { row.saturating_sub(height) };
-        canvas.boxed(list_top, list_left, height, list_width, "");
-        canvas.hit_rect(list_top, list_left, list_width, height, Target::Inside);
-        let inner = list_left + list_width - 2;
-        canvas.put_within(list_top + 1, list_left + 2, inner, &format!("{}▏", list.query), Style::Plain);
-        if choices.is_empty() {
-            canvas.put_within(list_top + 2, list_left + 2, inner, "no match", Style::Dim);
+        settings_list(canvas, rows, view, list, (row, left + key_width + 3));
+    }
+}
+
+/// A row of the Settings window: a setting and its value (as typed, while it is), or one of the
+/// rows after them.
+fn settings_row(view: &super::settings::View, row: super::settings::Row, chosen: bool, key_width: usize) -> String {
+    use super::settings::Row;
+    match row {
+        Row::Setting(k) => {
+            let current = view.settings.get(k.key);
+            let value = match (&view.edit, chosen) {
+                (Some(typed), true) => format!("{typed}▏"),
+                _ if k.kind == aequalis::settings::Kind::Favourites && current.is_empty() => "(none yet: the defaults)".to_string(),
+                _ => aequalis::settings::shown(k.key, current),
+            };
+            format!(" {:<key_width$}  {value}", k.key)
         }
-        let first = list.selected.saturating_sub(shown - 1);
-        for (line, i) in (list_top + 2..).zip((first..choices.len()).take(shown)) {
-            canvas.hit(line, list_left + 1, list_width - 2, Target::Pick(i));
-            let style = if i == list.selected { Style::Lit } else { Style::Plain };
-            canvas.put_within(line, list_left + 1, inner + 1, &format!(" {:<w$}", choices[i].1, w = list_width - 3), style);
-        }
+        Row::Advanced if view.advanced => " Fewer".to_string(),
+        Row::Advanced => match view.hidden_changes() {
+            0 => " Advanced".to_string(),
+            n => format!(" Advanced ({n} changed)"),
+        },
+        Row::Reset => format!(" {}", super::settings::RESET),
+        Row::Download => format!(" {}", super::settings::DOWNLOAD),
+    }
+}
+
+/// The list of a setting's values, open under its row at (`row`, `col`) (above it when there is
+/// no room): what is typed, then the values, the chosen one lit.
+fn settings_list(canvas: &mut Canvas, rows: usize, view: &super::settings::View, list: &super::settings::List, (row, col): (usize, usize)) {
+    let choices = view.choices();
+    let shown = choices.len().clamp(1, 8);
+    let height = shown + 3;
+    let list_left = col.min(canvas.cols.saturating_sub(34));
+    let list_width = 32.min(canvas.cols - list_left);
+    let list_top = if row + 1 + height <= rows { row + 1 } else { row.saturating_sub(height) };
+    canvas.boxed(list_top, list_left, height, list_width, "");
+    canvas.hit_rect(list_top, list_left, list_width, height, Target::Inside);
+    let inner = list_left + list_width - 2;
+    canvas.put_within(list_top + 1, list_left + 2, inner, &format!("{}▏", list.query), Style::Plain);
+    if choices.is_empty() {
+        canvas.put_within(list_top + 2, list_left + 2, inner, "no match", Style::Dim);
+    }
+    let first = list.selected.saturating_sub(shown - 1);
+    for (line, i) in (list_top + 2..).zip((first..choices.len()).take(shown)) {
+        canvas.hit(line, list_left + 1, list_width - 2, Target::Pick(i));
+        let style = if i == list.selected { Style::Lit } else { Style::Plain };
+        canvas.put_within(line, list_left + 1, inner + 1, &format!(" {:<w$}", choices[i].1, w = list_width - 3), style);
     }
 }
 
@@ -2232,7 +2287,7 @@ mod tests {
     #[test]
     fn unit_keys_fit_every_category() {
         let config = Config::default();
-        for category in &config.categories {
+        for category in config.categories {
             let key = crate::tui::measures::key(category);
             for (rows, cols) in [(12, 40), (24, 80)] {
                 // Both tabs.
@@ -2244,7 +2299,7 @@ mod tests {
                 if cols == 80 {
                     assert!(first.iter().any(|l| l.contains(&format!("{} units", category.name))), "{} has its title", category.name);
                     let all = screens.iter().map(|s| s.join("\n")).collect::<Vec<_>>().join("\n");
-                    for u in &category.units {
+                    for u in category.units {
                         assert!(all.contains(&format!(" {} ", u.symbol)), "{} missing", u.symbol);
                     }
                 }
@@ -2400,6 +2455,20 @@ mod tests {
         assert!(!lines.join("\n").contains("Basic"));
         let (lines, _) = screen("<F9>", 15, 80);
         assert!(lines.join("\n").contains("Basic │ Sci"));
+    }
+
+    #[test]
+    fn settings_value_list_under_its_row() {
+        // Enter on the local currency: its list under the row, `auto` first; typing filters it.
+        let (lines, cursor) = screen("<F10><Down>\n", 24, 100);
+        let text = lines.join("\n");
+        assert!(text.contains("│ auto") && text.contains("│ USD  US dollar") && cursor.is_none(), "{text}");
+        let text = screen("<F10><Down>\ndir", 24, 100).0.join("\n");
+        assert!(text.contains("│ dir▏") && text.contains("AED  UAE dirham") && !text.contains("USD  US dollar"), "{text}");
+        assert!(screen("<F10><Down>\nzzz", 24, 100).0.join("\n").contains("no match"));
+        // A choice's list: its values, `auto` as it stands on this device.
+        let text = screen("<F10><Down><Down>\n", 24, 100).0.join("\n");
+        assert!(text.contains("│ auto (") && text.contains("│ km ") && text.contains("│ mi "), "{text}");
     }
 
     #[test]

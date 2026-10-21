@@ -230,6 +230,41 @@ impl State {
 /// Creates the window (hidden).
 pub fn create(instance: HANDLE, hotkey: Option<&'static str>) {
     let class = wide(CLASS);
+    register(instance, &class);
+    let title = wide("Aequalis");
+    // SAFETY: a registered class; the windows live for the program's life.
+    unsafe {
+        let popup = CreateWindowExW(
+            WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
+            class.as_ptr(),
+            title.as_ptr(),
+            WS_POPUP,
+            0,
+            0,
+            460,
+            200,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            instance,
+            std::ptr::null_mut(),
+        );
+        let edit = edit_control(popup, instance);
+        // Rounded corners (Windows 11) and its border.
+        let round = DWMWCP_ROUND;
+        DwmSetWindowAttribute(popup, DWMWA_WINDOW_CORNER_PREFERENCE, (&round as *const u32).cast(), 4);
+        HANDLES.with(|h| h.set(Some(Handles { popup, edit, instance })));
+    }
+    STATE.with(|s| {
+        let mut s = s.borrow_mut();
+        s.hotkey = hotkey;
+        s.theme = Theme::new(system::dark_theme());
+        s.restyle(instance);
+    });
+    apply_theme();
+}
+
+/// The popup's window class (`class`, NUL-terminated), registered.
+fn register(instance: HANDLE, class: &[u16]) {
     // SAFETY: a valid class; the procedure lives for the program's life.
     unsafe {
         let wc = WNDCLASSEXW {
@@ -247,22 +282,15 @@ pub fn create(instance: HANDLE, hotkey: Option<&'static str>) {
             hIconSm: std::ptr::null_mut(),
         };
         RegisterClassExW(&wc);
-        let title = wide("Aequalis");
-        let popup = CreateWindowExW(
-            WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
-            class.as_ptr(),
-            title.as_ptr(),
-            WS_POPUP,
-            0,
-            0,
-            460,
-            200,
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-            instance,
-            std::ptr::null_mut(),
-        );
-        let edit_class = wide("EDIT");
+    }
+}
+
+/// The box: an edit control in `popup`, with its hint, and its own procedure for Enter and Esc.
+fn edit_control(popup: HWND, instance: HANDLE) -> HWND {
+    let edit_class = wide("EDIT");
+    let cue = wide("10 km mi  ·  12+12/3  ·  2026/12/04 - 12d  ·  now New York");
+    // SAFETY: a valid parent window; the procedure lives for the program's life.
+    unsafe {
         let edit = CreateWindowExW(
             0,
             edit_class.as_ptr(),
@@ -277,21 +305,10 @@ pub fn create(instance: HANDLE, hotkey: Option<&'static str>) {
             instance,
             std::ptr::null_mut(),
         );
-        let cue = wide("10 km mi  ·  12+12/3  ·  2026/12/04 - 12d  ·  now New York");
         SendMessageW(edit, EM_SETCUEBANNER, 1, cue.as_ptr() as isize);
         EDIT_PROC.with(|p| p.set(SetWindowLongPtrW(edit, GWLP_WNDPROC, edit_proc as WndProc as usize as isize)));
-        // Rounded corners (Windows 11) and its border.
-        let round = DWMWCP_ROUND;
-        DwmSetWindowAttribute(popup, DWMWA_WINDOW_CORNER_PREFERENCE, (&round as *const u32).cast(), 4);
-        HANDLES.with(|h| h.set(Some(Handles { popup, edit, instance })));
+        edit
     }
-    STATE.with(|s| {
-        let mut s = s.borrow_mut();
-        s.hotkey = hotkey;
-        s.theme = Theme::new(system::dark_theme());
-        s.restyle(instance);
-    });
-    apply_theme();
 }
 
 /// The theme of Windows, again (it changed).
@@ -607,11 +624,29 @@ fn field_rect(s: &State, width: i32, title_height: i32) -> RECT {
 /// The content, measured or drawn: its height.
 fn layout(pass: &mut Pass, s: &State) -> i32 {
     let Some(f) = s.fonts.as_ref() else { return 0 };
-    let t = s.theme;
-    let (pad, gap, w) = (s.px(16), s.px(10), pass.width);
-    let inner = |top: i32| RECT { left: pad, top, right: w - pad, bottom: top + 10_000 };
-    // The title (About on a click) and the online status.
-    pass.text(f.title, t.fg, "Aequalis", inner(pad), true);
+    let mut y = header(pass, s, f);
+    if s.about {
+        y = about(pass, s, f, y);
+    } else {
+        if let Some(r) = &s.reply {
+            y = reply(pass, s, f, r, y);
+        }
+        y = below(pass, s, f, y);
+    }
+    footer(pass, s, f, y) + s.px(16)
+}
+
+/// The full width of the content from `top`, as tall as needed.
+fn inner(pass: &Pass, s: &State, top: i32) -> RECT {
+    let pad = s.px(16);
+    RECT { left: pad, top, right: pass.width - pad, bottom: top + 10_000 }
+}
+
+/// The title (About on a click), the online status, and the box's frame (the edit control sits
+/// in it): where what follows starts.
+fn header(pass: &mut Pass, s: &State, f: &Fonts) -> i32 {
+    let (t, pad, w) = (s.theme, s.px(16), pass.width);
+    pass.text(f.title, t.fg, "Aequalis", inner(pass, s, pad), true);
     let title_h = pass.line(f.title);
     let title_w = pass.text_width(f.title, "Aequalis");
     pass.hits.push((RECT { left: pad, top: pad, right: pad + title_w, bottom: pad + title_h }, Action::About));
@@ -620,100 +655,112 @@ fn layout(pass: &mut Pass, s: &State) -> i32 {
     let status_color = if s.status == "online" { t.accent } else { t.muted };
     let status_top = pad + (title_h - pass.line(f.small)) / 2;
     pass.text(f.small, status_color, &status, RECT { left: w - pad - status_w, top: status_top, right: w - pad, bottom: pad + title_h }, true);
-    // The box: its frame (the edit control sits in it).
     let field = field_rect(s, w, title_h);
     pass.fill(RECT { left: field.left - 1, top: field.top - 1, right: field.right + 1, bottom: field.bottom + 1 }, t.border, s.px(10));
     pass.fill(field, t.field, s.px(8));
-    let mut y = field.bottom + s.px(12);
+    field.bottom + s.px(12)
+}
 
-    if s.about {
-        let icon = s.px(40);
-        if pass.draw {
-            // SAFETY: a valid DC and icon.
-            unsafe { DrawIconEx(pass.dc, pad, y, s.icon, icon, icon, 0, std::ptr::null_mut(), DI_NORMAL) };
-        }
-        let text_left = pad + icon + s.px(12);
-        let head = format!("{} — {}", aequalis::about::NAME, aequalis::about::TAGLINE);
-        let h = pass.text(f.body, t.fg, &head, RECT { left: text_left, ..inner(y) }, false);
-        y += h.max(icon) + gap;
-        for (label, value) in aequalis::about::facts(&aequalis::about::memory()) {
-            y += pass.text(f.small, t.muted, &format!("{label}: {value}"), inner(y), false) + s.px(2);
-        }
-        y += gap;
-        let link = "github.com/lucapf/aequalis";
-        let h = pass.text(f.small, t.accent, link, inner(y), true);
-        pass.hits.push((RECT { left: pad, top: y, right: pad + pass.text_width(f.small, link), bottom: y + h }, Action::Link(format!("https://{link}"))));
-        y += h + gap;
-    } else if let Some(r) = &s.reply {
-        match r.show.as_str() {
-            "result" => {
-                let copy_w = pass.text_width(f.small, "Copy") + s.px(20);
-                let text = format!("= {}", r.result);
-                let h = pass.text(f.big, t.fg, &text, RECT { right: w - pad - copy_w - s.px(8), ..inner(y) }, false);
-                pass.pill(s, f.small, "Copy", w - pad - copy_w, y + (pass.line(f.big) - s.px(26)) / 2, Action::Copy);
-                y += h.max(s.px(26)) + s.px(4);
-                let lines = r.grouping.iter().chain(r.rates.iter()).chain(r.details.iter());
-                for line in lines {
-                    y += pass.text(f.small, t.muted, line, inner(y), false) + s.px(2);
-                }
-                y += gap;
-            }
-            "hint" => y += pass.text(f.body, t.muted, &r.message, inner(y), false) + gap,
-            "error" => y += pass.text(f.body, t.error, &r.message, inner(y), false) + gap,
-            "question" => {
-                y += pass.text(f.body, t.muted, &r.message, inner(y), false) + s.px(8);
-                let mut x = pad;
-                for choice in &r.choices {
-                    let width = pass.text_width(f.body, &choice.label) + s.px(20);
-                    if x > pad && x + width > w - pad {
-                        x = pad;
-                        y += s.px(26) + s.px(6);
-                    }
-                    let rect = pass.pill(s, f.body, &choice.label, x, y, Action::Use(choice.request.clone()));
-                    x = rect.right + s.px(6);
-                }
-                y += s.px(26) + gap;
-            }
-            _ => {}
-        }
+/// About, from `y`: the icon, the name and tagline, the facts, the link.
+fn about(pass: &mut Pass, s: &State, f: &Fonts, mut y: i32) -> i32 {
+    let (t, pad, gap) = (s.theme, s.px(16), s.px(10));
+    let icon = s.px(40);
+    if pass.draw {
+        // SAFETY: a valid DC and icon.
+        unsafe { DrawIconEx(pass.dc, pad, y, s.icon, icon, icon, 0, std::ptr::null_mut(), DI_NORMAL) };
     }
+    let text_left = pad + icon + s.px(12);
+    let head = format!("{} — {}", aequalis::about::NAME, aequalis::about::TAGLINE);
+    let h = pass.text(f.body, t.fg, &head, RECT { left: text_left, ..inner(pass, s, y) }, false);
+    y += h.max(icon) + gap;
+    for (label, value) in aequalis::about::facts(&aequalis::about::memory()) {
+        y += pass.text(f.small, t.muted, &format!("{label}: {value}"), inner(pass, s, y), false) + s.px(2);
+    }
+    y += gap;
+    let link = "github.com/lucapf/aequalis";
+    let h = pass.text(f.small, t.accent, link, inner(pass, s, y), true);
+    pass.hits.push((RECT { left: pad, top: y, right: pad + pass.text_width(f.small, link), bottom: y + h }, Action::Link(format!("https://{link}"))));
+    y + h + gap
+}
 
-    // Notices (a new city archive, out-of-date data), with a Download button.
-    if !s.about {
-        for notice in &s.notices {
-            let button_w = pass.text_width(f.small, "Download") + s.px(20);
-            let h = pass.text(f.small, t.accent, notice, RECT { right: w - pad - button_w - s.px(8), ..inner(y + s.px(4)) }, false);
-            pass.pill(s, f.small, "Download", w - pad - button_w, y, Action::Download);
-            y += (h + s.px(4)).max(s.px(26)) + s.px(6);
-        }
-        if s.syncing {
-            y += pass.text(f.small, t.muted, "Downloading…", inner(y), true) + s.px(6);
-        }
-        if let Some(copied) = &s.copied {
-            y += pass.text(f.small, t.accent, &format!("Copied {copied}"), inner(y), true) + gap;
-        }
-        if !s.recent.is_empty() {
-            y += pass.text(f.small, t.muted, "Recent", inner(y), true) + s.px(4);
-            for (input, result) in &s.recent {
-                let line = format!("{input}   =   {result}");
-                let h = pass.text(f.body, t.fg, &line, inner(y), true);
-                pass.hits.push((RECT { left: pad, top: y, right: w - pad, bottom: y + h }, Action::Use(input.clone())));
-                y += h + s.px(4);
+/// The reply, from `y`: the result with its Copy button and lines, a hint, an error, or a
+/// question's choices as buttons.
+fn reply(pass: &mut Pass, s: &State, f: &Fonts, r: &Reply, mut y: i32) -> i32 {
+    let (t, pad, gap, w) = (s.theme, s.px(16), s.px(10), pass.width);
+    match r.show.as_str() {
+        "result" => {
+            let copy_w = pass.text_width(f.small, "Copy") + s.px(20);
+            let text = format!("= {}", r.result);
+            let h = pass.text(f.big, t.fg, &text, RECT { right: w - pad - copy_w - s.px(8), ..inner(pass, s, y) }, false);
+            pass.pill(s, f.small, "Copy", w - pad - copy_w, y + (pass.line(f.big) - s.px(26)) / 2, Action::Copy);
+            y += h.max(s.px(26)) + s.px(4);
+            for line in r.grouping.iter().chain(r.rates.iter()).chain(r.details.iter()) {
+                y += pass.text(f.small, t.muted, line, inner(pass, s, y), false) + s.px(2);
             }
-            y += s.px(6);
+            y + gap
         }
+        "hint" => y + pass.text(f.body, t.muted, &r.message, inner(pass, s, y), false) + gap,
+        "error" => y + pass.text(f.body, t.error, &r.message, inner(pass, s, y), false) + gap,
+        "question" => {
+            y += pass.text(f.body, t.muted, &r.message, inner(pass, s, y), false) + s.px(8);
+            let mut x = pad;
+            for choice in &r.choices {
+                let width = pass.text_width(f.body, &choice.label) + s.px(20);
+                if x > pad && x + width > w - pad {
+                    x = pad;
+                    y += s.px(26) + s.px(6);
+                }
+                let rect = pass.pill(s, f.body, &choice.label, x, y, Action::Use(choice.request.clone()));
+                x = rect.right + s.px(6);
+            }
+            y + s.px(26) + gap
+        }
+        _ => y,
     }
+}
+
+/// Under the reply, from `y`: the notices (a new city archive, out-of-date data) with a Download
+/// button, the download running, what was copied, and the recent requests.
+fn below(pass: &mut Pass, s: &State, f: &Fonts, mut y: i32) -> i32 {
+    let (t, pad, gap, w) = (s.theme, s.px(16), s.px(10), pass.width);
+    for notice in &s.notices {
+        let button_w = pass.text_width(f.small, "Download") + s.px(20);
+        let h = pass.text(f.small, t.accent, notice, RECT { right: w - pad - button_w - s.px(8), ..inner(pass, s, y + s.px(4)) }, false);
+        pass.pill(s, f.small, "Download", w - pad - button_w, y, Action::Download);
+        y += (h + s.px(4)).max(s.px(26)) + s.px(6);
+    }
+    if s.syncing {
+        y += pass.text(f.small, t.muted, "Downloading…", inner(pass, s, y), true) + s.px(6);
+    }
+    if let Some(copied) = &s.copied {
+        y += pass.text(f.small, t.accent, &format!("Copied {copied}"), inner(pass, s, y), true) + gap;
+    }
+    if !s.recent.is_empty() {
+        y += pass.text(f.small, t.muted, "Recent", inner(pass, s, y), true) + s.px(4);
+        for (input, result) in &s.recent {
+            let line = format!("{input}   =   {result}");
+            let h = pass.text(f.body, t.fg, &line, inner(pass, s, y), true);
+            pass.hits.push((RECT { left: pad, top: y, right: w - pad, bottom: y + h }, Action::Use(input.clone())));
+            y += h + s.px(4);
+        }
+        y += s.px(6);
+    }
+    y
+}
+
+/// The footer from `y` (the keys), and at its right the button for the full app (the interactive
+/// mode, in a terminal): where it ends.
+fn footer(pass: &mut Pass, s: &State, f: &Fonts, y: i32) -> i32 {
+    let (pad, w) = (s.px(16), pass.width);
     let footer = match s.hotkey {
         Some(key) => format!("Enter copies · Esc closes · {key} opens"),
         None => "Enter copies · Esc closes".to_string(),
     };
-    // The footer, and at its right the button for the full app (the interactive mode, in a terminal).
     let button = "Full app";
     let button_w = pass.text_width(f.small, button) + s.px(20);
-    let h = pass.text(f.small, t.muted, &footer, RECT { right: w - pad - button_w - s.px(8), ..inner(y) }, true);
+    let h = pass.text(f.small, s.theme.muted, &footer, RECT { right: w - pad - button_w - s.px(8), ..inner(pass, s, y) }, true);
     pass.pill(s, f.small, button, w - pad - button_w, y - s.px(2), Action::Terminal);
-    y += h.max(s.px(24));
-    y + pad
+    y + h.max(s.px(24))
 }
 
 /// The width of the window here.
@@ -800,13 +847,7 @@ unsafe extern "system" fn proc_(hwnd: HWND, msg: u32, w: usize, l: isize) -> isi
             0
         }
         WM_COMMAND if high(w as isize) == EN_CHANGE => {
-            STATE.with(|s| {
-                let mut s = s.borrow_mut();
-                s.submitted = false;
-                s.copied = None;
-                s.about = false;
-            });
-            SetTimer(hwnd, TIMER_EVALUATE, EVALUATE_AFTER_MS, std::ptr::null());
+            edited(hwnd);
             0
         }
         WM_TIMER if w == TIMER_EVALUATE => {
@@ -814,15 +855,7 @@ unsafe extern "system" fn proc_(hwnd: HWND, msg: u32, w: usize, l: isize) -> isi
             evaluate();
             0
         }
-        WM_CTLCOLOREDIT => {
-            let (fg, bg, brush) = STATE.with(|s| {
-                let s = s.borrow();
-                (s.theme.fg, s.theme.field, s.field_brush)
-            });
-            SetTextColor(w as HDC, fg);
-            SetBkColor(w as HDC, bg);
-            brush as isize
-        }
+        WM_CTLCOLOREDIT => edit_colors(w as HDC),
         WM_SETCURSOR => {
             let mut p = POINT::default();
             GetCursorPos(&mut p);
@@ -840,14 +873,7 @@ unsafe extern "system" fn proc_(hwnd: HWND, msg: u32, w: usize, l: isize) -> isi
             0
         }
         WM_DPICHANGED => {
-            let h = handles();
-            STATE.with(|s| {
-                let mut s = s.borrow_mut();
-                s.dpi = high(w as isize).max(96);
-                s.restyle(h.instance);
-            });
-            apply_theme();
-            relayout();
+            rescaled(high(w as isize));
             0
         }
         // Alt+F4: closes the box, not the program.
@@ -857,6 +883,45 @@ unsafe extern "system" fn proc_(hwnd: HWND, msg: u32, w: usize, l: isize) -> isi
         }
         _ => DefWindowProcW(hwnd, msg, w, l),
     }
+}
+
+/// The request was edited: what was shown for the last one goes, and it is evaluated once the
+/// typing pauses.
+fn edited(hwnd: HWND) {
+    STATE.with(|s| {
+        let mut s = s.borrow_mut();
+        s.submitted = false;
+        s.copied = None;
+        s.about = false;
+    });
+    // SAFETY: a valid window.
+    unsafe { SetTimer(hwnd, TIMER_EVALUATE, EVALUATE_AFTER_MS, std::ptr::null()) };
+}
+
+/// The edit control's colors, into its DC: the brush of its background.
+fn edit_colors(dc: HDC) -> isize {
+    let (fg, bg, brush) = STATE.with(|s| {
+        let s = s.borrow();
+        (s.theme.fg, s.theme.field, s.field_brush)
+    });
+    // SAFETY: the edit control's DC, given with the message.
+    unsafe {
+        SetTextColor(dc, fg);
+        SetBkColor(dc, bg);
+    }
+    brush as isize
+}
+
+/// The window moved to a screen of another scale (`dpi`): fonts, theme and layout again.
+fn rescaled(dpi: u32) {
+    let h = handles();
+    STATE.with(|s| {
+        let mut s = s.borrow_mut();
+        s.dpi = dpi.max(96);
+        s.restyle(h.instance);
+    });
+    apply_theme();
+    relayout();
 }
 
 /// The edit control: Enter commits, Esc closes; the rest is the control's.

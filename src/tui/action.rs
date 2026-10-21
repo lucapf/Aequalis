@@ -243,40 +243,8 @@ impl<'a> App<'a> {
             }
             MouseKind::ScrollUp => self.apply(Action::ScrollUp),
             MouseKind::ScrollDown => self.apply(Action::ScrollDown),
-            MouseKind::Down(Button::Left) => {
-                let hit = self.hits.iter().rev().find(|h| h.contains(mouse.row, mouse.col)).copied();
-                let on_board_item = hit.is_none_or(|h| {
-                    matches!(
-                        h.target,
-                        Target::BoardUnit(..)
-                            | Target::BoardMoney(_)
-                            | Target::BoardClock(_)
-                            | Target::BoardClass(_)
-                            | Target::BoardScroll(_)
-                            | Target::BoardJump(_)
-                    )
-                });
-                match hit {
-                    // A press on the board (on a button or on nothing) may start a drag of the list,
-                    // as a finger does: a click only when released where it was pressed.
-                    _ if on_board && on_board_item => {
-                        self.pressed_on = Some(Press { hit, row: mouse.row, col: mouse.col, scroll: self.board_scroll, dragged: false })
-                    }
-                    Some(hit) => self.click(hit, mouse.col),
-                    None => {}
-                }
-            }
-            // The finger moving: the list follows it, an entry for every three rows.
-            MouseKind::Drag(Button::Left) => {
-                if let Some(press) = &mut self.pressed_on {
-                    let moved = press.row as isize - mouse.row as isize;
-                    if moved != 0 || press.dragged {
-                        press.dragged = true;
-                        let to = (press.scroll as isize + moved.div_euclid(3)).max(0) as usize;
-                        self.board_scroll = to.min(self.board_len().saturating_sub(1));
-                    }
-                }
-            }
+            MouseKind::Down(Button::Left) => self.press(mouse, on_board),
+            MouseKind::Drag(Button::Left) => self.drag(mouse.row),
             MouseKind::Up => {
                 if let Some(press) = self.pressed_on.take() {
                     if let (false, Some(hit)) = (press.dragged, press.hit) {
@@ -285,6 +253,36 @@ impl<'a> App<'a> {
                 }
             }
             MouseKind::Down(_) | MouseKind::Drag(_) => {}
+        }
+    }
+
+    /// A left press: a click on what is under it; on the board (on a button or on nothing), the
+    /// start of a drag of the list, as a finger does: a click only when released where it was
+    /// pressed.
+    fn press(&mut self, mouse: Mouse, on_board: bool) {
+        let hit = self.hits.iter().rev().find(|h| h.contains(mouse.row, mouse.col)).copied();
+        let on_board_item = hit.is_none_or(|h| {
+            matches!(
+                h.target,
+                Target::BoardUnit(..) | Target::BoardMoney(_) | Target::BoardClock(_) | Target::BoardClass(_) | Target::BoardScroll(_) | Target::BoardJump(_)
+            )
+        });
+        match hit {
+            _ if on_board && on_board_item => self.pressed_on = Some(Press { hit, row: mouse.row, col: mouse.col, scroll: self.board_scroll, dragged: false }),
+            Some(hit) => self.click(hit, mouse.col),
+            None => {}
+        }
+    }
+
+    /// The finger moving to `row`: the board's list follows it, an entry for every three rows.
+    fn drag(&mut self, row: usize) {
+        if let Some(press) = &mut self.pressed_on {
+            let moved = press.row as isize - row as isize;
+            if moved != 0 || press.dragged {
+                press.dragged = true;
+                let to = (press.scroll as isize + moved.div_euclid(3)).max(0) as usize;
+                self.board_scroll = to.min(self.board_len().saturating_sub(1));
+            }
         }
     }
 
@@ -372,19 +370,47 @@ impl<'a> App<'a> {
                 }
             }
             Target::Entry(i) => self.recall_entry(i),
-            Target::Remove(i) => {
-                self.history.remove(i);
-                if let Some(Overlay::History(v)) = &mut self.overlay {
-                    v.selected = v.selected.min(history_panel::matches(&self.history, &v.query).len().saturating_sub(1));
-                }
-            }
-            Target::EntryResult(i) => match self.history.entries().get(i).map(|e| e.result.clone()) {
-                Some(Ok(result)) => self.copy_text(result),
-                Some(Err(_)) => self.status = Some((StatusKind::Warning, "nothing to copy: that entry is an error".into())),
-                None => {}
-            },
+            Target::Remove(i) => self.remove_entry(i),
+            Target::EntryResult(i) => self.copy_entry(i),
             Target::Line(offset) => self.line.move_to(offset + col - hit.col),
             Target::Suggest(i) => self.complete_with(i),
+            Target::BoardUnit(..) | Target::BoardMoney(_) | Target::BoardClock(_) | Target::BoardClass(_) => self.click_board(hit.target),
+            Target::BoardScroll(by) => self.scroll_board(by),
+            Target::BoardJump(currencies) => self.jump_board(currencies),
+            Target::Dismiss => self.handle(Key::Esc),
+            Target::Inside => {}
+            Target::Pick(n) => self.pick(n),
+            Target::Tab(n) => self.pick_tab(n),
+            Target::Cell(r, c) => {
+                if let Some(Overlay::Picker(p)) = &mut self.overlay {
+                    p.cell = (r, c);
+                    self.handle(Key::Enter);
+                }
+            }
+        }
+    }
+
+    /// The History panel's ✕: the entry removed, the panel's choice kept on the list.
+    fn remove_entry(&mut self, i: usize) {
+        self.history.remove(i);
+        if let Some(Overlay::History(v)) = &mut self.overlay {
+            v.selected = v.selected.min(history_panel::matches(&self.history, &v.query).len().saturating_sub(1));
+        }
+    }
+
+    /// A history entry's result, copied (an error has none).
+    fn copy_entry(&mut self, i: usize) {
+        match self.history.entries().get(i).map(|e| e.result.clone()) {
+            Some(Ok(result)) => self.copy_text(result),
+            Some(Err(_)) => self.status = Some((StatusKind::Warning, "nothing to copy: that entry is an error".into())),
+            None => {}
+        }
+    }
+
+    /// A click on the board: a unit or a currency written in, a clock's city added (after `now`
+    /// on an empty line), a class's units opened.
+    fn click_board(&mut self, target: Target) {
+        match target {
             Target::BoardUnit(class, button) => {
                 let name = super::board::classes(self.config, &self.usage).get(class).and_then(|c| c.buttons.get(button)).map(|b| b.written.clone());
                 if let Some(name) = name {
@@ -399,8 +425,8 @@ impl<'a> App<'a> {
             }
             Target::BoardClock(i) => {
                 if let Some(city) = self.clocks().get(i).map(|c| c.city.clone()) {
-                    let mut text = self.line.text();
-                    text = if text.trim().is_empty() {
+                    let text = self.line.text();
+                    let text = if text.trim().is_empty() {
                         "now ".to_string()
                     } else if text.ends_with(' ') {
                         text
@@ -410,8 +436,6 @@ impl<'a> App<'a> {
                     self.line.set(&format!("{text}{city} "));
                 }
             }
-            Target::BoardScroll(by) => self.scroll_board(by),
-            Target::BoardJump(currencies) => self.jump_board(currencies),
             Target::BoardClass(i) => {
                 if let Some(index) =
                     super::board::classes(self.config, &self.usage).get(i).and_then(|c| self.config.categories.iter().position(|k| k.name == c.name))
@@ -419,16 +443,7 @@ impl<'a> App<'a> {
                     self.overlay = Some(Overlay::Picker(super::picker::Picker::new(self.config, index, self.system)));
                 }
             }
-            Target::Dismiss => self.handle(Key::Esc),
-            Target::Inside => {}
-            Target::Pick(n) => self.pick(n),
-            Target::Tab(n) => self.pick_tab(n),
-            Target::Cell(r, c) => {
-                if let Some(Overlay::Picker(p)) = &mut self.overlay {
-                    p.cell = (r, c);
-                    self.handle(Key::Enter);
-                }
-            }
+            _ => {}
         }
     }
 
@@ -456,25 +471,45 @@ impl<'a> App<'a> {
         if self.overlay.is_some() && matches!(action, Action::Now | Action::KillToEnd) {
             return;
         }
+        if self.edit_line(action) {
+            return;
+        }
         match action {
             Action::Quit => self.quit = true,
             Action::Redraw => self.redraw = true,
-            Action::Insert(c) => self.line.insert(c),
-            Action::Write(text) => text.chars().for_each(|c| self.line.insert(c)),
             Action::Clear => self.clear_line(),
-            Action::ToggleMouse => {
-                self.mouse_on = !self.mouse_on;
-                self.status = Some((
-                    StatusKind::Note,
-                    if self.mouse_on { "mouse on: Shift+drag selects text".into() } else { "mouse off: the terminal selects text (Alt+O: on)".into() },
-                ));
-            }
+            Action::ToggleMouse => self.toggle_mouse(),
             Action::ToggleBoard => {
                 let classes = super::board::classes(self.config, &self.usage);
                 let items = super::board::items(&classes, &self.usage);
                 let on_money = items.get(self.board_scroll).is_none_or(|i| matches!(i, super::board::Item::Currencies));
                 self.jump_board(!on_money);
             }
+            Action::Submit => self.submit(),
+            Action::Complete(forward) => self.complete(forward),
+            Action::HistoryUp => self.recall_older(),
+            Action::HistoryDown => self.recall_newer(),
+            Action::ScrollUp => self.scroll = (self.scroll + SCROLL_STEP).min(self.history.entries().len().saturating_sub(1)),
+            Action::ScrollDown => self.scroll = self.scroll.saturating_sub(SCROLL_STEP),
+            Action::Open(panel) => self.open_panel(panel),
+            Action::Help => self.overlay = if matches!(self.overlay, Some(Overlay::Help(_))) { None } else { Some(Overlay::Help(0)) },
+            Action::About => self.overlay = if matches!(self.overlay, Some(Overlay::About)) { None } else { Some(Overlay::About) },
+            Action::ToggleKeypad => self.toggle_keypad(),
+            Action::Shortcut(index) => self.use_shortcut(index),
+            Action::Now => self.write_now(),
+            Action::Copy => self.copy_answer(),
+            Action::Cancel => self.cancel(cycling),
+            Action::Interrupt => self.interrupt(cycling),
+            // The line's own edits, done above.
+            _ => {}
+        }
+    }
+
+    /// The edits of the line itself; `false` when `action` is not one.
+    fn edit_line(&mut self, action: Action) -> bool {
+        match action {
+            Action::Insert(c) => self.line.insert(c),
+            Action::Write(text) => text.chars().for_each(|c| self.line.insert(c)),
             Action::Backspace => self.line.backspace(),
             Action::Delete => self.line.delete(),
             Action::Left => self.line.left(),
@@ -486,73 +521,80 @@ impl<'a> App<'a> {
             Action::KillToStart => self.line.kill_to_start(),
             Action::KillToEnd => self.line.kill_to_end(),
             Action::KillWord => self.line.kill_word(),
-            Action::Submit => self.submit(),
-            Action::Complete(forward) => self.complete(forward),
-            Action::HistoryUp => self.recall_older(),
-            Action::HistoryDown => self.recall_newer(),
-            Action::ScrollUp => self.scroll = (self.scroll + SCROLL_STEP).min(self.history.entries().len().saturating_sub(1)),
-            Action::ScrollDown => self.scroll = self.scroll.saturating_sub(SCROLL_STEP),
-            Action::Open(panel) => {
-                self.focus = None;
-                self.overlay = if panel.is(&self.overlay) { None } else { Some(panel.overlay()) };
-                if panel == Panel::Search && self.overlay.is_some() {
-                    self.refresh_money();
-                }
-            }
-            Action::Help => self.overlay = if matches!(self.overlay, Some(Overlay::Help(_))) { None } else { Some(Overlay::Help(0)) },
-            Action::About => self.overlay = if matches!(self.overlay, Some(Overlay::About)) { None } else { Some(Overlay::About) },
-            Action::ToggleKeypad => {
-                // A panel in the band gives way to the keyboard; with the keyboard shown, F9 hides it.
-                let was_panel = matches!(
-                    self.overlay,
-                    Some(Overlay::Measures(_) | Overlay::Picker(_) | Overlay::Currencies(_) | Overlay::Trivia(_) | Overlay::Search(_) | Overlay::History(_))
-                );
-                self.overlay = if was_panel { None } else { self.overlay.take() };
-                if self.keypad != Keypad::Hidden && !was_panel {
-                    (self.keypad, self.focus) = (Keypad::Hidden, None);
-                } else {
-                    if self.keypad == Keypad::Hidden {
-                        self.keypad = self.best_layout();
-                    }
-                    // The focus goes to the keyboard: Tab moves it across, Esc gives it back.
-                    self.focus = Some(if self.keypad == Keypad::Sci { Part::Sci } else { Part::Basic });
-                }
-            }
-            Action::Shortcut(index) => {
-                if self.overlay.is_some() {
-                    return;
-                }
-                let Some(name) = self.shortcut(index).map(str::to_string) else { return };
-                let line = super::picker::place_unit(&self.line.text(), self.line.cursor(), &name);
-                self.line.set(&line);
-                self.lit = Some(index);
-                self.used(&name, index >= 5);
-            }
-            Action::Now => {
-                let at_start = self.line.cursor() == 0 || self.line.chars()[self.line.cursor() - 1] == ' ';
-                for c in if at_start { "now " } else { " now " }.chars() {
-                    self.line.insert(c);
-                }
-            }
-            Action::Copy => self.copy_answer(),
-            Action::Cancel => {
-                if cycling {
-                    return;
-                }
-                if self.status.take().is_none() {
-                    self.clear_line();
-                }
-            }
-            Action::Interrupt => {
-                if self.overlay.take().is_some() || cycling || self.focus.take().is_some() {
-                    return;
-                }
-                if !self.line.is_empty() {
-                    self.clear_line();
-                } else {
-                    self.quit = true;
-                }
-            }
+            _ => return false,
+        }
+        true
+    }
+
+    /// Alt+O: the mouse reported to the program, or left to the terminal for selecting text.
+    fn toggle_mouse(&mut self) {
+        self.mouse_on = !self.mouse_on;
+        let note = if self.mouse_on { "mouse on: Shift+drag selects text" } else { "mouse off: the terminal selects text (Alt+O: on)" };
+        self.status = Some((StatusKind::Note, note.into()));
+    }
+
+    /// A window opened, or closed when it is the one open.
+    fn open_panel(&mut self, panel: Panel) {
+        self.focus = None;
+        self.overlay = if panel.is(&self.overlay) { None } else { Some(panel.overlay()) };
+        if panel == Panel::Search && self.overlay.is_some() {
+            self.refresh_money();
+        }
+    }
+
+    /// F9: a panel in the band gives way to the keyboard; with the keyboard shown, F9 hides it.
+    fn toggle_keypad(&mut self) {
+        let was_panel = self.overlay.as_ref().is_some_and(Overlay::is_panel);
+        self.overlay = if was_panel { None } else { self.overlay.take() };
+        if self.keypad != Keypad::Hidden && !was_panel {
+            (self.keypad, self.focus) = (Keypad::Hidden, None);
+            return;
+        }
+        if self.keypad == Keypad::Hidden {
+            self.keypad = self.best_layout();
+        }
+        // The focus goes to the keyboard: Tab moves it across, Esc gives it back.
+        self.focus = Some(if self.keypad == Keypad::Sci { Part::Sci } else { Part::Basic });
+    }
+
+    /// A shortcut of the keypad's right side (0-4 its units, 5-9 its currencies), placed in the line.
+    fn use_shortcut(&mut self, index: usize) {
+        if self.overlay.is_some() {
+            return;
+        }
+        let Some(name) = self.shortcut(index).map(str::to_string) else { return };
+        let line = super::picker::place_unit(&self.line.text(), self.line.cursor(), &name);
+        self.line.set(&line);
+        self.lit = Some(index);
+        self.used(&name, index >= 5);
+    }
+
+    /// `now` at the cursor, as a word of its own.
+    fn write_now(&mut self) {
+        let at_start = self.line.cursor() == 0 || self.line.chars()[self.line.cursor() - 1] == ' ';
+        for c in if at_start { "now " } else { " now " }.chars() {
+            self.line.insert(c);
+        }
+    }
+
+    /// Esc: the end of a cycle through the suggestions, else of the status shown, else the line
+    /// cleared.
+    fn cancel(&mut self, cycling: bool) {
+        if !cycling && self.status.take().is_none() {
+            self.clear_line();
+        }
+    }
+
+    /// Ctrl+C: Esc's steps (the window, the cycle, the keyboard's focus), then clearing the line,
+    /// and with nothing to clear, quitting.
+    fn interrupt(&mut self, cycling: bool) {
+        if self.overlay.take().is_some() || cycling || self.focus.take().is_some() {
+            return;
+        }
+        if !self.line.is_empty() {
+            self.clear_line();
+        } else {
+            self.quit = true;
         }
     }
 

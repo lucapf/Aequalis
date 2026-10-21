@@ -51,13 +51,16 @@ fn resource(out: &mut Vec<u8>, kind: u16, id: u16, data: &[u8]) {
 }
 
 fn pad(out: &mut Vec<u8>) {
-    while out.len() % 4 != 0 {
+    while !out.len().is_multiple_of(4) {
         out.push(0);
     }
 }
 
-/// The images of an `.ico` file: each one's 16-byte directory entry and its data (PNG or DIB).
-fn icon_images(ico: &[u8]) -> Result<Vec<([u8; 16], &[u8])>, String> {
+/// An image of an `.ico` file: its 16-byte directory entry and its data (PNG or DIB).
+type IconImage<'a> = ([u8; 16], &'a [u8]);
+
+/// The images of an `.ico` file.
+fn icon_images(ico: &[u8]) -> Result<Vec<IconImage<'_>>, String> {
     let word = |at: usize| ico.get(at..at + 2).map(|b| u16::from_le_bytes([b[0], b[1]]));
     if word(0) != Some(0) || word(2) != Some(1) {
         return Err("not an .ico file".into());

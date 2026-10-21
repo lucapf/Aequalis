@@ -10,6 +10,7 @@
 //!
 //! The places' coordinates are in `src/data/places.json`, compiled in.
 
+use crate::cities::City;
 use crate::config::Config;
 use crate::convert;
 use crate::json;
@@ -36,16 +37,19 @@ const PLACES: &str = include_str!("data/places.json");
 fn places() -> &'static [(String, Point)] {
     static PLACES_TABLE: OnceLock<Vec<(String, Point)>> = OnceLock::new();
     PLACES_TABLE.get_or_init(|| {
-        let doc = json::parse(PLACES).expect("src/data/places.json is valid JSON");
-        doc.get("places")
-            .map(|p| p.members())
-            .unwrap_or_default()
-            .iter()
+        let mut doc = json::parse(PLACES).expect("src/data/places.json is valid JSON");
+        let mut table: Vec<(String, Point)> = doc
+            .take("places")
+            .into_members()
+            .into_iter()
             .filter_map(|(name, v)| match v.array() {
-                [lat, lon] => Some((name.clone(), Point { lat: lat.number()?, lon: lon.number()? })),
+                [lat, lon] => Some((name, Point { lat: lat.number()?, lon: lon.number()? })),
                 _ => None,
             })
-            .collect()
+            .collect();
+        // Kept for the life of the process: no spare room.
+        table.shrink_to_fit();
+        table
     })
 }
 
@@ -408,30 +412,7 @@ fn between(
 /// the device's country, the others; by population within each.
 fn question(a: &Side, b: &Side, unit: &str, device: &Device) -> crate::time::Ambiguity {
     let local = device.local.as_deref();
-    use crate::cities::City;
-    // Each city: the request's name (qualified: exact), the city, its short label (`Milano -
-    // Italy`, the region only when its country has another city of that name).
-    let ranked = |s: &Side| -> Vec<(String, Option<City>, String)> {
-        match s {
-            Side::One(p, c) => vec![(c.as_ref().map_or(p.name.clone(), City::qualified), c.clone(), String::new())],
-            Side::Several(typed, cities) | Side::Misspelt(typed, cities) => {
-                let mut ranked = cities.clone();
-                crate::cities::rank(&mut ranked, typed, local);
-                // Misspelt: the cities' own names, not an alias that starts like the misspelling.
-                let typed = if matches!(s, Side::Misspelt(..)) { "" } else { typed.as_str() };
-                ranked
-                    .into_iter()
-                    .map(|c| {
-                        let twin = cities.iter().any(|o| o.id != c.id && o.country_code == c.country_code);
-                        let label = c.label(&c.called(typed), twin);
-                        (c.qualified(), Some(c), label)
-                    })
-                    .collect()
-            }
-        }
-    };
-    let options_a = ranked(a);
-    let options_b = ranked(b);
+    let (options_a, options_b) = (offered(a, local), offered(b, local));
     let mut choices = Vec::new();
     'outer: for (name_a, city_a, label_a) in &options_a {
         for (name_b, city_b, label_b) in &options_b {
@@ -451,6 +432,38 @@ fn question(a: &Side, b: &Side, unit: &str, device: &Device) -> crate::time::Amb
             });
         }
     }
+    let (text, note) = unclear_places(a, b);
+    crate::time::Ambiguity { text, choices, kind: crate::time::AmbiguityKind::Place, note }
+}
+
+/// A city offered for a side: the request's name for it (qualified: exact), the city, its short
+/// label (`Milano - Italy`, the region only when its country has another city of that name).
+type Offered = (String, Option<City>, String);
+
+/// The cities a side may be, ranked (`cities::rank`); a side that is one place, that place.
+fn offered(s: &Side, local: Option<&str>) -> Vec<Offered> {
+    match s {
+        Side::One(p, c) => vec![(c.as_ref().map_or(p.name.clone(), City::qualified), c.clone(), String::new())],
+        Side::Several(typed, cities) | Side::Misspelt(typed, cities) => {
+            let mut ranked = cities.clone();
+            crate::cities::rank(&mut ranked, typed, local);
+            // Misspelt: the cities' own names, not an alias that starts like the misspelling.
+            let typed = if matches!(s, Side::Misspelt(..)) { "" } else { typed.as_str() };
+            ranked
+                .into_iter()
+                .map(|c| {
+                    let twin = cities.iter().any(|o| o.id != c.id && o.country_code == c.country_code);
+                    let label = c.label(&c.called(typed), twin);
+                    (c.qualified(), Some(c), label)
+                })
+                .collect()
+        }
+    }
+}
+
+/// What the question is about: the names that are several places or misspelt, and a note saying
+/// which.
+fn unclear_places(a: &Side, b: &Side) -> (String, String) {
     let unclear: Vec<&Side> = [a, b].into_iter().filter(|s| !matches!(s, Side::One(..))).collect();
     let misspelt = unclear.iter().any(|s| matches!(s, Side::Misspelt(..)));
     let names: Vec<String> = unclear
@@ -466,12 +479,26 @@ fn question(a: &Side, b: &Side, unit: &str, device: &Device) -> crate::time::Amb
         (true, 1) => format!("{} is not a known place", names[0]),
         (true, _) => format!("{} are not all known places", names.join(", ")),
     };
-    crate::time::Ambiguity { text: names.join(", ").replace('`', ""), choices, kind: crate::time::AmbiguityKind::Place, note }
+    (names.join(", ").replace('`', ""), note)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_country_is_its_first_city() {
+        assert_eq!((place("Japan").unwrap().name.as_str(), place("italy").unwrap().name.as_str()), ("Tokyo", "Rome"));
+    }
+
+    #[test]
+    fn antipodes() {
+        // Vincenty's iteration does not converge between nearly opposite points: the great circle
+        // (mean radius) then, 0.58° short of half the Earth's circumference.
+        let (a, b) = (Point { lat: 0.0, lon: 0.0 }, Point { lat: 0.5, lon: 179.7 });
+        assert_eq!(vincenty(a, b), None);
+        assert!((distance(a, b) / 1000.0 - 19_950.3).abs() < 1.0, "{}", distance(a, b));
+    }
 
     fn km(a: &str, b: &str) -> f64 {
         distance(place(a).unwrap().point, place(b).unwrap().point) / 1000.0

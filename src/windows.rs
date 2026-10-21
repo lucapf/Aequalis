@@ -132,7 +132,7 @@ fn strftime_of(pattern: &str) -> String {
             ('d', 1 | 2) => out.push_str("%d"),
             ('d', 3) => out.push_str("%a"),
             ('d', _) => out.push_str("%A"),
-            _ => out.extend(std::iter::repeat(c).take(run)),
+            _ => out.extend(std::iter::repeat_n(c, run)),
         }
         i += run;
     }

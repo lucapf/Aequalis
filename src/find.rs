@@ -51,16 +51,21 @@ pub struct Sources<'a> {
 }
 
 /// How well a match fits `q` (in lower case): 0 is a name equal to it, 1 a name starting with it,
-/// 2 a word of `words` starting with it, 3 anything containing it.
-fn score(q: &str, names: &[String], words: &[String]) -> Option<usize> {
-    let lower = |s: &String| s.to_lowercase();
-    if names.iter().any(|n| lower(n) == q) {
+/// 2 a word of `words` starting with it, 3 anything containing it. An empty query fits all (0).
+fn score(q: &str, names: &[&str], words: &[&str]) -> Option<usize> {
+    if q.is_empty() {
+        return Some(0);
+    }
+    // Each text in lower case once, for the four tiers.
+    let names: Vec<String> = names.iter().map(|n| n.to_lowercase()).collect();
+    let words: Vec<String> = words.iter().map(|w| w.to_lowercase()).collect();
+    if names.iter().any(|n| n == q) {
         Some(0)
-    } else if names.iter().any(|n| lower(n).starts_with(q)) {
+    } else if names.iter().any(|n| n.starts_with(q)) {
         Some(1)
-    } else if words.iter().any(|t| lower(t).split(|c: char| !c.is_alphanumeric()).any(|w| w.starts_with(q))) {
+    } else if words.iter().any(|t| t.split(|c: char| !c.is_alphanumeric()).any(|w| w.starts_with(q))) {
         Some(2)
-    } else if names.iter().chain(words).any(|t| lower(t).contains(q)) {
+    } else if names.iter().chain(&words).any(|t| t.contains(q)) {
         Some(3)
     } else {
         None
@@ -84,62 +89,78 @@ pub fn search(config: &Config, query: &str, sources: &Sources) -> Vec<Found> {
         let order = scored.len();
         scored.push(Scored { score, order, found });
     };
+    units(config, &q, &mut add);
+    currencies(&q, &mut add);
+    settings(&q, &mut add);
+    trivia(&q, &mut add);
+    cities(&q, sources.country, &mut add);
+    history(&q, sources.history, &mut add);
+    scored.sort_by_key(|s| (s.score, s.found.kind as usize, s.order));
+    scored.into_iter().map(|s| s.found).collect()
+}
 
-    for c in &config.categories {
+/// The units: by symbol or alias, by name, or by their class's name (tier 3).
+fn units(config: &Config, q: &str, add: &mut impl FnMut(usize, Found)) {
+    for c in config.categories {
         let class = c.name.to_lowercase();
-        for u in &c.units {
-            let names: Vec<String> = std::iter::once(u.symbol).chain(u.aliases.iter().copied()).map(str::to_string).collect();
-            let s = if q.is_empty() { Some(0) } else { score(&q, &names, &[u.name.to_string()]).or_else(|| class.starts_with(&q).then_some(3)) };
-            if let Some(s) = s {
+        for u in c.units {
+            let names: Vec<&str> = std::iter::once(u.symbol).chain(u.aliases.iter().copied()).collect();
+            if let Some(s) = score(q, &names, &[u.name]).or_else(|| class.starts_with(q).then_some(3)) {
                 add(s, Found { kind: Kind::Unit, written: u.symbol.to_string(), name: u.name.to_string(), about: c.name.to_string() });
             }
         }
     }
+}
 
-    // `currency::search` finds them (and by the countries using them); here only the tier.
-    for c in crate::currency::search(&q) {
-        let mut names = vec![c.code.clone()];
-        names.extend(c.symbols.iter().cloned());
-        let s = if q.is_empty() { 0 } else { score(&q, &names, std::slice::from_ref(&c.name)).unwrap_or(3) };
+/// The currencies: `currency::search` finds them (and by the countries using them); here only the
+/// tier.
+fn currencies(q: &str, add: &mut impl FnMut(usize, Found)) {
+    for c in crate::currency::search(q) {
+        let names: Vec<&str> = std::iter::once(c.code.as_str()).chain(c.symbols.iter().map(String::as_str)).collect();
+        let s = score(q, &names, &[c.name.as_str()]).unwrap_or(3);
         add(s, Found { kind: Kind::Currency, written: c.code.clone(), name: c.name.clone(), about: String::new() });
     }
+}
 
+fn settings(q: &str, add: &mut impl FnMut(usize, Found)) {
     for k in crate::settings::KEYS {
-        let words = vec![k.key.replace(['.', '_'], " "), k.about.to_string()];
-        let s = if q.is_empty() { Some(0) } else { score(&q, &[k.key.to_string()], &words) };
-        if let Some(s) = s {
+        let spaced = k.key.replace(['.', '_'], " ");
+        if let Some(s) = score(q, &[k.key], &[&spaced, k.about]) {
             add(s, Found { kind: Kind::Setting, written: k.key.to_string(), name: k.about.to_string(), about: String::new() });
         }
     }
+}
 
+fn trivia(q: &str, add: &mut impl FnMut(usize, Found)) {
     for e in crate::trivia::entries() {
-        let names: Vec<String> = std::iter::once(e.name.clone()).chain(e.symbol.clone()).collect();
-        let words = vec![e.short.clone(), e.section.clone()];
-        let s = if q.is_empty() { Some(0) } else { score(&q, &names, &words) };
-        if let Some(s) = s {
+        let names: Vec<&str> = std::iter::once(e.name.as_str()).chain(e.symbol.as_deref()).collect();
+        if let Some(s) = score(q, &names, &[&e.short, &e.section]) {
             add(s, Found { kind: Kind::Trivia, written: e.name.clone(), name: e.short.clone(), about: e.section.clone() });
         }
     }
+}
 
-    // The cities starting so, from the archive (two letters at least): as names starting the query.
-    if q.chars().count() >= 2 {
-        if let Some(store) = crate::cities::store() {
-            for city in store.starting_with(&q, 6, sources.country) {
-                let (label, written) = store.offer(&city, &q);
-                add(1, Found { kind: Kind::City, written, name: label, about: String::new() });
-            }
+/// The cities starting so, from the archive (two letters at least): as names starting the query.
+fn cities(q: &str, country: Option<&str>, add: &mut impl FnMut(usize, Found)) {
+    if q.chars().count() < 2 {
+        return;
+    }
+    if let Some(store) = crate::cities::store() {
+        for city in store.starting_with(q, 6, country) {
+            let (label, written) = store.offer(&city, q);
+            add(1, Found { kind: Kind::City, written, name: label, about: String::new() });
         }
     }
+}
 
-    for (input, result) in sources.history.iter().rev() {
-        let s = if q.is_empty() { Some(0) } else { score(&q, std::slice::from_ref(input), &[]).map(|s| s.max(1)) };
+/// The earlier requests, newest first; never above a name starting the query (tier 1).
+fn history(q: &str, history: &[(String, String)], add: &mut impl FnMut(usize, Found)) {
+    for (input, result) in history.iter().rev() {
+        let s = if q.is_empty() { Some(0) } else { score(q, &[input], &[]).map(|s| s.max(1)) };
         if let Some(s) = s {
             add(s, Found { kind: Kind::History, written: input.clone(), name: result.clone(), about: String::new() });
         }
     }
-
-    scored.sort_by_key(|s| (s.score, s.found.kind as usize, s.order));
-    scored.into_iter().map(|s| s.found).collect()
 }
 
 #[cfg(test)]

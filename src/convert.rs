@@ -329,9 +329,9 @@ mod tests {
     #[test]
     fn round_trips() {
         let config = Config::default();
-        for cat in &config.categories {
-            for a in &cat.units {
-                for b in &cat.units {
+        for cat in config.categories {
+            for a in cat.units {
+                for b in cat.units {
                     let (there, _) = convert(&config, 123.456, a.symbol, b.symbol).unwrap();
                     let (back, _) = convert(&config, there, b.symbol, a.symbol).unwrap();
                     assert!((back - 123.456).abs() / 123.456 < 1e-9, "{} -> {} -> {}", a.symbol, b.symbol, a.symbol);

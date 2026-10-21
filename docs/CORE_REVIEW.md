@@ -389,3 +389,178 @@ dominate); installing the archive stays at 6.1 MB.
 | `ffi::trivia` computes each popup twice (shown and in plain digits) | 3.5 ms in all, once per panel opening |
 | §2.3–2.4 (plain and display results, currencies' minor units: `1902.53 JPY`), §2.10–2.12 | features, not fixes |
 | `time.rs` is 2,900 lines (parse, format, calendar, cities, requests) | a split as §6 proposes is best done with the workspace |
+
+## 10. Review, 21 Oct 2026: dead code, long functions, speed and memory, tests
+
+`tui-redesign` at `2fec936`, the whole repository: the library, the command line and the TUI, the
+Windows tray app, the Omarchy widget, the Android app's Kotlin, the scripts. Not committed yet. No
+behaviour changes, except for speed and memory (below).
+
+### Method
+
+- **Dead code:** clippy with every feature set and on every installed target (Windows MSVC and
+  GNU; Android arm64, armv7 and x86-64; macOS; iOS): the Linux CI never compiles the Windows and
+  Android code. Then what no compiler sees in a library whose items are public: a script listing
+  the public items that no other file names (by module, for a name defined twice), the fields
+  never read, the widget's QML functions and properties, the Android app's declarations, the
+  scripts nothing refers to.
+- **Long functions:** a scanner pairing braces outside strings, characters and comments, over
+  every `.rs` file, tests included.
+- **Speed and memory:** a harness linking the library with an allocator that counts: the heap each
+  table keeps once built, the allocations and the time of a request in process (best of 3; the same
+  harness built from `2fec936` for the figures before); `scripts/bench.py` (a fresh process per
+  request, 2 × 40 runs, the best median); `keystroke_cost` (best of 3).
+- **Tests:** CI's runs (`cargo test --workspace` in debug, the `ffi` tests), the release build,
+  the ignored tests; `scripts/coverage.py`, and the functions it says no test runs.
+
+### Dead code and warnings
+
+| Where | Found | Done |
+|---|---|---|
+| `src/jni.rs` | 28 clippy errors on Android (`not_unsafe_ptr_arg_deref`): the six JNI exports dereference the JVM's pointers, but were safe functions | `pub unsafe extern "system"`, each with its `# Safety` |
+| `src/device/windows.rs:311` | two `transmute`s without types (Windows) | annotated, with `ToWindows` and `FromWindows` |
+| `src/windows.rs:135` | `repeat(c).take(run)` (Windows) | `repeat_n` |
+| `apps/windows/res.rs` | `% 4 != 0`, a complex type (every target: `build.rs` includes it) | `is_multiple_of`, `IconImage` |
+| `src/tui/render.rs`, `action.rs`, `mod.rs` | the six panels listed four times | `Overlay::is_panel` |
+| `src/find.rs` | every unit's names copied to be scored | `score` takes `&str` |
+| `apps/android/…/ExampleUnitTest.kt` | Android Studio's template (`2 + 2 == 4`) | removed |
+| `omarchy-widget/Panel.qml` | an `id` nothing uses (added that day) | removed |
+
+Nothing else is dead: no public item without a use (two are for tests only, both
+`#[cfg(test)]` already), no field never read (those left are C layouts: `termios`, `winsize`),
+no unused QML function or Kotlin declaration, every script referenced. Clippy: 0 warnings in the
+4 feature sets and on the 7 targets (before: 2 on Linux, 3 more on Windows, the 28 errors on
+Android).
+
+### Functions over 60 lines: 32 → 0
+
+The same code, moved into functions named for what they do; the tests pass unchanged.
+
+| Function | Lines | Now |
+|---|---|---|
+| `Config::default` | 312 | the table is `const CATEGORIES` (data, not a function); `default` is one line |
+| `main` | 205 | `freeze_now`, `as_typed`, `settings_command`, `set`, `sync`, `interactive`, `requests`, `answered`, `print`, `notices`, `fail` |
+| `time::request` `Parser::value` | 194 | a method per form of date (`with_input_word`, `keyword`, `time_of_day`, `timed`, `iso_word`, `stamp`, `local`, `guessed_first`, `written_alone`, `longest_date`, `not_a_date`); `date_read` for the five copies of "ask, note, format, zone" |
+| `tui::render::board_view` | 137 | `board_clocks`, `jump_buttons`, `fitting`, `board_class`, `board_currencies` |
+| `tui::action` `App::apply` | 123 | `edit_line`, `toggle_mouse`, `open_panel`, `toggle_keypad`, `use_shortcut`, `write_now`, `cancel`, `interrupt` |
+| `time::written::read_numeric_date` | 115 | `three_numbers`, `date_orders`, `read_clock`, `meridiem` |
+| Windows `popup::layout` | 110 | `header`, `about`, `reply`, `below`, `footer` |
+| `time::tz` `Rule::parse` | 96 | `skip_name`, `read_clock`, `read_number`, `read_change` |
+| `tui::render::unit_keys` | 95 | `panel_tabs` (the Trivia's too), `format_table`, `unit_buttons` |
+| `convert_request` | 93 | `money`, `calculation` |
+| `tui::run` | 88 | `session`, `Screen::update`, `Input::read` |
+| `tui::render::render` | 87 | `wide`, `window` |
+| `tui` `App::handle` | 87 | `settings_key`, `choice_key`, `help_key` |
+| `time::request::place_typos` | 84 | `misspelt_spans`, `corrections`, `misspelt_note` |
+| `tui::action` `App::click` | 81 | `remove_entry`, `copy_entry`, `click_board` |
+| Windows `app::run` | 81 | `already_running`, `main_window` |
+| `tui::settings::key` | 80 | `edit_key`, `list_key` |
+| `tui::render::settings_window` | 79 | `settings_row`, `settings_list` |
+| `tui::render::trivia` | 79 | `trivia_entries`, `trivia_about`, `trivia_live` |
+| `time::request::evaluate` | 77 | `date_math` (and `Math`), `difference_in`, `date_result` |
+| `trivia` test `popups` | 74 | five tests, one per subject |
+| Windows `popup::proc_` | 73 | `edited`, `edit_colors`, `rescaled` |
+| `tui::render::toolbar` | 72 | `online_indicator` |
+| Windows `app::proc_` | 70 | `handled` |
+| `tui::render::expression` | 68 | `suggestions` |
+| Windows `popup::create` | 65 | `register`, `edit_control` |
+| `json` `Reader::one_value` | 64 | `object`, `array`, `number` |
+| `find::search` | 64 | a function per source |
+| `currency::index` | 63 | `index` and `catalog` (below) |
+| `tui::action` `App::mouse` | 62 | `press`, `drag` |
+| `trivia::parse` | 62 | `entry`, `source` |
+| `geo::question` | 62 | `offered`, `unclear_places` |
+
+### Speed and memory (the library)
+
+1. **Misspellings were checked by allocating.** Most requests ask whether a word is a misspelt
+   place or currency (`10 km mi` asks it of `km mi`, `sqrt 16` of `sqrt`), against about 600
+   names, and the distance allocated two vectors per name. `tz::Distance` now reads the word's
+   letters once and keeps its row from one name to the next; the archive's scan reads each line's
+   letters as they are, where it copied the line without its spaces.
+2. `place_typos` joined a run of words before checking that they were words: checked first.
+3. **The tables kept copies.** The currency index (192 KB, built by any request with a word) also
+   held lower-case copies, prefixes and each currency's countries, which only searches and
+   suggestions read: a `Catalog` built when one of them asks. The place names kept each name in a
+   vector and again as a hash map's key: a sorted index and a binary search over the vector now
+   (the first of equal names wins, as before).
+4. **The data files' strings were copied twice.** The JSON reader built each string byte by byte
+   (8 bytes at least: `EUR` too), and the tables copied it again; collected through `filter_map`,
+   the tables kept up to twice their size. A string without escapes is now copied once, at its
+   size; the tables take their strings from the document (`Value::take`, `into_string`,
+   `into_strings`, `into_members`) and keep no spare room.
+5. The unit table (`Config::default`) built 12 vectors at start: a `const`, nothing is built.
+6. `find::score` (Ctrl+K, every keystroke) lowercased each name up to four times: once.
+7. Installing the archive: `City::from_json` copied every string of its 70,000 lines: taken.
+
+In process, warm, best of 3:
+
+| Request | Allocations before | After | Time before | After |
+|---|---|---|---|---|
+| `10 km mi` | 877 | 317 | 58 µs | 45 µs |
+| `sqrt 16` | 704 | 179 | 45 µs | 33 µs |
+| `12/04/2026 unix` | 689 | 161 | 44 µs | 32 µs |
+| `10:00AM Paris to New York` | 2,116 | 376 | 139 µs | 95 µs |
+| `10:00am jappan romme` | 5,758 | 674 | 396 µs | 259 µs |
+| `12+4/2`, `now Tokyo`, `Rome Paris`, `12 usd eur`… | unchanged | | unchanged (±1 µs) | |
+
+The tables, built once per process:
+
+| Table | Before | After |
+|---|---|---|
+| units (`Config::shared`) | 9.9 KB, 14 allocations | nothing |
+| currencies | 64 KB, 2,827 allocations | 34 KB, 2,125 |
+| countries, place names, currency index | 353 KB, 10,234 allocations, 764 µs | 204 KB, 6,563, 709 µs |
+| trivia | 42 KB, 1,517 allocations | 31 KB, 1,137 |
+| everything, after the requests above | 548 KB held (peak 604 KB) | 338 KB (peak 380 KB) |
+
+A fresh process per request (`bench.py`): 1.63–1.99 ms → 1.51–1.83 ms, peak memory 4.2–4.8 MB →
+4.0–4.5 MB; `now Tokyo` and `--trivia` unchanged. A TUI keystroke: `10:00am jappan romme` 163 →
+130 µs, `Rome Paris` 87 → 74 µs, `now Tokyo` 77 → 67 µs; the others unchanged (drawing dominates).
+
+### Tests
+
+- **Added:** 12 tests, and checks in 6 others. The Android zone bundle (`zones_from_an_android_bundle`:
+  only the app reads it, nothing tested it); POSIX rules with `Jn`, `n` and no dates (the US
+  rule); the distance kept from one name to the next, against a plain Levenshtein; the names'
+  binary search (the first of equal names); taking a document's values, a string's size; the
+  countries of a currency (the app's currency list); a country as a place; points nearly opposite
+  (Vincenty does not converge: the great circle); the TUI's list of a setting's values on screen;
+  the C interface's lists; `--reset-settings`, `auto` and the currencies of `--settings --json`;
+  format names (`iso-week`); `Default` and `is_empty`, which nothing called.
+- `scripts/coverage.py` runs the `ffi` tests too: `src/ffi.rs` (514 lines) was not measured.
+- CI has a `clippy` job: Linux (3 feature sets), Windows (the command line and the tray app) and
+  the Android library for its 3 ABIs, any warning an error. Checking a target needs only its
+  standard library, so one Linux job does them all.
+
+| Run | Passed | Failed | Ignored |
+|---|---|---|---|
+| `cargo test --workspace` (debug, as CI) | 495 (483 before) | 0 | 3 |
+| `cargo test --features ffi --lib ffi` | 10 (9) | 0 | 0 |
+| `cargo test --release` | 495 | 0 | 3 |
+| ignored `random_requests_never_panic_long` (75,000 requests) | 1 | 0 | |
+| ignored `keystroke_cost` | 1 | 0 | |
+| ignored `real_archive` | not run: it needs `scripts/build-cities.py target` (the GeoNames download) | | |
+
+Coverage (`scripts/coverage.py`):
+
+| | Before | After |
+|---|---|---|
+| lines | 95.9% of 16,162 | 95.9% of 16,765 (`ffi.rs` measured now) |
+| functions | 95.5% of 2,385 | 95.8% of 2,658 |
+| like for like (without `ffi.rs`, `config.rs`) | 95.7% of lines, 95.5% of functions | 96.4%, 96.4% |
+| `src/ffi.rs` | not measured | 83.5%, 114 of 131 functions |
+| `src/time/tz.rs` | 90.6% | 95.6% |
+| `src/main.rs` | 84.4% | 90.8% |
+| `src/json.rs` | 93.8% | 95.6% |
+| `src/config.rs` | 100% of 426 lines | 83.8% of 117: its `const fn`s run in the compiler now |
+
+### Left open (proposals)
+
+| What | Why not now |
+|---|---|
+| The tables built at compile time (`build.rs`: the names normalised by the build) | about 1.1 ms of the 1.5–1.8 ms of a request in a fresh process (the Omarchy widget starts one per keystroke); a change in how the data is built |
+| The date detection still allocates 160–380 times per request (each reading tried in turn) | microseconds; a rewrite of the detection |
+| Code no test runs: the clipboard, desktop notifications, the process-wide setters (`files::set_dir`, `tz::set_source`, `set_zoneinfo`, `http::register`, `time::fixed_now`: the first call wins, so a test would set them for every other one), the C entry points that start the app (`aequalis_init`, `aequalis_seed`, `aequalis_sync`) | a process per test, or the platforms' own test runs |
+| The Android app: Gradle not run; `ExampleInstrumentedTest` is a template too, and needs a device | |
+| `Cargo.lock` is still ignored (§2.15) | |

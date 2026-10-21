@@ -554,8 +554,8 @@ mod tests {
 
     #[test]
     fn no_unit_is_a_country() {
-        for category in &Config::default().categories {
-            for unit in &category.units {
+        for category in Config::default().categories {
+            for unit in category.units {
                 for name in std::iter::once(&unit.symbol).chain(unit.aliases.iter()) {
                     let country = tz::country(name).map(|c| c.name.as_str());
                     // `us` (microsecond) is also the United States: the unit wins (`countries_in`).
@@ -568,8 +568,8 @@ mod tests {
     #[test]
     fn no_unit_is_a_city() {
         // A city in a request makes it a date request: no unit may read as one.
-        for category in &Config::default().categories {
-            for unit in &category.units {
+        for category in Config::default().categories {
+            for unit in category.units {
                 for name in std::iter::once(&unit.symbol).chain(unit.aliases.iter()) {
                     assert!(tz::city(name).is_none(), "unit `{name}` reads as a city");
                 }
@@ -622,8 +622,8 @@ mod tests {
         }
         // No unit is read as a month (a month word starts a date request).
         let config = Config::default();
-        for category in &config.categories {
-            for unit in &category.units {
+        for category in config.categories {
+            for unit in category.units {
                 for name in std::iter::once(&unit.symbol).chain(unit.aliases.iter()) {
                     assert_eq!(m(name), None, "unit `{name}` reads as a month");
                 }

@@ -141,6 +141,86 @@ fn city_part(name: &'static str) -> &'static str {
 
 // ---------------------------------------------------------------- POSIX TZ rules
 
+/// A zone's abbreviation (`CET`, `<+03>`), skipped.
+fn skip_name(s: &mut &[u8]) -> Option<()> {
+    if s.first() == Some(&b'<') {
+        let end = s.iter().position(|&b| b == b'>')?;
+        *s = &s[end + 1..];
+    } else {
+        let n = s.iter().take_while(|b| b.is_ascii_alphabetic()).count();
+        if n < 3 {
+            return None;
+        }
+        *s = &s[n..];
+    }
+    Some(())
+}
+
+/// `[+-]hh[:mm[:ss]]`, in seconds.
+fn read_clock(s: &mut &[u8]) -> Option<i64> {
+    let sign = match s.first() {
+        Some(b'-') => {
+            *s = &s[1..];
+            -1
+        }
+        Some(b'+') => {
+            *s = &s[1..];
+            1
+        }
+        _ => 1,
+    };
+    let mut total = 0i64;
+    for (i, unit) in [3600, 60, 1].into_iter().enumerate() {
+        if i > 0 {
+            if s.first() != Some(&b':') {
+                break;
+            }
+            *s = &s[1..];
+        }
+        let n = s.iter().take_while(|b| b.is_ascii_digit()).count();
+        if n == 0 {
+            return None;
+        }
+        total += std::str::from_utf8(&s[..n]).ok()?.parse::<i64>().ok()? * unit;
+        *s = &s[n..];
+    }
+    Some(sign * total)
+}
+
+fn read_number(s: &mut &[u8]) -> Option<u32> {
+    let n = s.iter().take_while(|b| b.is_ascii_digit()).count();
+    let v = std::str::from_utf8(&s[..n]).ok()?.parse().ok()?;
+    *s = &s[n..];
+    Some(v)
+}
+
+/// A change of a rule: `Mm.w.d`, `Jn` or `n`, then `/time` (02:00 when none is written).
+fn read_change(s: &mut &[u8]) -> Option<Change> {
+    let day = match s.first()? {
+        b'M' => {
+            *s = &s[1..];
+            let m = read_number(s)?;
+            *s = s.strip_prefix(b".")?;
+            let w = read_number(s)?;
+            *s = s.strip_prefix(b".")?;
+            let d = read_number(s)?;
+            ((1..=12).contains(&m) && (1..=5).contains(&w) && d <= 6).then_some(RuleDay::Weekday(m, w, d))?
+        }
+        b'J' => {
+            *s = &s[1..];
+            RuleDay::Julian(read_number(s).filter(|n| (1..=365).contains(n))?)
+        }
+        _ => RuleDay::Ordinal(read_number(s).filter(|&n| n <= 365)?),
+    };
+    let time = if s.first() == Some(&b'/') {
+        *s = &s[1..];
+        read_clock(s)?
+    } else {
+        7200
+    };
+    Some(Change { day, time })
+}
+
 /// A POSIX TZ rule: `CET-1CEST,M3.5.0,M10.5.0/3`.
 #[derive(Debug, PartialEq)]
 struct Rule {
@@ -171,97 +251,23 @@ enum RuleDay {
 impl Rule {
     fn parse(text: &str) -> Option<Rule> {
         let mut s = text.as_bytes();
-        let name = |s: &mut &[u8]| -> Option<()> {
-            if s.first() == Some(&b'<') {
-                let end = s.iter().position(|&b| b == b'>')?;
-                *s = &s[end + 1..];
-            } else {
-                let n = s.iter().take_while(|b| b.is_ascii_alphabetic()).count();
-                if n < 3 {
-                    return None;
-                }
-                *s = &s[n..];
-            }
-            Some(())
-        };
-        // `[+-]hh[:mm[:ss]]`, in seconds.
-        let clock = |s: &mut &[u8]| -> Option<i64> {
-            let sign = match s.first() {
-                Some(b'-') => {
-                    *s = &s[1..];
-                    -1
-                }
-                Some(b'+') => {
-                    *s = &s[1..];
-                    1
-                }
-                _ => 1,
-            };
-            let mut total = 0i64;
-            for (i, unit) in [3600, 60, 1].into_iter().enumerate() {
-                if i > 0 {
-                    if s.first() != Some(&b':') {
-                        break;
-                    }
-                    *s = &s[1..];
-                }
-                let n = s.iter().take_while(|b| b.is_ascii_digit()).count();
-                if n == 0 {
-                    return None;
-                }
-                total += std::str::from_utf8(&s[..n]).ok()?.parse::<i64>().ok()? * unit;
-                *s = &s[n..];
-            }
-            Some(sign * total)
-        };
-        let number = |s: &mut &[u8]| -> Option<u32> {
-            let n = s.iter().take_while(|b| b.is_ascii_digit()).count();
-            let v = std::str::from_utf8(&s[..n]).ok()?.parse().ok()?;
-            *s = &s[n..];
-            Some(v)
-        };
-        let change = |s: &mut &[u8]| -> Option<Change> {
-            let day = match s.first()? {
-                b'M' => {
-                    *s = &s[1..];
-                    let m = number(s)?;
-                    *s = s.strip_prefix(b".")?;
-                    let w = number(s)?;
-                    *s = s.strip_prefix(b".")?;
-                    let d = number(s)?;
-                    ((1..=12).contains(&m) && (1..=5).contains(&w) && d <= 6).then_some(RuleDay::Weekday(m, w, d))?
-                }
-                b'J' => {
-                    *s = &s[1..];
-                    RuleDay::Julian(number(s).filter(|n| (1..=365).contains(n))?)
-                }
-                _ => RuleDay::Ordinal(number(s).filter(|&n| n <= 365)?),
-            };
-            let time = if s.first() == Some(&b'/') {
-                *s = &s[1..];
-                clock(s)?
-            } else {
-                7200
-            };
-            Some(Change { day, time })
-        };
-        name(&mut s)?;
+        skip_name(&mut s)?;
         // POSIX offsets are west of UTC: `CET-1` is +01:00.
-        let std = -clock(&mut s)? as i32;
+        let std = -read_clock(&mut s)? as i32;
         if s.is_empty() {
             return Some(Rule { std, dst: None });
         }
-        name(&mut s)?;
-        let dst = if s.first().is_some_and(|&b| b != b',') { -clock(&mut s)? as i32 } else { std + 3600 };
+        skip_name(&mut s)?;
+        let dst = if s.first().is_some_and(|&b| b != b',') { -read_clock(&mut s)? as i32 } else { std + 3600 };
         // No rule: the US one (the POSIX default of many systems).
         let (start, end) = if s.is_empty() {
             let us = |m, w| Change { day: RuleDay::Weekday(m, w, 0), time: 7200 };
             (us(3, 2), us(11, 1))
         } else {
             s = s.strip_prefix(b",")?;
-            let start = change(&mut s)?;
+            let start = read_change(&mut s)?;
             s = s.strip_prefix(b",")?;
-            (start, change(&mut s)?)
+            (start, read_change(&mut s)?)
         };
         s.is_empty().then_some(Rule { std, dst: Some((dst, start, end)) })
     }
@@ -749,40 +755,43 @@ const COUNTRIES: &str = include_str!("../data/countries.json");
 pub fn countries() -> &'static [Country] {
     static TABLE: OnceLock<Vec<Country>> = OnceLock::new();
     TABLE.get_or_init(|| {
-        let doc = crate::json::parse(COUNTRIES).expect("src/data/countries.json is valid JSON");
-        let strings = |v: Option<&crate::json::Value>| v.map(crate::json::Value::strings).unwrap_or_default();
-        doc.get("countries")
-            .map(|c| c.array())
-            .unwrap_or_default()
-            .iter()
-            .filter_map(|c| {
+        let mut doc = crate::json::parse(COUNTRIES).expect("src/data/countries.json is valid JSON");
+        let mut table: Vec<Country> = doc
+            .take("countries")
+            .into_array()
+            .into_iter()
+            .filter_map(|mut c| {
                 Some(Country {
-                    code: c.get("code").and_then(|v| v.str()).unwrap_or_default().to_string(),
-                    name: c.get("name")?.str()?.to_string(),
-                    aliases: strings(c.get("aliases")),
-                    cities: strings(c.get("cities")),
-                    currency: c.get("currency").and_then(|v| v.str()).unwrap_or_default().to_string(),
+                    code: c.take("code").into_string().unwrap_or_default(),
+                    name: c.take("name").into_string()?,
+                    aliases: c.take("aliases").into_strings(),
+                    cities: c.take("cities").into_strings(),
+                    currency: c.take("currency").into_string().unwrap_or_default(),
                 })
             })
-            .collect()
+            .collect();
+        // Kept for the life of the process: no spare room.
+        table.shrink_to_fit();
+        table
     })
 }
 
 /// The built-in names, normalised once (`squeeze`): every lookup is then a hash lookup instead of
 /// a scan that normalises each name again.
 struct Names {
-    /// A city's name → its index in `CITIES` (the first city with that name).
-    cities: HashMap<String, usize>,
     /// Each city's normalised name, in `CITIES` order (misspellings are measured against them).
     city_keys: Vec<String>,
+    /// The cities in the order of `city_keys`, the first of a name first: a name is found by a
+    /// binary search, without a second copy of the names as a hash map would keep.
+    city_order: Vec<u16>,
     /// The same with their spaces (`key`), for the prefixes typed (suggestions).
     city_words: Vec<String>,
     /// Each country's name as `key` writes it, in `countries()` order.
     country_words: Vec<String>,
-    /// A country's name or alias → its index in `countries()` (the first with that name).
-    countries: HashMap<String, usize>,
     /// Every country name and alias, normalised, with the country's index.
     country_keys: Vec<(String, usize)>,
+    /// `country_keys` in the order of their names, as `city_order`.
+    country_order: Vec<u16>,
     /// A country's ISO code (`IT`) → its index in `countries()`.
     codes: HashMap<&'static str, usize>,
     /// A time zone → the country it belongs to (the first whose cities are in it).
@@ -801,12 +810,8 @@ fn names() -> &'static Names {
         let longest_city = city_words.iter().map(|k| k.split(' ').count()).max().unwrap_or(1);
         let city_keys: Vec<String> = city_words.iter().map(|k| k.replace(' ', "")).collect();
         let country_words: Vec<String> = countries().iter().map(|c| key(&c.name)).collect();
-        let mut cities = HashMap::new();
-        for (i, k) in city_keys.iter().enumerate() {
-            cities.entry(k.clone()).or_insert(i);
-        }
+        let city_order = sorted(city_keys.len(), |i| &city_keys[i]);
         let mut country_keys = Vec::new();
-        let mut by_name = HashMap::new();
         let mut codes = HashMap::new();
         let mut zones = HashMap::new();
         let mut longest_country = 1;
@@ -815,20 +820,32 @@ fn names() -> &'static Names {
             for name in std::iter::once(&c.name).chain(&c.aliases) {
                 let k = key(name);
                 longest_country = longest_country.max(k.split(' ').count());
-                let k = k.replace(' ', "");
-                by_name.entry(k.clone()).or_insert(i);
-                country_keys.push((k, i));
+                country_keys.push((k.replace(' ', ""), i));
             }
             for city in &c.cities {
-                if let Some(&ci) = cities.get(&squeeze(city)) {
+                if let Some(ci) = find(&city_order, |i| &city_keys[i], &squeeze(city)) {
                     for zone in CITIES[ci].1.split('|') {
                         zones.entry(zone).or_insert(i);
                     }
                 }
             }
         }
-        Names { longest_city, longest_country, cities, city_keys, city_words, countries: by_name, country_keys, country_words, codes, zones }
+        let country_order = sorted(country_keys.len(), |i| &country_keys[i].0);
+        Names { longest_city, longest_country, city_keys, city_order, city_words, country_keys, country_order, country_words, codes, zones }
     })
+}
+
+/// The positions `0..n` in the order of their names, the first of equal names first (stable).
+fn sorted<'a>(n: usize, name: impl Fn(usize) -> &'a str) -> Vec<u16> {
+    let mut order: Vec<u16> = (0..n).map(|i| u16::try_from(i).expect("a few hundred names")).collect();
+    order.sort_by(|&a, &b| name(a.into()).cmp(name(b.into())));
+    order
+}
+
+/// The first position (of `sorted`'s `order`) whose name is `wanted`.
+fn find<'a>(order: &[u16], name: impl Fn(usize) -> &'a str, wanted: &str) -> Option<usize> {
+    let at = order.partition_point(|&i| name(i.into()) < wanted);
+    order.get(at).map(|&i| usize::from(i)).filter(|&i| name(i) == wanted)
 }
 
 /// The country whose ISO code is `code` (`IT`), when it is one of `countries.json` (no
@@ -845,7 +862,8 @@ pub(crate) fn squeeze(name: &str) -> String {
 /// The country a name gives (any case, accents optional, spaces and dots aside: `usa`, `U.S.`,
 /// `Turkiye`).
 pub fn country(name: &str) -> Option<&'static Country> {
-    names().countries.get(&squeeze(name)).map(|&i| &countries()[i])
+    let names = names();
+    find(&names.country_order, |i| &names.country_keys[i].0, &squeeze(name)).map(|k| &countries()[names.country_keys[k].1])
 }
 
 /// The country a time zone belongs to (`Europe/Rome`: Italy), from its cities.
@@ -862,14 +880,15 @@ pub fn distance(name: &str, names: &[&str]) -> usize {
 /// The candidates nearest `wanted` (normalised), within `limit` letters: only those at the best
 /// distance, in their order. `None` when one is `wanted` exactly (it is no misspelling).
 pub(crate) fn nearest<'a, T: Copy>(wanted: &str, candidates: impl IntoIterator<Item = (&'a str, T)>, limit: usize) -> Option<(usize, Vec<T>)> {
-    let len = wanted.chars().count();
+    let mut distance = Distance::new(wanted);
+    let len = distance.len();
     let mut best: Option<(usize, Vec<T>)> = None;
     for (k, item) in candidates {
         // Lengths further apart than the limit can't be within it.
         if k.chars().count().abs_diff(len) > limit {
             continue;
         }
-        let Some(d) = levenshtein_within(wanted, k, limit) else { continue };
+        let Some(d) = distance.within(k.chars(), limit) else { continue };
         if d == 0 {
             return None;
         }
@@ -939,7 +958,8 @@ pub(crate) fn key(name: &str) -> String {
 
 /// The index in `CITIES` of the city a name gives.
 fn city_index(name: &str) -> Option<usize> {
-    names().cities.get(&squeeze(name)).copied()
+    let names = names();
+    find(&names.city_order, |i| &names.city_keys[i], &squeeze(name))
 }
 
 /// The city a name gives (any case, accents optional: `new york`, `Sao Paulo`), or a zone's own
@@ -1009,23 +1029,49 @@ pub fn near_names(name: &str) -> Vec<&'static str> {
 /// `levenshtein`, when it is `limit` or less: it stops once a row has no value within the limit
 /// (the values only grow from there), so a name far off costs a few letters, not the whole table.
 pub(crate) fn levenshtein_within(a: &str, b: &str, limit: usize) -> Option<usize> {
-    let b: Vec<char> = b.chars().collect();
-    let mut row: Vec<usize> = (0..=b.len()).collect();
-    for (i, ca) in a.chars().enumerate() {
-        let mut diagonal = row[0];
-        row[0] = i + 1;
-        let mut lowest = row[0];
-        for (j, &cb) in b.iter().enumerate() {
-            let above = row[j + 1];
-            row[j + 1] = (above + 1).min(row[j] + 1).min(diagonal + usize::from(ca != cb));
-            diagonal = above;
-            lowest = lowest.min(row[j + 1]);
-        }
-        if lowest > limit {
-            return None;
-        }
+    Distance::new(a).within(b.chars(), limit)
+}
+
+/// One word measured against many names (`levenshtein_within`): its letters read once and one row
+/// of the table kept, so a name costs no allocation (a misspelling is checked against hundreds).
+pub(crate) struct Distance {
+    wanted: Vec<char>,
+    row: Vec<usize>,
+}
+
+impl Distance {
+    pub(crate) fn new(wanted: &str) -> Distance {
+        let wanted: Vec<char> = wanted.chars().collect();
+        let row = Vec::with_capacity(wanted.len() + 1);
+        Distance { wanted, row }
     }
-    Some(row[b.len()]).filter(|&d| d <= limit)
+
+    /// The letters of the word.
+    pub(crate) fn len(&self) -> usize {
+        self.wanted.len()
+    }
+
+    /// The distance to the letters of a name, when it is `limit` or less.
+    pub(crate) fn within(&mut self, name: impl IntoIterator<Item = char>, limit: usize) -> Option<usize> {
+        let (wanted, row) = (&self.wanted, &mut self.row);
+        row.clear();
+        row.extend(0..=wanted.len());
+        for (i, cb) in name.into_iter().enumerate() {
+            let mut diagonal = row[0];
+            row[0] = i + 1;
+            let mut lowest = row[0];
+            for (j, &ca) in wanted.iter().enumerate() {
+                let above = row[j + 1];
+                row[j + 1] = (above + 1).min(row[j] + 1).min(diagonal + usize::from(ca != cb));
+                diagonal = above;
+                lowest = lowest.min(row[j + 1]);
+            }
+            if lowest > limit {
+                return None;
+            }
+        }
+        Some(row[wanted.len()]).filter(|&d| d <= limit)
+    }
 }
 
 pub(crate) fn levenshtein(a: &str, b: &str) -> usize {
@@ -1101,6 +1147,84 @@ mod tests {
         for bad in ["", "C-1", "CET", "CET-1CEST,M13.1.0,M10.5.0", "CET-1CEST,M3.5.0"] {
             assert_eq!(Rule::parse(bad), None, "{bad}");
         }
+        // Daylight time named but no dates: the US rule.
+        let us = Rule::parse("EST5EDT").unwrap();
+        assert_eq!((us.offset_at(secs(2026, 7, 1, 12)), us.offset_at(secs(2026, 12, 1, 12))), (-4 * 3600, -5 * 3600));
+        // Rules written with Julian (`Jn`) and ordinal (`n`) days, and their limits.
+        let julian = Rule::parse("XST3XDT,J60/2,J300/2").unwrap();
+        let change = |day| Change { day, time: 7200 };
+        assert_eq!(julian.dst, Some((-7200, change(RuleDay::Julian(60)), change(RuleDay::Julian(300)))));
+        assert_eq!(julian.offset_at(secs(2026, 6, 1, 12)), -2 * 3600);
+        assert_eq!(julian.offset_at(secs(2026, 1, 15, 12)), -3 * 3600);
+        assert_eq!(Rule::parse("XST3XDT,59,299").unwrap().dst.map(|(_, start, end)| (start.day, end.day)), Some((RuleDay::Ordinal(59), RuleDay::Ordinal(299))));
+        for bad in ["XST3XDT,J0,J300", "XST3XDT,J366,J300", "XST3XDT,366,30"] {
+            assert_eq!(Rule::parse(bad), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn zones_from_an_android_bundle() {
+        // As Android's `tzdata` holds them: the version, the offsets of the index and of the data,
+        // the index (a zone's name NUL-padded to 40 bytes, its offset in the data, its length, 4
+        // unused bytes), then the zones' data one after the other.
+        let zones: [(&str, &[u8]); 2] = [("Europe/Rome", b"TZif of Rome"), ("Asia/Tokyo", b"TZif of Tokyo")];
+        let (index, data) = (24, 24 + 52 * zones.len());
+        let mut bundle = b"tzdata2026c\0".to_vec();
+        for at in [index, data, 0] {
+            bundle.extend((at as u32).to_be_bytes());
+        }
+        let mut offset = 0;
+        for (name, bytes) in zones {
+            let mut entry = [0u8; 52];
+            entry[..name.len()].copy_from_slice(name.as_bytes());
+            entry[40..44].copy_from_slice(&(offset as u32).to_be_bytes());
+            entry[44..48].copy_from_slice(&(bytes.len() as u32).to_be_bytes());
+            bundle.extend(entry);
+            offset += bytes.len();
+        }
+        for (_, bytes) in zones {
+            bundle.extend(bytes);
+        }
+        assert_eq!(from_bundle(&bundle, "Europe/Rome").as_deref(), Some(&b"TZif of Rome"[..]));
+        assert_eq!(from_bundle(&bundle, "Asia/Tokyo").as_deref(), Some(&b"TZif of Tokyo"[..]));
+        assert_eq!(from_bundle(&bundle, "Europe/Ro"), None, "the whole name");
+        assert_eq!(from_bundle(&bundle, "America/Lima"), None);
+        assert_eq!(from_bundle(&bundle[..60], "Asia/Tokyo"), None, "cut short");
+        assert_eq!(from_bundle(b"TZif2: one zone, no bundle", "Europe/Rome"), None);
+    }
+
+    #[test]
+    fn one_distance_for_many_names() {
+        // The row kept from one name to the next gives what a table of its own gives.
+        fn plain(a: &str, b: &str) -> usize {
+            let (a, b): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
+            let mut d: Vec<Vec<usize>> = (0..=a.len()).map(|i| (0..=b.len()).map(|j| i.max(j) * usize::from(i == 0 || j == 0)).collect()).collect();
+            for i in 1..=a.len() {
+                for j in 1..=b.len() {
+                    d[i][j] = (d[i - 1][j] + 1).min(d[i][j - 1] + 1).min(d[i - 1][j - 1] + usize::from(a[i - 1] != b[j - 1]));
+                }
+            }
+            d[a.len()][b.len()]
+        }
+        let names = ["rome", "roma", "tokyo", "", "romeo", "kyoto", "sanfrancisco", "rmoe", "москва", "r"];
+        for wanted in ["rome", "tokio", "москва", ""] {
+            let mut distance = Distance::new(wanted);
+            for name in names {
+                let exact = plain(wanted, name);
+                assert_eq!(distance.within(name.chars(), usize::MAX), Some(exact), "{wanted} {name}");
+                assert_eq!(distance.within(name.chars(), 2), Some(exact).filter(|&d| d <= 2), "{wanted} {name}, within 2");
+            }
+        }
+    }
+
+    #[test]
+    fn names_found_by_binary_search() {
+        let names = ["paris", "rome", "paris", "lima", "rome"];
+        let order = sorted(names.len(), |i| names[i]);
+        let found = |wanted: &str| find(&order, |i| names[i], wanted);
+        // The first of equal names, as the first insert into a hash map kept it.
+        assert_eq!((found("paris"), found("rome"), found("lima")), (Some(0), Some(1), Some(3)));
+        assert_eq!((found("par"), found("zurich"), found("")), (None, None, None));
     }
 
     #[test]

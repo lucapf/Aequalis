@@ -462,22 +462,7 @@ pub fn convert_request(config: &Config, opts: &Options, tokens: &[&str]) -> Resu
     // The rates and the local currency are read only for a currency request.
     let context = || currency::Context { rates: currency::load(), now: time::unix_now(), local: currency::local().ok().flatten() };
     if let Some(result) = currency::request(config, &input, context) {
-        return match result {
-            // The currencies countries stand for are always noted, to check the result.
-            Ok(c) => Ok(Output {
-                stdout: c.result,
-                warnings: if opts.silent { Vec::new() } else { c.warnings },
-                notes: match (opts.silent, opts.verbose) {
-                    (true, _) => Vec::new(),
-                    (false, verbose) => c.check.iter().cloned().chain(if verbose { c.notes } else { Vec::new() }).collect(),
-                },
-                check: c.check.filter(|_| !opts.silent),
-                formatted: false,
-                rates_age: Some(c.age),
-                synced: None,
-            }),
-            Err(e) => Err(e.into()),
-        };
+        return result.map(|c| money(opts, c)).map_err(CliError::from);
     }
     // A date or a distance: formatted for people, its notes shown with `-v`.
     let formatted = |(stdout, notes): (String, Vec<String>)| Output {
@@ -503,8 +488,29 @@ pub fn convert_request(config: &Config, opts: &Options, tokens: &[&str]) -> Resu
     if !arithmetic && time::is_date_value(&input) {
         return Err(CliError::Incomplete("now the format to convert to: iso, unix, local…".into()));
     }
+    calculation(config, opts, &input)
+}
+
+/// A currency result: the currencies countries stand for are always noted, to check it.
+fn money(opts: &Options, c: currency::Converted) -> Output {
+    Output {
+        stdout: c.result,
+        warnings: if opts.silent { Vec::new() } else { c.warnings },
+        notes: match (opts.silent, opts.verbose) {
+            (true, _) => Vec::new(),
+            (false, verbose) => c.check.iter().cloned().chain(if verbose { c.notes } else { Vec::new() }).collect(),
+        },
+        check: c.check.filter(|_| !opts.silent),
+        formatted: false,
+        rates_age: Some(c.age),
+        synced: None,
+    }
+}
+
+/// A calculation, with its units if any: `12+4/2`, `10 km mi`, `100 + 20 sqft m2`.
+fn calculation(config: &Config, opts: &Options, input: &str) -> Result<Output, CliError> {
     // Not a number: one place so far (`Rieti`, `Rieti to`) is a distance on its way.
-    let (expr, rest) = calc::parse_prefix(&input).map_err(|e| match geo::being_typed(config, &input) {
+    let (expr, rest) = calc::parse_prefix(input).map_err(|e| match geo::being_typed(config, input) {
         Some(next) => CliError::Incomplete(next),
         None => calc_error(e),
     })?;
@@ -617,9 +623,9 @@ fn calc_error(err: calc::CalcError) -> CliError {
 
 fn list(config: &Config) -> String {
     let mut out = String::new();
-    for cat in &config.categories {
+    for cat in config.categories {
         out.push_str(&format!("{} (base: {})\n", cat.name, cat.base));
-        for u in &cat.units {
+        for u in cat.units {
             out.push_str(format!("  {:<8} {}", u.symbol, u.aliases.join(", ")).trim_end());
             out.push('\n');
         }

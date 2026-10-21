@@ -256,200 +256,223 @@ impl<'a> Parser<'a> {
         w
     }
 
-    /// A date value; `first` allows the forms that need an input-format word.
+    /// A date value; `first` allows the forms that need an input-format word. Each form is tried
+    /// in turn (`None`: not that form); only the one that matches takes its words.
     pub(super) fn value(&mut self, first: bool) -> Result<Instant, TimeError> {
         self.skip_ws();
         let rest = self.rest();
-        // `<text> date`: a loosely written date (checked first: `2026-04-12 date` is one too).
+        let words: Vec<&'a str> = rest.split_whitespace().collect();
         if first {
-            let words: Vec<&str> = rest.split_whitespace().collect();
-            if let Some(i) = words.iter().position(|w| *w == "date").filter(|&i| i > 0) {
-                let text = words[..i].join(" ");
-                for _ in 0..=i {
-                    self.take_word();
-                }
-                let order = Order::of_locale();
-                let reading = read_date(&text, None, order).ok_or_else(|| TimeError::Usage(format!("`{text}` is not a date ({})", order.describe())))?;
-                self.unambiguous(&text, &reading)?;
-                self.note(&text, &reading);
-                self.input_format = Some(reading.pattern.name());
-                return from_civil(&reading.civil, self.zone_for(reading.offset, &text)?);
-            }
-            // `<text> <pattern> <format>`: read with that pattern exactly. With a city the city is
-            // the target, already taken out: the pattern may come last (`12/04/2026 10:00
-            // MM/DD/YYYY-24h Paris`, the request a question's choice writes: bug 013).
-            let end = if self.cities.is_some() { words.len() } else { words.len().saturating_sub(1) };
-            if let Some(i) = (1..end).find(|&i| Pattern::parse(words[i]).is_some()) {
-                let pattern = Pattern::parse(words[i]).unwrap();
-                let text = words[..i].join(" ");
-                for _ in 0..=i {
-                    self.take_word();
-                }
-                let reading =
-                    read_with_pattern(&text, pattern).ok_or_else(|| TimeError::Usage(format!("`{text}` is not a date in the {} format", pattern.name())))?;
-                self.input_format = Some(pattern.name());
-                return from_civil(&reading.civil, self.zone_for(reading.offset, &text)?);
+            if let Some(found) = self.with_input_word(&words) {
+                return found;
             }
         }
+        if let Some(found) = self.keyword(rest) {
+            return found;
+        }
+        if first {
+            if let Some(found) = self.time_of_day(&words).or_else(|| self.timed(&words)) {
+                return found;
+            }
+        }
+        if let Some(found) = self.iso_word(first) {
+            return found;
+        }
+        if first {
+            let found = self.stamp(&words).or_else(|| self.local(&words)).or_else(|| self.guessed_first(rest, &words)).or_else(|| self.written_alone(rest));
+            if let Some(found) = found {
+                return found;
+            }
+        }
+        match self.longest_date(&words, first) {
+            Some(found) => found,
+            None => self.not_a_date(&words),
+        }
+    }
+
+    fn take_words(&mut self, n: usize) {
+        for _ in 0..n {
+            self.take_word();
+        }
+    }
+
+    /// A date read from `text` by a guess: asked about when it has several readings, noted, its
+    /// input format set (when given), then in its zone.
+    fn date_read(&mut self, text: &str, reading: &Reading, format: Option<String>) -> Result<Instant, TimeError> {
+        self.unambiguous(text, reading)?;
+        self.note(text, reading);
+        if format.is_some() {
+            self.input_format = format;
+        }
+        from_civil(&reading.civil, self.zone_for(reading.offset, text)?)
+    }
+
+    /// `<text> date`: a loosely written date (checked first: `2026-04-12 date` is one too); or
+    /// `<text> <pattern> <format>`: read with that pattern exactly.
+    fn with_input_word(&mut self, words: &[&'a str]) -> Option<Result<Instant, TimeError>> {
+        if let Some(i) = words.iter().position(|w| *w == "date").filter(|&i| i > 0) {
+            let text = words[..i].join(" ");
+            self.take_words(i + 1);
+            let order = Order::of_locale();
+            let Some(reading) = read_date(&text, None, order) else {
+                return Some(usage(format!("`{text}` is not a date ({})", order.describe())));
+            };
+            let format = reading.pattern.name();
+            return Some(self.date_read(&text, &reading, Some(format)));
+        }
+        // With a city the city is the target, already taken out: the pattern may come last
+        // (`12/04/2026 10:00 MM/DD/YYYY-24h Paris`, the request a question's choice writes: bug 013).
+        let end = if self.cities.is_some() { words.len() } else { words.len().saturating_sub(1) };
+        let (i, pattern) = (1..end).find_map(|i| Some((i, Pattern::parse(words[i])?)))?;
+        let text = words[..i].join(" ");
+        self.take_words(i + 1);
+        let Some(reading) = read_with_pattern(&text, pattern) else {
+            return Some(usage(format!("`{text}` is not a date in the {} format", pattern.name())));
+        };
+        self.input_format = Some(pattern.name());
+        Some(self.zone_for(reading.offset, &text).and_then(|zone| from_civil(&reading.civil, zone)))
+    }
+
+    /// `now`, `today`: in the request's zone (`now GMT+2` shows +02:00; `today` starts there).
+    fn keyword(&mut self, rest: &str) -> Option<Result<Instant, TimeError>> {
         for keyword in ["now", "today"] {
             if let Some(after) = rest.strip_prefix(keyword) {
                 if after.is_empty() || after.starts_with([' ', '+', '-']) {
                     self.pos += keyword.len();
-                    // In the request's zone: `now GMT+2` shows +02:00; `today` starts there.
                     let now = Instant { zone: self.zone, ..now() };
                     if keyword == "now" {
-                        return Ok(now);
+                        return Some(Ok(now));
                     }
                     let c = now.civil();
-                    return from_civil(&Civil { year: c.year, month: c.month, day: c.day, ..Civil::default() }, self.zone);
+                    return Some(from_civil(&Civil { year: c.year, month: c.month, day: c.day, ..Civil::default() }, self.zone));
                 }
             }
         }
-        // A written date with a time (`2026/12/04 10:00 PM`, `2026-12-04 22:00`): read whole, before
-        // its date part is taken for an ISO date. Year first with `-` is ISO-like: shown in ISO.
-        // A time of day alone needs a city (`10:00AM Paris`).
-        if first && self.cities.is_none() {
-            let words: Vec<&str> = rest.split_whitespace().collect();
-            if let Some(n) = leading_time(&words) {
-                return match words[n..].join(" ") {
-                    after if after.is_empty() => usage("a time alone takes a city: `10:00AM Paris`"),
-                    after => usage(format!("`{after}` is not a city (`10:00AM Paris`, `10:00AM New York to Paris`)")),
-                };
-            }
+        None
+    }
+
+    /// A time of day first. With a city (`10:00AM Paris`): today, in the request's zone; without
+    /// one, an error: a time of day alone takes a city.
+    fn time_of_day(&mut self, words: &[&'a str]) -> Option<Result<Instant, TimeError>> {
+        if self.cities.is_none() {
+            let n = leading_time(words)?;
+            return Some(match words[n..].join(" ") {
+                after if after.is_empty() => usage("a time alone takes a city: `10:00AM Paris`"),
+                after => usage(format!("`{after}` is not a city (`10:00AM Paris`, `10:00AM New York to Paris`)")),
+            });
         }
-        // With a city, a time of day alone (`10:00AM Paris`): today, in the request's zone.
-        if first && self.cities.is_some() {
-            let words: Vec<&str> = rest.split_whitespace().collect();
-            let c = Instant { zone: self.zone, ..now() }.civil();
-            for n in (1..=words.len().min(3)).rev() {
-                if let Some(reading) = read_time_only(&words[..n].join(" "), (c.year, c.month, c.day)) {
-                    for _ in 0..n {
-                        self.take_word();
-                    }
-                    return from_civil(&reading.civil, self.zone);
-                }
-            }
-        }
-        if first {
-            let words: Vec<&str> = rest.split_whitespace().collect();
-            if let Some((n, reading)) = timed_date(&words) {
-                let text = words[..n].join(" ");
-                for _ in 0..n {
-                    self.take_word();
-                }
-                self.unambiguous(&text, &reading)?;
-                self.note(&text, &reading);
-                let iso_like = reading.pattern.fields == Fields::Ymd4 && text.as_bytes().get(4) == Some(&b'-');
-                self.input_format = Some(if iso_like { "iso".to_string() } else { reading.pattern.name() });
-                return from_civil(&reading.civil, self.zone_for(reading.offset, &text)?);
-            }
-        }
+        let c = Instant { zone: self.zone, ..now() }.civil();
+        let (n, reading) = (1..=words.len().min(3)).rev().find_map(|n| Some((n, read_time_only(&words[..n].join(" "), (c.year, c.month, c.day))?)))?;
+        self.take_words(n);
+        Some(from_civil(&reading.civil, self.zone))
+    }
+
+    /// A written date with a time (`2026/12/04 10:00 PM`, `2026-12-04 22:00`): read whole, before
+    /// its date part is taken for an ISO date. Year first with `-` is ISO-like: shown in ISO.
+    fn timed(&mut self, words: &[&'a str]) -> Option<Result<Instant, TimeError>> {
+        let (n, reading) = timed_date(words)?;
+        let text = words[..n].join(" ");
+        self.take_words(n);
+        let iso_like = reading.pattern.fields == Fields::Ymd4 && text.as_bytes().get(4) == Some(&b'-');
+        let format = if iso_like { "iso".to_string() } else { reading.pattern.name() };
+        Some(self.date_read(&text, &reading, Some(format)))
+    }
+
+    /// An ISO date or time first (`2026-12-04`, `2026-12-04T10:00Z`).
+    fn iso_word(&mut self, first: bool) -> Option<Result<Instant, TimeError>> {
         let word = self.word();
-        if let Some((iso, len)) = leading_iso(word) {
-            self.pos += len;
-            if first {
-                self.input_format = Some(iso_format(&iso).to_string());
-            }
-            let zone = self.zone_for(iso.offset, &word[..len])?;
-            return iso_instant_in(&iso, zone);
-        }
+        let (iso, len) = leading_iso(word)?;
+        self.pos += len;
         if first {
-            let words: Vec<&str> = rest.split_whitespace().collect();
-            // `<number> unix…` is a timestamp and `<literal> iso` an ISO date, the word being the input
-            // format. Anything else before it (`2026/12/04 unix`) is a written date with its target:
-            // guessed below (bug 004).
-            if let [value, format, ..] = words[..] {
-                if let Some(ns) = unix_scale(format).and_then(|scale| scaled(value, scale)) {
-                    self.take_word();
-                    self.take_word();
-                    self.input_format = Some(format.to_string());
-                    return Instant { ns, zone: self.zone }.in_range();
-                }
-                if let Some(iso) = (format == "iso").then(|| parse_iso(value)).flatten() {
-                    self.take_word();
-                    self.take_word();
-                    self.input_format = Some(iso_format(&iso).to_string());
-                    let zone = self.zone_for(iso.offset, value)?;
-                    return iso_instant_in(&iso, zone);
-                }
-            }
-            if let Some(i) = words.iter().position(|w| *w == "local") {
-                let text = words[..i].join(" ");
-                for _ in 0..=i {
-                    self.take_word();
-                }
-                if self.zone_given() {
-                    return usage("the local format is read in the device's time zone: remove the GMT zone");
-                }
-                let secs = sys::parse_local(&text).ok_or_else(|| TimeError::Usage(format!("`{text}` is not a date in the local format")))?;
-                self.input_format = Some("local".into());
-                return Instant { ns: i128::from(secs) * NS, zone: Zone::Local }.in_range();
-            }
-            // A written date followed by date math (`2026/12/04 - 12d`): guess how to read the date;
-            // the date math (and a target, if any) follows.
-            if let Some(i) = written_date_then_math(rest) {
-                let text = rest[..i].trim().to_string();
-                let reading = read_date(&text, None, Order::of_locale()).expect("checked by written_date_then_math");
-                self.pos += i;
-                self.unambiguous(&text, &reading)?;
-                self.note(&text, &reading);
-                self.input_format = Some(reading.pattern.name());
-                return from_civil(&reading.civil, self.zone_for(reading.offset, &text)?);
-            }
-            // A written date and one format, the target: guess how to read the date.
-            if let Some(reading) = guessed(&words) {
-                let text = words[..words.len() - 1].join(" ");
-                for _ in 0..words.len() - 1 {
-                    self.take_word();
-                }
-                self.unambiguous(&text, &reading)?;
-                self.note(&text, &reading);
-                return from_civil(&reading.civil, self.zone_for(reading.offset, &text)?);
-            }
+            self.input_format = Some(iso_format(&iso).to_string());
         }
-        // A written date on its own, with a GMT zone (`2026/12/04 GMT+2`) or a month name
-        // (`12 Sept 2026`).
+        Some(self.zone_for(iso.offset, &word[..len]).and_then(|zone| iso_instant_in(&iso, zone)))
+    }
+
+    /// `<number> unix…` is a timestamp and `<literal> iso` an ISO date, the word being the input
+    /// format. Anything else before it (`2026/12/04 unix`) is a written date with its target:
+    /// guessed later (bug 004).
+    fn stamp(&mut self, words: &[&'a str]) -> Option<Result<Instant, TimeError>> {
+        let [value, format, ..] = words[..] else { return None };
+        if let Some(ns) = unix_scale(format).and_then(|scale| scaled(value, scale)) {
+            self.take_words(2);
+            self.input_format = Some(format.to_string());
+            return Some(Instant { ns, zone: self.zone }.in_range());
+        }
+        let iso = (format == "iso").then(|| parse_iso(value)).flatten()?;
+        self.take_words(2);
+        self.input_format = Some(iso_format(&iso).to_string());
+        Some(self.zone_for(iso.offset, value).and_then(|zone| iso_instant_in(&iso, zone)))
+    }
+
+    /// `<text> local`: a date in the device's own format, in its time zone.
+    fn local(&mut self, words: &[&'a str]) -> Option<Result<Instant, TimeError>> {
+        let i = words.iter().position(|w| *w == "local")?;
+        let text = words[..i].join(" ");
+        self.take_words(i + 1);
+        if self.zone_given() {
+            return Some(usage("the local format is read in the device's time zone: remove the GMT zone"));
+        }
+        let Some(secs) = sys::parse_local(&text) else {
+            return Some(usage(format!("`{text}` is not a date in the local format")));
+        };
+        self.input_format = Some("local".into());
+        Some(Instant { ns: i128::from(secs) * NS, zone: Zone::Local }.in_range())
+    }
+
+    /// A written date followed by date math (`2026/12/04 - 12d`), or by one format, the target:
+    /// how to read the date is guessed; the date math (and a target, if any) follows.
+    fn guessed_first(&mut self, rest: &'a str, words: &[&'a str]) -> Option<Result<Instant, TimeError>> {
+        if let Some(i) = written_date_then_math(rest) {
+            let text = rest[..i].trim();
+            let reading = read_date(text, None, Order::of_locale()).expect("checked by written_date_then_math");
+            self.pos += i;
+            let format = reading.pattern.name();
+            return Some(self.date_read(text, &reading, Some(format)));
+        }
+        let reading = guessed(words)?;
+        let text = words[..words.len() - 1].join(" ");
+        self.take_words(words.len() - 1);
+        Some(self.date_read(&text, &reading, None))
+    }
+
+    /// A written date on its own, with a GMT zone (`2026/12/04 GMT+2`) or a month name
+    /// (`12 Sept 2026`).
+    fn written_alone(&mut self, rest: &'a str) -> Option<Result<Instant, TimeError>> {
+        let text = rest.trim();
+        let reading = read_date(text, None, Order::of_locale()).filter(|r| self.zone_given() || r.month_name.is_some())?;
+        self.pos = self.s.len();
+        let format = reading.pattern.name();
+        Some(self.date_read(text, &reading, Some(format)))
+    }
+
+    /// A later date of a difference, written (`2026-12-25 - 12 Sept 2026 d`), or a first one with
+    /// a month name (`12 Dec 2026 - 12 Sept 2026 wd`): the longest run of words (8 at most) that
+    /// reads as a date.
+    fn longest_date(&mut self, words: &[&'a str], first: bool) -> Option<Result<Instant, TimeError>> {
+        let words = &words[..words.len().min(8)];
+        let (n, reading) = (1..=words.len()).rev().find_map(|n| {
+            let reading = read_date(&words[..n].join(" "), None, Order::of_locale()).filter(|r| !first || r.month_name.is_some())?;
+            Some((n, reading))
+        })?;
         if first {
-            let text = rest.trim().to_string();
-            let reading = read_date(&text, None, Order::of_locale()).filter(|r| self.zone_given() || r.month_name.is_some());
-            if let Some(reading) = reading {
-                self.pos = self.s.len();
-                self.unambiguous(&text, &reading)?;
-                self.note(&text, &reading);
-                self.input_format = Some(reading.pattern.name());
-                return from_civil(&reading.civil, self.zone_for(reading.offset, &text)?);
-            }
+            self.input_format = Some(reading.pattern.name());
         }
-        // A later date of a difference, written (`2026-12-25 - 12 Sept 2026 d`), or a first one with
-        // a month name (`12 Dec 2026 - 12 Sept 2026 wd`): the longest run of words that reads as a
-        // date.
-        {
-            let words: Vec<&str> = rest.split_whitespace().take(8).collect();
-            for n in (1..=words.len()).rev() {
-                let text = words[..n].join(" ");
-                let reading = read_date(&text, None, Order::of_locale()).filter(|r| !first || r.month_name.is_some());
-                if let Some(reading) = reading {
-                    if first {
-                        self.input_format = Some(reading.pattern.name());
-                    }
-                    for _ in 0..n {
-                        self.take_word();
-                    }
-                    self.unambiguous(&text, &reading)?;
-                    self.note(&text, &reading);
-                    return from_civil(&reading.civil, self.zone_for(reading.offset, &text)?);
-                }
-            }
-        }
-        // A date with a month name that does not exist (`31 Feb 2026`).
-        let words: Vec<&str> = rest.split_whitespace().collect();
+        let text = words[..n].join(" ");
+        self.take_words(n);
+        Some(self.date_read(&text, &reading, None))
+    }
+
+    /// What is wrong with words that are no date: a month name with no such day (`31 Feb 2026`),
+    /// else the first word.
+    fn not_a_date(&self, words: &[&str]) -> Result<Instant, TimeError> {
         for n in 1..=words.len() {
             let text = words[..n].join(" ");
             if numeric_from_named(&text).is_some() {
                 return usage(format!("`{text}` is not a date (no such day in that month)"));
             }
         }
-        usage(format!("`{word}` is not a date"))
+        usage(format!("`{}` is not a date", self.word()))
     }
 
     /// A guessed date with more than one valid reading is not guessed: the operator chooses. Each
@@ -587,10 +610,34 @@ pub(super) fn exact_request(config: &Config, input: &str, precision: usize, verb
 pub(super) fn evaluate(config: &Config, p: &mut Parser, precision: usize) -> Result<String, TimeError> {
     // ISO results show seconds when the request wrote some (`10:00:30`), or they are not zero.
     let seconds = writes_seconds(p.s);
-    let mut date = p.value(true)?;
-    // The difference of two dates: (the first, the second).
+    let first = p.value(true)?;
+    let Math { date, difference, stepped } = date_math(config, p, first)?;
+    let target = p.take_word();
+    if !p.rest().trim().is_empty() {
+        return usage(format!("unexpected `{}`", p.rest().trim()));
+    }
+    if let Some(cities) = p.cities.clone() {
+        return city_result(&cities, date, difference.is_some(), target, p.s.trim() == "now", p.verbose, seconds);
+    }
+    match difference {
+        Some((a, b)) => difference_in(config, a, b, target, precision),
+        None => date_result(p, &date, target, stepped, seconds),
+    }
+}
+
+/// What the date math after a date gives.
+struct Math {
+    date: Instant,
+    /// The difference of two dates: (the first, the second).
+    difference: Option<(Instant, Instant)>,
+    /// Date math was done (`+ 5wd`): without a target, only the result is shown.
+    stepped: bool,
+}
+
+/// The date math after `date` (`+ 5wd`, `- 12d`), or the second date of a difference
+/// (`- 2026-12-25`).
+fn date_math(config: &Config, p: &mut Parser, mut date: Instant) -> Result<Math, TimeError> {
     let mut difference: Option<(Instant, Instant)> = None;
-    // Date math was done (`+ 5wd`): without a target, only the result is shown.
     let mut stepped = false;
     loop {
         p.skip_ws();
@@ -613,30 +660,33 @@ pub(super) fn evaluate(config: &Config, p: &mut Parser, precision: usize) -> Res
             return usage(format!("expected a duration (like 3d or 90min) after `{}`", if sign > 0 { '+' } else { '-' }));
         }
     }
-    let target = p.take_word();
-    if !p.rest().trim().is_empty() {
-        return usage(format!("unexpected `{}`", p.rest().trim()));
+    Ok(Math { date, difference, stepped })
+}
+
+/// The difference of two dates, `a - b`: broken down (no unit), or in the time unit `unit`
+/// (`wd`: the working days between their days).
+fn difference_in(config: &Config, a: Instant, b: Instant, unit: &str, precision: usize) -> Result<String, TimeError> {
+    if unit.is_empty() {
+        return Ok(breakdown(a.ns - b.ns));
     }
-    if let Some(cities) = p.cities.clone() {
-        return city_result(&cities, date, difference.is_some(), target, p.s.trim() == "now", p.verbose, seconds);
+    let symbol =
+        time_unit(config, unit).ok_or_else(|| TimeError::Usage(format!("`{unit}`: a difference of dates is a duration; give a time unit (d, h, s…)")))?;
+    if symbol == WORKDAY {
+        // Working days between the two days (each in its own zone), times of day aside.
+        let day = |i: &Instant| {
+            let c = i.civil();
+            days_from_civil(c.year, c.month, c.day)
+        };
+        return Ok(format!("{} {WORKDAY}", workdays_between(day(&b), day(&a))));
     }
-    match (difference, target) {
-        (Some((a, b)), "") => Ok(breakdown(a.ns - b.ns)),
-        (Some((a, b)), unit) => {
-            let symbol = time_unit(config, unit)
-                .ok_or_else(|| TimeError::Usage(format!("`{unit}`: a difference of dates is a duration; give a time unit (d, h, s…)")))?;
-            if symbol == WORKDAY {
-                // Working days between the two days (each in its own zone), times of day aside.
-                let day = |i: &Instant| {
-                    let c = i.civil();
-                    days_from_civil(c.year, c.month, c.day)
-                };
-                return Ok(format!("{} {WORKDAY}", workdays_between(day(&b), day(&a))));
-            }
-            let seconds = (a.ns - b.ns) as f64 / NS as f64;
-            let (value, unit) = convert::convert(config, seconds, "s", symbol).map_err(|_| TimeError::Range)?;
-            Ok(format!("{} {}", convert::format_value(value, precision), unit.symbol))
-        }
+    let seconds = (a.ns - b.ns) as f64 / NS as f64;
+    let (value, unit) = convert::convert(config, seconds, "s", symbol).map_err(|_| TimeError::Range)?;
+    Ok(format!("{} {}", convert::format_value(value, precision), unit.symbol))
+}
+
+/// A date (no difference) in the format `target`, or without one as written.
+fn date_result(p: &mut Parser, date: &Instant, target: &str, stepped: bool, seconds: bool) -> Result<String, TimeError> {
+    match target {
         // No target: the format the date was written in. After date math only the result
         // (`2026/12/04 + 5wd` → `2026/12/11 YYYY/MM/DD`); a date alone is read into ISO too, as
         // its own format would only repeat it (`1791644400 unix` → `… iso = 1791644400 unix`).
@@ -644,21 +694,21 @@ pub(super) fn evaluate(config: &Config, p: &mut Parser, precision: usize) -> Res
         // A date alone (no math): its ISO reading (with --verbose, both sides).
         // Not verbose, the date for people (`12 Sept 26`, `12 Sept 26 20:00 GMT+2`) wherever it would
         // be ISO: a date alone, `now`, an ISO date after date math.
-        (None, "") => match p.input_format.take() {
-            Some(word) if word != "iso" && stepped && (p.verbose || !word.starts_with("iso")) => Ok(format!("{} {word}", format_as(&date, &word, seconds)?)),
-            Some(word) if word != "iso" && p.verbose => both_sides(&date, &word, seconds),
-            _ if p.verbose => Ok(format!("{} iso", format_as(&date, "iso", seconds)?)),
-            _ => Ok(human(&date, date_only(&date, p.s))),
+        "" => match p.input_format.take() {
+            Some(word) if word != "iso" && stepped && (p.verbose || !word.starts_with("iso")) => Ok(format!("{} {word}", format_as(date, &word, seconds)?)),
+            Some(word) if word != "iso" && p.verbose => both_sides(date, &word, seconds),
+            _ if p.verbose => Ok(format!("{} iso", format_as(date, "iso", seconds)?)),
+            _ => Ok(human(date, date_only(date, p.s))),
         },
-        (None, "iso") => Ok(format!("{} iso", format_as(&date, "iso", seconds)?)),
+        "iso" => Ok(format!("{} iso", format_as(date, "iso", seconds)?)),
         // A target: only the converted value (with --verbose, the ISO side too).
-        (None, word) if is_format(word) && p.verbose => both_sides(&date, word, seconds),
-        (None, word) if is_format(word) => Ok(format!("{} {word}", format_as(&date, word, seconds)?)),
+        word if is_format(word) && p.verbose => both_sides(date, word, seconds),
+        word if is_format(word) => Ok(format!("{} {word}", format_as(date, word, seconds)?)),
         // A time being typed after the date (`2026-12-04 10`, `10:`): not a format.
-        (None, word) if word.starts_with(|c: char| c.is_ascii_digit()) && word.bytes().all(|b| b.is_ascii_digit() || b == b':') => {
+        word if word.starts_with(|c: char| c.is_ascii_digit()) && word.bytes().all(|b| b.is_ascii_digit() || b == b':') => {
             usage(format!("`{word}`: write the time as H:MM, like 10:00 (then AM / PM if 12-hour)"))
         }
-        (None, word) => usage(format!("unknown date format `{word}` (formats: {})", DATE_WORDS[3..].join(", "))),
+        word => usage(format!("unknown date format `{word}` (formats: {})", DATE_WORDS[3..].join(", "))),
     }
 }
 
@@ -857,17 +907,37 @@ pub(super) fn place_typos(config: &Config, input: &str, precision: usize, verbos
         return None;
     }
     let words: Vec<&str> = input.split_whitespace().collect();
+    let spans = misspelt_spans(config, &words);
+    if spans.is_empty() {
+        return None;
+    }
+    let choices = corrections(config, &words, &spans, precision, verbose);
+    if choices.is_empty() {
+        return None;
+    }
+    let misspelt: Vec<String> = spans.iter().map(|(i, n, _)| words[*i..i + n].join(" ")).collect();
+    let note = misspelt_note(&spans, &misspelt, &choices);
+    Some(TimeError::Ambiguous(Ambiguity { text: misspelt.join(", "), choices, kind: AmbiguityKind::City, note }))
+}
+
+/// A misspelt run of words: (first word, word count, what they may be).
+type Span = (usize, usize, Vec<NearPlace>);
+
+/// The misspelt runs of `words`, left to right, the longest first at each word.
+fn misspelt_spans(config: &Config, words: &[&str]) -> Vec<Span> {
     // A word, not an operator (`pi - pi`) or a connector (`42 mpg in km/l`).
     let wordlike =
         |w: &&str| w.chars().any(char::is_alphabetic) && w.chars().all(|c| c.is_alphabetic() || "'’-.".contains(c)) && !crate::currency::connector(w);
-    // The misspelt runs: (first word, word count, what they may be), longest first.
-    let mut spans: Vec<(usize, usize, Vec<NearPlace>)> = Vec::new();
+    let mut spans: Vec<Span> = Vec::new();
     let mut i = 0;
     while i < words.len() {
         let found = (1..=(words.len() - i).min(3)).rev().find_map(|n| {
             let span = &words[i..i + n];
+            if !span.iter().all(wordlike) {
+                return None;
+            }
             let text = span.join(" ");
-            if !span.iter().all(wordlike) || known_word(config, &text) {
+            if known_word(config, &text) {
                 return None;
             }
             let near = near_places(&text);
@@ -881,15 +951,22 @@ pub(super) fn place_typos(config: &Config, input: &str, precision: usize, verbos
             None => i += 1,
         }
     }
-    if spans.is_empty() {
-        return None;
-    }
-    // Every combination of corrections (at most 8), each tried as a request.
+    spans
+}
+
+/// Every combination of corrections (at most 8), each tried as a request: those that work.
+fn corrections(config: &Config, words: &[&str], spans: &[Span], precision: usize, verbose: bool) -> Vec<Choice> {
     let mut combos: Vec<Vec<&NearPlace>> = vec![Vec::new()];
-    for (_, _, near) in &spans {
+    for (_, _, near) in spans {
         combos = combos.iter().flat_map(|c| near.iter().map(move |p| [c.as_slice(), &[p]].concat())).take(8).collect();
     }
-    let choices: Vec<Choice> = combos
+    // Several corrections: each named with what it is (`Japan (country), Rome (city)`).
+    let named = |p: &&NearPlace| match (spans.len(), p.country) {
+        (1, _) => p.name.clone(),
+        (_, true) => format!("{} (country)", p.name),
+        (_, false) => format!("{} (city)", p.name),
+    };
+    combos
         .into_iter()
         .filter_map(|combo| {
             let mut out: Vec<&str> = Vec::new();
@@ -902,26 +979,20 @@ pub(super) fn place_typos(config: &Config, input: &str, precision: usize, verbos
             out.extend(&words[at..]);
             let request = out.join(" ");
             let works = matches!(request_with(config, &request, precision, verbose, false), Some(Ok(_)) | Some(Err(TimeError::Ambiguous(_))));
-            // Several corrections: each named with what it is (`Japan (country), Rome (city)`).
-            let named = |p: &&NearPlace| match (spans.len(), p.country) {
-                (1, _) => p.name.clone(),
-                (_, true) => format!("{} (country)", p.name),
-                (_, false) => format!("{} (city)", p.name),
-            };
             works.then(|| Choice {
                 pattern: combo.iter().map(named).collect::<Vec<_>>().join(", "),
                 date: combo.iter().map(|p| p.zone.as_str()).collect::<Vec<_>>().join(", "),
                 request,
             })
         })
-        .collect();
-    if choices.is_empty() {
-        return None;
-    }
-    let misspelt: Vec<String> = spans.iter().map(|(i, n, _)| words[*i..i + n].join(" ")).collect();
-    // What a single misspelt word is, from the places offered (`Tokio`: a city, not Togo).
+        .collect()
+}
+
+/// What the misspelt words are not: for a single one, what the places offered are (`Tokio`: a
+/// city, not Togo).
+fn misspelt_note(spans: &[Span], misspelt: &[String], choices: &[Choice]) -> String {
     let offered = |p: &&NearPlace| choices.iter().any(|c| c.pattern.split(", ").any(|name| name == p.name || name.starts_with(&format!("{} (", p.name))));
-    let note = match &spans[..] {
+    match spans {
         [(_, _, near)] => {
             let near: Vec<&NearPlace> = near.iter().filter(offered).collect();
             let what = match (near.iter().all(|p| p.country), near.iter().any(|p| p.country)) {
@@ -932,8 +1003,7 @@ pub(super) fn place_typos(config: &Config, input: &str, precision: usize, verbos
             format!("`{}` is not {what}", misspelt[0])
         }
         _ => format!("{} are not known places", misspelt.iter().map(|m| format!("`{m}`")).collect::<Vec<_>>().join(", ")),
-    };
-    Some(TimeError::Ambiguous(Ambiguity { text: misspelt.join(", "), choices, kind: AmbiguityKind::City, note }))
+    }
 }
 
 /// Whether a request names a city (`Paris`, `10:00AM New York to Paris`), for the stdin rule.

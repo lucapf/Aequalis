@@ -131,20 +131,21 @@ impl City {
 
     /// A city of the archive's JSON: one line, as the build script writes them.
     fn from_json(text: &str) -> Option<City> {
-        let c = crate::json::parse(text).ok()?;
-        let s = |k: &str| c.get(k).and_then(|v| v.str()).unwrap_or_default().to_string();
-        let n = |k: &str| c.get(k).and_then(|v| v.number());
+        let mut c = crate::json::parse(text).ok()?;
+        // Its strings taken from the line's document, not copied: an archive has 70,000 lines.
+        let s = |c: &mut crate::json::Value, k: &str| c.take(k).into_string().unwrap_or_default();
+        let n = |c: &crate::json::Value, k: &str| c.get(k).and_then(|v| v.number());
         Some(City {
-            id: n("id")? as u64,
-            name: s("name"),
-            lat: n("lat")?,
-            lon: n("lon")?,
-            population: n("population").unwrap_or(0.0) as u64,
-            country_code: s("country_code"),
-            country: s("country"),
-            region: s("region"),
-            updated: s("updated"),
-            aliases: c.get("aliases").map(crate::json::Value::strings).unwrap_or_default(),
+            id: n(&c, "id")? as u64,
+            name: s(&mut c, "name"),
+            lat: n(&c, "lat")?,
+            lon: n(&c, "lon")?,
+            population: n(&c, "population").unwrap_or(0.0) as u64,
+            country_code: s(&mut c, "country_code"),
+            country: s(&mut c, "country"),
+            region: s(&mut c, "region"),
+            updated: s(&mut c, "updated"),
+            aliases: c.take("aliases").into_strings(),
             capital: c.get("capital").and_then(|v| v.boolean()).unwrap_or(false),
         })
     }
@@ -429,12 +430,14 @@ impl Store {
         // first, then the distance, stopped once past the limit.
         let first: String = tz::key(name).chars().take(2).collect();
         let mut best: Vec<(usize, u64)> = Vec::new();
+        let mut distance = tz::Distance::new(&target);
         self.walk(self.lower_bound(&first), |k, offset| {
             if !k.starts_with(first.as_str()) {
                 return false;
             }
-            if k.chars().filter(|&c| c != ' ').count().abs_diff(len) <= limit {
-                if let Some(d) = tz::levenshtein_within(&target, &k.replace(' ', ""), limit) {
+            let letters = || k.chars().filter(|&c| c != ' ');
+            if letters().count().abs_diff(len) <= limit {
+                if let Some(d) = distance.within(letters(), limit) {
                     best.push((d, offset));
                 }
             }

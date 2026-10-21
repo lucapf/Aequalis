@@ -71,7 +71,12 @@ pub struct Entry {
 /// Every entry, in the file's order; the sections in their order.
 pub fn entries() -> &'static [Entry] {
     static ENTRIES: OnceLock<Vec<Entry>> = OnceLock::new();
-    ENTRIES.get_or_init(|| parse(TRIVIA).expect("src/data/trivia.json is valid"))
+    ENTRIES.get_or_init(|| {
+        let mut table = parse(TRIVIA).expect("src/data/trivia.json is valid");
+        // Kept for the life of the process: no spare room.
+        table.shrink_to_fit();
+        table
+    })
 }
 
 pub fn sections() -> Vec<&'static str> {
@@ -86,66 +91,78 @@ pub fn sections() -> Vec<&'static str> {
 
 /// Reads a trivia document; the error names the entry that is wrong.
 pub fn parse(text: &str) -> Result<Vec<Entry>, String> {
-    let doc = json::parse(text)?;
+    let mut doc = json::parse(text)?;
     let mut out = Vec::new();
-    for section in doc.get("sections").map(Value::array).unwrap_or_default() {
-        let section_name = section.get("name").and_then(Value::str).ok_or("a section without a name")?;
-        for e in section.get("entries").map(Value::array).unwrap_or_default() {
-            let name = e.get("name").and_then(Value::str).ok_or(format!("an entry of {section_name} without a name"))?;
-            let text = |key: &str| e.get(key).and_then(Value::str).map(str::to_string);
-            let source = if let Some(v) = e.get("value").and_then(Value::number) {
-                Source::Value(v)
-            } else if let (Some(kind), Some(est)) = (e.get("satellites").and_then(Value::str), e.get("estimate")) {
-                Source::Satellites {
-                    kind: kind.to_string(),
-                    as_of: est.get("as_of").and_then(Value::str).unwrap_or_default().to_string(),
-                    count: est.get("count").and_then(Value::number).ok_or(format!("{name}: no estimate count"))?,
-                }
-            } else if let Some(example) = e.get("tip").and_then(Value::str) {
-                Source::Tip(example.to_string())
-            } else if let [a, b] = e.get("between").map(Value::array).unwrap_or_default() {
-                Source::Between(a.str().unwrap_or_default().to_string(), b.str().unwrap_or_default().to_string())
-            } else if let (Some(live), Some(est)) = (e.get("live"), e.get("estimate")) {
-                let epoch = est.get("epoch").and_then(Value::str).and_then(crate::time::parse_utc).ok_or(format!("{name}: a bad estimate epoch"))?;
-                Source::Spacecraft {
-                    horizons: live.get("horizons").and_then(Value::str).ok_or(format!("{name}: no Horizons id"))?.to_string(),
-                    estimate: Estimate {
-                        epoch,
-                        au: est.get("au").and_then(Value::number).ok_or(format!("{name}: no estimate au"))?,
-                        km_per_s: est.get("km_per_s").and_then(Value::number).unwrap_or(0.0),
-                    },
-                }
-            } else {
-                return Err(format!("{name}: needs `value`, `between`, `tip`, `satellites` + `estimate` or `live` + `estimate`"));
-            };
-            out.push(Entry {
-                section: section_name.to_string(),
-                name: name.to_string(),
-                short: text("short").unwrap_or_default(),
-                description: text("description").unwrap_or_default(),
-                show: e.get("show").map(Value::strings).unwrap_or_default(),
-                source,
-                unit: text("unit"),
-                decimals: e.get("decimals").and_then(Value::number).map(|d| d as usize),
-                launched: text("launched"),
-                planet: text("planet"),
-                wikipedia: text("wikipedia"),
-                value_label: text("value_label"),
-                symbol: text("symbol"),
-                details: e
-                    .get("details")
-                    .map(Value::array)
-                    .unwrap_or_default()
-                    .iter()
-                    .filter_map(|pair| match pair.array() {
-                        [label, line] => Some((label.str()?.to_string(), line.str()?.to_string())),
-                        _ => None,
-                    })
-                    .collect(),
-            });
+    for mut section in doc.take("sections").into_array() {
+        let section_name = section.take("name").into_string().ok_or("a section without a name")?;
+        for e in section.take("entries").into_array() {
+            out.push(entry(&section_name, e)?);
         }
     }
     Ok(out)
+}
+
+/// An entry of the section `section`, its strings taken from the document.
+fn entry(section: &str, mut e: Value) -> Result<Entry, String> {
+    let name = e.take("name").into_string().ok_or(format!("an entry of {section} without a name"))?;
+    let source = source(&name, &e)?;
+    let text = |e: &mut Value, key: &str| e.take(key).into_string();
+    Ok(Entry {
+        section: section.to_string(),
+        short: text(&mut e, "short").unwrap_or_default(),
+        description: text(&mut e, "description").unwrap_or_default(),
+        show: e.take("show").into_strings(),
+        source,
+        unit: text(&mut e, "unit"),
+        decimals: e.get("decimals").and_then(Value::number).map(|d| d as usize),
+        launched: text(&mut e, "launched"),
+        planet: text(&mut e, "planet"),
+        wikipedia: text(&mut e, "wikipedia"),
+        value_label: text(&mut e, "value_label"),
+        symbol: text(&mut e, "symbol"),
+        details: e
+            .take("details")
+            .into_array()
+            .into_iter()
+            .filter_map(|pair| match <[Value; 2]>::try_from(pair.into_array()) {
+                Ok([label, line]) => Some((label.into_string()?, line.into_string()?)),
+                Err(_) => None,
+            })
+            .collect(),
+        name,
+    })
+}
+
+/// Where the value of the entry `name` comes from.
+fn source(name: &str, e: &Value) -> Result<Source, String> {
+    if let Some(v) = e.get("value").and_then(Value::number) {
+        return Ok(Source::Value(v));
+    }
+    if let (Some(kind), Some(est)) = (e.get("satellites").and_then(Value::str), e.get("estimate")) {
+        return Ok(Source::Satellites {
+            kind: kind.to_string(),
+            as_of: est.get("as_of").and_then(Value::str).unwrap_or_default().to_string(),
+            count: est.get("count").and_then(Value::number).ok_or(format!("{name}: no estimate count"))?,
+        });
+    }
+    if let Some(example) = e.get("tip").and_then(Value::str) {
+        return Ok(Source::Tip(example.to_string()));
+    }
+    if let [a, b] = e.get("between").map(Value::array).unwrap_or_default() {
+        return Ok(Source::Between(a.str().unwrap_or_default().to_string(), b.str().unwrap_or_default().to_string()));
+    }
+    let (Some(live), Some(est)) = (e.get("live"), e.get("estimate")) else {
+        return Err(format!("{name}: needs `value`, `between`, `tip`, `satellites` + `estimate` or `live` + `estimate`"));
+    };
+    let epoch = est.get("epoch").and_then(Value::str).and_then(crate::time::parse_utc).ok_or(format!("{name}: a bad estimate epoch"))?;
+    Ok(Source::Spacecraft {
+        horizons: live.get("horizons").and_then(Value::str).ok_or(format!("{name}: no Horizons id"))?.to_string(),
+        estimate: Estimate {
+            epoch,
+            au: est.get("au").and_then(Value::number).ok_or(format!("{name}: no estimate au"))?,
+            km_per_s: est.get("km_per_s").and_then(Value::number).unwrap_or(0.0),
+        },
+    })
 }
 
 /// How a value was obtained.
@@ -705,16 +722,29 @@ mod tests {
         assert!((a_day_later - 172.5 - 16.88 * 86_400.0 / 149_597_870.7).abs() < 1e-9, "{a_day_later}");
     }
 
-    #[test]
-    fn popups() {
+    /// An entry's popup at a fixed time, its numbers as they are.
+    fn popup_of(name: &str) -> Vec<(String, String)> {
         let config = Config::default();
-        let get = |name: &str| entries().iter().find(|e| e.name == name).unwrap();
-        let popup_of = |name: &str| popup(&config, get(name), &facts(&config, get(name), None, 1_791_676_800), 4, &|n| n);
-        // Math: the mathematician and the definition.
+        let entry = entries().iter().find(|e| e.name == name).unwrap();
+        popup(&config, entry, &facts(&config, entry, None, 1_791_676_800), 4, &|n| n)
+    }
+
+    /// A popup's line by its label.
+    fn line(lines: &[(String, String)], label: &str) -> String {
+        lines.iter().find(|(l, _)| l == label).map(|(_, t)| t.clone()).unwrap()
+    }
+
+    #[test]
+    fn popup_of_a_math_entry() {
+        // The mathematician and the definition.
         let pi = popup_of("π (pi)");
         assert_eq!(pi[0], ("Value".to_string(), "3.1415926536".to_string()));
         assert!(pi.iter().any(|(l, t)| l == "Mathematician" && t.contains("Archimedes")));
         assert!(pi.iter().any(|(l, t)| l == "Definition" && t.starts_with("π = C / d")));
+    }
+
+    #[test]
+    fn popup_of_a_spacecraft() {
         // Voyager 1: the link, the current distance in km and au, the launch.
         let v1 = popup_of("Voyager 1");
         assert_eq!(v1[0], ("Wikipedia".to_string(), "https://en.wikipedia.org/wiki/Voyager_1".to_string()));
@@ -724,47 +754,55 @@ mod tests {
         assert_eq!(v1[3], ("Light from the Earth now".to_string(), "23 h 54 min".to_string()));
         assert_eq!(v1[4], ("Light from the Sun now".to_string(), "about 23 h 54 min (±8 min: the Earth's side of its orbit)".to_string()));
         assert_eq!(v1[5], ("Launched".to_string(), "1977-09-05 12:56 UTC".to_string()));
-        let live = popup(
-            &config,
-            get("Voyager 1"),
-            &facts(&config, get("Voyager 1"), Some(crate::online::Stored { value: 172.5, at: 1_791_676_800 }), 1_791_676_800),
-            4,
-            &|n| n,
-        );
+        let config = Config::default();
+        let entry = entries().iter().find(|e| e.name == "Voyager 1").unwrap();
+        let synced = Some(crate::online::Stored { value: 172.5, at: 1_791_676_800 });
+        let live = popup(&config, entry, &facts(&config, entry, synced, 1_791_676_800), 4, &|n| n);
         assert!(live[1].1.contains(" - 172.5 au - 2.7277e-3 ly (synced ") && live[1].1.ends_with(" from JPL Horizons)"), "{:?}", live[1]);
-        // A planet: from the Sun and from the Earth, the next dates.
+    }
+
+    #[test]
+    fn popup_of_a_planet() {
+        // From the Sun and from the Earth, the next dates.
         let mars = popup_of("Mars");
-        let text = |label: &str| mars.iter().find(|(l, _)| l == label).map(|(_, t)| t.clone()).unwrap();
+        let text = |label: &str| line(&mars, label);
         assert_eq!(text("Mean distance from the Sun"), "227943822 km - 1.5237 au - 2.4094e-5 ly");
         assert!(text("Distance from the Earth now").ends_with(" ly"), "every distance in light-years too: {mars:?}");
         assert_eq!(mars.iter().filter(|(l, _)| l == "Distance from the Earth now").count(), 1, "the value's line, not twice");
         assert_eq!(mars[1].0, "Distance from the Earth now", "the value first, after the link");
+        assert_eq!(text("Year"), "686.98 d - 1.8808 yr");
+        // Light from the Sun (Mars: 12.7 to 13.9 min) and from the Earth now.
+        assert!(text("Light from the Sun now").contains(" min "), "{mars:?}");
+        assert!(text("Light from the Earth now").contains(" min ") || text("Light from the Earth now").ends_with(" s"), "{mars:?}");
+        assert!(text("Closest to the Earth").contains(" au - ") && text("Closest to the Earth").contains(" ly, next on "), "{mars:?}");
+        assert!(text("Closest to the Sun (perihelion)").contains(" ly, next on "), "{mars:?}");
+        // Mars's next closest approach: the opposition of February 2027, about 101 million km.
+        assert!(text("Closest to the Earth").starts_with("1014") && text("Closest to the Earth").contains(" Feb 2027"), "{mars:?}");
+        assert!(text("Fastest (perihelion)").starts_with("26.5"), "Mars: {mars:?}");
+        // The light-year itself, exact.
+        assert_eq!(popup_of("Light-year")[1].1, "9460730472581 km - 63241.0771 au - 1 ly");
+    }
+
+    #[test]
+    fn popup_of_the_earth() {
+        let earth = popup_of("Earth");
+        assert!(!earth.iter().any(|(l, _)| l == "Light from the Earth now"), "not for the Earth itself");
+        assert_eq!(earth.iter().filter(|(l, _)| l == "Distance from the Sun now").count(), 1);
+        assert!(!earth.iter().any(|(l, _)| l == "Closest to the Earth"));
+        // Orbital speeds: the Earth's 29.78 km/s on average, 30.29 at perihelion, 29.29 at aphelion.
+        assert!(line(&earth, "Fastest (perihelion)").starts_with("30.29 km/s - 109"), "{earth:?}");
+        assert!(line(&earth, "Slowest (aphelion)").starts_with("29.29 km/s - 105"), "{earth:?}");
+        let now: f64 = line(&earth, "Orbital speed now").split(' ').next().unwrap().parse().unwrap();
+        assert!((29.29..=30.29).contains(&now), "{earth:?}");
+    }
+
+    #[test]
+    fn popups_of_every_entry() {
         // The length of a day (a rotation, sunrise to sunrise) and of a year, for every planet.
         for e in entries().iter().filter(|e| e.planet.is_some()) {
             let lines = popup_of(&e.name);
             assert!(lines.iter().any(|(l, _)| l == "Day (one rotation)") && lines.iter().any(|(l, _)| l == "Year"), "{}", e.name);
         }
-        assert_eq!(text("Year"), "686.98 d - 1.8808 yr");
-        // Light from the Sun (Mars: 12.7 to 13.9 min) and from the Earth now.
-        assert!(text("Light from the Sun now").contains(" min "), "{mars:?}");
-        assert!(text("Light from the Earth now").contains(" min ") || text("Light from the Earth now").ends_with(" s"), "{mars:?}");
-        assert!(!popup_of("Earth").iter().any(|(l, _)| l == "Light from the Earth now"), "not for the Earth itself");
-        assert_eq!(popup_of("Earth").iter().filter(|(l, _)| l == "Distance from the Sun now").count(), 1);
-        assert!(text("Closest to the Earth").contains(" au - ") && text("Closest to the Earth").contains(" ly, next on "), "{mars:?}");
-        // The light-year itself, exact.
-        assert_eq!(popup_of("Light-year")[1].1, "9460730472581 km - 63241.0771 au - 1 ly");
-        assert!(text("Closest to the Sun (perihelion)").contains(" ly, next on "), "{mars:?}");
-        // Mars's next closest approach: the opposition of February 2027, about 101 million km.
-        assert!(text("Closest to the Earth").starts_with("1014") && text("Closest to the Earth").contains(" Feb 2027"), "{mars:?}");
-        assert!(!popup_of("Earth").iter().any(|(l, _)| l == "Closest to the Earth"));
-        // Orbital speeds: the Earth's 29.78 km/s on average, 30.29 at perihelion, 29.29 at aphelion.
-        let earth = popup_of("Earth");
-        let speed = |label: &str| earth.iter().find(|(l, _)| l == label).map(|(_, t)| t.clone()).unwrap();
-        assert!(speed("Fastest (perihelion)").starts_with("30.29 km/s - 109"), "{earth:?}");
-        assert!(speed("Slowest (aphelion)").starts_with("29.29 km/s - 105"), "{earth:?}");
-        let now: f64 = speed("Orbital speed now").split(' ').next().unwrap().parse().unwrap();
-        assert!((29.29..=30.29).contains(&now), "{earth:?}");
-        assert!(text("Fastest (perihelion)").starts_with("26.5"), "Mars: {mars:?}");
         // Every Space object and satellite orbit has a speed.
         for e in entries().iter().filter(|e| (e.section == "Space" && e.name != "Light-year") || e.section == "Satellites") {
             assert!(popup_of(&e.name).iter().any(|(l, _)| l.contains("peed") || l.starts_with("Fastest")), "{}", e.name);
@@ -777,7 +815,7 @@ mod tests {
         }
         // Every entry has a popup.
         for e in entries() {
-            assert!(!popup(&config, e, &facts(&config, e, None, 1_791_676_800), 4, &|n| n).is_empty(), "{}", e.name);
+            assert!(!popup_of(&e.name).is_empty(), "{}", e.name);
         }
     }
 

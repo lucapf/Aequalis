@@ -49,42 +49,44 @@ const SHAPE: &str = "a currency conversion is one amount and one or two currenci
 pub fn all() -> &'static [Currency] {
     static TABLE: OnceLock<Vec<Currency>> = OnceLock::new();
     TABLE.get_or_init(|| {
-        let doc = crate::json::parse(DATA).expect("src/data/currencies.json is valid JSON");
-        let strings = |v: Option<&crate::json::Value>| v.map(crate::json::Value::strings).unwrap_or_default();
-        doc.get("currencies")
-            .map(|c| c.array())
-            .unwrap_or_default()
-            .iter()
-            .filter_map(|c| {
+        let mut doc = crate::json::parse(DATA).expect("src/data/currencies.json is valid JSON");
+        let mut table: Vec<Currency> = doc
+            .take("currencies")
+            .into_array()
+            .into_iter()
+            .filter_map(|mut c| {
                 Some(Currency {
-                    code: c.get("code")?.str()?.to_string(),
-                    name: c.get("name")?.str()?.to_string(),
-                    words: strings(c.get("words")),
-                    symbols: strings(c.get("symbols")),
-                    abbreviations: strings(c.get("abbreviations")),
+                    code: c.take("code").into_string()?,
+                    name: c.take("name").into_string()?,
+                    words: c.take("words").into_strings(),
+                    symbols: c.take("symbols").into_strings(),
+                    abbreviations: c.take("abbreviations").into_strings(),
                 })
             })
-            .collect()
+            .collect();
+        // Kept for the life of the process: no spare room.
+        table.shrink_to_fit();
+        table
     })
 }
 
 /// The currency with ISO code `code`, in any case.
 pub fn get(code: &str) -> Option<&'static Currency> {
-    let i = *index().codes.get(&code.to_ascii_uppercase())?;
+    let i = *index().codes.get(code.to_ascii_uppercase().as_str())?;
     Some(&all()[i])
 }
 
 /// The countries using the currency with ISO code `code` (`Italy`… for EUR), in `tz::countries`
 /// order.
 pub fn users(code: &str) -> &'static [&'static tz::Country] {
-    index().codes.get(&code.to_ascii_uppercase()).map_or(&[], |&i| index().users[i].as_slice())
+    index().codes.get(code.to_ascii_uppercase().as_str()).map_or(&[], |&i| catalog().users[i].as_slice())
 }
 
 /// Whether one of the currency's names or words (as `tz::key` writes them), or its code, starts with
 /// `typed` (as `tz::key` writes it): what `suggest` offers.
 pub fn starts_with(currency: &Currency, typed: &str) -> bool {
     let code = currency.code.as_bytes().get(..typed.len()).is_some_and(|c| c.eq_ignore_ascii_case(typed.as_bytes()));
-    code || index().codes.get(&currency.code).is_some_and(|&i| index().keys[i].iter().any(|k| k.starts_with(typed)))
+    code || index().codes.get(currency.code.as_str()).is_some_and(|&i| catalog().keys[i].iter().any(|k| k.starts_with(typed)))
 }
 
 // ---------------------------------------------------------------- what a word means
@@ -92,7 +94,7 @@ pub fn starts_with(currency: &Currency, typed: &str) -> bool {
 /// The ways currencies are written, normalised once: each lookup is then a hash lookup.
 struct Index {
     /// An ISO code (upper case) → its currency (position in `all()`).
-    codes: HashMap<String, usize>,
+    codes: HashMap<&'static str, usize>,
     /// A name or word (`tz::key`: `us dollar`, `dollar`) → the currencies with it, in order.
     names: HashMap<String, Vec<usize>>,
     abbreviations: HashMap<String, Vec<usize>>,
@@ -102,6 +104,11 @@ struct Index {
     euro_area: Vec<String>,
     /// For misspellings: every name and word of 4 letters or more, squeezed, and its plural.
     forms: Vec<(String, usize)>,
+}
+
+/// What the lists and searches need besides (`users`, `starts_with`, `search`): built when one of
+/// them is first asked for, which a request alone never does.
+struct Catalog {
     /// By currency (as in `all()`): its name and words as `tz::key` writes them (prefixes typed).
     keys: Vec<Vec<String>>,
     /// By currency: the countries using it (`Italy` for EUR), in `tz::countries` order.
@@ -123,17 +130,9 @@ struct Lower {
 fn index() -> &'static Index {
     static INDEX: OnceLock<Index> = OnceLock::new();
     INDEX.get_or_init(|| {
-        let mut index = Index {
-            codes: HashMap::new(),
-            names: HashMap::new(),
-            abbreviations: HashMap::new(),
-            symbols: HashMap::new(),
-            euro_area: EURO_AREA.iter().map(|r| tz::key(r)).collect(),
-            forms: Vec::new(),
-            keys: Vec::new(),
-            users: vec![Vec::new(); all().len()],
-            lower: Vec::new(),
-        };
+        let euro_area = EURO_AREA.iter().map(|r| tz::key(r)).collect();
+        let mut index =
+            Index { codes: HashMap::new(), names: HashMap::new(), abbreviations: HashMap::new(), symbols: HashMap::new(), euro_area, forms: Vec::new() };
         let add = |map: &mut HashMap<String, Vec<usize>>, k: String, i: usize| {
             if !k.is_empty() {
                 let list = map.entry(k).or_default();
@@ -143,8 +142,7 @@ fn index() -> &'static Index {
             }
         };
         for (i, c) in all().iter().enumerate() {
-            index.codes.entry(c.code.clone()).or_insert(i);
-            let mut keys = Vec::new();
+            index.codes.entry(c.code.as_str()).or_insert(i);
             for form in std::iter::once(&c.name).chain(&c.words) {
                 let k = tz::key(form);
                 if form.chars().count() >= 4 {
@@ -152,10 +150,8 @@ fn index() -> &'static Index {
                     index.forms.push((format!("{squeezed}s"), i));
                     index.forms.push((squeezed, i));
                 }
-                keys.push(k.clone());
                 add(&mut index.names, k, i);
             }
-            index.keys.push(keys);
             for a in &c.abbreviations {
                 add(&mut index.abbreviations, tz::key(a), i);
             }
@@ -163,15 +159,24 @@ fn index() -> &'static Index {
                 add(&mut index.symbols, symbol.to_lowercase(), i);
             }
         }
+        index
+    })
+}
+
+fn catalog() -> &'static Catalog {
+    static CATALOG: OnceLock<Catalog> = OnceLock::new();
+    CATALOG.get_or_init(|| {
+        let mut users = vec![Vec::new(); all().len()];
         for country in tz::countries() {
-            if let Some(&i) = index.codes.get(&country.currency) {
-                index.users[i].push(country);
+            if let Some(&i) = index().codes.get(country.currency.as_str()) {
+                users[i].push(country);
             }
         }
+        let keys = all().iter().map(|c| std::iter::once(&c.name).chain(&c.words).map(|form| tz::key(form)).collect()).collect();
         let lower = |texts: &[String]| texts.iter().map(|t| t.to_lowercase()).collect::<Vec<_>>();
-        index.lower = all()
+        let lower = all()
             .iter()
-            .zip(&index.users)
+            .zip(&users)
             .map(|(c, users)| Lower {
                 code: c.code.to_lowercase(),
                 name: c.name.to_lowercase(),
@@ -180,7 +185,7 @@ fn index() -> &'static Index {
                 countries: users.iter().flat_map(|k| std::iter::once(&k.name).chain(&k.aliases)).map(|n| n.to_lowercase()).collect(),
             })
             .collect();
-        index
+        Catalog { keys, users, lower }
     })
 }
 
@@ -196,7 +201,7 @@ pub fn exact(text: &str) -> Option<Vec<&'static str>> {
     let squeezed = key.replace(' ', "");
     // An ISO code: only that one.
     if squeezed.len() == 3 && squeezed.chars().all(|c| c.is_ascii_alphabetic()) {
-        if let Some(&i) = index.codes.get(&squeezed.to_ascii_uppercase()) {
+        if let Some(&i) = index.codes.get(squeezed.to_ascii_uppercase().as_str()) {
             return Some(vec![all()[i].code.as_str()]);
         }
     }
@@ -770,7 +775,7 @@ pub fn search(query: &str) -> Vec<&'static Currency> {
     let q = query.trim().to_lowercase();
     let starts_a_word = |text: &str| text.split(|ch: char| !ch.is_alphanumeric()).any(|w| w.starts_with(&q));
     let mut scored: Vec<(usize, usize, &Currency)> = Vec::new();
-    for (order, (c, l)) in all().iter().zip(&index().lower).enumerate() {
+    for (order, (c, l)) in all().iter().zip(&catalog().lower).enumerate() {
         let score = if q.is_empty() || l.code == q || l.symbols.contains(&q) {
             Some(0)
         } else if l.code.starts_with(&q) {
@@ -795,6 +800,14 @@ pub fn search(query: &str) -> Vec<&'static Currency> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn countries_using_a_currency() {
+        let names = |code: &str| users(code).iter().map(|c| c.name.as_str()).collect::<Vec<_>>();
+        assert!(names("EUR").contains(&"Italy") && names("eur").contains(&"France"), "any case: {:?}", names("eur"));
+        assert_eq!(names("JPY"), ["Japan"]);
+        assert!(users("XXX").is_empty());
+    }
     use crate::online::Stored;
 
     /// ExchangeRate-API's answer, abridged (USD base).

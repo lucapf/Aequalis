@@ -346,6 +346,8 @@ mod tests {
         assert_eq!(copy_of("16 Oct 26 4:00 AM GMT+9 Tokyo"), "16 Oct 26 4:00 AM GMT+9 Tokyo");
         assert!(!is_format("YYYY/MM"));
         assert!(!is_format("km"));
+        assert!(is_format("iso-week") && is_format("unix-ms") && is_format("local"));
+        assert!(!is_format("iso-") && !is_format("unix-MS"));
     }
 
     /// The Measures open at the class of the request's unit.

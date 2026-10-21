@@ -42,27 +42,54 @@ thread_local! {
 pub fn run() -> i32 {
     let autostart = std::env::args().any(|a| a == system::AUTOSTART);
     let class = wide(CLASS);
-    // SAFETY: a named mutex, kept for the process's life; the other window is only posted to.
-    unsafe {
-        let name = wide("Local\\Aequalis.Tray");
-        CreateMutexW(std::ptr::null_mut(), 0, name.as_ptr());
-        if GetLastError() == ERROR_ALREADY_EXISTS {
-            let other = FindWindowW(class.as_ptr(), std::ptr::null());
-            if !other.is_null() {
-                let mut process = 0;
-                GetWindowThreadProcessId(other, &mut process);
-                AllowSetForegroundWindow(process);
-                PostMessageW(other, WM_SHOW, 0, 0);
-            }
-            return 0;
-        }
+    if already_running(&class) {
+        return 0;
     }
     // The zones' rules (the registry) and the device's zone; downloads with no console window.
     device::start();
     aequalis::http::register(Box::new(system::Curl));
+    let hwnd = main_window(&class);
+    // Started by hand (the Start menu, the installer's last page): the box opens at once.
+    if !autostart {
+        popup::show(anchor(hwnd));
+    }
+    let mut msg = MSG { hwnd: std::ptr::null_mut(), message: 0, wParam: 0, lParam: 0, time: 0, pt: POINT::default(), lPrivate: 0 };
+    // SAFETY: the usual message loop.
+    unsafe {
+        while GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) > 0 {
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+    }
+    0
+}
 
+/// Whether Aequalis runs already (its named mutex exists): then its box is asked to open.
+fn already_running(class: &[u16]) -> bool {
+    // SAFETY: a named mutex, kept for the process's life; the other window is only posted to.
+    unsafe {
+        let name = wide("Local\\Aequalis.Tray");
+        CreateMutexW(std::ptr::null_mut(), 0, name.as_ptr());
+        if GetLastError() != ERROR_ALREADY_EXISTS {
+            return false;
+        }
+        let other = FindWindowW(class.as_ptr(), std::ptr::null());
+        if !other.is_null() {
+            let mut process = 0;
+            GetWindowThreadProcessId(other, &mut process);
+            AllowSetForegroundWindow(process);
+            PostMessageW(other, WM_SHOW, 0, 0);
+        }
+        true
+    }
+}
+
+/// The program's window: top-level and never shown, so that it gets the system's broadcasts; with
+/// the tray icon, the hotkey (Win+Alt+A), the box, and the timers (the zone's hourly check, the
+/// first sync).
+fn main_window(class: &[u16]) -> HWND {
     // SAFETY: the window class and window live for the program's life.
-    let hwnd = unsafe {
+    unsafe {
         let instance = GetModuleHandleW(std::ptr::null());
         INSTANCE.with(|i| i.set(instance));
         let wc = WNDCLASSEXW {
@@ -81,7 +108,6 @@ pub fn run() -> i32 {
         };
         RegisterClassExW(&wc);
         let title = wide("Aequalis");
-        // A top-level window (never shown), so that it gets the system's broadcasts.
         let hwnd = CreateWindowExW(
             0,
             class.as_ptr(),
@@ -105,20 +131,7 @@ pub fn run() -> i32 {
         SetTimer(hwnd, TIMER_HOURLY, device::CHECK_EVERY.as_millis() as u32, std::ptr::null());
         SetTimer(hwnd, TIMER_FIRST_SYNC, FIRST_SYNC_AFTER_MS, std::ptr::null());
         hwnd
-    };
-    // Started by hand (the Start menu, the installer's last page): the box opens at once.
-    if !autostart {
-        popup::show(anchor(hwnd));
     }
-    let mut msg = MSG { hwnd: std::ptr::null_mut(), message: 0, wParam: 0, lParam: 0, time: 0, pt: POINT::default(), lPrivate: 0 };
-    // SAFETY: the usual message loop.
-    unsafe {
-        while GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) > 0 {
-            TranslateMessage(&msg);
-            DispatchMessageW(&msg);
-        }
-    }
-    0
 }
 
 /// The tray icon: added, or added again (`NIM_ADD`), with the current monitor's size.
@@ -237,28 +250,25 @@ fn menu(hwnd: HWND, at: POINT) {
 
 unsafe extern "system" fn proc_(hwnd: HWND, msg: u32, w: usize, l: isize) -> isize {
     match msg {
-        WM_TRAY => {
-            // NOTIFYICON_VERSION_4: the event in the low word, where it happened in `w`.
-            let at = point(w as isize);
-            match low(l) {
-                NIN_SELECT | NIN_KEYSELECT => popup::toggle(at),
-                WM_CONTEXTMENU => menu(hwnd, at),
-                _ => {}
-            }
-            0
-        }
-        WM_HOTKEY if w == HOTKEY_ID as usize => {
-            popup::toggle(anchor(hwnd));
-            0
-        }
-        WM_SHOW => {
-            popup::show(anchor(hwnd));
-            0
-        }
-        WM_SYNCED => {
-            popup::data_changed(false);
-            0
-        }
+        WM_QUERYENDSESSION => 1,
+        _ if handled(hwnd, msg, w, l) => 0,
+        _ => DefWindowProcW(hwnd, msg, w, l),
+    }
+}
+
+/// A message the program's window answers itself (with 0): the tray icon's clicks and menu, the
+/// hotkey, the timers, the system's broadcasts. `false` for the others.
+unsafe fn handled(hwnd: HWND, msg: u32, w: usize, l: isize) -> bool {
+    match msg {
+        // NOTIFYICON_VERSION_4: the event in the low word, where it happened in `w`.
+        WM_TRAY => match low(l) {
+            NIN_SELECT | NIN_KEYSELECT => popup::toggle(point(w as isize)),
+            WM_CONTEXTMENU => menu(hwnd, point(w as isize)),
+            _ => {}
+        },
+        WM_HOTKEY if w == HOTKEY_ID as usize => popup::toggle(anchor(hwnd)),
+        WM_SHOW => popup::show(anchor(hwnd)),
+        WM_SYNCED => popup::data_changed(false),
         WM_TIMER => {
             if w == TIMER_FIRST_SYNC {
                 KillTimer(hwnd, TIMER_FIRST_SYNC);
@@ -266,42 +276,32 @@ unsafe extern "system" fn proc_(hwnd: HWND, msg: u32, w: usize, l: isize) -> isi
                 device::check();
             }
             download(true);
-            0
         }
         // The date, the time or the time zone changed (a setting, a trip): the zone is read again.
         WM_TIMECHANGE => {
             device::check();
             popup::data_changed(SYNCING.load(Ordering::SeqCst));
-            0
         }
         // Light or dark.
         WM_SETTINGCHANGE => {
-            let area = from_wide_ptr(l as *const u16, 64);
-            if area == "ImmersiveColorSet" {
+            if from_wide_ptr(l as *const u16, 64) == "ImmersiveColorSet" {
                 popup::theme_changed();
             }
-            0
         }
-        WM_QUERYENDSESSION => 1,
         // Windows shutting down, or an installer replacing the program.
         WM_ENDSESSION if w != 0 => {
             DestroyWindow(hwnd);
-            0
         }
         WM_CLOSE => {
             DestroyWindow(hwnd);
-            0
         }
         WM_DESTROY => {
             remove_icon(hwnd);
             UnregisterHotKey(hwnd, HOTKEY_ID);
             PostQuitMessage(0);
-            0
         }
-        _ if msg != 0 && msg == TASKBAR_CREATED.with(|t| t.get()) => {
-            add_icon(hwnd, NIM_ADD);
-            0
-        }
-        _ => DefWindowProcW(hwnd, msg, w, l),
+        _ if msg != 0 && msg == TASKBAR_CREATED.with(|t| t.get()) => add_icon(hwnd, NIM_ADD),
+        _ => return false,
     }
+    true
 }
