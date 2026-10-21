@@ -445,6 +445,7 @@ pub fn json_where(settings: &Settings, keep: impl Fn(&Key) -> bool) -> String {
                 .str("kind", kind)
                 .strs("options", &options.iter().map(|o| o.to_string()).collect::<Vec<_>>())
                 .str("about", k.about)
+                .num("advanced", k.advanced)
                 .finish()
         })
         .collect();

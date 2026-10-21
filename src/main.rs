@@ -65,6 +65,18 @@ fn main() -> ExitCode {
             }
         };
     }
+    if args.iter().any(|a| a == "--reset-settings") {
+        return match settings::path().ok_or_else(|| "no settings folder".to_string()).and_then(|p| settings::reset_in(&p)) {
+            Ok(_) => {
+                println!("every setting is back to its default");
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("aequalis: error: {e}");
+                ExitCode::from(2)
+            }
+        };
+    }
     if args.iter().any(|a| a == "--settings") {
         let path = settings::path();
         return match path.as_deref().map(settings::load_from).unwrap_or(Ok(settings::Settings::default())) {

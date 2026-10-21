@@ -54,6 +54,7 @@ Usage:
                            settings say
   aequalis --settings      every setting, its value and what it does
   aequalis --set key=value change a setting (`aequalis --set key`: back to its default)
+  aequalis --reset-settings  every setting back to its default
   aequalis --autocompletion <bash|zsh>
   aequalis --help | --version
 
