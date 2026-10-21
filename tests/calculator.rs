@@ -4,7 +4,8 @@
 use std::process::{Command, Output};
 
 fn aequalis(args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_aequalis")).arg("-v").args(args).output().expect("run aequalis")
+    // The C locale: metric, and the plain number format, whatever the machine.
+    Command::new(env!("CARGO_BIN_EXE_aequalis")).arg("-v").args(args).env("LC_ALL", "C").output().expect("run aequalis")
 }
 
 /// (stdout, stderr) of a successful run.

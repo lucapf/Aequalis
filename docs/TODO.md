@@ -69,9 +69,13 @@ panel), status; no modes.
       (`androidx.window`): the result above the fold, the keys below.
 - [ ] 6f. Aequalis from anywhere (branch `android-quick-input`, to try): a small window over the app
       in use (`QuickActivity`), the phone's keyboard, the answer as you type, Copy (value or
-      expression), Open in Aequalis. Opened from another app's text selection ("Aequalis" beside
-      Copy; Replace puts the result in place of an editable selection), from Share, from the Quick
-      Settings tile (`QuickTile`) and from a long press on the icon (res/xml/shortcuts.xml).
+      expression), Open in Aequalis. Opened from Share, from the Quick Settings tile (`QuickTile`)
+      and from a long press on the icon (res/xml/shortcuts.xml). Not in the text-selection menu:
+      too invasive (and MIUI didn't show it).
+- [x] 6g. A unit alone converts to the device's measurement system (`28 in` → cm on a metric phone,
+      `10 km` → mi on an imperial one), as `12 usd` to the local currency (`convert::counterpart`:
+      the closest in size, or the usual one: km/h ↔ mph, °F ↔ °C, hp → kW). A unit of the device's
+      own system still asks for its target.
 - [ ] 7. Docs, help, dead-code cleanup.
 
 ## Android app

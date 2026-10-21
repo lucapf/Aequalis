@@ -31,6 +31,17 @@ pub enum System {
     Both,
 }
 
+impl System {
+    /// Metric for imperial and the other way round; `Both` stays itself.
+    pub fn other(self) -> System {
+        match self {
+            System::Metric => System::Imperial,
+            System::Imperial => System::Metric,
+            System::Both => System::Both,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum DataSize {
     Bit,
@@ -119,7 +130,7 @@ const fn data(symbol: &'static str, name: &'static str, aliases: &'static [&'sta
     Unit { symbol, name, aliases, factor, offset: 0.0, inverse: false, data: Some(DataKind { size, prefix }), system }
 }
 
-const METRIC_IMPERIAL: [&str; 2] = ["Metric", "Imperial"];
+pub(crate) const METRIC_IMPERIAL: [&str; 2] = ["Metric", "Imperial"];
 
 /// Time units, all on the first tab ("Durations"; the second, "Formats", lists the date formats):
 /// `ns`…`h` are exact; `d wk mo yr` are fixed lengths in conversions (Julian year, 365.25 d;

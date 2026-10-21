@@ -2,7 +2,7 @@
 //! SI units and their dimensions, so compound units (`km/h`, `m/s^2`, `Mb/s`) convert to and
 //! from the named ones (`mph`, `MB/s`).
 
-use crate::config::{Category, Config, DataSize, Dims, Prefix, Unit};
+use crate::config::{Category, Config, DataSize, Dims, Prefix, System, Unit};
 use std::fmt;
 
 #[derive(Debug, PartialEq)]
@@ -195,6 +195,27 @@ fn split_power(name: &str) -> Option<(&str, &str)> {
 
 /// Converts `value` from one unit to another (named or compound) of the same dimensions; or of
 /// the reciprocal ones when a side is a fuel economy unit (`mpg` ↔ `l/100km`).
+/// The unit of the device's measurement system that `unit` is converted to when none is written
+/// (`28 in` → `cm` on a metric phone, `10 km` → `mi` on an imperial one): of `local`, of the same
+/// kind (reciprocal or not: `mpg` → `l/100km`), the closest in size. `None` for a unit already of
+/// `local` or of both, and in the classes not split metric / imperial (durations, data sizes).
+pub fn counterpart<'a>(category: &'a Category, unit: &Unit, local: System) -> Option<&'a Unit> {
+    // Angles have both tabs, but no system a person uses instead of the other.
+    if category.systems != crate::config::METRIC_IMPERIAL || category.name == "Angle" || local == System::Both || unit.system != local.other() {
+        return None;
+    }
+    let candidates = || category.units.iter().filter(|u| u.system == local && u.inverse == unit.inverse && u.factor > 0.0);
+    if let Some(&(_, to)) = USUAL.iter().find(|(from, _)| *from == unit.symbol) {
+        return candidates().find(|u| u.symbol == to);
+    }
+    // The US units before the UK ones, for the phones that are imperial (the US, Liberia, Myanmar).
+    let distance = |u: &&Unit| (u.factor / unit.factor).ln().abs() + if u.symbol.ends_with("-uk") { 1.0 } else { 0.0 };
+    candidates().min_by(|a, b| distance(a).total_cmp(&distance(b)))
+}
+
+/// Where the closest in size is not what people use: speeds, temperatures, engines.
+const USUAL: &[(&str, &str)] = &[("km/h", "mph"), ("mph", "km/h"), ("m/s", "ft/s"), ("C", "F"), ("K", "F"), ("F", "C"), ("hp", "kW")];
+
 pub fn convert<'a>(config: &'a Config, value: f64, from: &str, to: &str) -> Result<(f64, Resolved<'a>), ConvertError> {
     let currency = |text: &str| crate::currency::exact(text).is_some();
     let (a, b) = match (resolve(config, from), resolve(config, to)) {

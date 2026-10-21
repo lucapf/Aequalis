@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -56,10 +55,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * Aequalis from anywhere, in a small window over the app in use: the text selected in another app
- * (its menu's "Aequalis": `ACTION_PROCESS_TEXT`), text shared to it (`ACTION_SEND`), the Quick
- * Settings tile (`QuickTile`) and the icon's shortcut (res/xml/shortcuts.xml). The phone's keyboard,
- * the answer as you type, Copy; from an editable selection, Replace puts the result in its place.
+ * Aequalis from anywhere, in a small window over the app in use: text shared to it (`ACTION_SEND`),
+ * the Quick Settings tile (`QuickTile`) and the icon's shortcut (res/xml/shortcuts.xml). Not in the
+ * text-selection menu: too much in every app. The phone's keyboard, the answer as you type, Copy.
  */
 class QuickActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -69,12 +67,11 @@ class QuickActivity : ComponentActivity() {
         History.load(applicationContext)
         // A dialog's window is narrow: as wide as the screen allows (its margins kept).
         window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        val (text, editable) = given(intent)
+        val text = given(intent)
         setContent {
             QuickTheme {
                 QuickInput(
                     initial = text,
-                    replace = if (editable) { result -> setResult(RESULT_OK, Intent().putExtra(Intent.EXTRA_PROCESS_TEXT, result)); finish() } else null,
                     open = { request ->
                         startActivity(
                             Intent(this, MainActivity::class.java).putExtra(MainActivity.REQUEST, request)
@@ -89,16 +86,8 @@ class QuickActivity : ComponentActivity() {
     }
 
     companion object {
-        /** The text the window opens with, and whether Replace can give a result back: the
-         *  selection (editable unless the app says read-only), what was shared, or nothing. */
-        fun given(intent: Intent?): Pair<String, Boolean> = when (intent?.action) {
-            Intent.ACTION_PROCESS_TEXT -> {
-                val text = intent.getCharSequenceExtra(Intent.EXTRA_PROCESS_TEXT)?.toString().orEmpty()
-                text to !intent.getBooleanExtra(Intent.EXTRA_PROCESS_TEXT_READONLY, false)
-            }
-            Intent.ACTION_SEND -> intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty() to false
-            else -> "" to false
-        }.let { (text, editable) -> oneLine(text) to editable }
+        /** The text the window opens with: what was shared, or nothing. */
+        fun given(intent: Intent?): String = oneLine(if (intent?.action == Intent.ACTION_SEND) intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty() else "")
 
         /** A request is one line, at most the core's length. */
         private fun oneLine(text: String): String = text.replace(Regex("\\s+"), " ").trim().take(Core.maxInput)
@@ -122,7 +111,7 @@ private fun QuickTheme(content: @Composable () -> Unit) {
 
 /** The request (the phone's keyboard), the answer as it is typed, and what to do with it. */
 @Composable
-private fun QuickInput(initial: String, replace: ((String) -> Unit)?, open: (String) -> Unit, close: () -> Unit) {
+private fun QuickInput(initial: String, open: (String) -> Unit, close: () -> Unit) {
     val context = LocalContext.current
     var field by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue(initial, TextRange(initial.length))) }
     var submitted by rememberSaveable { mutableStateOf(false) }
@@ -182,8 +171,6 @@ private fun QuickInput(initial: String, replace: ((String) -> Unit)?, open: (Str
             if (result != null) {
                 val value = result.value ?: result.result.orEmpty()
                 val whole = result.expression ?: result.result.orEmpty()
-                // From an editable selection: the result, as shown (`3.27 EUR`), in place of the request.
-                replace?.let { give -> Button(onClick = { keep(result); give(result.result.orEmpty()) }) { Text("Replace") } }
                 OutlinedButton(onClick = { keep(result); copy(value); close() }) { Text("Copy $value") }
                 OutlinedButton(onClick = { keep(result); copy(whole); close() }) { Text("Copy expression") }
             }

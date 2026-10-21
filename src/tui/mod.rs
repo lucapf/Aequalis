@@ -1200,6 +1200,8 @@ mod tests {
     use super::*;
 
     fn options(config: &Config) -> Options<'static> {
+        // Metric whatever the machine: a unit alone converts to the device's system.
+        aequalis::locale::set_device_system(aequalis::config::System::Metric);
         Options { positional: Vec::new(), precision: config.default_precision, silent: false, verbose: false }
     }
 

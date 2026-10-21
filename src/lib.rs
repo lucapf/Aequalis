@@ -535,7 +535,14 @@ fn calculation(config: &Config, opts: &Options, input: &str) -> Result<Output, C
     if matches!(words[..], [] | [_]) && words.iter().all(|w| config::is_number_word(w)) {
         return Ok(Output { stdout: convert::format_value(value, opts.precision), notes, from: Some(written.to_string()), ..Output::default() });
     }
+    // The device's system for a unit alone: `28 in` gives cm on a metric phone (as `12 usd` the local
+    // currency); a unit of the device's own system still waits for its target.
+    let local = match words[..] {
+        [from] => convert::find_unit(config, from).and_then(|(category, unit)| convert::counterpart(category, unit, locale::device_system())),
+        _ => None,
+    };
     let (from, to) = match words[..] {
+        [from] if local.is_some() => (from, local.map_or("", |u| u.symbol)),
         // A unit so far (`10 km`, `10 km to`): the target comes next; for a compound one (`m/s^2`) no
         // kind's units to list.
         [from] | [from, _] if words.len() == 1 || waiting(words[1]) => {
@@ -554,6 +561,11 @@ fn calculation(config: &Config, opts: &Options, input: &str) -> Result<Output, C
     let warnings = match (opts.silent, source, target.unit) {
         (false, Some((_, from_unit)), Some(to_unit)) => convert::warnings(from_unit, to_unit),
         _ => Vec::new(),
+    };
+    // Why that unit: the device's system (`-v` shows it, as the currencies' local note).
+    let notes = match (local, opts.verbose && !opts.silent) {
+        (Some(_), true) => notes.into_iter().chain([format!("to {}: the device's measurement system", target.symbol)]).collect(),
+        _ => notes,
     };
     // The unit by its symbol (`kilometres` → `km`); a compound one (`m/s^2`) as written.
     let from = format!("{written} {}", source.map_or(from, |(_, unit)| unit.symbol));

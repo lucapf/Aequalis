@@ -1888,6 +1888,8 @@ mod tests {
     }
 
     fn screen(keys: &str, rows: usize, cols: usize) -> (Vec<String>, Option<(usize, usize)>) {
+        // Metric whatever the machine: a unit alone converts to the device's system.
+        aequalis::locale::set_device_system(aequalis::config::System::Metric);
         let config = Config::default();
         // Verbose: the status line shows the notes.
         let opts = Options { positional: Vec::new(), precision: 4, silent: false, verbose: true };
