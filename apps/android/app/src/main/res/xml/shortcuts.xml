@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A long press on the icon: Aequalis's small window (QuickActivity), the phone's keyboard open. -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="quick"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/quick_short"
+        android:shortcutLongLabel="@string/quick_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="io.lucapf.aequalis"
+            android:targetClass="io.lucapf.aequalis.QuickActivity" />
+    </shortcut>
+</shortcuts>

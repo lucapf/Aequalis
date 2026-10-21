@@ -1,3 +1,7 @@
 <resources>
     <string name="app_name">Aequalis</string>
+    <!-- The text-selection menu's entry, the Quick Settings tile and the icon's shortcut. -->
+    <string name="quick_menu">Aequalis</string>
+    <string name="quick_short">Quick answer</string>
+    <string name="quick_long">Quick answer: type it, get it</string>
 </resources>

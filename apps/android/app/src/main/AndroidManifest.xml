@@ -25,7 +25,45 @@
 
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- A long press on the icon: the small window (QuickActivity). -->
+            <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />
         </activity>
+        <!-- Aequalis from anywhere: a small window over the app in use. Its own task, out of the
+             recent apps; from another app's text selection, in that app's task, to give a result
+             back (Replace). -->
+        <activity
+            android:name=".QuickActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:label="@string/quick_menu"
+            android:taskAffinity=""
+            android:theme="@style/Theme.Aequalis.Quick">
+            <intent-filter>
+                <action android:name="android.intent.action.PROCESS_TEXT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+        <!-- The Quick Settings tile. -->
+        <service
+            android:name=".QuickTile"
+            android:exported="true"
+            android:icon="@drawable/ic_tile"
+            android:label="@string/quick_short"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
     </application>
 
 </manifest>

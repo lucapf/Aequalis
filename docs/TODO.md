@@ -67,6 +67,11 @@ panel), status; no modes.
       History · Measures · Currencies · Trivia, what it writes leaving it open; the panes meet at
       the fold. Phones, portrait and landscape, unchanged. Later: the tabletop posture
       (`androidx.window`): the result above the fold, the keys below.
+- [ ] 6f. Aequalis from anywhere (branch `android-quick-input`, to try): a small window over the app
+      in use (`QuickActivity`), the phone's keyboard, the answer as you type, Copy (value or
+      expression), Open in Aequalis. Opened from another app's text selection ("Aequalis" beside
+      Copy; Replace puts the result in place of an editable selection), from Share, from the Quick
+      Settings tile (`QuickTile`) and from a long press on the icon (res/xml/shortcuts.xml).
 - [ ] 7. Docs, help, dead-code cleanup.
 
 ## Android app

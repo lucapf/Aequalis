@@ -93,6 +93,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
+    companion object {
+        /** A request to open with (from the small window's "Open in Aequalis", `QuickActivity`). */
+        const val REQUEST = "io.lucapf.aequalis.REQUEST"
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // The core in the background (requests wait for it, a few milliseconds), then the data
@@ -111,7 +116,9 @@ class MainActivity : ComponentActivity() {
         setContent {
             AequalisTheme {
                 // Transparent: the theme draws the skin's background behind everything.
-                Surface(Modifier.fillMaxSize(), color = Color.Transparent, contentColor = MaterialTheme.colorScheme.onSurface) { AequalisApp() }
+                Surface(Modifier.fillMaxSize(), color = Color.Transparent, contentColor = MaterialTheme.colorScheme.onSurface) {
+                    AequalisApp(initial = intent.getStringExtra(REQUEST).orEmpty())
+                }
             }
             var splashing by remember { mutableStateOf(splash) }
             if (splashing) SplashScreen(done = { Splash.played = true; splashing = false })
@@ -163,9 +170,9 @@ data class Edit(val text: String = "", val cursor: Int = 0) {
 val EditSaver = listSaver<Edit, Any>(save = { listOf(it.text, it.cursor) }, restore = { Edit(it[0] as String, it[1] as Int) })
 
 @Composable
-fun AequalisApp() {
+fun AequalisApp(initial: String = "") {
     // `rememberSaveable`: the user's work survives Android recreating the screen.
-    var edit by rememberSaveable(stateSaver = EditSaver) { mutableStateOf(Edit()) }
+    var edit by rememberSaveable(stateSaver = EditSaver) { mutableStateOf(Edit(initial, initial.length)) }
     // Enter was pressed on this request: the core then shows its error even in the middle of a word.
     var submitted by rememberSaveable { mutableStateOf(false) }
     var panel by rememberSaveable { mutableStateOf<Panel?>(null) }

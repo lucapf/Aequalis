@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The Quick Settings tile's icon (QuickTile): the q and its arrows cut close (x 208 to 816, y 220
+     to 800 of the icon's 1024), white: the system tints it. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="640"
+    android:viewportHeight="640">
+    <group android:translateX="-192" android:translateY="-190">
+    <path android:fillColor="#FFFFFFFF" android:fillType="evenOdd"
+              android:pathData="M 468 220 A 260 260 0 0 1 716 402 L 716 220 L 816 220 L 816 750 A 50 50 0 0 1 716 750 L 716 558 A 260 260 0 0 1 468 740 A 260 260 0 0 1 468 220 Z M 468 330 A 150 150 0 0 1 468 630 A 150 150 0 0 1 468 330 Z" />
+    <path android:fillColor="#FFFFFFFF" android:pathData="M 374 398 L 476 398 L 476 378 Q 476 366 486 372 L 552 414 Q 562 420 552 426 L 486 468 Q 476 474 476 462 L 476 442 L 374 442 A 22 22 0 0 1 374 398 Z" />
+    <path android:fillColor="#FFFFFFFF" android:pathData="M 562 518 L 460 518 L 460 498 Q 460 486 450 492 L 384 534 Q 374 540 384 546 L 450 588 Q 460 594 460 582 L 460 562 L 562 562 A 22 22 0 0 0 562 518 Z" />
+    </group>
+</vector>

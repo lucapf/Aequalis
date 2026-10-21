@@ -10,4 +10,14 @@
         <item name="android:windowSplashScreenBackground" tools:targetApi="31">@color/ic_launcher_background</item>
         <item name="android:windowSplashScreenAnimatedIcon" tools:targetApi="31">@android:color/transparent</item>
     </style>
+
+    <!-- The small window over other apps (QuickActivity): floating, its own rounded card drawn by
+         Compose on a transparent window, the app behind dimmed; a tap outside closes it. -->
+    <style name="Theme.Aequalis.Quick" parent="android:Theme.Material.Light.Dialog.NoActionBar">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowIsFloating">true</item>
+        <item name="android:windowCloseOnTouchOutside">true</item>
+        <item name="android:backgroundDimEnabled">true</item>
+        <item name="android:windowSoftInputMode">stateVisible|adjustResize</item>
+    </style>
 </resources>
