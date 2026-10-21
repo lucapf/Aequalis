@@ -42,10 +42,11 @@ private val INSTALL = listOf(
 /** The Play Store's page of the app: null until it is published there. */
 private val PLAY_STORE: String? = null
 
-/** What Share sends: the install links, to give Aequalis to someone. */
-private fun installText(tagline: String): String {
+/** What Share sends: the tagline and what Aequalis does, then the install links, to give it to
+ *  someone. */
+internal fun installText(tagline: String, descriptor: String): String {
     val links = (INSTALL + listOfNotNull(PLAY_STORE?.let { "Android" to it })).joinToString("\n") { (system, link) -> "$system: $link" }
-    return "Aequalis, $tagline.\n$links"
+    return "Aequalis — $tagline\n$descriptor\n\n$links"
 }
 
 /** About Aequalis: the version, the online data and its sources (with their credits), how to
@@ -66,7 +67,8 @@ fun AboutScreen(close: () -> Unit, modifier: Modifier = Modifier) {
         LazyColumn(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item {
                 Text(a.name, style = MaterialTheme.typography.headlineMedium)
-                Text(a.tagline, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(a.tagline, style = MaterialTheme.typography.titleMedium)
+                Text(a.descriptor, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text("App ${appVersion ?: "?"} · core ${a.version}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             items(a.facts) { (label, text) -> Fact(label, text) }
@@ -75,7 +77,7 @@ fun AboutScreen(close: () -> Unit, modifier: Modifier = Modifier) {
             items(INSTALL) { (system, link) -> Fact(system, link, onClick = { open(link) }) }
             item {
                 Button(onClick = {
-                    val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, installText(a.tagline))
+                    val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, installText(a.tagline, a.descriptor))
                     context.startActivity(Intent.createChooser(send, null))
                 }) {
                     Icon(ShareIcon, contentDescription = null)

@@ -661,7 +661,7 @@ fn header(pass: &mut Pass, s: &State, f: &Fonts) -> i32 {
     field.bottom + s.px(12)
 }
 
-/// About, from `y`: the icon, the name and tagline, the facts, the link.
+/// About, from `y`: the icon, the name and tagline with what it does under them, the facts, the link.
 fn about(pass: &mut Pass, s: &State, f: &Fonts, mut y: i32) -> i32 {
     let (t, pad, gap) = (s.theme, s.px(16), s.px(10));
     let icon = s.px(40);
@@ -672,6 +672,7 @@ fn about(pass: &mut Pass, s: &State, f: &Fonts, mut y: i32) -> i32 {
     let text_left = pad + icon + s.px(12);
     let head = format!("{} — {}", aequalis::about::NAME, aequalis::about::TAGLINE);
     let h = pass.text(f.body, t.fg, &head, RECT { left: text_left, ..inner(pass, s, y) }, false);
+    let h = h + pass.text(f.small, t.muted, aequalis::about::DESCRIPTOR, RECT { left: text_left, ..inner(pass, s, y + h) }, false);
     y += h.max(icon) + gap;
     for (label, value) in aequalis::about::facts(&aequalis::about::memory()) {
         y += pass.text(f.small, t.muted, &format!("{label}: {value}"), inner(pass, s, y), false) + s.px(2);

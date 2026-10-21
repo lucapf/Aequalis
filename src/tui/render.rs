@@ -1699,7 +1699,7 @@ fn runs(text: &str, is: fn(char) -> bool) -> Vec<(bool, &str)> {
     out
 }
 
-/// `A`: the logo, the name and tagline, the facts (`about.rs`), centred.
+/// `A`: the logo, the name and tagline, what it does, the facts (`about.rs`), centred.
 fn about(canvas: &mut Canvas, rows: usize) {
     let facts = aequalis::about::facts(&aequalis::about::memory());
     let title = format!("{} — {}", aequalis::about::NAME, aequalis::about::TAGLINE);
@@ -1707,6 +1707,7 @@ fn about(canvas: &mut Canvas, rows: usize) {
     let logo_rows = lines.len();
     lines.push((String::new(), Style::Plain));
     lines.push((title.clone(), Style::Bold));
+    lines.push((aequalis::about::DESCRIPTOR.to_string(), Style::Plain));
     lines.push((String::new(), Style::Plain));
     let width = lines.iter().map(|(l, _)| l.chars().count()).chain(facts.iter().map(|(l, v)| l.chars().count() + v.chars().count() + 2)).max().unwrap_or(0) + 4;
     let height = lines.len() + facts.len() + 2;
@@ -2354,7 +2355,7 @@ mod tests {
         let text = lines.join("\n");
         assert!(cursor.is_none());
         assert!(text.contains("┌─ About ─") && text.contains("█▛ ----> ███▌") && text.contains("▐█▖<----▗███▌"), "{text}");
-        assert!(text.contains("Aequalis — Ultralight calculator and converter made for humans"), "{text}");
+        assert!(text.contains("Aequalis — Type it. Get it.") && text.contains("Maths, units, currencies and time, answered as you type."), "{text}");
         assert!(text.contains("Memory: ") && text.contains("Last online sync: ") && text.contains("Version: "), "{text}");
         assert!(lines[23].starts_with(" ABOUT "), "{}", lines[23]);
         let (lines, _) = screen("<A-a>\x1b", 24, 80);

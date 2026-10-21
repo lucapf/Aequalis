@@ -16,7 +16,9 @@ pub fn is_arrow(c: char) -> bool {
 }
 
 pub const NAME: &str = "Aequalis";
-pub const TAGLINE: &str = "Ultralight calculator and converter made for humans";
+/// What using it is like; `DESCRIPTOR`, under it, says what it does.
+pub const TAGLINE: &str = "Type it. Get it.";
+pub const DESCRIPTOR: &str = "Maths, units, currencies and time, answered as you type.";
 
 /// The facts below the logo, as (label, text): the version, the memory (`memory`, already
 /// formatted: the CLI's process, the interactive mode's), the last online sync, the exchange rates,
@@ -78,9 +80,9 @@ pub fn memory() -> String {
     parts.join(" · ")
 }
 
-/// `aequalis --about`: the logo, the name and tagline, then the facts.
+/// `aequalis --about`: the logo, the name and tagline, what it does, then the facts.
 pub fn text() -> String {
-    let mut out = format!("{ART}\n\n{NAME} — {TAGLINE}\n\n");
+    let mut out = format!("{ART}\n\n{NAME} — {TAGLINE}\n{DESCRIPTOR}\n\n");
     for (label, value) in facts(&memory()) {
         out.push_str(&format!("{label}: {value}\n"));
     }
@@ -97,7 +99,7 @@ mod tests {
         assert!(ART.lines().all(|l| l.chars().count() <= 14), "{ART}");
         assert_eq!(ART.chars().filter(|&c| is_arrow(c)).count(), 10, "two arrows, each of a head and 4 shaft characters: {ART}");
         let text = text();
-        assert!(text.contains("Aequalis — Ultralight calculator and converter made for humans"), "{text}");
+        assert!(text.contains("Aequalis — Type it. Get it.\nMaths, units, currencies and time, answered as you type.\n"), "{text}");
         assert!(text.contains("\nVersion: ") && text.contains("\nMemory: ") && text.contains(" peak "), "{text}");
         assert!(text.contains("\nLast online sync: "), "{text}");
         assert!(text.contains("\nExchange rates: ") && text.contains("ExchangeRate-API (https://www.exchangerate-api.com)"), "{text}");

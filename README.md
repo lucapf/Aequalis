@@ -1,6 +1,6 @@
 # Aequalis
 
-**Aequalis is an ultralight calculator and converter made for humans, answering as you type.**
+**Type it. Get it.** Aequalis answers maths, units, currencies and time as you type.
 
 Write your request the way you would say it. If it can be read in more than one way, Aequalis asks you which one to get, no guessing.
 

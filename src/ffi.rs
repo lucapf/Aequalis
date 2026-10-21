@@ -230,7 +230,7 @@ pub unsafe extern "C" fn aequalis_view(request: *const c_char, submitted: bool) 
     }
 }
 
-/// About, for an app: the version, a tagline, and the facts (`[label, text]`: the online data,
+/// About, for an app: the version, a tagline and what it does (`descriptor`), and the facts (`[label, text]`: the online data,
 /// the last sync), then the sources of the data with their credits.
 /// The memory the core holds, as its allocator counts it (`alloc::counted`): `{"held":bytes,
 /// "peak":bytes}`, or `{}` where it isn't counted (off Android).
@@ -257,6 +257,7 @@ pub fn about() -> String {
     Object::new()
         .str("name", crate::about::NAME)
         .str("tagline", crate::about::TAGLINE)
+        .str("descriptor", crate::about::DESCRIPTOR)
         .str("version", env!("CARGO_PKG_VERSION"))
         .list("facts", &facts)
         .list("sources", &sources)

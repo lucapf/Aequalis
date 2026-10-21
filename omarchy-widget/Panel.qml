@@ -570,7 +570,17 @@ Panel {
           font.family: Style.font.family
           font.pixelSize: Style.font.body
           font.bold: true
-          text: "Aequalis — Ultralight calculator and converter made for humans"
+          text: "Aequalis — Type it. Get it."
+        }
+
+        Text {
+          width: parent.width
+          wrapMode: Text.Wrap
+          textFormat: Text.PlainText
+          color: Color.muted
+          font.family: Style.font.family
+          font.pixelSize: Style.font.caption
+          text: "Maths, units, currencies and time, answered as you type."
         }
 
         Text {

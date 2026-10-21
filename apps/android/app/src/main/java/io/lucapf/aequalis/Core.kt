@@ -102,9 +102,9 @@ data class Reply(
     val unitClass: String? = null,
 )
 
-/** About: the app's name, tagline and core version, the facts (online data, last sync) and the
+/** About: the app's name, tagline (`Type it. Get it.`), what it does (`descriptor`) and core version, the facts (online data, last sync) and the
  *  data's sources, each a (label, text). */
-data class About(val name: String, val tagline: String, val version: String, val facts: List<Pair<String, String>>, val sources: List<Pair<String, String>>)
+data class About(val name: String, val tagline: String, val descriptor: String, val version: String, val facts: List<Pair<String, String>>, val sources: List<Pair<String, String>>)
 
 /**
  * The bridge to aequalis's Rust core: libaequalis.so (built by scripts/build-android.sh), whose
@@ -292,7 +292,7 @@ object Core {
             val list = a.getJSONArray(key)
             (0 until list.length()).map { i -> list.getJSONArray(i).let { it.getString(0) to it.getString(1) } }
         }
-        About(a.getString("name"), a.getString("tagline"), a.getString("version"), pairs("facts"), pairs("sources"))
+        About(a.getString("name"), a.getString("tagline"), a.optString("descriptor"), a.getString("version"), pairs("facts"), pairs("sources"))
     }
 
     /** The bytes the Rust core holds now and the most it has held (its allocator counts them,
