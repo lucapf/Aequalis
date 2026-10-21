@@ -414,11 +414,18 @@ fn cell() -> &'static RwLock<Result<Arc<Settings>, String>> {
 /// The file's problem, if it has one (the command line reports it; the settings are then the
 /// defaults).
 pub fn error() -> Option<String> {
+    // A simulated machine: its own file, read each time (the shared copy is the real machine's).
+    if crate::machine::mocked().is_some() {
+        return path().and_then(|p| load_from(&p).err());
+    }
     cell().read().ok().and_then(|s| s.as_ref().err().cloned())
 }
 
 /// The settings in effect (the defaults when the file has a problem); shared, not copied.
 pub fn current() -> Arc<Settings> {
+    if crate::machine::mocked().is_some() {
+        return Arc::new(path().and_then(|p| load_from(&p).ok()).unwrap_or_default());
+    }
     cell().read().ok().and_then(|s| s.as_ref().ok().cloned()).unwrap_or_default()
 }
 
@@ -432,7 +439,7 @@ pub fn change_in(path: &Path, key: &str, value: Option<&str>) -> Result<Settings
     let mut settings = load_from(path)?;
     settings.set(key, value)?;
     save_to(path, &settings).map_err(|e| format!("cannot write {}: {e}", path.display()))?;
-    if self::path().as_deref() == Some(path) {
+    if self::path().as_deref() == Some(path) && crate::machine::mocked().is_none() {
         if let Ok(mut cell) = cell().write() {
             *cell = Ok(Arc::new(settings.clone()));
         }
@@ -445,7 +452,7 @@ pub fn change_in(path: &Path, key: &str, value: Option<&str>) -> Result<Settings
 pub fn reset_in(path: &Path) -> Result<Settings, String> {
     let settings = Settings::default();
     save_to(path, &settings).map_err(|e| format!("cannot write {}: {e}", path.display()))?;
-    if self::path().as_deref() == Some(path) {
+    if self::path().as_deref() == Some(path) && crate::machine::mocked().is_none() {
         if let Ok(mut cell) = cell().write() {
             *cell = Ok(Arc::new(settings.clone()));
         }

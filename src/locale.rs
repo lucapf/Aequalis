@@ -12,13 +12,11 @@
 use crate::config::System;
 
 pub fn device_system() -> System {
+    if let Some(m) = crate::machine::mocked() {
+        return m.system;
+    }
     if let Some(&system) = DEVICE_SYSTEM.get() {
         return system;
-    }
-    // The library's tests: metric whatever the machine (a unit alone converts to the device's
-    // system); the binary's tests choose with `LC_ALL`.
-    if cfg!(test) {
-        return System::Metric;
     }
     #[cfg(target_os = "macos")]
     if let Some(system) = macos_setting() {

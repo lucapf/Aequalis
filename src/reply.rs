@@ -298,6 +298,8 @@ mod tests {
 
     #[test]
     fn view_says_what_to_show() {
+        // Metric: a unit alone (`10 km`) then asks for its target, whatever the laptop.
+        crate::machine::Mock::italy().keep();
         let show = |request: &str, submitted: bool| member(&view(request, submitted), "show").unwrap();
         assert_eq!(show("Rie", false), "none", "a word on its way: no question yet");
         assert_eq!(show("Rie", true), "question");

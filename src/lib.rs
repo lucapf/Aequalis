@@ -21,6 +21,7 @@ pub mod http;
 pub mod jni;
 pub mod json;
 pub mod locale;
+pub mod machine;
 pub mod memory;
 pub mod network;
 pub mod notify;
@@ -818,6 +819,8 @@ mod tests {
 
     #[test]
     fn expressions_with_units() {
+        // Metric: a unit alone (`10 km`) then asks for its target, whatever the laptop.
+        crate::machine::Mock::italy().keep();
         assert_eq!(cli("100 + 20 + 50 / 10 sqft m2").unwrap(), "11.6129 m2");
         assert_eq!(cli("100+20sqft m2").unwrap(), "11.1484 m2");
         assert_eq!(cli("[1+1]km m").unwrap(), "2000 m");
@@ -862,6 +865,8 @@ mod tests {
 
     #[test]
     fn exit_codes() {
+        // Metric: a unit alone (`10 km`) then asks for its target, whatever the laptop.
+        crate::machine::Mock::italy().keep();
         assert_eq!(code("10 km kg"), 1);
         assert_eq!(code("10 foo m"), 1);
         assert_eq!(code("abc km m"), 2);

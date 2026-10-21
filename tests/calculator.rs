@@ -4,8 +4,8 @@
 use std::process::{Command, Output};
 
 fn aequalis(args: &[&str]) -> Output {
-    // The C locale: metric, and the plain number format, whatever the machine.
-    Command::new(env!("CARGO_BIN_EXE_aequalis")).arg("-v").args(args).env("LC_ALL", "C").output().expect("run aequalis")
+    // A metric machine, whatever the laptop (`machine::Mock`).
+    Command::new(env!("CARGO_BIN_EXE_aequalis")).arg("-v").args(args).env("AEQUALIS_MACHINE", "italy").output().expect("run aequalis")
 }
 
 /// (stdout, stderr) of a successful run.
@@ -54,6 +54,13 @@ fn silent_hides_the_grouping_note() {
 fn errors() {
     assert_eq!(aequalis(&["1/0"]).status.code(), Some(1));
     assert_eq!(aequalis(&["(1+2"]).status.code(), Some(2));
+}
+
+/// A unit of the device's own system alone waits for its target: on a metric machine, `km`
+/// (`AEQUALIS_MACHINE`, debug builds only).
+#[cfg(debug_assertions)]
+#[test]
+fn a_metric_unit_alone_waits_on_a_metric_machine() {
     assert_eq!(aequalis(&["1+2", "km"]).status.code(), Some(2));
 }
 

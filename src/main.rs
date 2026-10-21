@@ -10,6 +10,9 @@ mod device;
 mod tui;
 
 fn main() -> ExitCode {
+    // The tests' simulated machine (`AEQUALIS_MACHINE`, debug builds only): the only source of the
+    // device's settings for the whole run.
+    let _machine = aequalis::machine::from_env();
     // The device's time zone, read here and given to the library (which does not look for it).
     device::start();
     let config = Config::shared();

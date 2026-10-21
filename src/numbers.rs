@@ -141,6 +141,9 @@ pub fn device_format() -> NumberFormat {
 /// machine's locale.
 #[cfg(test)]
 pub fn device() -> &'static NumberFormat {
+    if let Some(m) = crate::machine::mocked() {
+        return m.format;
+    }
     static PLAIN: std::sync::OnceLock<NumberFormat> = std::sync::OnceLock::new();
     PLAIN.get_or_init(NumberFormat::default)
 }
@@ -148,6 +151,9 @@ pub fn device() -> &'static NumberFormat {
 /// The device's format, read once (or given by the app embedding aequalis: `set_device`).
 #[cfg(not(test))]
 pub fn device() -> &'static NumberFormat {
+    if let Some(m) = crate::machine::mocked() {
+        return m.format;
+    }
     DEVICE.get_or_init(device_format)
 }
 

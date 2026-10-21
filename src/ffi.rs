@@ -560,6 +560,8 @@ mod tests {
 
     #[test]
     fn requests_answer_as_the_command_line() {
+        // Metric: `10 km` alone then asks for its target, whatever the laptop.
+        crate::machine::Mock::italy().keep();
         let request = CString::new("10 km mi").unwrap();
         let reply = call(|| unsafe { aequalis_eval(request.as_ptr()) });
         assert!(reply.starts_with(r#"{"ok":true,"result":"6.2137 mi""#), "{reply}");

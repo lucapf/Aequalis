@@ -1199,9 +1199,16 @@ mod tests {
     use super::action::{Action, Panel, TOOLBAR};
     use super::*;
 
+    /// The same machine on every laptop, for the test's thread: Italy's (metric, Rome) with the
+    /// plain number format the tests were written for.
+    pub(crate) fn test_machine() {
+        if aequalis::machine::mocked().is_none() {
+            aequalis::machine::Mock::italy().with_format(".", "").keep();
+        }
+    }
+
     fn options(config: &Config) -> Options<'static> {
-        // Metric whatever the machine: a unit alone converts to the device's system.
-        aequalis::locale::set_device_system(aequalis::config::System::Metric);
+        test_machine();
         Options { positional: Vec::new(), precision: config.default_precision, silent: false, verbose: false }
     }
 
