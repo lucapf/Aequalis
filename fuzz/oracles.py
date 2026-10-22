@@ -59,6 +59,16 @@ def eval_reply(request, reply):
                         continue
                     for key in ("pattern", "date", "request"):
                         found += _string(c, key, "eval.choice")
+    # The other results (`42 eu us`: the shoe sizes): `extra[]` with `type` and `results[]`, strings.
+    extra = doc.get("extra")
+    if extra is not None:
+        if not isinstance(extra, list) or not extra:
+            found.append(("contract", "eval.extra", reply[:300]))
+        else:
+            for e in extra:
+                ok = isinstance(e, dict) and isinstance(e.get("type"), str) and isinstance(e.get("results"), list)
+                if not ok or not all(isinstance(r, str) for r in e["results"]):
+                    found.append(("contract", "eval.extra:item", reply[:300]))
     # The length limit, counted in characters (code points), spaces too.
     long = len(request) > MAX_INPUT
     refused = doc.get("error") == TOO_LONG

@@ -157,6 +157,14 @@ class Generator:
         return self.pick([f"distance {self.place()} to {self.place()}", f"{self.place()} {self.place()}", f"{self.place()} to {self.place()} {self.unit()}",
                           f"{self.place()} to {self.place()} in {self.pick(['km', 'mi', 'm', 'ft', 'au'])}", f"distance {self.place()}"])
 
+    def sizes(self):
+        """Shoe sizes and the words of size requests (`42 eu men shoes us`), and a currency that could be one."""
+        words = self.v.get("sizes") or ["shoes"]
+        size = self.pick(["42", "9.5", "9½", "42⅔", "4C", "12.5Y", "27", "60", "0", "-3", self.number()])
+        system = lambda: self.pick(["eu", "uk", "us", "jp", "cn", "it", "fr", "de", "EU", "Us"])
+        return self.pick([f"{size} {system()} {self.pick(words)} {self.pick(words)} {system()}", f"{self.pick(words)} {size}", f"{size} {system()} {system()}",
+                          f"{size} {self.pick(['cm', 'in'])} {self.pick(words)} foot", f"{system()} {size} {self.pick(words)}", f"{size} {system()}"])
+
     def percent(self):
         a, b = self.number(), self.number()
         return self.pick([f"{a} + {b}%", f"{a} - {b}%", f"{b}% of {a}", f"{a} * {b}%", f"{b}%", f"{a} + {b}% + {b}%"])
@@ -214,7 +222,7 @@ class Generator:
 
     def request(self, simple=False):
         """A request and the name of the strategy that made it."""
-        features = [self.conversion, self.compound, self.money, self.dates, self.times, self.distance, self.percent]
+        features = [self.conversion, self.compound, self.money, self.dates, self.times, self.distance, self.percent, self.sizes]
         r = self.r.random()
         if simple or r < 0.45:
             text = self.pick(features)()

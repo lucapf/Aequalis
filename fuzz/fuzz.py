@@ -103,6 +103,7 @@ def build():
             "cities": os.path.join(ROOT, "tests", "fixtures", "cities-sample.json"),
         },
         "seeds": seeds(),
+        "sizes": [w for group in data("sizes.json")["words"].values() if isinstance(group, list) for e in group if isinstance(e, dict) for w in e["words"]],
     }
     vocab["samples"] = {k: v for k, v in vocab["samples"].items() if os.path.exists(v)}
     with open(os.path.join(WORK, "vocab.json"), "w") as f:
