@@ -1,10 +1,10 @@
 //! Interactive mode: `aequalis` with no arguments in a terminal.
 //!
-//! Sections, top to bottom: the toolbar (F2 Measures, F3 Currencies, F4 Trivia, F5 History,
+//! Sections, top to bottom: the toolbar (F2 Measures, F3 Currencies, F4 Sizes, F5 History, F6 Trivia,
 //! F10 Settings), the history of expressions and results as a scrollback, the request line with
 //! its live result and suggestions, the band (the keypad when asked for, or the panel of a
 //! window, which takes the rows it needs), and a status line. There are no modes: typing always edits
-//! the request. Every toolbar entry has an Alt letter too (Alt+M, C, T, H, B, S), for terminals that
+//! the request. Every toolbar entry has an Alt letter too (Alt+M, C, Z, H, T, B, S), for terminals that
 //! keep the function keys; F1 / Alt+? is the help, Ctrl+K searches the units and the currencies, F9 shows the
 //! keypad (Basic, then Sci) and hides it, Alt+Y copies the result, Alt+N writes `now`, Ctrl+Q quits. ↑ ↓ recall earlier requests
 //! as in a shell; F5 puts the history in focus (↑ ↓ choose, Enter recalls, Alt+Y copies, Del
@@ -27,6 +27,7 @@ mod picker;
 mod render;
 mod search;
 mod settings;
+mod sizes;
 mod term;
 mod trivia;
 
@@ -58,6 +59,8 @@ pub enum Overlay {
     Picker(Picker),
     /// `U`: searching the currencies.
     Currencies(currencies::View),
+    /// F4: the Sizes class, its groups and system keys.
+    Sizes(sizes::View),
     /// The help, scrolled down by this many lines.
     Help(usize),
     /// An ambiguous date (`12/04/2026`): which reading is meant; `selected` into its choices.
@@ -78,7 +81,16 @@ impl Overlay {
     /// A panel: it takes the band under the line (or the pane at the right), where the keyboard
     /// would be; the other windows are drawn over the screen.
     pub fn is_panel(&self) -> bool {
-        matches!(self, Overlay::Measures(_) | Overlay::Picker(_) | Overlay::Currencies(_) | Overlay::Trivia(_) | Overlay::Search(_) | Overlay::History(_))
+        matches!(
+            self,
+            Overlay::Measures(_)
+                | Overlay::Picker(_)
+                | Overlay::Currencies(_)
+                | Overlay::Sizes(_)
+                | Overlay::Trivia(_)
+                | Overlay::Search(_)
+                | Overlay::History(_)
+        )
     }
 }
 
@@ -539,6 +551,26 @@ impl<'a> App<'a> {
         }
     }
 
+    /// The Sizes' keys: ↑ ↓ (j k) choose, Enter writes the group's word or the system's code.
+    fn sizes_key(&mut self, key: Key) {
+        let Some(Overlay::Sizes(v)) = &mut self.overlay else { return };
+        match key {
+            Key::Esc => self.overlay = None,
+            Key::Down | Key::Tab | Key::Char('j') => v.step(true),
+            Key::Up | Key::BackTab | Key::Char('k') => v.step(false),
+            Key::Enter => {
+                // A word of the request, after what is there (not a unit: nothing replaced).
+                if let Some(word) = v.word() {
+                    let text = self.line.text();
+                    let line = if text.trim().is_empty() { format!("{word} ") } else { format!("{} {word} ", text.trim_end()) };
+                    self.line.set(&line);
+                    self.overlay = None;
+                }
+            }
+            _ => {}
+        }
+    }
+
     /// The Trivia's keys: Tab / ← → the section, ↑ ↓ the entry, Enter its popup; in the popup,
     /// Enter writes its value, Esc goes back, ↑ ↓ scroll.
     fn trivia_key(&mut self, key: Key) {
@@ -718,6 +750,7 @@ impl<'a> App<'a> {
             Some(Overlay::Measures(_)) => self.measures_key(key),
             Some(Overlay::Picker(_)) => self.picker_key(key),
             Some(Overlay::Currencies(_)) => self.currencies_key(key),
+            Some(Overlay::Sizes(_)) => self.sizes_key(key),
             Some(Overlay::Trivia(_)) => self.trivia_key(key),
             Some(Overlay::Search(_)) => self.search_key(key),
             Some(Overlay::History(_)) => self.history_key(key),
@@ -1348,7 +1381,8 @@ mod tests {
         for (key, panel, is) in [
             (Key::F(2), Panel::Measures, (|o: &Option<Overlay>| matches!(o, Some(Overlay::Measures(_)))) as fn(&Option<Overlay>) -> bool),
             (Key::F(3), Panel::Currencies, |o| matches!(o, Some(Overlay::Currencies(_)))),
-            (Key::F(4), Panel::Trivia, |o| matches!(o, Some(Overlay::Trivia(_)))),
+            (Key::F(4), Panel::Sizes, |o| matches!(o, Some(Overlay::Sizes(_)))),
+            (Key::F(6), Panel::Trivia, |o| matches!(o, Some(Overlay::Trivia(_)))),
             (Key::F(10), Panel::Settings, |o| matches!(o, Some(Overlay::Settings(_)))),
             (Key::Ctrl('k'), Panel::Search, |o| matches!(o, Some(Overlay::Search(_)))),
         ] {
@@ -1701,11 +1735,31 @@ mod tests {
     }
 
     #[test]
-    fn trivia_writes_the_value() {
+    fn sizes_write_their_words() {
         let config = Config::default();
         let opts = options(&config);
         let mut app = App::new(&config, &opts);
         app.handle(Key::F(4));
+        assert!(matches!(app.overlay, Some(Overlay::Sizes(_))));
+        // Shoes first: its word, ready for the size.
+        app.handle(Key::Enter);
+        assert_eq!(app.line.text(), "shoes ");
+        assert!(app.overlay.is_none());
+        // Then a system: Alt+Z, down to EU.
+        app.handle(Key::Char('4'));
+        app.handle(Key::Char('2'));
+        app.handle(Key::Alt('z'));
+        app.handle(Key::Down);
+        app.handle(Key::Enter);
+        assert_eq!(app.line.text(), "shoes 42 eu ");
+    }
+
+    #[test]
+    fn trivia_writes_the_value() {
+        let config = Config::default();
+        let opts = options(&config);
+        let mut app = App::new(&config, &opts);
+        app.handle(Key::F(6));
         assert!(matches!(app.overlay, Some(Overlay::Trivia(_))));
         // Math, π: Enter shows its popup, Enter again writes it, ready for the rest of the expression.
         app.handle(Key::Tab);
@@ -1717,13 +1771,13 @@ mod tests {
         assert_eq!(app.line.text(), "3.1415926536 ");
         assert!(app.overlay.is_none());
         // Earth's first: a tip, writing its example request.
-        app.handle(Key::F(4));
+        app.handle(Key::F(6));
         app.handle(Key::Enter);
         app.handle(Key::Enter);
         assert_eq!(app.line.text(), "London to Paris km");
         assert_eq!(app.preview(), Some(Ok("344 km".into())));
         // Earth, Equator: with its unit, so a target converts it.
-        app.handle(Key::F(4));
+        app.handle(Key::F(6));
         app.handle(Key::Char('j'));
         app.handle(Key::Enter);
         app.handle(Key::Enter);
@@ -1731,7 +1785,7 @@ mod tests {
         typed(&mut app, "mi");
         assert_eq!(app.preview(), Some(Ok("24901.4611 mi".into())));
         // Another window from the Trivia.
-        app.handle(Key::F(4));
+        app.handle(Key::F(6));
         app.handle(Key::F(2));
         assert!(matches!(app.overlay, Some(Overlay::Measures(_))));
     }

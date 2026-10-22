@@ -45,8 +45,8 @@ zones' rules are those of Windows itself, kept up to date by Windows Update.
 ## The interactive mode
 
 `aequalis` with no arguments opens the interactive mode in the console, as on Linux and macOS: type
-a request and the answer shows as you type. **F2** Measures, **F3** Currencies, **F4** Trivia,
-**F5** the history, **F9** the keypad (Basic, Sci, hidden), **F10** Settings, **F1** all the keys, **Ctrl+K** searches units and
+a request and the answer shows as you type. **F2** Measures, **F3** Currencies, **F4** Sizes,
+**F5** the history, **F6** Trivia, **F9** the keypad (Basic, Sci, hidden), **F10** Settings, **F1** all the keys, **Ctrl+K** searches units and
 currencies, **Ctrl+Q** quits. It needs Windows 10 version 1903 or later, in **Windows Terminal**,
 PowerShell or the Command Prompt. If a key is taken by your terminal, **Alt+M**, **Alt+C**,
 **Alt+T**, **Alt+H** and **Alt+S** open the same windows. **Alt+Y** copies the result to the

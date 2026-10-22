@@ -182,8 +182,9 @@ the source; a time alone is today (24-hour unless AM/PM). A city misspelt by up 
 
 Interactive mode (no arguments, in a terminal): type an expression, Enter evaluates,
 Tab completes units, Up/Down recall earlier requests. The toolbar: F2 Measures (the
-unit classes, then their units), F3 Currencies, F4 Trivia, F5 the history, F10
-Settings; Alt+M, C, T, H, S do the same where the function keys are taken. F1 (or
+unit classes, then their units), F3 Currencies, F4 Sizes (shoes, then the systems), F5
+the history, F6 Trivia, F10 Settings; Alt+M, C, Z, H, T, S do the same where the function
+keys are taken. F1 (or
 Alt+?) shows all the keys, Ctrl+K searches the units and the currencies, Alt+N writes `now`, Alt+Y
 copies the result, F9 (Alt+B) shows the keypad (Basic, Sci) or hides it, Esc steps back, Ctrl+Q quits.
 

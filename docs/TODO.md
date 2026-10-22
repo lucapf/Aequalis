@@ -26,10 +26,6 @@ By priority, most urgent first.
       system tabs, the Shoes group, its icon), the shoes line beside a currency
       (the list, from `extra`), Copy and Share of a two-chart result, the quick
       window (QuickActivity) answering size requests; landscape and two panes.
-- [ ] **size-19** Phase 1, TUI: the Sizes menu item, `F4 👕👟 Sizes` and Alt+Z,
-      opening the groups and system keys (§7); Trivia moves from F4 to F6. The
-      help, `--help`, README and `scripts/windows-tui-smoke.py` (it clicks the
-      toolbar) follow the new keys.
 - [ ] **size-20** Phase 1, Android: the Sizes item in the toolbar after
       Currencies, with the Material Symbols `apparel` and `steps` icons in
       `Icons.kt` (§7).
@@ -67,6 +63,10 @@ By priority, most urgent first.
 
 ## DONE
 
+- [x] **size-19** Phase 1, TUI: the Sizes menu item, `F4 👕👟 Sizes` and Alt+Z,
+      opening the groups and system keys (§7); Trivia moves from F4 to F6. The
+      help, `--help`, README and `scripts/windows-tui-smoke.py` (it clicks the
+      toolbar) follow the new keys.
 - [x] **size-8** Phase 1, the core for the UIs: the Sizes class in
       `ffi::measures` (a new shape: the systems as tabs, the Shoes group, its
       item words), suggestions while typing in `suggest.rs` (item, person and

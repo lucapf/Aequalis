@@ -3,13 +3,15 @@
 
 use super::keys::{Button, Key, Mouse, MouseKind};
 use super::render::Hit;
-use super::{currencies, history_panel, measures, search, settings, trivia, App, Keypad, Overlay, Part, Press, StatusKind, SCROLL_STEP};
+use super::{currencies, history_panel, measures, search, settings, sizes, trivia, App, Keypad, Overlay, Part, Press, StatusKind, SCROLL_STEP};
 
 /// A window of the toolbar (and Ctrl+K).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Panel {
     Measures,
     Currencies,
+    /// The Sizes class: its groups and system keys.
+    Sizes,
     Trivia,
     Settings,
     /// Ctrl+K: searching the units.
@@ -23,6 +25,7 @@ impl Panel {
         match self {
             Panel::Measures => Overlay::Measures(measures::View::default()),
             Panel::Currencies => Overlay::Currencies(currencies::View::default()),
+            Panel::Sizes => Overlay::Sizes(sizes::View::default()),
             Panel::Trivia => Overlay::Trivia(trivia::View::new()),
             Panel::Settings => Overlay::Settings(settings::View::default()),
             Panel::Search => Overlay::Search(search::Search::default()),
@@ -36,6 +39,7 @@ impl Panel {
             (self, overlay),
             (Panel::Measures, Some(Overlay::Measures(_) | Overlay::Picker(_)))
                 | (Panel::Currencies, Some(Overlay::Currencies(_)))
+                | (Panel::Sizes, Some(Overlay::Sizes(_)))
                 | (Panel::Trivia, Some(Overlay::Trivia(_)))
                 | (Panel::Settings, Some(Overlay::Settings(_)))
                 | (Panel::Search, Some(Overlay::Search(_)))
@@ -55,11 +59,12 @@ pub struct Tool {
 }
 
 /// The toolbar, left to right.
-pub const TOOLBAR: [Tool; 6] = [
+pub const TOOLBAR: [Tool; 7] = [
     Tool { fkey: 2, alt: 'm', label: "Measures", short: "Meas", action: Action::Open(Panel::Measures) },
     Tool { fkey: 3, alt: 'c', label: "Currencies", short: "Curr", action: Action::Open(Panel::Currencies) },
-    Tool { fkey: 4, alt: 't', label: "Trivia", short: "Triv", action: Action::Open(Panel::Trivia) },
+    Tool { fkey: 4, alt: 'z', label: "👕👟 Sizes", short: "👕👟", action: Action::Open(Panel::Sizes) },
     Tool { fkey: 5, alt: 'h', label: "History", short: "Hist", action: Action::Open(Panel::History) },
+    Tool { fkey: 6, alt: 't', label: "Trivia", short: "Triv", action: Action::Open(Panel::Trivia) },
     Tool { fkey: 9, alt: 'b', label: "Keys", short: "Keys", action: Action::ToggleKeypad },
     Tool { fkey: 10, alt: 's', label: "⚙", short: "⚙", action: Action::Open(Panel::Settings) },
 ];
@@ -317,6 +322,7 @@ impl<'a> App<'a> {
             Some(Overlay::Measures(v)) => v.selected = n,
             Some(Overlay::Picker(p)) => p.selected = n,
             Some(Overlay::Currencies(v)) => v.selected = n,
+            Some(Overlay::Sizes(v)) => v.selected = n,
             Some(Overlay::Search(s)) => s.selected = n,
             Some(Overlay::History(v)) => v.selected = n,
             Some(Overlay::Trivia(v)) if v.popup.is_none() => v.selected = n,
