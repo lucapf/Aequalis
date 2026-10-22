@@ -914,8 +914,8 @@ details and notes are shown where they matter.
 | `42 it men shoes us`    | any     | `US 8.5 (Nike), 9 (Clarks)`, note `Italian shoe sizes are EU sizes`                                        |
 | every answer            |         | note `sizes vary by brand: check the brand's chart`                                                        |
 
-¹ With the details `UK 7.5 · JP 26.5 cm · CN 42` (Nike's) and the note
-`men's shoes (details: Nike)`.
+¹ With the details `UK 7.5 · EU 42 · JP 26.5 cm · CN 42` (Nike's; every system
+but the result's, §4.1) and the note `men's shoes (details: Nike)`.
 
 ² With the notes `between EU 41 and 42 (Nike)` and
 `between EU 41.5 and 42 (Clarks)`.

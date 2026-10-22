@@ -462,6 +462,10 @@ pub fn convert_request(config: &Config, opts: &Options, tokens: &[&str]) -> Resu
     if input.trim().is_empty() {
         return usage(EXPECTED);
     }
+    // Clothing and shoe sizes: only with a size word (`42 eu men shoes us`); `42 eu` stays euros.
+    if let Some(result) = sizes::request(&input) {
+        return result.map(|a| sized(opts, a)).map_err(CliError::from);
+    }
     // Currencies: `12 usd euro`, `12 USA Europe`; one amount (a plain number) and currencies or
     // countries, nothing else (a time with countries is a time request, countries alone a distance).
     // The rates and the local currency are read only for a currency request.
@@ -510,6 +514,18 @@ fn money(opts: &Options, c: currency::Converted) -> Output {
         rates_age: Some(c.age),
         synced: None,
         from: Some(c.from),
+    }
+}
+
+/// A size: its other systems and its notes always shown (the brand note on every answer), as the
+/// currencies' check.
+fn sized(opts: &Options, a: sizes::Answer) -> Output {
+    Output {
+        stdout: a.text,
+        notes: if opts.silent { Vec::new() } else { a.details.into_iter().chain(a.notes).collect() },
+        formatted: true,
+        from: Some(a.from),
+        ..Output::default()
     }
 }
 
@@ -612,6 +628,16 @@ impl From<currency::Error> for CliError {
             currency::Error::Ambiguous(a) => CliError::Ambiguous(a),
             currency::Error::NoRates(msg) => CliError::Convert(convert::ConvertError::Domain(msg)),
             currency::Error::Incomplete(msg) => CliError::Incomplete(msg),
+        }
+    }
+}
+
+impl From<sizes::Error> for CliError {
+    fn from(e: sizes::Error) -> Self {
+        match e {
+            sizes::Error::Usage(msg) => CliError::Usage(msg),
+            sizes::Error::Incomplete(msg) => CliError::Incomplete(msg),
+            sizes::Error::Answer(msg) => CliError::Convert(convert::ConvertError::Domain(msg)),
         }
     }
 }
