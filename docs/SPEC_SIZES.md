@@ -224,7 +224,7 @@ else is read as it is today, and **currency is the default**:
 | `42 eu`      | the currency hint, as today, and under it the shoes line (§4.1)        |
 | `shoe`       | `now the size: 42 eu, 9 us…`                                           |
 | `shoe 42`    | `which system: eu, uk, us…` (or the region's, if 42 exists only there) |
-| `42 eu shoe` | the region's size at once (§4.2)                                       |
+| `42 eu shoe` | the table of every person and system at once (§4.1)                    |
 
 ### 3.4 Clashes
 
@@ -258,6 +258,28 @@ usual meaning.
 - **Copy:**
   - the value: the first chart's (`8.5`);
   - the expression (`EU 42 = US 8.5 (Nike), 9 (Clarks)`), as with units.
+
+**Shoes, not all specified** (decided 2026-10-22). Shoes never ask
+`whose sizes?`: what is missing is shown.
+
+- **No person** (`42 eu shoes us`): each person whose chart has the size, and
+  only those, with Nike's value (Clarks's, named, when only it has the size):
+  `US 8.5 men, US 10 women`; `30 eu shoes us` → `US 12.5C kids`;
+  `50 eu shoes us` → `US 15.5 men (Clarks)`. Both charts once the person is
+  typed.
+- **No target** (`42 eu men shoes`): the region's system first, as the result,
+  and every other system in the details (§4.2): `[us]` → `US 8.5 (Nike),
+  9 (Clarks)`, details `UK 7.5 · EU 42 · JP 26.5 cm · CN 42`.
+- **Neither** (`42 eu shoes`): a small table, a row per person who has the
+  size, a column per system (US, UK, EU, JP, CN, the typed one included),
+  Nike's values, the numbers lined up on the decimal point:
+
+  ```text
+  $ aequalis 42 eu shoes
+           US     UK    EU     JP     CN
+  men      8.5   7.5    42   26.5     42
+  women   10     7.5    42   27       42
+  ```
 
 **Beside a currency** (decided 2026-10-22). A currency request whose amount and
 codes could also be a shoe size (`42 eu us`) answers with a list, everywhere,
@@ -349,7 +371,8 @@ names Nike and Clarks: those are two charts, not every brand.
 | No such size in either chart           | error           | `no EU 52 in women's shoes` ³ |
 | `eu` for clothing (FR/IT/DE differ)    | none: EU = DE   | note `EU sizes as in DE`      |
 
-¹ Shoes, letters and `clothes`. ² Each choice a full request. ³ Followed by the
+¹ Letters and `clothes`; shoes never ask, they show what is missing (§4.1).
+² Each choice a full request. ³ Followed by the
 range of both charts together, `(EU 34–44.5)`. A size in only one chart is
 answered by that chart alone, named: `US 15.5 (Clarks)`.
 
@@ -761,12 +784,26 @@ nearest ⅛. UK = US − ⅛.
 
 ## 7. UI
 
-- **Measures panel:** a new class, **Sizes**, beside Length, Mass and the others
-  (TUI, widget, Android). Its groups are Shoes, Women, Men, Kids, Bras, Hats,
-  each in its phase.
+- **A Sizes menu item** (decided 2026-10-22), right after Currencies:
+  - **TUI:** `F4 👕👟 Sizes`, Alt+Z; Trivia moves from F4 to F6 (Alt+T kept):
+    `F2 Measures  F3 Currencies  F4 👕👟 Sizes  F5 History  F6 Trivia  F9 Keys
+    F10 ⚙`.
+  - **Android:** in the toolbar after Currencies, with the Material Symbols
+    `apparel` (a T-shirt) and `steps` (footprints: Material Symbols has no
+    shoe) icons, as paths in `Icons.kt`.
+  - **Omarchy widget:** no Sizes item for now; it shows size answers as any
+    other.
+  - **It opens** the groups (Shoes; later Women, Men, Kids, Bras, Hats, each in
+    its phase), which write their item word, and the system keys, which write
+    their code.
+- **Measures panel:** the same Sizes class there too, beside Length, Mass and
+  the others (TUI, widget, Android).
 - **The systems are the tabs:** EU, UK, US, IT, FR, DE, JP, CN, INT. A key
   writes its system code; a group writes its item word in the device's language
   when known, else English.
+- **Trivia: a Shoes section** (decided 2026-10-22), with three conversion
+  tables, Men, Women and Kids, from Nike's chart (§6.1): US, UK, EU, JP and the
+  foot length in cm (Nike's inches × 2.54, one decimal: `25.9 cm`).
 - **Suggestions while typing:** the item, person and body words of the 10
   languages (`scar` → `scarpe - shoes`), and the system codes after a size in a
   size request (`shoes 42` and a space → `eu, uk, us…`).
@@ -787,7 +824,9 @@ Each phase is released as a `minor`.
    - currency as the default, with the shoes line beside it (§4.1);
    - the words of every item in the 10 languages (later items are recognised,
      not misread, and answered with the error `only shoes for now`);
-   - the Sizes class with its Shoes group.
+   - the Sizes class with its Shoes group, in Measures and as its own menu item
+     (§7);
+   - the Shoes section in Trivia.
 2. **Women's and men's clothing:** dresses, tops and trousers, suits, collar
    shirts, the letters, the CN `160/84A` labels, a person word alone
    (`12 US woman EU`).
@@ -808,42 +847,45 @@ details and notes are shown where they matter.
 
 ### Phase 1
 
-| Request                 | Machine | Expected                                                            |
-|-------------------------|---------|---------------------------------------------------------------------|
-| `42 eu men shoes us`    | any     | `US 8.5 (Nike), 9 (Clarks)` ¹                                       |
-| `41 eu men shoes us`    | any     | `US 8` (the charts agree)                                           |
-| `42 eu shoes us`        | any     | question `whose sizes?`: men · women · kids                         |
-| `42 eu donna scarpe us` | any     | `US 10 (Nike), 10.5 (Clarks)`                                       |
-| `scarpe uomo 42`        | italy   | `EU 42`; details `US 8.5 · UK 7.5 · JP 26.5 cm · CN 42`             |
-| `men shoes 9 us`        | italy   | `EU 42.5 (Nike), 42 (Clarks)`                                       |
-| `men shoes 42 eu`       | us      | `US 8.5 (Nike), 9 (Clarks)`                                         |
-| `uk 6 men shoes us`     | any     | `US 6.5–7 (Nike), 7 (Clarks)`                                       |
-| `27 cm men foot`        | italy   | `EU 44 (Nike), 43 (Clarks)`                                         |
-| `11 in men foot`        | us      | `US 11` (27.94 cm: both charts' US 11)                              |
-| `zapatos mujer 38`      | italy   | `EU 38`                                                             |
-| `42.2 eu men shoes us`  | any     | `US 8.5 (Nike), 9 (Clarks)`, note `between EU 42 and 42.5`          |
-| `40.5 eu men shoes us`  | any     | `US 7.5 (Nike), 8 (Clarks)`, note `between EU 40 and 41 (Clarks)`   |
-| `41.75 eu men shoes us` | any     | `US 8.5 (Nike), 9 (Clarks)` ²                                       |
-| `42⅔ eu men shoes us`   | any     | `US 9 (Nike), 9.5 (Clarks)` (an Adidas label)                       |
-| `50 eu men shoes us`    | any     | `US 15.5 (Clarks)` (past Nike's last row)                           |
-| `60 eu men shoes us`    | any     | error `no EU 60 in men's shoes (EU 38–51)`                          |
-| `42 eu nike shoes us`   | any     | not a size request: brands are not words                            |
-| `42 eu us`              | any     | list: `42 EUR = … USD`, `shoes: 42 eu = US 8.5 men, US 10 women` ³  |
-| `42 eu`                 | us      | the currency hint, then `shoes: 42 eu = US 8.5 men, US 10 women`    |
-| `42 eu`                 | italy   | the currency hint alone (the region's system is EU)                 |
-| `42.2 eu us`            | any     | list, `shoes: 42.2 eu = US 8.5 men, US 10 women` (no notes)         |
-| `36 eu us`              | any     | list, `shoes: 36 eu = US 5.5 women, US 4Y kids`                     |
-| `30 eu us`              | any     | list, `shoes: 30 eu = US 12.5C kids`                                |
-| `47 eu us`              | any     | list, `shoes: 47 eu = US 12.5 men`                                  |
-| `50 eu us`              | any     | list, `shoes: 50 eu = US 15.5 men (Clarks)`                         |
-| `42 eu fr`              | any     | list, `shoes: 42 eu = EU 42 men, EU 42 women`                       |
-| `100 eu us`             | any     | unchanged: EUR → USD alone (100 is in no shoe chart)                |
-| `42 eu jpy`             | any     | unchanged: EUR → JPY alone (`jpy` is no size system)                |
-| `42 in`                 | any     | unchanged: a length, asks for the target                            |
-| `12 us woman eu`        | any     | error `only shoes for now`                                          |
-| `44 it dress us`        | any     | error `only shoes for now`                                          |
-| `42 it men shoes us`    | any     | `US 8.5 (Nike), 9 (Clarks)`, note `Italian shoe sizes are EU sizes` |
-| every answer            |         | note `sizes vary by brand: check the brand's chart`                 |
+| Request                 | Machine | Expected                                                                                                   |
+|-------------------------|---------|------------------------------------------------------------------------------------------------------------|
+| `42 eu men shoes us`    | any     | `US 8.5 (Nike), 9 (Clarks)` ¹                                                                              |
+| `41 eu men shoes us`    | any     | `US 8` (the charts agree)                                                                                  |
+| `42 eu shoes us`        | any     | `US 8.5 men, US 10 women` (no question)                                                                    |
+| `30 eu shoes us`        | any     | `US 12.5C kids`                                                                                            |
+| `50 eu shoes us`        | any     | `US 15.5 men (Clarks)`                                                                                     |
+| `42 eu shoes`           | any     | the table: men `US 8.5 · UK 7.5 · EU 42 · JP 26.5 · CN 42`, women `US 10 · UK 7.5 · EU 42 · JP 27 · CN 42` |
+| `42 eu donna scarpe us` | any     | `US 10 (Nike), 10.5 (Clarks)`                                                                              |
+| `scarpe uomo 42`        | italy   | `EU 42`; details `US 8.5 · UK 7.5 · JP 26.5 cm · CN 42`                                                    |
+| `men shoes 9 us`        | italy   | `EU 42.5 (Nike), 42 (Clarks)`                                                                              |
+| `men shoes 42 eu`       | us      | `US 8.5 (Nike), 9 (Clarks)`                                                                                |
+| `uk 6 men shoes us`     | any     | `US 6.5–7 (Nike), 7 (Clarks)`                                                                              |
+| `27 cm men foot`        | italy   | `EU 44 (Nike), 43 (Clarks)`                                                                                |
+| `11 in men foot`        | us      | `US 11` (27.94 cm: both charts' US 11)                                                                     |
+| `zapatos mujer 38`      | italy   | `EU 38`                                                                                                    |
+| `42.2 eu men shoes us`  | any     | `US 8.5 (Nike), 9 (Clarks)`, note `between EU 42 and 42.5`                                                 |
+| `40.5 eu men shoes us`  | any     | `US 7.5 (Nike), 8 (Clarks)`, note `between EU 40 and 41 (Clarks)`                                          |
+| `41.75 eu men shoes us` | any     | `US 8.5 (Nike), 9 (Clarks)` ²                                                                              |
+| `42⅔ eu men shoes us`   | any     | `US 9 (Nike), 9.5 (Clarks)` (an Adidas label)                                                              |
+| `50 eu men shoes us`    | any     | `US 15.5 (Clarks)` (past Nike's last row)                                                                  |
+| `60 eu men shoes us`    | any     | error `no EU 60 in men's shoes (EU 38–51)`                                                                 |
+| `42 eu nike shoes us`   | any     | not a size request: brands are not words                                                                   |
+| `42 eu us`              | any     | list: `42 EUR = … USD`, `shoes: 42 eu = US 8.5 men, US 10 women` ³                                         |
+| `42 eu`                 | us      | the currency hint, then `shoes: 42 eu = US 8.5 men, US 10 women`                                           |
+| `42 eu`                 | italy   | the currency hint alone (the region's system is EU)                                                        |
+| `42.2 eu us`            | any     | list, `shoes: 42.2 eu = US 8.5 men, US 10 women` (no notes)                                                |
+| `36 eu us`              | any     | list, `shoes: 36 eu = US 5.5 women, US 4Y kids`                                                            |
+| `30 eu us`              | any     | list, `shoes: 30 eu = US 12.5C kids`                                                                       |
+| `47 eu us`              | any     | list, `shoes: 47 eu = US 12.5 men`                                                                         |
+| `50 eu us`              | any     | list, `shoes: 50 eu = US 15.5 men (Clarks)`                                                                |
+| `42 eu fr`              | any     | list, `shoes: 42 eu = EU 42 men, EU 42 women`                                                              |
+| `100 eu us`             | any     | unchanged: EUR → USD alone (100 is in no shoe chart)                                                       |
+| `42 eu jpy`             | any     | unchanged: EUR → JPY alone (`jpy` is no size system)                                                       |
+| `42 in`                 | any     | unchanged: a length, asks for the target                                                                   |
+| `12 us woman eu`        | any     | error `only shoes for now`                                                                                 |
+| `44 it dress us`        | any     | error `only shoes for now`                                                                                 |
+| `42 it men shoes us`    | any     | `US 8.5 (Nike), 9 (Clarks)`, note `Italian shoe sizes are EU sizes`                                        |
+| every answer            |         | note `sizes vary by brand: check the brand's chart`                                                        |
 
 ¹ With the details `UK 7.5 · JP 26.5 cm · CN 42` (Nike's) and the note
 `men's shoes (details: Nike)`.
@@ -892,6 +934,12 @@ All settled:
 - The "between" note names its chart when the charts differ (2026-10-22).
 - Clothing in phase 1: the error `only shoes for now` (2026-10-22).
 - Kids' shoes: a region column of their own, today as Shoes (2026-10-22).
+- Shoes never ask whose: no person shows whoever has the size; no target the
+  region's system then the others; neither a table, lined up on the decimal
+  point (2026-10-22).
+- A Sizes menu item after Currencies (TUI F4 👕👟 Alt+Z, Trivia to F6; Android
+  `apparel` + `steps`; not in the widget yet), and still a class in Measures;
+  a Shoes section in Trivia, Nike's tables (2026-10-22).
 - A person word alone means clothing: women's and kids' answer, men's asks
   which.
 - Shoes: Nike's and Clarks's charts, each named in the result where they differ,

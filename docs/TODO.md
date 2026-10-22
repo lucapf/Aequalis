@@ -19,8 +19,9 @@ By priority, most urgent first.
       women, kids) and every item, body and person word of the 10 languages in
       `src/data/sizes.json`, compiled by `build/tables.rs`.
 - [ ] **size-5** Phase 1, rules in `src/sizes.rs`: the request grammar (§3), the
-      nearest row, the two charts merged into one result (§6.1), `whose sizes?`
-      (§5), the region's system (§4.2), the notes; `sizes::request` first in
+      nearest row, the two charts merged into one result (§6.1), what is missing
+      shown instead of asked (no person, no target, the table: §4.1), the
+      region's system (§4.2), the notes; `sizes::request` first in
       `convert_request`; later items answered with the error
       `only shoes for now`.
 - [ ] **size-6** Phase 1: currency stays the default, with the shoes line beside
@@ -47,6 +48,18 @@ By priority, most urgent first.
       system tabs, the Shoes group, its icon), the shoes line beside a currency
       (the list, from `extra`), Copy and Share of a two-chart result, the quick
       window (QuickActivity) answering size requests; landscape and two panes.
+- [ ] **size-19** Phase 1, TUI: the Sizes menu item, `F4 👕👟 Sizes` and Alt+Z,
+      opening the groups and system keys (§7); Trivia moves from F4 to F6. The
+      help, `--help`, README and `scripts/windows-tui-smoke.py` (it clicks the
+      toolbar) follow the new keys.
+- [ ] **size-20** Phase 1, Android: the Sizes item in the toolbar after
+      Currencies, with the Material Symbols `apparel` and `steps` icons in
+      `Icons.kt` (§7).
+- [ ] **size-21** Phase 1: a Shoes section in Trivia: Nike's Men, Women and Kids
+      tables (US, UK, EU, JP, foot length in cm), in the core's trivia data and
+      in the TUI's and Android's Trivia (§7).
+- [ ] **size-22** Decide: what `--json`, Copy and Share give for an answer with
+      no person (`US 8.5 men, US 10 women`) and for the table (`42 eu shoes`).
 - [ ] **size-12** Phase 1: tried on the phone, released as a `minor`.
 - [ ] **size-13** Phase 2, core: women's and men's clothing charts (dresses,
       tops and trousers, suits, collar shirts, letters, the CN `160/84A` labels)
