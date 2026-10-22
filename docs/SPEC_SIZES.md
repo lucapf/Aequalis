@@ -822,7 +822,9 @@ nearest ⅛. UK = US − ⅛.
     󰑭 Measures, 󰄖 Currencies, 󰩻󱗈 Sizes (md-tshirt_crew and md-shoe_sneaker),
     󰋚 History, 󰌶 Trivia, 󰘜 Keys, 󰢻 Settings. Symbol and name with room for
     the online indicator after them (from 100 columns); else the key and its
-    symbol (from 44 columns); else the keys alone.
+    symbol (from 44 columns); else the keys alone. With the Sizes window open
+    the size's digits (and ⌫) go into the request: `12`, ↓ to US, Enter writes
+    `shoes 12 us` (decided 2026-10-22).
   - **Android:** in the toolbar after Currencies, with the Material Symbols
     `apparel` (a T-shirt) and `steps` (footprints: Material Symbols has no
     shoe) icons, as paths in `Icons.kt`. The Sizes key shows or hides the
