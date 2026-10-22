@@ -17,8 +17,9 @@ request could mean more than one thing.
 
 **Sizes only when asked for.** A request is a size request only when it says so,
 with an item word (`shoes`, `dress`, `clothes`…) or a body word (`foot`).
-Everything else reads as before, currencies first: `42 eu` is 42 euros. Aequalis
-may suggest the size request, never assume it (§3.2).
+Everything else reads as before, currencies first: `42 eu` is 42 euros. When
+such a currency request could also be a shoe size, the answer adds the sizes as
+a second result, in a list, never in place of the currency (§3.2).
 
 Non-goals:
 
@@ -204,10 +205,8 @@ else is read as it is today, and **currency is the default**:
 
 - `42 eu` stays 42 euros (`now the currency to convert to`), and `42 eu us`
   stays EUR → USD.
-- When such a currency request could also be a size (the amount is in some
-  chart, the codes are size systems), a **suggestion** under the result offers
-  the size request: `42 eu shoes us`. Choosing it writes it. Like every
-  suggestion it gives way to the result, and the currency answer never changes.
+- When such a currency request could also be a shoe size, the answer is a
+  **list**: the currency first, then a **shoes line** (§4.1).
 - `42 in` stays 42 inches (a length).
 - `cn` is not a currency code, so it never clashes.
 - A **person word** alone counts too, for **clothing**:
@@ -222,7 +221,7 @@ else is read as it is today, and **currency is the default**:
 
 | Typed        | Hint                                                                   |
 |--------------|------------------------------------------------------------------------|
-| `42 eu`      | the currency hint, as today; the suggestion `42 eu shoes`              |
+| `42 eu`      | the currency hint, as today, and under it the shoes line (§4.1)        |
 | `shoe`       | `now the size: 42 eu, 9 us…`                                           |
 | `shoe 42`    | `which system: eu, uk, us…` (or the region's, if 42 exists only there) |
 | `42 eu shoe` | the region's size at once (§4.2)                                       |
@@ -260,6 +259,37 @@ usual meaning.
   - the value: the first chart's (`8.5`);
   - the expression (`EU 42 = US 8.5 (Nike), 9 (Clarks)`), as with units.
 
+**Beside a currency** (decided 2026-10-22). A currency request whose amount and
+codes could also be a shoe size (`42 eu us`) answers with a list, everywhere,
+the CLI's stdout too (the rate is today's):
+
+```text
+$ aequalis 42 eu us
+- 42 EUR = 47.15 USD
+- shoes: 42 eu = US 8.5 men, US 10 women
+```
+
+- **When:** the amount is within a shoe chart's range (nearest rows, §4.4), and
+  the codes are size systems: `eu`, `uk`, `us`, `it`, `fr`, `de`, `jp`, on
+  either side (`42 it us`, `9 us uk`). It is always shown, no `-v` needed.
+- **Who:** each person whose chart has the size, and only those: men, women,
+  kids. `47 eu us` → `US 12.5 men`; `36 eu us` → `US 5.5 women, US 4Y kids`;
+  `30 eu us` → `US 12.5C kids`.
+- **Which chart:** Nike's. A size only Clarks's chart has is Clarks's, named:
+  `50 eu us` → `US 15.5 men (Clarks)`.
+- **No notes:** the line is a summary. The notes (brand, between, Italian…) come
+  with the size request itself (`42 eu men shoes us`).
+- **Same system:** a target in the typed system still gives the line:
+  `42 eu fr` → `shoes: 42 eu = EU 42 men, EU 42 women`.
+- **No target** (`42 eu`, a currency hint today): the hint, and under it the
+  line in the region's system (§4.2): `[us]` → `US 8.5 men, US 10 women`. When
+  the region's system is the typed one (`[italy]`), no line.
+- **`--json` and the UIs' answer** (`reply::view`, read by the widget and
+  Android): `result` stays the currency, and a new member lists the extra
+  results, `"extra":[{"type":"shoes","results":["US 8.5 men","US 10 women"]}]`.
+  The UIs draw the list from it.
+- **Copy** stays the currency's (`47.15`, `42 EUR = 47.15 USD`).
+
 ### 4.2 No target: the device's region
 
 As `12 usd` gives the local currency, a size with no target gives the **region's
@@ -267,16 +297,19 @@ system**. The region is the country of the device's time zone
 (`time::device_zone` → `tz::zone_country`, the same reading as the local
 currency):
 
-| Country                 | Shoes | Women's clothing | Men's clothing | Bras |
-|-------------------------|-------|------------------|----------------|------|
-| US, LR, MM              | US    | US               | US             | US   |
-| UK, IE                  | UK    | UK               | UK             | UK   |
-| Italy                   | EU    | IT               | IT             | IT   |
-| FR, BE, ES, PT          | EU    | FR               | EU             | FR   |
-| DE, AT, CH, NL, Nordics | EU    | DE               | EU             | EU   |
-| Japan                   | JP    | JP               | JP             | JP   |
-| China                   | CN    | CN               | CN             | CN   |
-| anywhere else           | EU    | EU (= DE)        | EU             | EU   |
+| Country                 | Shoes | Kids' shoes | Women's clothing | Men's clothing | Bras |
+|-------------------------|-------|-------------|------------------|----------------|------|
+| US, LR, MM              | US    | US          | US               | US             | US   |
+| UK, IE                  | UK    | UK          | UK               | UK             | UK   |
+| Italy                   | EU    | EU          | IT               | IT             | IT   |
+| FR, BE, ES, PT          | EU    | EU          | FR               | EU             | FR   |
+| DE, AT, CH, NL, Nordics | EU    | EU          | DE               | EU             | EU   |
+| Japan                   | JP    | JP          | JP               | JP             | JP   |
+| China                   | CN    | CN          | CN               | CN             | CN   |
+| anywhere else           | EU    | EU          | EU (= DE)        | EU             | EU   |
+
+Kids' shoes have a column of their own (decided 2026-10-22), today with the same
+values as Shoes.
 
 When the size is already in the region's system (`shoe 42 eu` in Rome), the
 result is that same size, and the details give the others. This is the "what is
@@ -294,6 +327,11 @@ names Nike and Clarks: those are two charts, not every brand.
 - A size **between rows** (`EU 42.3`), or a body measure, takes the **nearest
   row**. When it lies within 25% of the step from the midpoint, the note says
   `between EU 42 and 42.5`.
+- **Two charts** (shoes; decided 2026-10-22):
+  - both between the same rows: one note, as above;
+  - only one between rows: its note, named, `between EU 40 and 41 (Clarks)`;
+  - both between different rows: one note each, named:
+    `between EU 41 and 42 (Nike)`, `between EU 41.5 and 42 (Clarks)`.
 - **Exactly at the midpoint**, the larger row: the charts' own advice is to size
   up between sizes.
 - **A value twice in a column** (Nike writes UK 6 for men's US 6.5 and US 7):
@@ -731,9 +769,8 @@ nearest ⅛. UK = US − ⅛.
   when known, else English.
 - **Suggestions while typing:** the item, person and body words of the 10
   languages (`scar` → `scarpe - shoes`), and the system codes after a size in a
-  size request (`shoes 42` and a space → `eu, uk, us…`). After a currency
-  request that could be a size (`42 eu`), the size request (`42 eu shoes`),
-  below the result (§3.2).
+  size request (`shoes 42` and a space → `eu, uk, us…`).
+- **Beside a currency:** the list (§4.1), from the answer's `extra` member.
 - **Android:** the Sizes class in the Measures panel; the quick window answers
   size requests as any other.
 - **Copy:** the value (`8.5`, the first chart's) or the expression
@@ -747,9 +784,9 @@ Each phase is released as a `minor`.
    - men, women and kids, in all systems, from the foot too;
    - Nike's and Clarks's charts, named in the result where they differ (§6.1);
    - the women's and kids' Nike foot lengths checked on nike.com (§6.1 ¹ ²);
-   - currency as the default, with the size suggestion (§3.2);
-   - the words of every item in the 10 languages (later items are recognised and
-     answered with a "coming" error, not misread);
+   - currency as the default, with the shoes line beside it (§4.1);
+   - the words of every item in the 10 languages (later items are recognised,
+     not misread, and answered with the error `only shoes for now`);
    - the Sizes class with its Shoes group.
 2. **Women's and men's clothing:** dresses, tops and trousers, suits, collar
    shirts, the letters, the CN `160/84A` labels, a person word alone
@@ -785,19 +822,37 @@ details and notes are shown where they matter.
 | `11 in men foot`        | us      | `US 11` (27.94 cm: both charts' US 11)                              |
 | `zapatos mujer 38`      | italy   | `EU 38`                                                             |
 | `42.2 eu men shoes us`  | any     | `US 8.5 (Nike), 9 (Clarks)`, note `between EU 42 and 42.5`          |
+| `40.5 eu men shoes us`  | any     | `US 7.5 (Nike), 8 (Clarks)`, note `between EU 40 and 41 (Clarks)`   |
+| `41.75 eu men shoes us` | any     | `US 8.5 (Nike), 9 (Clarks)` ²                                       |
 | `42⅔ eu men shoes us`   | any     | `US 9 (Nike), 9.5 (Clarks)` (an Adidas label)                       |
 | `50 eu men shoes us`    | any     | `US 15.5 (Clarks)` (past Nike's last row)                           |
 | `60 eu men shoes us`    | any     | error `no EU 60 in men's shoes (EU 38–51)`                          |
 | `42 eu nike shoes us`   | any     | not a size request: brands are not words                            |
-| `42 eu`                 | any     | unchanged: euros, asks for the target; suggests `42 eu shoes`       |
-| `42 eu us`              | any     | unchanged: EUR → USD; suggests `42 eu shoes us`                     |
+| `42 eu us`              | any     | list: `42 EUR = … USD`, `shoes: 42 eu = US 8.5 men, US 10 women` ³  |
+| `42 eu`                 | us      | the currency hint, then `shoes: 42 eu = US 8.5 men, US 10 women`    |
+| `42 eu`                 | italy   | the currency hint alone (the region's system is EU)                 |
+| `42.2 eu us`            | any     | list, `shoes: 42.2 eu = US 8.5 men, US 10 women` (no notes)         |
+| `36 eu us`              | any     | list, `shoes: 36 eu = US 5.5 women, US 4Y kids`                     |
+| `30 eu us`              | any     | list, `shoes: 30 eu = US 12.5C kids`                                |
+| `47 eu us`              | any     | list, `shoes: 47 eu = US 12.5 men`                                  |
+| `50 eu us`              | any     | list, `shoes: 50 eu = US 15.5 men (Clarks)`                         |
+| `42 eu fr`              | any     | list, `shoes: 42 eu = EU 42 men, EU 42 women`                       |
+| `100 eu us`             | any     | unchanged: EUR → USD alone (100 is in no shoe chart)                |
+| `42 eu jpy`             | any     | unchanged: EUR → JPY alone (`jpy` is no size system)                |
 | `42 in`                 | any     | unchanged: a length, asks for the target                            |
-| `12 us woman eu`        | any     | error: women's clothing is coming                                   |
+| `12 us woman eu`        | any     | error `only shoes for now`                                          |
+| `44 it dress us`        | any     | error `only shoes for now`                                          |
 | `42 it men shoes us`    | any     | `US 8.5 (Nike), 9 (Clarks)`, note `Italian shoe sizes are EU sizes` |
 | every answer            |         | note `sizes vary by brand: check the brand's chart`                 |
 
 ¹ With the details `UK 7.5 · JP 26.5 cm · CN 42` (Nike's) and the note
 `men's shoes (details: Nike)`.
+
+² With the notes `between EU 41 and 42 (Nike)` and
+`between EU 41.5 and 42 (Clarks)`.
+
+³ `--json`: `"result":"… USD"` and
+`"extra":[{"type":"shoes","results":["US 8.5 men","US 10 women"]}]`.
 
 ### Phase 2
 
@@ -829,7 +884,14 @@ details and notes are shown where they matter.
 All settled:
 
 - Sizes only when asked: an item, body or person word. Currency stays the
-  default, with the size request offered as a suggestion (2026-10-22).
+  default (2026-10-22).
+- Beside a currency that could be a shoe size: a list, the currency then a
+  shoes line (men, women, kids: whoever has the size; Nike's, Clarks's named
+  when only it has it; no notes), on the CLI's stdout too; `extra` in `--json`
+  and the UIs' answer; Copy the currency's (2026-10-22).
+- The "between" note names its chart when the charts differ (2026-10-22).
+- Clothing in phase 1: the error `only shoes for now` (2026-10-22).
+- Kids' shoes: a region column of their own, today as Shoes (2026-10-22).
 - A person word alone means clothing: women's and kids' answer, men's asks
   which.
 - Shoes: Nike's and Clarks's charts, each named in the result where they differ,
