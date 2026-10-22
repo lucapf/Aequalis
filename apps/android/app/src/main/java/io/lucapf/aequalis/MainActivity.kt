@@ -82,6 +82,7 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.dp
 import io.lucapf.aequalis.ui.theme.Appearance
@@ -180,6 +181,8 @@ fun AequalisApp(initial: String = "") {
     var panel by rememberSaveable { mutableStateOf<Panel?>(null) }
     // The Sizes: a strip of keys above the keyboard (the keys stay), not a panel in its place.
     var sizes by rememberSaveable { mutableStateOf(false) }
+    // The keyboard collapsed (⌄, a swipe down): its room to the answer, a bar to bring it back.
+    var collapsed by rememberSaveable { mutableStateOf(false) }
     // Letters or the calculator: kept while the app is open, and when the screen turns.
     var mode by rememberSaveable { mutableStateOf(Mode.Text) }
     var settings by rememberSaveable { mutableStateOf(false) }
@@ -271,6 +274,7 @@ fun AequalisApp(initial: String = "") {
             }
             is Key.Switch -> mode = key.mode
             Key.Settings -> settings = true
+            Key.Collapse -> collapsed = true
         }
     }
     val suggest = { s: Suggestion -> change(edit.word(s.write, Core.maxInput, offered.start.coerceAtMost(edit.cursor))) }
@@ -346,9 +350,9 @@ fun AequalisApp(initial: String = "") {
                         Column(Modifier.weight(1f).fillMaxHeight()) {
                             workspace(true, Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), true)
                             if (sizes) SizesStrip(sizeKey)
-                            LetterPad(onKey)
+                            if (collapsed) KeyboardBar { collapsed = false } else LetterPad(onKey, Modifier.swipe(down = true) { collapsed = true })
                         }
-                        NumberPad(scientific = mode == Mode.Scientific, onKey, Modifier.align(Alignment.Bottom))
+                        if (!collapsed) NumberPad(scientific = mode == Mode.Scientific, onKey, Modifier.align(Alignment.Bottom))
                     }
                     else -> showPanel(open, Modifier.weight(1f).fillMaxWidth().padding(top = 6.dp), true)
                 }
@@ -363,7 +367,7 @@ fun AequalisApp(initial: String = "") {
         when (val open = panel) {
             null -> {
                 if (sizes) SizesStrip(sizeKey)
-                AequalisKeyboard(mode, onKey)
+                if (collapsed) KeyboardBar { collapsed = false } else AequalisKeyboard(mode, onKey)
             }
             else -> showPanel(open, Modifier.fillMaxWidth().height(KeyboardHeight), false)
         }
@@ -440,12 +444,11 @@ fun Workspace(
                         // Copy and Share beside the result (landscape has no room for a row under it).
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             // A tap copies the value, a long press the whole expression.
-                            Text(
-                                result,
-                                style = resultStyle(result, landscape),
-                                modifier = Modifier.weight(1f)
-                                    .combinedClickable(onClickLabel = "Copy the value", onClick = { onCopy(value) }, onLongClickLabel = "Copy the expression", onLongClick = { onCopy(whole) }),
-                            )
+                            val copying = Modifier.weight(1f)
+                                .combinedClickable(onClickLabel = "Copy the value", onClick = { onCopy(value) }, onLongClickLabel = "Copy the expression", onLongClick = { onCopy(whole) })
+                            // A table (`shoes 42`): a line per person, from the extra results.
+                            if ('\n' in result && reply.extra.isNotEmpty()) PeopleSizes(reply.extra, copying)
+                            else Text(result, style = resultStyle(result, landscape), modifier = copying)
                             // With a currency, how old its rates are.
                             reply.rates?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                             CopyMenu(value, whole, onCopy)
@@ -487,6 +490,24 @@ fun resultStyle(result: String, landscape: Boolean): TextStyle = when {
     '\n' in result -> MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily.Monospace)
     landscape -> MaterialTheme.typography.headlineSmall
     else -> MaterialTheme.typography.headlineMedium
+}
+
+/** Every person's sizes (`shoes 42`), a line each: the person in bold, then their sizes, wrapping
+ *  under themselves: `Men  US 8.5 · UK 7.5 · EU 42 · JP 26.5 · CN 42`. */
+@Composable
+fun PeopleSizes(people: List<Extra>, modifier: Modifier = Modifier) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        people.forEach { p ->
+            Row {
+                Text(
+                    p.type.removePrefix("shoes ").replaceFirstChar { it.uppercase() },
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    modifier = Modifier.width(76.dp),
+                )
+                Text(p.results.joinToString(" · "), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+            }
+        }
+    }
 }
 
 /** The other results under the result or the hint, a line each: beside a currency

@@ -1,6 +1,8 @@
 package io.lucapf.aequalis
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -34,6 +36,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -60,6 +63,8 @@ sealed interface Key {
     data class Switch(val mode: Mode) : Key
     /** Opens the Settings (the landscape toolbar; in portrait, ⚙ at the top). */
     data object Settings : Key
+    /** Collapses the keyboard (its ⌄ key, a swipe down), its room to the answer; a bar brings it back. */
+    data object Collapse : Key
 }
 
 enum class Panel {
@@ -89,7 +94,8 @@ enum class Mode { Text, Basic, Scientific }
 @Composable
 fun AequalisKeyboard(mode: Mode, onKey: (Key) -> Unit, modifier: Modifier = Modifier, open: Panel? = null) {
     // `open`: a panel docked beside the keyboard (a large screen), whose tabs replace the panel keys.
-    Surface(color = MaterialTheme.colorScheme.surfaceContainer, modifier = modifier) {
+    // A swipe down collapses it (beside a docked panel it stays).
+    Surface(color = MaterialTheme.colorScheme.surfaceContainer, modifier = if (open == null) modifier.swipe(down = true) { onKey(Key.Collapse) } else modifier) {
         Column(
             Modifier.fillMaxWidth().navigationBarsPadding().height(KeyboardHeight).padding(4.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -98,6 +104,7 @@ fun AequalisKeyboard(mode: Mode, onKey: (Key) -> Unit, modifier: Modifier = Modi
             KeyRow {
                 // Clearing has its own key: no gesture on ⌫ wipes the request by surprise.
                 KeyButton("C", weight = 0.8f, tone = Tone.Action) { onKey(Key.Clear) }
+                if (open == null) KeyButton("⌄", weight = 0.7f, tone = Tone.Action) { onKey(Key.Collapse) }
                 switches(mode).forEach { (label, to) -> KeyButton(label, weight = 1.2f, tone = Tone.Action, small = true) { onKey(Key.Switch(to)) } }
                 // Beside a docked panel its tabs choose: no keys for them here.
                 if (open == null) PanelKeys(onKey) else Spacer(Modifier.weight(4f))
@@ -106,6 +113,31 @@ fun AequalisKeyboard(mode: Mode, onKey: (Key) -> Unit, modifier: Modifier = Modi
                 Mode.Text -> Letters(onKey)
                 Mode.Basic, Mode.Scientific -> Calculator(scientific = mode == Mode.Scientific, onKey)
             }
+        }
+    }
+}
+
+/** A vertical swipe (down, or up) of more than 48 dp on this: `then`. Taps on what is under it go on
+ *  as before: a drag starts only past the touch slop. */
+fun Modifier.swipe(down: Boolean, then: () -> Unit): Modifier = pointerInput(down) {
+    var moved = 0f
+    detectVerticalDragGestures(onDragStart = { moved = 0f }, onDragEnd = {
+        if ((if (down) moved else -moved) > 48.dp.toPx()) then()
+    }) { _, dy -> moved += dy }
+}
+
+/** The keyboard collapsed: a bar where it was, its room given to the answer; a tap or a swipe up
+ *  brings the keys back. */
+@Composable
+fun KeyboardBar(show: () -> Unit) {
+    Surface(color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth().swipe(down = false, then = show)) {
+        Row(
+            Modifier.fillMaxWidth().navigationBarsPadding().clickable(onClickLabel = "Show the keyboard", onClick = show).padding(vertical = 10.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(KeyboardUpIcon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("keyboard", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -197,6 +229,7 @@ private val LandscapeRow: Dp = 44.dp
 fun SideToolbar(onKey: (Key) -> Unit, open: Panel? = null, modifier: Modifier = Modifier) {
     Column(modifier.fillMaxHeight().width(100.dp).padding(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         ColumnKey("C") { onKey(Key.Clear) }
+        ColumnKey("⌄") { onKey(Key.Collapse) }
         // The panel open: its key in the accent colour (the panel has no title bar here); tapped
         // again, it closes the panel.
         Panel.entries.forEach { p -> ColumnKey(p.name, small = true, lit = p == open) { onKey(Key.Open(p)) } }
@@ -349,6 +382,7 @@ private fun keyIcon(label: String): ImageVector? = when (label) {
     "⌫" -> BackspaceIcon
     "⏎" -> EnterIcon
     "⚙" -> SettingsIcon
+    "⌄" -> KeyboardHideIcon
     "Shift" -> ShiftIcon
     "Shift on" -> ShiftOnIcon
     "Caps lock" -> ShiftLockIcon
@@ -361,6 +395,7 @@ private val SPOKEN = mapOf(
     "^" to "to the power of", "(" to "open bracket", ")" to "close bracket", "%" to "percent", "." to "point", ":" to "colon",
     "√" to "square root", "π" to "pi", "°" to "degrees", "123" to "Calculator keys", "ABC" to "Letter keys",
     "Sci" to "Scientific calculator", "Basic" to "Basic calculator", "space" to "Space", "⚙" to "Settings",
+    "⌄" to "Hide the keyboard",
 )
 
 /**

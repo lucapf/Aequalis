@@ -155,7 +155,9 @@ private fun QuickInput(initial: String, open: (String) -> Unit, close: () -> Uni
         // The answer: the result large; a hint, a question or an error as the core words it.
         when {
             result != null -> {
-                Text(result.result.orEmpty(), style = resultStyle(result.result.orEmpty(), landscape = false))
+                val text = result.result.orEmpty()
+                if ('\n' in text && result.extra.isNotEmpty()) PeopleSizes(result.extra)
+                else Text(text, style = resultStyle(text, landscape = false))
                 Extras(result)
                 result.details.forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
