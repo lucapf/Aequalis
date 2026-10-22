@@ -1,12 +1,13 @@
 //! The Sizes window (F4, Alt+Z, or 󰩻󱗈 Sizes in the top bar; Sizes in the Measures): the groups of
-//! the Sizes class (Shoes), which write their item word, then the system keys, which write their
-//! code. ↑↓ (j k) choose, Enter writes.
+//! the Sizes class (Shoes), which write their item word, the people (Men, Women, Kids), then the
+//! system keys, which write their code. ↑↓ (j k) choose, Enter writes.
 
 /// A row: (name, what it is, what it writes).
 pub fn rows() -> Vec<(&'static str, &'static str, &'static str)> {
     let groups = aequalis::sizes::groups().into_iter().map(|g| (g.name, group_sample(g.write), g.write));
+    let people = aequalis::sizes::PEOPLE_KEYS.iter().map(|&(name, write)| (name, "whose sizes", write));
     let systems = aequalis::sizes::SYSTEM_KEYS.iter().map(|&(name, write)| (name, system_sample(write), write));
-    groups.chain(systems).collect()
+    groups.chain(people).chain(systems).collect()
 }
 
 fn group_sample(word: &str) -> &'static str {
@@ -56,7 +57,7 @@ mod tests {
     fn groups_then_systems() {
         let rows = rows();
         assert_eq!(rows[0], ("Shoes", "men, women, kids: 42 eu men shoes us", "shoes"));
-        assert_eq!(rows.iter().map(|r| r.2).collect::<Vec<_>>(), ["shoes", "eu", "uk", "us", "it", "fr", "de", "jp", "cn"]);
+        assert_eq!(rows.iter().map(|r| r.2).collect::<Vec<_>>(), ["shoes", "men", "women", "kids", "eu", "uk", "us", "it", "fr", "de", "jp", "cn"]);
         let mut v = View::default();
         v.step(false);
         assert_eq!(v.word(), Some("cn"), "round");

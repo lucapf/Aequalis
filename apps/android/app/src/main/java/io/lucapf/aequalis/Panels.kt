@@ -205,6 +205,7 @@ fun SizesStrip(sizeKey: (String) -> Unit) {
         items(sizes.groups) { (name, word) ->
             AssistChip(onClick = { sizeKey(word) }, label = { Text(name) }, leadingIcon = { Icon(ShoesIcon, contentDescription = null, modifier = Modifier.size(18.dp)) })
         }
+        items(sizes.people) { (name, word) -> AssistChip(onClick = { sizeKey(word) }, label = { Text(name) }) }
         items(sizes.systems) { (name, code) -> AssistChip(onClick = { sizeKey(code) }, label = { Text(name) }) }
     }
 }
@@ -220,6 +221,9 @@ private fun SizesPanel(write: (String) -> Unit) {
     Column {
         sizes.groups.forEach { (name, word) -> Line(name, "men, women, kids: 42 eu men shoes us", icon = ShoesIcon) { write(word) } }
         HorizontalDivider()
+        Row(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            sizes.people.forEach { (name, word) -> OutlinedButton(onClick = { write(word) }, modifier = Modifier.weight(1f)) { Text(name, maxLines = 1) } }
+        }
         LazyVerticalGrid(GridCells.Adaptive(72.dp), Modifier.padding(8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             items(sizes.systems) { (name, code) -> OutlinedButton(onClick = { write(code) }) { Text(name, style = MaterialTheme.typography.titleMedium, maxLines = 1) } }
         }

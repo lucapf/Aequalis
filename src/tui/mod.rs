@@ -1773,13 +1773,25 @@ mod tests {
         app.handle(Key::Enter);
         assert_eq!(app.line.text(), "shoes ");
         assert!(app.overlay.is_none());
-        // Then a system: Alt+Z, down to EU.
+        // A person: Alt+Z, down to Men; then another in its place.
         app.handle(Key::Char('4'));
         app.handle(Key::Char('2'));
         app.handle(Key::Alt('z'));
         app.handle(Key::Down);
         app.handle(Key::Enter);
-        assert_eq!(app.line.text(), "shoes 42 eu ");
+        assert_eq!(app.line.text(), "shoes 42 men ");
+        app.handle(Key::Alt('z'));
+        app.handle(Key::Down);
+        app.handle(Key::Down);
+        app.handle(Key::Enter);
+        assert_eq!(app.line.text(), "shoes 42 women ");
+        // Then a system: down past the people to EU.
+        app.handle(Key::Alt('z'));
+        for _ in 0..4 {
+            app.handle(Key::Down);
+        }
+        app.handle(Key::Enter);
+        assert_eq!(app.line.text(), "shoes 42 women eu ");
     }
 
     #[test]

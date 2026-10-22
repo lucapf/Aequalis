@@ -466,8 +466,9 @@ fun Workspace(
                             // A tap copies the value, a long press the whole expression.
                             val copying = Modifier.weight(1f)
                                 .combinedClickable(onClickLabel = "Copy the value", onClick = { onCopy(value) }, onLongClickLabel = "Copy the expression", onLongClick = { onCopy(whole) })
-                            // A table (`shoes 42`): a line per person, from the extra results.
-                            if ('\n' in result && reply.extra.isNotEmpty()) PeopleSizes(reply.extra, copying)
+                            // Every person's sizes (`shoes 42`, `42 eu shoes us`): a line each, all alike.
+                            val people = peopleOf(reply)
+                            if (people != null) PeopleSizes(people, copying)
                             else Text(result, style = resultStyle(result, landscape), modifier = copying)
                             // With a currency, how old its rates are.
                             reply.rates?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -512,19 +513,33 @@ fun resultStyle(result: String, landscape: Boolean): TextStyle = when {
     else -> MaterialTheme.typography.headlineMedium
 }
 
-/** Every person's sizes (`shoes 42`), a line each: the person in bold, then their sizes, wrapping
+/** The people of an answer that names none (`shoes 42`, `42 eu shoes us`), as (person, sizes): from
+ *  the table's rows (`shoes men`: `US 8.5`, `UK 7.5`…), or the result and the others beside it
+ *  (`US 8.5 men`, `US 10 women`, `US 15.5 men (Clarks)`). Null for any other answer. */
+fun peopleOf(reply: Reply): List<Pair<String, String>>? {
+    val result = reply.result.orEmpty()
+    val title = { s: String -> s.replaceFirstChar { it.uppercase() } }
+    if ('\n' in result) return reply.extra.takeIf { it.isNotEmpty() }?.map { title(it.type.removePrefix("shoes ")) to it.results.joinToString(" · ") }
+    val sizes = result.substringBefore(' ') in listOf("US", "UK", "EU", "JP", "CN")
+    val others = reply.extra.filter { it.type == "shoes" }.flatMap { it.results }
+    if (!sizes || others.isEmpty()) return null
+    val who = listOf("men", "women", "kids", "toddler", "youth")
+    return (listOf(result) + others).map { line ->
+        val words = line.split(' ')
+        val person = words.firstOrNull { it in who } ?: return null
+        title(person) to (words - person).joinToString(" ")
+    }
+}
+
+/** Every person's sizes, a line each, all alike: the person in bold, then their sizes, wrapping
  *  under themselves: `Men  US 8.5 · UK 7.5 · EU 42 · JP 26.5 · CN 42`. */
 @Composable
-fun PeopleSizes(people: List<Extra>, modifier: Modifier = Modifier) {
+fun PeopleSizes(people: List<Pair<String, String>>, modifier: Modifier = Modifier) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        people.forEach { p ->
+        people.forEach { (person, sizes) ->
             Row {
-                Text(
-                    p.type.removePrefix("shoes ").replaceFirstChar { it.uppercase() },
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                    modifier = Modifier.width(76.dp),
-                )
-                Text(p.results.joinToString(" · "), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                Text(person, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold), modifier = Modifier.width(76.dp))
+                Text(sizes, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
             }
         }
     }
@@ -536,7 +551,8 @@ fun PeopleSizes(people: List<Extra>, modifier: Modifier = Modifier) {
 @Composable
 fun Extras(reply: Reply) {
     val result = reply.result.orEmpty()
-    if ('\n' in result) return
+    // Every person's sizes: in the list already.
+    if ('\n' in result || peopleOf(reply) != null) return
     val size = result.substringBefore(' ') in listOf("US", "UK", "EU", "JP", "CN")
     reply.extra.forEach { e ->
         val line = e.results.joinToString(", ")

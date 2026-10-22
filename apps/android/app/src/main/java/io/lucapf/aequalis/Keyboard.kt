@@ -307,25 +307,24 @@ fun SizesPad(sizeKey: (String) -> Unit, onKey: (Key) -> Unit, modifier: Modifier
     }
 }
 
-/** The Sizes' keys in four rows (`row`: the layout's, portrait or landscape): Shoes and the systems,
- *  written by the core (`sizeKey`, `shoes` brought along); ABC back to the letters; ⌫, space and ⏎
- *  as the letters have them. */
+/** The Sizes' keys in four rows, as many as the letters (`row`: the layout's, portrait or
+ *  landscape): Shoes and the people, then the systems, written by the core (`sizeKey`, `shoes`
+ *  brought along, a person in place of another); ABC back to the letters, space, ⌫ and ⏎. */
 @Composable
 private fun SizeKeys(sizeKey: (String) -> Unit, onKey: (Key) -> Unit, row: @Composable (@Composable RowScope.() -> Unit) -> Unit) {
     val sizes = produceState<Sizes?>(null) { value = withContext(Dispatchers.Default) { Core.sizes() } }.value
     val systems = sizes?.systems.orEmpty()
     row {
-        sizes?.groups.orEmpty().forEach { (name, word) -> KeyButton(name, weight = 2f, tone = Tone.Operator) { sizeKey(word) } }
-        systems.take(3).forEach { (name, code) -> KeyButton(name, tone = Tone.Operator) { sizeKey(code) } }
+        sizes?.groups.orEmpty().forEach { (name, word) -> KeyButton(name, weight = 1.4f, tone = Tone.Operator) { sizeKey(word) } }
+        sizes?.people.orEmpty().forEach { (name, word) -> KeyButton(name, tone = Tone.Operator, small = true) { sizeKey(word) } }
     }
-    row { systems.drop(3).forEach { (name, code) -> KeyButton(name, tone = Tone.Operator) { sizeKey(code) } } }
+    row { systems.take(4).forEach { (name, code) -> KeyButton(name, tone = Tone.Operator) { sizeKey(code) } } }
+    row { systems.drop(4).forEach { (name, code) -> KeyButton(name, tone = Tone.Operator) { sizeKey(code) } } }
     row {
-        KeyButton("ABC", weight = 3f, tone = Tone.Action, small = true) { onKey(Key.Open(Panel.Sizes)) }
-        BackspaceKey(onKey, weight = 1.5f)
-    }
-    row {
-        KeyButton("space", weight = 4f, small = true) { onKey(Key.Write(" ")) }
-        KeyButton("⏎", weight = 1.4f, tone = Tone.Enter) { onKey(Key.Enter) }
+        KeyButton("ABC", weight = 1.2f, tone = Tone.Action, small = true) { onKey(Key.Open(Panel.Sizes)) }
+        KeyButton("space", weight = 2.6f, small = true) { onKey(Key.Write(" ")) }
+        BackspaceKey(onKey, weight = 1.2f)
+        KeyButton("⏎", weight = 1.2f, tone = Tone.Enter) { onKey(Key.Enter) }
     }
 }
 

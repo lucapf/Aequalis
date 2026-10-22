@@ -156,8 +156,8 @@ private fun QuickInput(initial: String, open: (String) -> Unit, close: () -> Uni
         when {
             result != null -> {
                 val text = result.result.orEmpty()
-                if ('\n' in text && result.extra.isNotEmpty()) PeopleSizes(result.extra)
-                else Text(text, style = resultStyle(text, landscape = false))
+                val people = peopleOf(result)
+                if (people != null) PeopleSizes(people) else Text(text, style = resultStyle(text, landscape = false))
                 Extras(result)
                 result.details.forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }

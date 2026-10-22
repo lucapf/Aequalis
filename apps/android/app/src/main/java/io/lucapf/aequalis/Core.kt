@@ -108,9 +108,9 @@ data class Reply(
 /** Results beside the result: their kind (`shoes`) and the results. */
 data class Extra(val type: String, val results: List<String>)
 
-/** The Sizes class (the Measures' and the Sizes panel's): its groups and its system keys, each
- *  (shown, written): `Shoes` writes `shoes`, `EU` writes `eu`. */
-data class Sizes(val groups: List<Pair<String, String>>, val systems: List<Pair<String, String>>)
+/** The Sizes class (the Measures' and the Sizes panel's): its groups, people and system keys, each
+ *  (shown, written): `Shoes` writes `shoes`, `Men` writes `men`, `EU` writes `eu`. */
+data class Sizes(val groups: List<Pair<String, String>>, val people: List<Pair<String, String>>, val systems: List<Pair<String, String>>)
 
 /** About: the app's name, tagline (`Type it. Get it.`), what it does (`descriptor`) and core version, the facts (online data, last sync) and the
  *  data's sources, each a (label, text). */
@@ -287,7 +287,7 @@ object Core {
     fun sizes(): Sizes {
         val sizes = list("measures").getJSONObject("sizes")
         val pairs = { key: String -> sizes.getJSONArray(key).objects { it.getString("name") to it.getString("write") } }
-        return Sizes(pairs("groups"), pairs("systems"))
+        return Sizes(pairs("groups"), pairs("people"), pairs("systems"))
     }
 
     /** Every currency, the most used first. */

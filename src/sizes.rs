@@ -91,6 +91,9 @@ fn group_name(item: &str) -> &'static str {
     }
 }
 
+/// The people keys of the Sizes class, (shown, written): Men, Women, Kids.
+pub const PEOPLE_KEYS: [(&str, &str); 3] = [("Men", "men"), ("Women", "women"), ("Kids", "kids")];
+
 /// The system keys of the Sizes class, (shown, written): EU, UK, US, IT, FR, DE, JP, CN.
 pub const SYSTEM_KEYS: [(&str, &str); 8] = [("EU", "eu"), ("UK", "uk"), ("US", "us"), ("IT", "it"), ("FR", "fr"), ("DE", "de"), ("JP", "jp"), ("CN", "cn")];
 
@@ -104,7 +107,15 @@ fn has_item(line: &str) -> bool {
 /// and `shoes` at its start when it has no item word yet, so that it asks for sizes, not a
 /// currency: `42` + `eu` → `shoes 42 eu `. A group's word is not written twice.
 pub fn write_key(line: &str, key: &str) -> String {
-    let line = line.trim();
+    // A person: in place of the one there (`shoes 42 men` + women → `shoes 42 women`).
+    let kept;
+    let line = match word(key) {
+        Some((Word::Person(_), _)) => {
+            kept = without_people(line.trim());
+            kept.as_str()
+        }
+        _ => line.trim(),
+    };
     let join = |parts: &[&str]| format!("{} ", parts.iter().filter(|p| !p.is_empty()).copied().collect::<Vec<_>>().join(" "));
     let group = groups().iter().any(|g| g.write == key);
     match (has_item(line), group) {
@@ -112,6 +123,24 @@ pub fn write_key(line: &str, key: &str) -> String {
         (true, false) | (false, true) => join(&[line, key]),
         (false, false) => join(&["shoes", line, key]),
     }
+}
+
+/// `line` without its person words (`men`, `donna`, `trẻ em`): a person key replaces them.
+fn without_people(line: &str) -> String {
+    let words: Vec<&str> = line.split_whitespace().collect();
+    let mut kept = Vec::new();
+    let mut i = 0;
+    'next: while i < words.len() {
+        for n in (1..=3.min(words.len() - i)).rev() {
+            if matches!(word(&words[i..i + n].join(" ")), Some((Word::Person(_), _))) {
+                i += n;
+                continue 'next;
+            }
+        }
+        kept.push(words[i]);
+        i += 1;
+    }
+    kept.join(" ")
 }
 
 /// What a size word means, for a suggestion's label: `shoes`, `foot`, `women`, `toddler`.
@@ -938,6 +967,11 @@ mod tests {
         assert_eq!(write_key("", "shoes"), "shoes ");
         assert_eq!(write_key("42 eu", "shoes"), "42 eu shoes ");
         assert_eq!(write_key("shoes 42", "shoes"), "shoes 42 ");
+        // A person: shoes brought along too; another person in place of the one there.
+        assert_eq!(write_key("42", "men"), "shoes 42 men ");
+        assert_eq!(write_key("shoes 42 men", "women"), "shoes 42 women ");
+        assert_eq!(write_key("scarpe donna 38", "kids"), "scarpe 38 kids ");
+        assert_eq!(write_key("42 eu trẻ em shoes", "men"), "42 eu shoes men ");
     }
 
     #[test]

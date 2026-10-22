@@ -84,12 +84,13 @@ pub enum Item {
     Sizes,
 }
 
-/// The Sizes row's buttons: the groups (`shoes`), then the systems (`eu`, `uk`, `us`, `jp`), at
-/// most `UNITS_PER_CLASS`.
+/// The Sizes row's buttons: the groups (`shoes`), the people (`men`, `women`, `kids`), then the
+/// systems (`eu`, `uk`, `us`, `jp`), as many as the row has room for.
 pub fn size_buttons() -> Vec<Button> {
     let groups = aequalis::sizes::groups().into_iter().map(|g| g.write);
+    let people = aequalis::sizes::PEOPLE_KEYS.iter().map(|&(_, w)| w);
     let systems = ["eu", "uk", "us", "jp"].into_iter();
-    groups.chain(systems).take(UNITS_PER_CLASS).map(|w| Button { written: w.to_string(), label: w.to_string(), used: false }).collect()
+    groups.chain(people).chain(systems).map(|w| Button { written: w.to_string(), label: w.to_string(), used: false }).collect()
 }
 
 /// The list the board scrolls: the currencies always first (what the board opens at), then the

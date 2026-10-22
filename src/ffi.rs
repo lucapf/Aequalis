@@ -458,8 +458,9 @@ pub fn trivia_measures(shown: &str, plain: &str) -> Vec<(String, String)> {
 
 /// The unit classes for the Measures: `{"classes":[{"name","systems":[…,…],"units":
 /// [{"symbol","name","system":"metric"|"imperial"|"both"}]}],"sizes":{"name":"Sizes","groups":
-/// [{"name","write"}],"systems":[{"name","write"}]}}`, in the TUI's order; the sizes a class of their
-/// own: groups that write their item word (`shoes`), system keys that write their code (`eu`).
+/// [{"name","write"}],"people":[{"name","write"}],"systems":[{"name","write"}]}}`, in the TUI's order;
+/// the sizes a class of their own: groups that write their item word (`shoes`), people keys their
+/// word (`men`), system keys their code (`eu`).
 #[no_mangle]
 pub extern "C" fn aequalis_measures() -> *mut c_char {
     give(measures())
@@ -487,8 +488,10 @@ pub fn measures() -> String {
         })
         .collect();
     let groups: Vec<String> = crate::sizes::groups().iter().map(|g| Object::new().str("name", g.name).str("write", g.write).finish()).collect();
-    let systems: Vec<String> = crate::sizes::SYSTEM_KEYS.iter().map(|(name, write)| Object::new().str("name", name).str("write", write).finish()).collect();
-    let sizes = Object::new().str("name", "Sizes").list("groups", &groups).list("systems", &systems).finish();
+    let key = |(name, write): &(&str, &str)| Object::new().str("name", name).str("write", write).finish();
+    let systems: Vec<String> = crate::sizes::SYSTEM_KEYS.iter().map(key).collect();
+    let people: Vec<String> = crate::sizes::PEOPLE_KEYS.iter().map(key).collect();
+    let sizes = Object::new().str("name", "Sizes").list("groups", &groups).list("people", &people).list("systems", &systems).finish();
     Object::new().list("classes", &classes).raw("sizes", &sizes).finish()
 }
 
@@ -728,7 +731,7 @@ mod tests {
         assert!(classes.iter().any(|c| c.get("name").and_then(|v| v.str()) == Some("Temperature")));
         // The sizes: a class of their own, its groups and system keys writing words.
         let text = super::measures();
-        assert!(text.contains(r#""sizes":{"name":"Sizes","groups":[{"name":"Shoes","write":"shoes"}],"systems":[{"name":"EU","write":"eu"},"#), "{text}");
+        assert!(text.contains(r#""sizes":{"name":"Sizes","groups":[{"name":"Shoes","write":"shoes"}],"people":[{"name":"Men","write":"men"},"#), "{text}");
         assert!(currencies().contains(r#"{"code":"EUR","name":"euro","symbols":["€"],"countries":["#));
     }
 

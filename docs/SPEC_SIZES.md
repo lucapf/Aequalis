@@ -838,6 +838,14 @@ nearest ⅛. UK = US − ⅛.
   - **It opens** the groups (Shoes; later Women, Men, Kids, Bras, Hats, each in
     its phase), which write their item word, and the system keys, which write
     their code.
+  - **People keys** (decided 2026-10-22): Men, Women, Kids, beside Shoes (the
+    Android keys, strip and panel; the TUI's window and board). One writes its
+    word in place of a person word already there (`shoes 42 men` + Women →
+    `shoes 42 women`), and brings `shoes` as the system keys do.
+  - **With no person, every person alike** (Android, decided 2026-10-22): the
+    answer of `42 eu shoes us`, as the table's, is a line per person in the same
+    style (`Men  US 8.5`, `Women  US 10`), not the first large and the others
+    small.
   - **A system key brings `shoes`** (decided 2026-10-22): written after the
     request, and `shoes` at its start when the request has no item word yet,
     so that it asks for sizes, not a currency: `42` + EU → `shoes 42 eu`, an
