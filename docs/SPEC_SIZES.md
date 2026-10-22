@@ -812,8 +812,11 @@ nearest ⅛. UK = US − ⅛.
 ## 7. UI
 
 - **A Sizes menu item** (decided 2026-10-22), right after Currencies:
-  - **TUI:** `F4 👕👟 Sizes`, Alt+Z; Trivia moves from F4 to F6 (Alt+T kept):
-    `F2 Measures  F3 Currencies  F4 👕👟 Sizes  F5 History  F6 Trivia  F9 Keys
+  - **TUI:** `F4 󰩻󱗈 Sizes`, Alt+Z; Trivia moves from F4 to F6 (Alt+T kept). The
+    symbols are the Nerd Font's md-tshirt_crew and md-shoe_sneaker (U+F0A7B,
+    U+F15C8), monochrome in the terminal's colours (decided 2026-10-22, in place
+    of the emoji 👕👟); the full names only with room for the online indicator:
+    `F2 Measures  F3 Currencies  F4 󰩻󱗈 Sizes  F5 History  F6 Trivia  F9 Keys
     F10 ⚙`.
   - **Android:** in the toolbar after Currencies, with the Material Symbols
     `apparel` (a T-shirt) and `steps` (footprints: Material Symbols has no
@@ -966,9 +969,9 @@ All settled:
 - Shoes never ask whose: no person shows whoever has the size; no target the
   region's system then the others; neither a table, lined up on the decimal
   point (2026-10-22).
-- A Sizes menu item after Currencies (TUI F4 👕👟 Alt+Z, Trivia to F6; Android
-  `apparel` + `steps`; not in the widget yet), and still a class in Measures;
-  a Shoes section in Trivia, Nike's tables (2026-10-22).
+- A Sizes menu item after Currencies (TUI F4 󰩻󱗈 Alt+Z, Nerd Font symbols,
+  Trivia to F6; Android `apparel` + `steps`; not in the widget yet), and still
+  a class in Measures; a Shoes section in Trivia, Nike's tables (2026-10-22).
 - A person word alone means clothing: women's and kids' answer, men's asks
   which.
 - Shoes: Nike's and Clarks's charts, each named in the result where they differ,

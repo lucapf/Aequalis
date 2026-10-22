@@ -62,7 +62,7 @@ pub struct Tool {
 pub const TOOLBAR: [Tool; 7] = [
     Tool { fkey: 2, alt: 'm', label: "Measures", short: "Meas", action: Action::Open(Panel::Measures) },
     Tool { fkey: 3, alt: 'c', label: "Currencies", short: "Curr", action: Action::Open(Panel::Currencies) },
-    Tool { fkey: 4, alt: 'z', label: "👕👟 Sizes", short: "👕👟", action: Action::Open(Panel::Sizes) },
+    Tool { fkey: 4, alt: 'z', label: "󰩻󱗈 Sizes", short: "󰩻󱗈", action: Action::Open(Panel::Sizes) },
     Tool { fkey: 5, alt: 'h', label: "History", short: "Hist", action: Action::Open(Panel::History) },
     Tool { fkey: 6, alt: 't', label: "Trivia", short: "Triv", action: Action::Open(Panel::Trivia) },
     Tool { fkey: 9, alt: 'b', label: "Keys", short: "Keys", action: Action::ToggleKeypad },

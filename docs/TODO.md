@@ -64,7 +64,7 @@ By priority, most urgent first.
       system tabs, the Shoes group writing `shoes`), the shoes line beside a
       currency (the list, §4.1), a two-chart result at the right edge and in the
       history, the board.
-- [x] **size-19** Phase 1, TUI: the Sizes menu item, `F4 👕👟 Sizes` and Alt+Z,
+- [x] **size-19** Phase 1, TUI: the Sizes menu item, `F4 󰩻󱗈 Sizes` and Alt+Z,
       opening the groups and system keys (§7); Trivia moves from F4 to F6. The
       help, `--help`, README and `scripts/windows-tui-smoke.py` (it clicks the
       toolbar) follow the new keys.

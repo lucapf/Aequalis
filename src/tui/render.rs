@@ -2,7 +2,7 @@
 //! styled cells, so the picker and the help can be drawn over the sections.
 //!
 //! ```text
-//!  F2 Measures  F3 Currencies  F4 👕👟 Sizes  F5 History  F6 Trivia  F9 Keys  F10 ⚙  ● online
+//!  F2 Measures  F3 Currencies  F4 󰩻󱗈 Sizes  F5 History  F6 Trivia  F9 Keys  F10 ⚙  ● online
 //! ──────────────────────────────────────────────────────────────────────────────────
 //!    10 km mi            = 6.2137 mi
 //!    (10+12-3)/4Km Mi    = 2.9515 mi
@@ -670,7 +670,10 @@ fn toolbar(app: &App, canvas: &mut Canvas) {
         (format!(" F{}", t.fkey), name)
     };
     let width = |tier: usize| TOOLBAR.iter().map(|t| parts(t, tier)).map(|(k, n)| columns(&k) + columns(&n)).sum::<usize>();
-    let tier = (0..2).find(|&tier| width(tier) <= cols).unwrap_or(2);
+    // The full names only with room for the online indicator after them (` ● offline`); else the
+    // short ones, else the keys.
+    let room = |tier: usize| if tier == 0 { columns(" ● offline") } else { 0 };
+    let tier = (0..2).find(|&tier| width(tier) + room(tier) <= cols).unwrap_or(2);
     let mut col = 0;
     for tool in &TOOLBAR {
         let lit = match tool.action {
@@ -1661,7 +1664,7 @@ fn sizes(v: &super::sizes::View, canvas: &mut Canvas, area: Area) {
     let rows = super::sizes::rows();
     let Area { top, left, width, height } = area;
     let right = left + width - 1;
-    canvas.boxed(top, left, height, width, "👕👟 Sizes");
+    canvas.boxed(top, left, height, width, "󰩻󱗈 Sizes");
     let names = rows.iter().map(|(name, ..)| name.chars().count()).max().unwrap_or(0);
     let visible = height - 2;
     let offset = v.selected.saturating_sub(visible.saturating_sub(1));
@@ -2047,7 +2050,7 @@ mod tests {
         assert_eq!(lines.len(), 14);
         // The toolbar, then a rule, the history as a scrollback (newest at the bottom), a rule,
         // the request line, its result and suggestions, a rule, the status line.
-        assert!(lines[0].starts_with(" F2 Measures  F3 Currencies  F4 👕👟 Sizes  F5 History  F6 Trivia  F9 Keys  F10 ⚙ "), "{}", lines[0]);
+        assert!(lines[0].starts_with(" F2 Measures  F3 Currencies  F4 󰩻󱗈 Sizes  F5 History  F6 Trivia  F9 Keys  F10 ⚙ "), "{}", lines[0]);
         assert!(lines[1].chars().all(|c| c == '─'), "{}", lines[1]);
         assert!(lines[2..7].iter().all(|l| !l.contains("km")), "{lines:?}");
         assert!(lines[7].starts_with("    10 km mi      = 6.2137 mi"), "{}", lines[7]);
@@ -2067,7 +2070,7 @@ mod tests {
     fn toolbar() {
         // The online indicator at the right; the open window lit (the style, not the text).
         let (lines, _) = screen("", 12, 100);
-        assert!(lines[0].starts_with(" F2 Measures  F3 Currencies  F4 👕👟 Sizes  F5 History  F6 Trivia  F9 Keys  F10 ⚙ "), "{}", lines[0]);
+        assert!(lines[0].starts_with(" F2 Measures  F3 Currencies  F4 󰩻󱗈 Sizes  F5 History  F6 Trivia  F9 Keys  F10 ⚙ "), "{}", lines[0]);
         assert!(lines[0].contains('●') || lines[0].contains('○'), "{}", lines[0]);
         let lit = |keys: &str, cols: usize| {
             let config = Config::default();
@@ -2079,8 +2082,8 @@ mod tests {
         assert!(lit("", 100).is_empty());
         assert_eq!(lit("<F2>", 100), [" F2 Measures"]);
         assert_eq!(lit("<A-c>", 100), [" F3 Currencies"]);
-        assert_eq!(lit("<F4>", 100), [" F4 👕👟 Sizes"]);
-        assert_eq!(lit("<A-z>", 100), [" F4 👕👟 Sizes"]);
+        assert_eq!(lit("<F4>", 100), [" F4 󰩻󱗈 Sizes"]);
+        assert_eq!(lit("<A-z>", 100), [" F4 󰩻󱗈 Sizes"]);
         assert_eq!(lit("<F6>", 100), [" F6 Trivia"]);
         assert_eq!(lit("<F10>", 100), [" F10 ⚙"]);
         // The keypad's key is lit while the keypad is shown: it says how to bring it, and back.
@@ -2092,15 +2095,16 @@ mod tests {
         assert!(lit("<F1>", 100).is_empty(), "the help is not on the toolbar");
         // The Measures' unit keys are the Measures'.
         assert_eq!(lit("<F2>L", 100), [" F2 Measures"]);
-        // From 82 columns the full names; at 80 the short ones and the online indicator.
-        let (lines, _) = screen("", 12, 82);
-        assert!(lines[0].starts_with(" F2 Measures  F3 Currencies  F4 👕👟 Sizes  F5 History  F6 Trivia  F9 Keys  F10 ⚙"), "{}", lines[0]);
+        // From 90 columns the full names, with room for the online indicator; at 80 the short ones
+        // and the indicator.
+        let (lines, _) = screen("", 12, 90);
+        assert!(lines[0].starts_with(" F2 Measures  F3 Currencies  F4 󰩻󱗈 Sizes  F5 History  F6 Trivia  F9 Keys  F10 ⚙"), "{}", lines[0]);
         let (lines, _) = screen("", 12, 80);
-        assert!(lines[0].starts_with(" F2 Meas  F3 Curr  F4 👕👟  F5 Hist  F6 Triv  F9 Keys  F10 ⚙"), "{}", lines[0]);
+        assert!(lines[0].starts_with(" F2 Meas  F3 Curr  F4 󰩻󱗈  F5 Hist  F6 Triv  F9 Keys  F10 ⚙"), "{}", lines[0]);
         assert!(lines[0].contains('●') || lines[0].contains('○'), "the indicator at 80 columns: {}", lines[0]);
         // Narrower: the short names, then the keys alone.
         let (lines, _) = screen("", 12, 61);
-        assert!(lines[0].starts_with(" F2 Meas  F3 Curr  F4 👕👟  F5 Hist  F6 Triv  F9 Keys  F10 ⚙"), "{}", lines[0]);
+        assert!(lines[0].starts_with(" F2 Meas  F3 Curr  F4 󰩻󱗈  F5 Hist  F6 Triv  F9 Keys  F10 ⚙"), "{}", lines[0]);
         let (lines, _) = screen("", 12, 50);
         assert!(lines[0].starts_with(" F2  F3  F4  F5  F6  F9  F10"), "{}", lines[0]);
         let (lines, _) = screen("", 12, 40);
@@ -2491,8 +2495,8 @@ mod tests {
         assert!(top(Status::Online, 120).ends_with(" ● online (2h old)"), "{}", top(Status::Online, 120));
         assert!(top(Status::Offline, 120).ends_with(" ● offline (never synced)"), "{}", top(Status::Offline, 120));
         assert!(top(Status::Forced, 120).ends_with(" ● offline (forced, never synced)"), "{}", top(Status::Forced, 120));
-        // At 80 columns the toolbar leaves room for the short ones.
-        assert!(top(Status::Online, 80).ends_with(" ● online"), "{}", top(Status::Online, 80));
+        // At 80 columns the toolbar's short names leave room for the age, not for the longest label.
+        assert!(top(Status::Online, 80).ends_with(" ● online (2h old)"), "{}", top(Status::Online, 80));
         assert!(top(Status::Forced, 80).ends_with(" ● offline"), "{}", top(Status::Forced, 80));
         // Narrow: the short label, else none.
         assert!(top(Status::Forced, 44).ends_with(" ● offline"), "{}", top(Status::Forced, 44));
@@ -2642,7 +2646,7 @@ mod tests {
             let (last, text) = text.strip_prefix("last:").map_or((false, *text), |t| (true, t));
             let mut found = plain.iter().enumerate().filter(|(_, l)| l.contains(text));
             let (row, line) = if last { found.next_back() } else { found.next() }.unwrap_or_else(|| panic!("no `{text}` on screen:\n{}", plain.join("\n")));
-            // Columns, not characters: the toolbar's 👕👟 take two each.
+            // Columns, not characters: the toolbar's 󰩻󱗈 take two each.
             let col = columns(&line[..line.find(text).unwrap()]);
             app.hits = frame.hits;
             let mouse = |kind| Key::Mouse(super::super::keys::Mouse { kind, row, col });
@@ -2865,7 +2869,7 @@ mod tests {
         assert!(lines.iter().all(|l| l.chars().count() <= 50));
         // From 61 columns the toolbar has short names.
         let (lines, _) = screen("", 20, 61);
-        assert!(lines[0].starts_with(" F2 Meas  F3 Curr  F4 👕👟  F5 Hist  F6 Triv  F9 Keys  F10 ⚙"), "{}", lines[0]);
+        assert!(lines[0].starts_with(" F2 Meas  F3 Curr  F4 󰩻󱗈  F5 Hist  F6 Triv  F9 Keys  F10 ⚙"), "{}", lines[0]);
     }
 
     #[test]

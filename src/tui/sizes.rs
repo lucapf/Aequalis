@@ -1,4 +1,4 @@
-//! The Sizes window (F4, Alt+Z, or 👕👟 Sizes in the top bar; Sizes in the Measures): the groups of
+//! The Sizes window (F4, Alt+Z, or 󰩻󱗈 Sizes in the top bar; Sizes in the Measures): the groups of
 //! the Sizes class (Shoes), which write their item word, then the system keys, which write their
 //! code. ↑↓ (j k) choose, Enter writes.
 
