@@ -46,6 +46,13 @@ By priority, most urgent first.
 
 ## DONE
 
+- [x] **size-23** Phase 1, after trying it: the TUI's toolbar with a Nerd Font
+      symbol per entry (the symbols alone when narrow), the size's digits typed
+      with the Sizes window open; on Android the Sizes keys in the letters'
+      place (portrait and landscape), the keyboard collapsing (⌄, a swipe, ⏎ on
+      an answer too tall), a line per person for every person's sizes; Men,
+      Women and Kids keys (a person in place of another); a Sizes key bringing
+      `shoes`; Copy giving every person's size. Commits a78a7ac to 11699ed.
 - [x] **size-21** Phase 1: a Shoes section in Trivia: Nike's Men, Women and Kids
       tables (US, UK, EU, JP, foot length in cm), in the core's trivia data and
       in the TUI's and Android's Trivia (§7).
