@@ -382,9 +382,10 @@ fun AequalisApp(initial: String = "") {
         workspace(false, Modifier.weight(1f).statusBarsPadding().padding(horizontal = 16.dp), true)
         // The keyboard (the Sizes' strip above it, when shown), or a panel in its place.
         when (val open = panel) {
+            // The Sizes on: their keys in the letters' place; in the calculator (no letters), a strip above it.
             null -> {
-                if (sizes) SizesStrip(sizeKey)
-                if (collapsed) KeyboardBar { collapsed = false } else AequalisKeyboard(mode, onKey)
+                if (sizes && mode != Mode.Text && !collapsed) SizesStrip(sizeKey)
+                if (collapsed) KeyboardBar { collapsed = false } else AequalisKeyboard(mode, onKey, sizes = sizes, sizeKey = sizeKey)
             }
             else -> showPanel(open, Modifier.fillMaxWidth().height(KeyboardHeight), false)
         }

@@ -821,18 +821,17 @@ nearest ⅛. UK = US − ⅛.
     symbol (from 44 columns); else the keys alone.
   - **Android:** in the toolbar after Currencies, with the Material Symbols
     `apparel` (a T-shirt) and `steps` (footprints: Material Symbols has no
-    shoe) icons, as paths in `Icons.kt`. In portrait and landscape the Sizes
-    key shows or hides a **strip of chips above the keys** (Shoes, then the
-    systems), the keyboard whole under it (decided 2026-10-22); on a large
-    screen, the panel beside the keys. The table (`shoes 42`) is a line per
+    shoe) icons, as paths in `Icons.kt`. The Sizes key shows or hides the
+    Sizes' keys (below); on a large screen, the panel beside the keys. The table (`shoes 42`) is a line per
     person on the phone, the person in bold and the sizes after it:
     `Men  US 8.5 · UK 7.5 · EU 42 · JP 26.5 · CN 42`. The keyboard collapses
     (its ⌄ key, a swipe down) to give its room to the answer; a bar brings it
     back (a tap, a swipe up) (decided 2026-10-22). ⏎ on an answer taller than
     its room collapses it too, once for that request; typing never does. In
-    landscape the Sizes take the letters' place as big keys (Shoes, the
-    systems, ABC back to the letters, ⌫, space, ⏎), the digits beside them
-    (decided 2026-10-22).
+    landscape and in portrait the Sizes take the letters' place as big keys
+    (Shoes, the systems, ABC back to the letters, ⌫, space, ⏎), the digits
+    beside them (landscape) or above them with the operators (portrait); in the
+    calculator keys (no letters) a strip above them (decided 2026-10-22).
   - **Omarchy widget:** no Sizes item for now; it shows size answers as any
     other.
   - **It opens** the groups (Shoes; later Women, Men, Kids, Bras, Hats, each in

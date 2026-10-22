@@ -95,7 +95,15 @@ enum class Mode { Text, Basic, Scientific }
  * and constants beside them.
  */
 @Composable
-fun AequalisKeyboard(mode: Mode, onKey: (Key) -> Unit, modifier: Modifier = Modifier, open: Panel? = null) {
+fun AequalisKeyboard(
+    mode: Mode,
+    onKey: (Key) -> Unit,
+    modifier: Modifier = Modifier,
+    open: Panel? = null,
+    // The Sizes on: their keys in the letters' place (the digits and operators stay).
+    sizes: Boolean = false,
+    sizeKey: (String) -> Unit = {},
+) {
     // `open`: a panel docked beside the keyboard (a large screen), whose tabs replace the panel keys.
     // A swipe down collapses it (beside a docked panel it stays).
     Surface(color = MaterialTheme.colorScheme.surfaceContainer, modifier = if (open == null) modifier.swipe(down = true) { onKey(Key.Collapse) } else modifier) {
@@ -113,7 +121,7 @@ fun AequalisKeyboard(mode: Mode, onKey: (Key) -> Unit, modifier: Modifier = Modi
                 if (open == null) PanelKeys(onKey) else Spacer(Modifier.weight(4f))
             }
             when (mode) {
-                Mode.Text -> Letters(onKey)
+                Mode.Text -> Letters(onKey, if (sizes) sizeKey else null)
                 Mode.Basic, Mode.Scientific -> Calculator(scientific = mode == Mode.Scientific, onKey)
             }
         }
@@ -157,12 +165,14 @@ private fun switches(mode: Mode): List<Pair<String, Mode>> = when (mode) {
 private val OPERATORS = listOf("+" to "+", "−" to "-", "×" to "*", "÷" to "/", "^" to "^", "(" to "(", ")" to ")", "%" to "%", "." to ".", ":" to ":")
 
 @Composable
-private fun ColumnScope.Letters(onKey: (Key) -> Unit) {
+private fun ColumnScope.Letters(onKey: (Key) -> Unit, sizeKey: ((String) -> Unit)?) {
     val write = { s: String -> onKey(Key.Write(s)) }
     val capitals = remember { Capitals() }
     // Above the digits, next to them: the request's numbers and operators are typed together.
     KeyRow { OPERATORS.forEach { (shown, written) -> KeyButton(shown, tone = Tone.Operator) { write(written) } } }
     KeyRow { "1234567890".forEach { c -> CharKey(c, write) } }
+    // The Sizes on: their keys where the letters are.
+    if (sizeKey != null) return SizeKeys(sizeKey, onKey) { content -> KeyRow(content) }
     KeyRow { "qwertyuiop".forEach { c -> LetterKey(c, capitals, write) } }
     // The middle row is half a key shorter on each side, as on a phone; the last one has ⇧ and ⌫.
     KeyRow {
@@ -289,27 +299,33 @@ fun NumberPad(scientific: Boolean, onKey: (Key) -> Unit, modifier: Modifier = Mo
     }
 }
 
-/** Landscape, the Sizes on: big keys in the letters' place (the digits stay beside them): Shoes and
- *  the systems, written by the core (`sizeKey`, `shoes` brought along); ABC back to the letters; ⌫,
- *  space and ⏎ as the letters have them. */
+/** Landscape, the Sizes on: big keys in the letters' place (the digits stay beside them). */
 @Composable
 fun SizesPad(sizeKey: (String) -> Unit, onKey: (Key) -> Unit, modifier: Modifier = Modifier) {
+    Column(modifier.fillMaxWidth().padding(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        SizeKeys(sizeKey, onKey) { content -> PadRow(content) }
+    }
+}
+
+/** The Sizes' keys in four rows (`row`: the layout's, portrait or landscape): Shoes and the systems,
+ *  written by the core (`sizeKey`, `shoes` brought along); ABC back to the letters; ⌫, space and ⏎
+ *  as the letters have them. */
+@Composable
+private fun SizeKeys(sizeKey: (String) -> Unit, onKey: (Key) -> Unit, row: @Composable (@Composable RowScope.() -> Unit) -> Unit) {
     val sizes = produceState<Sizes?>(null) { value = withContext(Dispatchers.Default) { Core.sizes() } }.value
     val systems = sizes?.systems.orEmpty()
-    Column(modifier.fillMaxWidth().padding(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        PadRow {
-            sizes?.groups.orEmpty().forEach { (name, word) -> KeyButton(name, weight = 2f, tone = Tone.Operator) { sizeKey(word) } }
-            systems.take(3).forEach { (name, code) -> KeyButton(name, tone = Tone.Operator) { sizeKey(code) } }
-        }
-        PadRow { systems.drop(3).forEach { (name, code) -> KeyButton(name, tone = Tone.Operator) { sizeKey(code) } } }
-        PadRow {
-            KeyButton("ABC", weight = 3f, tone = Tone.Action, small = true) { onKey(Key.Open(Panel.Sizes)) }
-            BackspaceKey(onKey, weight = 1.5f)
-        }
-        PadRow {
-            KeyButton("space", weight = 4f, small = true) { onKey(Key.Write(" ")) }
-            KeyButton("⏎", weight = 1.4f, tone = Tone.Enter) { onKey(Key.Enter) }
-        }
+    row {
+        sizes?.groups.orEmpty().forEach { (name, word) -> KeyButton(name, weight = 2f, tone = Tone.Operator) { sizeKey(word) } }
+        systems.take(3).forEach { (name, code) -> KeyButton(name, tone = Tone.Operator) { sizeKey(code) } }
+    }
+    row { systems.drop(3).forEach { (name, code) -> KeyButton(name, tone = Tone.Operator) { sizeKey(code) } } }
+    row {
+        KeyButton("ABC", weight = 3f, tone = Tone.Action, small = true) { onKey(Key.Open(Panel.Sizes)) }
+        BackspaceKey(onKey, weight = 1.5f)
+    }
+    row {
+        KeyButton("space", weight = 4f, small = true) { onKey(Key.Write(" ")) }
+        KeyButton("⏎", weight = 1.4f, tone = Tone.Enter) { onKey(Key.Enter) }
     }
 }
 
