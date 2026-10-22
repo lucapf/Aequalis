@@ -8,28 +8,27 @@ done, move it to DONE and note the commit.
 
 ## WORKING / planned
 
-- [ ] **size-2** Settle phase 1's last four defaults in the spec: how the
-      currency request's size suggestion is shown (a new field the UIs offer as
-      a choice), the "between" note when only one chart is between rows
-      (`between EU 40 and 41 (Clarks)`), the "coming" error's text, the region's
-      system for kids' shoes (the Shoes column). Then phase 1, from size-3.
+- [ ] **size-3** Check Nike's women's and kids' foot lengths on nike.com, by eye
+      (§6.1 ¹ ²).
 
 ## TODO
 
 By priority, most urgent first.
 
-- [ ] **size-3** Check Nike's women's and kids' foot lengths on nike.com, by eye
-      (§6.1 ¹ ²).
 - [ ] **size-4** Phase 1, data: the shoe charts (Nike's and Clarks's, men,
       women, kids) and every item, body and person word of the 10 languages in
       `src/data/sizes.json`, compiled by `build/tables.rs`.
 - [ ] **size-5** Phase 1, rules in `src/sizes.rs`: the request grammar (§3), the
       nearest row, the two charts merged into one result (§6.1), `whose sizes?`
       (§5), the region's system (§4.2), the notes; `sizes::request` first in
-      `convert_request`; later items answered with a "coming" error.
-- [ ] **size-6** Phase 1: currency stays the default (`42 eu`, `42 eu us`
-      unchanged), with the size request suggested under the result (§3.2): a new
-      field in `Output`, in `--json` and in the FFI/JNI answer.
+      `convert_request`; later items answered with the error
+      `only shoes for now`.
+- [ ] **size-6** Phase 1: currency stays the default, with the shoes line beside
+      it (§4.1): `42 eu us` answers with a list (the currency, then
+      `shoes: 42 eu = US 8.5 men, US 10 women`), on the CLI's stdout too; the
+      extra results in `Output`, as `extra` in `--json` and in `reply::view`
+      (the FFI/JNI answer); `42 eu` gets the line under its hint, in the
+      region's system.
 - [ ] **size-7** Phase 1: `tests/sizes.rs` on the `italy` and `us` machines
       (§9), and the size requests in the fuzzer (`fuzz/`).
 - [ ] **size-8** Phase 1, the core for the UIs: the Sizes class in
@@ -38,15 +37,16 @@ By priority, most urgent first.
       body words; the systems after a size), Copy of a two-chart result
       (`reply::value_of`: the first chart's value).
 - [ ] **size-9** Phase 1, TUI: the Sizes class in Measures (its letter, the
-      system tabs, the Shoes group writing `shoes`), the size suggestion under a
-      currency result, a two-chart result at the right edge and in the history,
-      the board.
-- [ ] **size-10** Phase 1, Omarchy widget: the Sizes class in Measures, the size
-      suggestion, a two-chart result and its Copy.
+      system tabs, the Shoes group writing `shoes`), the shoes line beside a
+      currency (the list, §4.1), a two-chart result at the right edge and in the
+      history, the board.
+- [ ] **size-10** Phase 1, Omarchy widget: the Sizes class in Measures, the
+      shoes line beside a currency (the list, from `extra`), a two-chart result
+      and its Copy.
 - [ ] **size-11** Phase 1, Android: the Sizes class in the Measures panel (the
-      system tabs, the Shoes group, its icon), the size suggestion as a chip,
-      Copy and Share of a two-chart result, the quick window (QuickActivity)
-      answering size requests; landscape and two panes.
+      system tabs, the Shoes group, its icon), the shoes line beside a currency
+      (the list, from `extra`), Copy and Share of a two-chart result, the quick
+      window (QuickActivity) answering size requests; landscape and two panes.
 - [ ] **size-12** Phase 1: tried on the phone, released as a `minor`.
 - [ ] **size-13** Phase 2, core: women's and men's clothing charts (dresses,
       tops and trousers, suits, collar shirts, letters, the CN `160/84A` labels)
@@ -78,6 +78,11 @@ By priority, most urgent first.
 
 ## DONE
 
+- [x] **size-2** The last phase 1 decisions in the spec: beside a currency that
+      could be a shoe size, a list with a shoes line (`extra` in `--json` and
+      the UIs' answer); the "between" note named by chart; clothing in phase 1
+      is `only shoes for now`; kids' shoes get a region column. Branch `sizes`,
+      commit 2b3eb36.
 - [x] **size-1** The spec written and agreed (`docs/SPEC_SIZES.md`, 22 Oct
       2026): sizes only when asked (an item, body or person word), currency the
       default; shoes from Nike's and Clarks's own charts, both named in the
