@@ -32,7 +32,13 @@ fn with(result: &Result<Output, CliError>, notices: &[String], extra: &str) -> S
 fn outcome(result: &Result<Output, CliError>) -> String {
     match result {
         Ok(out) => {
-            let reply = Object::new().num("ok", true).str("result", &out.stdout).strs("notes", &out.notes).strs("warnings", &out.warnings);
+            let reply = Object::new().num("ok", true).str("result", out.result.as_ref().unwrap_or(&out.stdout));
+            // The other results (`42 eu us`: the shoe sizes), each with its kind.
+            let reply = match out.extra.is_empty() {
+                true => reply,
+                false => reply.list("extra", &extra(&out.extra)),
+            };
+            let reply = reply.strs("notes", &out.notes).strs("warnings", &out.warnings);
             // A currency result: how old its rates are (`2d`); `--online`: how long ago the last sync was.
             let reply = match &out.rates_age {
                 Some(age) => reply.str("rates_age", age),
@@ -59,8 +65,9 @@ fn outcome(result: &Result<Output, CliError>) -> String {
                     let note = if a.note.is_empty() { String::new() } else { format!(r#","note":{}"#, string(&a.note)) };
                     format!(r#","ambiguous":{{"kind":"{kind}","text":{}{note},"choices":[{}]}}"#, string(&a.text), choices.join(","))
                 }
-                // Not finished yet: a hint, not an error.
-                CliError::Incomplete(_) => r#","incomplete":true"#.to_string(),
+                // Not finished yet: a hint, not an error; with the results it already has.
+                CliError::Incomplete(_, more) if more.is_empty() => r#","incomplete":true"#.to_string(),
+                CliError::Incomplete(_, more) => format!(r#","incomplete":true,"extra":[{}]"#, extra(more).join(",")),
                 _ => String::new(),
             };
             format!(r#"{{"ok":false,"exit":{},"error":{}{ambiguous}}}"#, err.exit_code(), string(&err.to_string()))
@@ -120,10 +127,11 @@ fn shown(request: &str, submitted: bool, result: &Result<Output, CliError>) -> S
     let o = match result {
         Ok(out) => {
             let details: Vec<String> = out.warnings.iter().chain(&out.notes).cloned().collect();
+            let result = out.result.as_ref().unwrap_or(&out.stdout);
             let o = Object::new()
                 .str("show", "result")
-                .str("value", &value_of(&out.stdout))
-                .str("copy", &copy_of(&out.stdout))
+                .str("value", &value_of(result))
+                .str("copy", &copy_of(result))
                 .str("expression", &expression(request, out))
                 .strs("details", &details);
             match &out.rates_age {
@@ -132,7 +140,7 @@ fn shown(request: &str, submitted: bool, result: &Result<Output, CliError>) -> S
             }
         }
         Err(_) if crate::typing(request, submitted) => Object::new().str("show", "none"),
-        Err(CliError::Incomplete(hint)) => Object::new().str("show", "hint").str("message", hint),
+        Err(CliError::Incomplete(hint, _)) => Object::new().str("show", "hint").str("message", hint),
         Err(CliError::Ambiguous(a)) => {
             let choices: Vec<String> = a
                 .choices
@@ -158,6 +166,11 @@ fn shown(request: &str, submitted: bool, result: &Result<Output, CliError>) -> S
     format!(",{}", &o[1..o.len() - 1])
 }
 
+/// The extra results as JSON objects: `{"type":"shoes","results":["US 8.5 men","US 10 women"]}`.
+fn extra(all: &[crate::Extra]) -> Vec<String> {
+    all.iter().map(|e| Object::new().str("type", &e.kind).strs("results", &e.results).finish()).collect()
+}
+
 /// The question an ambiguous request asks, over its choices.
 fn question(a: &crate::time::Ambiguity) -> String {
     use crate::time::AmbiguityKind;
@@ -176,6 +189,10 @@ fn question(a: &crate::time::Ambiguity) -> String {
 pub fn value_of(result: &str) -> String {
     let result = result.trim();
     let parts: Vec<&str> = result.split(' ').collect();
+    // A size: `US 8.5 (Nike), 9 (Clarks)` → the first chart's, `8.5`; a table as it is.
+    if !result.contains('\n') && parts.len() > 1 && ["US", "UK", "EU", "JP", "CN"].contains(&parts[0]) {
+        return parts[1].trim_end_matches(',').to_string();
+    }
     let number = parts.len() == 2 && parts[0].starts_with(|c: char| c.is_ascii_digit() || c == '-' || c == '.');
     if number { parts[0] } else { result }.to_string()
 }
@@ -184,7 +201,7 @@ pub fn value_of(result: &str) -> String {
 /// core shows it, else the request as written (`now Tokyo = …`). A result that already says both
 /// sides (a time in a city, `… = …`) as it is.
 pub fn expression(request: &str, out: &Output) -> String {
-    let result = out.stdout.trim();
+    let result = out.result.as_ref().unwrap_or(&out.stdout).trim();
     if result.contains(" = ") {
         return result.to_string();
     }

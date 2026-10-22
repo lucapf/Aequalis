@@ -15,12 +15,6 @@ done, move it to DONE and note the commit.
 
 By priority, most urgent first.
 
-- [ ] **size-6** Phase 1: currency stays the default, with the shoes line beside
-      it (§4.1): `42 eu us` answers with a list (the currency, then
-      `shoes: 42 eu = US 8.5 men, US 10 women`), on the CLI's stdout too; the
-      extra results in `Output`, as `extra` in `--json` and in `reply::view`
-      (the FFI/JNI answer); `42 eu` gets the line under its hint, in the
-      region's system.
 - [ ] **size-7** Phase 1: `tests/sizes.rs` on the `italy` and `us` machines
       (§9), and the size requests in the fuzzer (`fuzz/`).
 - [ ] **size-8** Phase 1, the core for the UIs: the Sizes class in
@@ -80,6 +74,12 @@ By priority, most urgent first.
 
 ## DONE
 
+- [x] **size-6** Phase 1: currency stays the default, with the shoes line beside
+      it (§4.1): `42 eu us` answers with a list (the currency, then
+      `shoes: 42 eu = US 8.5 men, US 10 women`), on the CLI's stdout too; the
+      extra results in `Output`, as `extra` in `--json` and in `reply::view`
+      (the FFI/JNI answer); `42 eu` gets the line under its hint, in the
+      region's system.
 - [x] **size-5** Phase 1, rules in `src/sizes.rs`: the request grammar (§3), the
       nearest row, the two charts merged into one result (§6.1), what is missing
       shown instead of asked (no person, no target, the table: §4.1), the

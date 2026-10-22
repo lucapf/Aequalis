@@ -230,10 +230,18 @@ fn print(result: &Result<Output, CliError>, json: bool) {
             }
             println!("{}", out.stdout);
         }
-        Err(err) => match err.hint() {
-            Some(hint) => eprintln!("aequalis: error: {err} ({hint})"),
-            None => eprintln!("aequalis: error: {err}"),
-        },
+        Err(err) => {
+            match err.hint() {
+                Some(hint) => eprintln!("aequalis: error: {err} ({hint})"),
+                None => eprintln!("aequalis: error: {err}"),
+            }
+            // What it already has (`42 eu`: the shoe sizes) under the hint.
+            if let CliError::Incomplete(_, more) = err {
+                for e in more {
+                    println!("- {}", e.line());
+                }
+            }
+        }
     }
 }
 

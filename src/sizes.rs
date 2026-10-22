@@ -192,7 +192,8 @@ fn number(word: &str) -> Option<Number> {
 enum Token {
     Word(Word, bool),
     Number(Number),
-    System(System, Option<&'static str>),
+    /// A system, its note, as typed (`eu`).
+    System(System, Option<&'static str>, String),
     Cm,
     In,
     Connector,
@@ -219,7 +220,7 @@ fn tokens(input: &str) -> Option<Vec<Token>> {
         out.push(if let Some(n) = number(w) {
             Token::Number(n)
         } else if let Some((s, note)) = system(w) {
-            Token::System(s, note)
+            Token::System(s, note, w.to_string())
         } else if w.eq_ignore_ascii_case("cm") {
             Token::Cm
         } else if w.eq_ignore_ascii_case("in") {
@@ -555,7 +556,7 @@ fn shoe(tokens: &[Token], numbers: &[(usize, &Number)], foot: bool, person: Opti
     let age = age.or(n.age);
     let mut notes: Vec<&'static str> = Vec::new();
     let systems: Vec<(usize, System, Option<&'static str>)> =
-        tokens.iter().enumerate().filter_map(|(i, t)| if let Token::System(s, note) = t { Some((i, *s, *note)) } else { None }).collect();
+        tokens.iter().enumerate().filter_map(|(i, t)| if let Token::System(s, note, _) = t { Some((i, *s, *note)) } else { None }).collect();
     let (from, shown_from, source_at) = match (foot, unit) {
         (true, Some(k)) => {
             let unit = if k == 1.0 { "cm" } else { "in" };
@@ -683,16 +684,51 @@ fn one_person(person: Person, from: From, age: Option<Age>, target: System, show
     Ok(Answer { text, details, notes, ..Answer::default() })
 }
 
-/// Every person's size in the target, the first chart's: `US 8.5 men, US 10 women`.
-fn people(from: From, age: Option<Age>, target: System, shown_from: &str, mut notes: Vec<String>) -> Result<Answer, Error> {
+/// Every person's size in the target, the first chart's, Clarks's named when only it has the size:
+/// `US 8.5 men`, `US 10 women`, `US 15.5 men (Clarks)`.
+fn everyone(from: From, age: Option<Age>, target: System) -> Vec<String> {
     let mut all: Vec<String> = Vec::new();
     for p in PEOPLE {
-        for part in parts(p, from, if p == Person::Kids { age } else { None }, target) {
+        let parts = parts(p, from, if p == Person::Kids { age } else { None }, target);
+        // Toddler and youth only when the size is both; else kids.
+        let both = parts.len() > 1;
+        for part in &parts {
             let (size, brand) = part.first();
             let brand = brand.map(|b| format!(" ({b})")).unwrap_or_default();
-            all.push(format!("{} {}{brand}", target.show(size), person_word(p, part.age)));
+            all.push(format!("{} {}{brand}", target.show(size), person_word(p, part.age.filter(|_| both))));
         }
     }
+    all
+}
+
+/// The shoe sizes beside a currency that could also be one (`42 eu us`, §4.1): every person's, no
+/// notes; in the region's system without a target, none when that is the typed one. `None` when
+/// the request is no size: an amount in no chart, a code that is no size system.
+pub fn beside(input: &str) -> Option<crate::Extra> {
+    let mut amount = None;
+    let mut systems: Vec<(System, String)> = Vec::new();
+    for t in tokens(input)? {
+        match t {
+            Token::Number(n) if n.age.is_none() && amount.is_none() => amount = Some(n),
+            Token::System(s, _, typed) => systems.push((s, typed)),
+            Token::Connector | Token::In => {}
+            _ => return None,
+        }
+    }
+    let (amount, (source, typed)) = (amount?, systems.first()?.clone());
+    let source = if source == System::Cn { System::Eu } else { source };
+    let target = match systems.get(1) {
+        Some(&(t, _)) => t,
+        None if region() == source => return None,
+        None => region(),
+    };
+    let results = everyone(From::Size(source, amount.value), None, target);
+    (!results.is_empty()).then(|| crate::Extra { kind: "shoes".into(), from: format!("{} {typed}", amount.text), results })
+}
+
+/// Every person's size in the target, the first chart's: `US 8.5 men, US 10 women`.
+fn people(from: From, age: Option<Age>, target: System, shown_from: &str, mut notes: Vec<String>) -> Result<Answer, Error> {
+    let all = everyone(from, age, target);
     if all.is_empty() {
         return Err(not_found(shown_from, &PEOPLE, from));
     }
@@ -712,8 +748,10 @@ fn table(from: From, age: Option<Age>, shown_from: &str, mut notes: Vec<String>)
     let mut lines: Vec<(&'static str, Vec<String>)> = Vec::new();
     for p in PEOPLE {
         // Any system: the row is the same; the sizes are read from it.
-        for part in parts(p, from, if p == Person::Kids { age } else { None }, System::Eu) {
-            lines.push((person_word(p, part.age), System::ALL.iter().map(|&s| sizes_of(&part.rows, s).unwrap_or_default()).collect()));
+        let parts = parts(p, from, if p == Person::Kids { age } else { None }, System::Eu);
+        let both = parts.len() > 1;
+        for part in &parts {
+            lines.push((person_word(p, part.age.filter(|_| both)), System::ALL.iter().map(|&s| sizes_of(&part.rows, s).unwrap_or_default()).collect()));
         }
     }
     if lines.is_empty() {
@@ -780,6 +818,26 @@ mod tests {
         assert_eq!(request("12 us woman eu").unwrap(), Err(Error::Answer(COMING.into())));
         assert_eq!(request("44 it dress us").unwrap(), Err(Error::Answer(COMING.into())));
         assert_eq!(request("shoes").unwrap(), Err(Error::Incomplete("now the size: 42 eu, 9 us…".into())));
+    }
+
+    #[test]
+    fn the_shoes_line_beside_a_currency() {
+        let line = |input: &str| beside(input).map(|e| e.line());
+        assert_eq!(line("42 eu us").as_deref(), Some("shoes: 42 eu = US 8.5 men, US 10 women"));
+        assert_eq!(line("36 eu us").as_deref(), Some("shoes: 36 eu = US 5.5 women, US 4Y kids"));
+        assert_eq!(line("50 eu us").as_deref(), Some("shoes: 50 eu = US 15.5 men (Clarks)"));
+        assert_eq!(line("9 us uk").as_deref(), Some("shoes: 9 us = UK 8 men, UK 6.5 women, UK 8.5 kids"));
+        for none in ["100 eu us", "42 eu jpy", "42 uk us", "12+3 eu us", "42 eu men us"] {
+            assert_eq!(line(none), None, "{none}");
+        }
+        // No target: the region's system; none when it is the typed one.
+        let us = crate::machine::Mock::us().install();
+        assert_eq!(line("42 eu").as_deref(), Some("shoes: 42 eu = US 8.5 men, US 10 women"));
+        drop(us);
+        let _italy = crate::machine::Mock::italy().install();
+        assert_eq!(line("42 eu"), None);
+        let _dublin = crate::machine::Mock::italy().with_zone("Europe/Dublin").install();
+        assert_eq!(line("42 eu").as_deref(), Some("shoes: 42 eu = UK 7.5 men, UK 7.5 women"));
     }
 
     #[test]

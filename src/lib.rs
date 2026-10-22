@@ -278,14 +278,15 @@ pub enum CliError {
     /// terminal; elsewhere exit code 2.
     Ambiguous(time::Ambiguity),
     /// Not finished yet, no mistake: what comes next (`10 km`: the unit to convert to; `Rieti`:
-    /// the place to go to). A UI shows it as a hint; exit code 2.
-    Incomplete(String),
+    /// the place to go to). A UI shows it as a hint; exit code 2. With the results it already has
+    /// (`42 eu`: the shoe sizes, while the currency to convert to is missing).
+    Incomplete(String, Vec<Extra>),
 }
 
 impl std::fmt::Display for CliError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            CliError::Usage(msg) | CliError::Incomplete(msg) => f.write_str(msg),
+            CliError::Usage(msg) | CliError::Incomplete(msg, _) => f.write_str(msg),
             CliError::Convert(e) => write!(f, "{e}"),
             CliError::Ambiguous(a) => f.write_str(&a.message()),
         }
@@ -306,7 +307,7 @@ impl CliError {
     pub fn exit_code(&self) -> u8 {
         match self {
             CliError::Convert(_) => 1,
-            CliError::Usage(_) | CliError::Ambiguous(_) | CliError::Incomplete(_) => 2,
+            CliError::Usage(_) | CliError::Ambiguous(_) | CliError::Incomplete(..) => 2,
         }
     }
 }
@@ -334,6 +335,28 @@ pub struct Output {
     /// What was converted or calculated, as shown (`12 AED`, `10 km`, `12+4/2`): the left side of
     /// the whole expression a UI copies (`12 AED = 3.27 USD`); `None`: the request as written.
     pub from: Option<String>,
+    /// The result for `--json`, Copy and a UI's value when `stdout` shows more: the currency of
+    /// `42 eu us` beside its shoe sizes, the first person's size of `42 eu shoes us`.
+    pub result: Option<String>,
+    /// The other results (`42 eu us`: the shoe sizes), each with its kind.
+    pub extra: Vec<Extra>,
+}
+
+/// Results beside the result: `shoes: 42 eu = US 8.5 men, US 10 women`.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Extra {
+    /// `shoes`, `shoes men`.
+    pub kind: String,
+    /// What was converted, as typed (`42 eu`); empty when the result says it.
+    pub from: String,
+    pub results: Vec<String>,
+}
+
+impl Extra {
+    /// The line a list shows: `shoes: 42 eu = US 8.5 men, US 10 women`.
+    pub fn line(&self) -> String {
+        format!("{}: {} = {}", self.kind, self.from, self.results.join(", "))
+    }
 }
 
 impl From<String> for Output {
@@ -470,8 +493,14 @@ pub fn convert_request(config: &Config, opts: &Options, tokens: &[&str]) -> Resu
     // countries, nothing else (a time with countries is a time request, countries alone a distance).
     // The rates and the local currency are read only for a currency request.
     let context = || currency::Context { rates: currency::load(), now: time::unix_now(), local: currency::local().ok().flatten() };
+    // Beside a currency that could be a shoe size (`42 eu us`), the sizes too: a list.
     if let Some(result) = currency::request(config, &input, context) {
-        return result.map(|c| money(opts, c)).map_err(CliError::from);
+        let shoes = || sizes::beside(&input);
+        return match result {
+            Ok(c) => Ok(beside(money(opts, c), shoes())),
+            Err(currency::Error::Incomplete(hint)) => Err(CliError::Incomplete(hint, shoes().into_iter().collect())),
+            Err(e) => Err(e.into()),
+        };
     }
     // A date or a distance: formatted for people, its notes shown with `-v`.
     let formatted = |(stdout, notes): (String, Vec<String>)| Output {
@@ -495,7 +524,7 @@ pub fn convert_request(config: &Config, opts: &Options, tokens: &[&str]) -> Resu
     // A written date with no format yet (`12/04/2026`): a date on its way, not
     // the division it reads as (`12/04/2026 num` asks for that).
     if !arithmetic && time::is_date_value(&input) {
-        return Err(CliError::Incomplete("now the format to convert to: iso, unix, local…".into()));
+        return Err(CliError::Incomplete("now the format to convert to: iso, unix, local…".into(), Vec::new()));
     }
     calculation(config, opts, &input)
 }
@@ -514,7 +543,17 @@ fn money(opts: &Options, c: currency::Converted) -> Output {
         rates_age: Some(c.age),
         synced: None,
         from: Some(c.from),
+        result: None,
+        extra: Vec::new(),
     }
+}
+
+/// A currency result with the shoe sizes it could also be: a list, `- 42 EUR = 47.15 USD`,
+/// `- shoes: 42 eu = …`; the currency stays the result.
+fn beside(out: Output, shoes: Option<Extra>) -> Output {
+    let Some(shoes) = shoes else { return out };
+    let currency = format!("{} = {}", out.from.as_deref().unwrap_or_default(), out.stdout);
+    Output { stdout: format!("- {currency}\n- {}", shoes.line()), result: Some(out.stdout.clone()), extra: vec![shoes], ..out }
 }
 
 /// A size: its other systems and its notes always shown (the brand note on every answer), as the
@@ -525,6 +564,8 @@ fn sized(opts: &Options, a: sizes::Answer) -> Output {
         notes: if opts.silent { Vec::new() } else { a.details.into_iter().chain(a.notes).collect() },
         formatted: true,
         from: Some(a.from),
+        result: a.result,
+        extra: a.extra.into_iter().map(|(kind, results)| Extra { kind, results, ..Extra::default() }).collect(),
         ..Output::default()
     }
 }
@@ -533,7 +574,7 @@ fn sized(opts: &Options, a: sizes::Answer) -> Output {
 fn calculation(config: &Config, opts: &Options, input: &str) -> Result<Output, CliError> {
     // Not a number: one place so far (`Rieti`, `Rieti to`) is a distance on its way.
     let (expr, rest) = calc::parse_prefix(input).map_err(|e| match geo::being_typed(config, input) {
-        Some(next) => CliError::Incomplete(next),
+        Some(next) => CliError::Incomplete(next, Vec::new()),
         None => calc_error(e),
     })?;
     let value = expr.eval().map_err(calc_error)?;
@@ -565,8 +606,8 @@ fn calculation(config: &Config, opts: &Options, input: &str) -> Result<Output, C
         // kind's units to list.
         [from] | [from, _] if words.len() == 1 || waiting(words[1]) => {
             return Err(match convert::find_unit(config, from) {
-                Some((category, unit)) => CliError::Incomplete(next_unit(category, unit)),
-                None if convert::resolve(config, from).is_ok() => CliError::Incomplete("now the unit to convert to".into()),
+                Some((category, unit)) => CliError::Incomplete(next_unit(category, unit), Vec::new()),
+                None if convert::resolve(config, from).is_ok() => CliError::Incomplete("now the unit to convert to".into(), Vec::new()),
                 None => CliError::Usage(EXPECTED.into()),
             })
         }
@@ -627,7 +668,7 @@ impl From<currency::Error> for CliError {
             currency::Error::Usage(msg) => CliError::Usage(msg),
             currency::Error::Ambiguous(a) => CliError::Ambiguous(a),
             currency::Error::NoRates(msg) => CliError::Convert(convert::ConvertError::Domain(msg)),
-            currency::Error::Incomplete(msg) => CliError::Incomplete(msg),
+            currency::Error::Incomplete(msg) => CliError::Incomplete(msg, Vec::new()),
         }
     }
 }
@@ -636,7 +677,7 @@ impl From<sizes::Error> for CliError {
     fn from(e: sizes::Error) -> Self {
         match e {
             sizes::Error::Usage(msg) => CliError::Usage(msg),
-            sizes::Error::Incomplete(msg) => CliError::Incomplete(msg),
+            sizes::Error::Incomplete(msg) => CliError::Incomplete(msg, Vec::new()),
             sizes::Error::Answer(msg) => CliError::Convert(convert::ConvertError::Domain(msg)),
         }
     }
@@ -647,7 +688,7 @@ impl From<geo::Error> for CliError {
         match e {
             geo::Error::Usage(msg) => CliError::Usage(msg),
             geo::Error::Ambiguous(a) => CliError::Ambiguous(a),
-            geo::Error::Incomplete(msg) => CliError::Incomplete(msg),
+            geo::Error::Incomplete(msg) => CliError::Incomplete(msg, Vec::new()),
         }
     }
 }
@@ -658,7 +699,7 @@ impl From<time::TimeError> for CliError {
             time::TimeError::Usage(msg) => CliError::Usage(msg),
             time::TimeError::Range => CliError::Convert(convert::ConvertError::NotFinite),
             time::TimeError::Ambiguous(a) => CliError::Ambiguous(a),
-            time::TimeError::Incomplete(msg) => CliError::Incomplete(msg),
+            time::TimeError::Incomplete(msg) => CliError::Incomplete(msg, Vec::new()),
         }
     }
 }
@@ -900,8 +941,8 @@ mod tests {
         assert_eq!(code("inf km m"), 2);
         assert_eq!(code("10 km"), 2);
         // Not finished yet: what comes next, also after a compound unit.
-        assert_eq!(cli("10 km").unwrap_err(), CliError::Incomplete("now the length unit to convert to: in, ft, yd…".into()));
-        assert_eq!(cli("100 m/s^2").unwrap_err(), CliError::Incomplete("now the unit to convert to".into()));
+        assert_eq!(cli("10 km").unwrap_err(), CliError::Incomplete("now the length unit to convert to: in, ft, yd…".into(), Vec::new()));
+        assert_eq!(cli("100 m/s^2").unwrap_err(), CliError::Incomplete("now the unit to convert to".into(), Vec::new()));
         assert_eq!(cli("10 foo").unwrap_err(), CliError::Usage(EXPECTED.into()));
         // A number expression alone is arithmetic, whatever its shape; a date needs a word beside it.
         for (expr, value) in [("12/04/2026", "0.0015"), ("2026/12/04", "42.2083"), ("1-10-10", "-19"), ("2026-12-02-2026-12-01", "-27")] {

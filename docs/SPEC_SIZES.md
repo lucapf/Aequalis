@@ -231,7 +231,7 @@ else is read as it is today, and **currency is the default**:
 
 | Typed        | Hint                                                                   |
 |--------------|------------------------------------------------------------------------|
-| `42 eu`      | the currency hint, as today, and under it the shoes line (§4.1)        |
+| `42 eu`      | the currency's answer or hint, as today, and the shoes line (§4.1)     |
 | `shoe`       | `now the size: 42 eu, 9 us…`                                           |
 | `shoe 42`    | `which system: eu, uk, us…` (or the region's, if 42 exists only there) |
 | `42 eu shoe` | the table of every person and system at once (§4.1)                    |
@@ -314,8 +314,10 @@ $ aequalis 42 eu us
 ```
 
 - **When:** the amount is within a shoe chart's range (nearest rows, §4.4), and
-  the codes are size systems: `eu`, `uk`, `us`, `it`, `fr`, `de`, `jp`, on
-  either side (`42 it us`, `9 us uk`). It is always shown, no `-v` needed.
+  the codes are size systems that are also currency places: `eu`, `uk`, `us`,
+  on either side (`42 eu us`, `9 us uk`). It is always shown, no `-v` needed.
+  `it`, `fr`, `de`, `jp` and `cn` are no currency codes (`42 eu fr` is an
+  error, as today), so they never bring the line (decided 2026-10-22).
 - **Who:** each person whose chart has the size, and only those: men, women,
   kids. `47 eu us` → `US 12.5 men`; `36 eu us` → `US 5.5 women, US 4Y kids`;
   `30 eu us` → `US 12.5C kids`.
@@ -323,11 +325,11 @@ $ aequalis 42 eu us
   `50 eu us` → `US 15.5 men (Clarks)`.
 - **No notes:** the line is a summary. The notes (brand, between, Italian…) come
   with the size request itself (`42 eu men shoes us`).
-- **Same system:** a target in the typed system still gives the line:
-  `42 eu fr` → `shoes: 42 eu = EU 42 men, EU 42 women`.
-- **No target** (`42 eu`, a currency hint today): the hint, and under it the
-  line in the region's system (§4.2): `[us]` → `US 8.5 men, US 10 women`. When
-  the region's system is the typed one (`[italy]`), no line.
+- **No target** (`42 eu`): whatever the currency answers (the local currency, or
+  the hint where that is the euro), and the line in the region's system (§4.2):
+  `[us]` → `42 EUR = … USD` and `US 8.5 men, US 10 women`; in Dublin the hint
+  and `UK 7.5 men, UK 7.5 women`. When the region's system is the typed one
+  (`[italy]`), no line.
 - **`--json` and the UIs' answer** (`reply::view`, read by the widget and
   Android): `result` stays the currency, and a new member lists the extra
   results, `"extra":[{"type":"shoes","results":["US 8.5 men","US 10 women"]}]`.
@@ -898,14 +900,14 @@ details and notes are shown where they matter.
 | `60 eu men shoes us`    | any     | error `no EU 60 in men's shoes (EU 38–51)`                                                                 |
 | `42 eu nike shoes us`   | any     | not a size request: brands are not words                                                                   |
 | `42 eu us`              | any     | list: `42 EUR = … USD`, `shoes: 42 eu = US 8.5 men, US 10 women` ³                                         |
-| `42 eu`                 | us      | the currency hint, then `shoes: 42 eu = US 8.5 men, US 10 women`                                           |
+| `42 eu`                 | us      | list: `42 EUR = … USD` (the local currency), `shoes: 42 eu = US 8.5 men, US 10 women`                      |
 | `42 eu`                 | italy   | the currency hint alone (the region's system is EU)                                                        |
 | `42.2 eu us`            | any     | list, `shoes: 42.2 eu = US 8.5 men, US 10 women` (no notes)                                                |
 | `36 eu us`              | any     | list, `shoes: 36 eu = US 5.5 women, US 4Y kids`                                                            |
 | `30 eu us`              | any     | list, `shoes: 30 eu = US 12.5C kids`                                                                       |
 | `47 eu us`              | any     | list, `shoes: 47 eu = US 12.5 men`                                                                         |
 | `50 eu us`              | any     | list, `shoes: 50 eu = US 15.5 men (Clarks)`                                                                |
-| `42 eu fr`              | any     | list, `shoes: 42 eu = EU 42 men, EU 42 women`                                                              |
+| `42 eu fr`              | any     | unchanged: the error `unknown unit` (`fr` is no currency code)                                             |
 | `100 eu us`             | any     | unchanged: EUR → USD alone (100 is in no shoe chart)                                                       |
 | `42 eu jpy`             | any     | unchanged: EUR → JPY alone (`jpy` is no size system)                                                       |
 | `42 in`                 | any     | unchanged: a length, asks for the target                                                                   |
