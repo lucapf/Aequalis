@@ -51,6 +51,12 @@ pub fn suggest(config: &Config, line: &str, cursor: usize, min: usize) -> Option
         Some(_) => min.min(1),
         None => min,
     };
+    // A size request: its words first (`scar` → `scarpe - shoes`); after a shoe size, the systems.
+    let sized = crate::sizes::suggestions(&before, typing);
+    if let Some((start, systems)) = sized.as_ref().filter(|_| !typing) {
+        let (names, labels) = systems.iter().cloned().unzip();
+        return Some(Suggestions { kind: Kind::Words, start: *start, names, labels });
+    }
     if prefix.chars().count() < min {
         return None;
     }
@@ -58,8 +64,28 @@ pub fn suggest(config: &Config, line: &str, cursor: usize, min: usize) -> Option
         Some((_, rest)) => after_a_value(config, &before, rest, typing),
         // Not a value: a place (a distance, a time there), a first word, a date's format.
         None => words(config, &before, typing),
-    }?;
+    };
+    let found = match (sized, found) {
+        (Some((start, words)), found) => with_size_words(start, words, found),
+        (None, found) => found?,
+    };
     (!found.names.is_empty()).then_some(found)
+}
+
+/// The size words first, then what else fits, at most `MAX`.
+fn with_size_words(start: usize, words: Vec<(String, String)>, found: Option<Suggestions>) -> Suggestions {
+    let (mut names, mut labels): (Vec<String>, Vec<String>) = words.into_iter().unzip();
+    let kind = found.as_ref().map_or(Kind::Words, |f| f.kind);
+    for f in found.into_iter().filter(|f| f.start == start) {
+        let shown = if f.labels.is_empty() { f.names.clone() } else { f.labels };
+        for (name, label) in f.names.into_iter().zip(shown) {
+            if names.len() < MAX && !names.contains(&name) {
+                names.push(name);
+                labels.push(label);
+            }
+        }
+    }
+    Suggestions { kind, start, names, labels }
 }
 
 /// After a value: its unit, or after the unit the target unit of the same kind; for an amount, a
@@ -322,6 +348,19 @@ mod tests {
         // Leaked: a test's few names, compared with literals.
         let found = suggest(&Config::default(), line, line.chars().count(), 0).map(|s| s.names).unwrap_or_default();
         found.into_iter().map(|n| &*Box::leak(n.into_boxed_str())).collect()
+    }
+
+    #[test]
+    fn size_words_and_systems() {
+        let all = |line: &str| suggest(&Config::default(), line, line.chars().count(), 0).map(|s| (s.names, s.labels));
+        let (names, labels) = all("scar").unwrap();
+        assert_eq!((names[0].as_str(), labels[0].as_str()), ("scarpa", "scarpa - shoes"));
+        assert!(labels.contains(&"scarpe - shoes".to_string()), "{labels:?}");
+        assert_eq!(all("42 eu don").unwrap().1[0], "donna - women");
+        // After a shoe size with no system: the systems; not after an amount alone.
+        assert_eq!(all("shoes 42 ").unwrap().0, ["eu", "uk", "us", "jp", "cn"]);
+        assert_ne!(all("42 ").map(|s| s.0).unwrap_or_default(), ["eu", "uk", "us", "jp", "cn"]);
+        assert_eq!(all("shoes 42 eu "), None);
     }
 
     #[test]

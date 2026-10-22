@@ -15,11 +15,6 @@ done, move it to DONE and note the commit.
 
 By priority, most urgent first.
 
-- [ ] **size-8** Phase 1, the core for the UIs: the Sizes class in
-      `ffi::measures` (a new shape: the systems as tabs, the Shoes group, its
-      item words), suggestions while typing in `suggest.rs` (item, person and
-      body words; the systems after a size), Copy of a two-chart result
-      (`reply::value_of`: the first chart's value).
 - [ ] **size-9** Phase 1, TUI: the Sizes class in Measures (its letter, the
       system tabs, the Shoes group writing `shoes`), the shoes line beside a
       currency (the list, §4.1), a two-chart result at the right edge and in the
@@ -72,6 +67,11 @@ By priority, most urgent first.
 
 ## DONE
 
+- [x] **size-8** Phase 1, the core for the UIs: the Sizes class in
+      `ffi::measures` (a new shape: the systems as tabs, the Shoes group, its
+      item words), suggestions while typing in `suggest.rs` (item, person and
+      body words; the systems after a size), Copy of a two-chart result
+      (`reply::value_of`: the first chart's value).
 - [x] **size-7** Phase 1: `tests/sizes.rs` on the `italy` and `us` machines
       (§9), and the size requests in the fuzzer (`fuzz/`).
 - [x] **size-6** Phase 1: currency stays the default, with the shoes line beside

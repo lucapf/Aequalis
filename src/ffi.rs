@@ -446,7 +446,9 @@ pub fn trivia_measures(shown: &str, plain: &str) -> Vec<(String, String)> {
 }
 
 /// The unit classes for the Measures: `{"classes":[{"name","systems":[…,…],"units":
-/// [{"symbol","name","system":"metric"|"imperial"|"both"}]}]}`, in the TUI's order.
+/// [{"symbol","name","system":"metric"|"imperial"|"both"}]}],"sizes":{"name":"Sizes","groups":
+/// [{"name","write"}],"systems":[{"name","write"}]}}`, in the TUI's order; the sizes a class of their
+/// own: groups that write their item word (`shoes`), system keys that write their code (`eu`).
 #[no_mangle]
 pub extern "C" fn aequalis_measures() -> *mut c_char {
     give(measures())
@@ -473,7 +475,10 @@ pub fn measures() -> String {
             Object::new().str("name", c.name).strs("systems", &systems).list("units", &units).finish()
         })
         .collect();
-    Object::new().list("classes", &classes).finish()
+    let groups: Vec<String> = crate::sizes::groups().iter().map(|g| Object::new().str("name", g.name).str("write", g.write).finish()).collect();
+    let systems: Vec<String> = crate::sizes::SYSTEM_KEYS.iter().map(|(name, write)| Object::new().str("name", name).str("write", write).finish()).collect();
+    let sizes = Object::new().str("name", "Sizes").list("groups", &groups).list("systems", &systems).finish();
+    Object::new().list("classes", &classes).raw("sizes", &sizes).finish()
 }
 
 /// Suggestions for the word being typed at the end of `before` (the text up to the cursor), from
@@ -704,6 +709,12 @@ mod tests {
         let classes = measures.get("classes").unwrap().array();
         assert_eq!(classes[0].get("name").and_then(|v| v.str()), Some(crate::config::TIME));
         assert!(classes.iter().any(|c| c.get("name").and_then(|v| v.str()) == Some("Temperature")));
+        // The sizes: a class of their own, its groups and system keys writing words.
+        assert!(
+            measures().contains(r#""sizes":{"name":"Sizes","groups":[{"name":"Shoes","write":"shoes"}],"systems":[{"name":"EU","write":"eu"},"#),
+            "{}",
+            measures()
+        );
         assert!(currencies().contains(r#"{"code":"EUR","name":"euro","symbols":["€"],"countries":["#));
     }
 

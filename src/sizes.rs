@@ -70,6 +70,71 @@ pub fn body(i: usize) -> (&'static str, &'static str, bool) {
     BODY[i]
 }
 
+// ---------------------------------------------------------------- for the UIs
+
+/// A group of the Sizes class (Measures, the Sizes menu): its name, and the word it writes.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Group {
+    pub name: &'static str,
+    pub write: &'static str,
+}
+
+/// The groups answered so far, in the data's order: Shoes (phase 1).
+pub fn groups() -> Vec<Group> {
+    ITEMS.iter().filter(|(_, coming)| !coming).map(|&(name, _)| Group { name: group_name(name), write: name }).collect()
+}
+
+fn group_name(item: &str) -> &'static str {
+    match item {
+        "shoes" => "Shoes",
+        _ => "Sizes",
+    }
+}
+
+/// The system keys of the Sizes class, (shown, written): EU, UK, US, IT, FR, DE, JP, CN.
+pub const SYSTEM_KEYS: [(&str, &str); 8] = [("EU", "eu"), ("UK", "uk"), ("US", "us"), ("IT", "it"), ("FR", "fr"), ("DE", "de"), ("JP", "jp"), ("CN", "cn")];
+
+/// What a size word means, for a suggestion's label: `shoes`, `foot`, `women`, `toddler`.
+fn meaning(word: Word) -> &'static str {
+    match word {
+        Word::Item(i) => ITEMS[i].0,
+        Word::Body(i) => BODY[i].0,
+        Word::Person(p) => person_word(p, None),
+        Word::Age(a) => person_word(Person::Kids, Some(a)),
+    }
+}
+
+/// Suggestions while typing (`suggest.rs`): the size words that start with the word typed, from
+/// three letters (`scar` → `scarpe - shoes`), as (written, shown); after a shoe size with no system
+/// yet (`shoes 42 `), the systems. The position (in chars) the suggestions replace from.
+pub fn suggestions(before: &str, typing: bool) -> Option<(usize, Vec<(String, String)>)> {
+    let end = before.chars().count();
+    if !typing {
+        let tokens = tokens(before)?;
+        let shoes =
+            tokens.iter().any(|t| matches!(t, Token::Word(Word::Item(i), _) if !ITEMS[*i].1) || matches!(t, Token::Word(Word::Body(i), _) if !BODY[*i].2));
+        let after_size = matches!(tokens.last(), Some(Token::Number(n)) if n.age.is_none());
+        let system = tokens.iter().any(|t| matches!(t, Token::System(..)));
+        if !(shoes && after_size && !system) {
+            return None;
+        }
+        let names = ["eu - Europe", "uk - United Kingdom", "us - United States", "jp - Japan (cm)", "cn - China"];
+        return Some((end, names.iter().map(|n| (n[..2].to_string(), n.to_string())).collect()));
+    }
+    let prefix = before.split_whitespace().last()?;
+    if prefix.chars().count() < 3 || prefix.chars().any(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    let typed = crate::time::tz::key(prefix);
+    let found: Vec<(String, String)> = SIZE_WORDS
+        .iter()
+        .filter(|(w, ..)| w.starts_with(typed.as_str()))
+        .take(crate::suggest::MAX)
+        .map(|(w, word, _)| (w.to_string(), format!("{w} - {}", meaning(*word))))
+        .collect();
+    (!found.is_empty()).then(|| (end - prefix.chars().count(), found))
+}
+
 // ---------------------------------------------------------------- a size request
 
 /// A shoe size system. Italian, French and German shoe sizes are EU sizes; Chinese ones the EU
