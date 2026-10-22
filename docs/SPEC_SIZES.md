@@ -822,8 +822,9 @@ nearest ⅛. UK = US − ⅛.
   - **Android:** in the toolbar after Currencies, with the Material Symbols
     `apparel` (a T-shirt) and `steps` (footprints: Material Symbols has no
     shoe) icons, as paths in `Icons.kt`. The Sizes key shows or hides the
-    Sizes' keys (below); on a large screen, the panel beside the keys. The table (`shoes 42`) is a line per
-    person on the phone, the person in bold and the sizes after it:
+    Sizes' keys (below); on a large screen, the panel beside the keys. The
+    table (`shoes 42`) is a line per person on the phone, the person in bold
+    and the sizes after it:
     `Men  US 8.5 · UK 7.5 · EU 42 · JP 26.5 · CN 42`. The keyboard collapses
     (its ⌄ key, a swipe down) to give its room to the answer; a bar brings it
     back (a tap, a swipe up) (decided 2026-10-22). ⏎ on an answer taller than
