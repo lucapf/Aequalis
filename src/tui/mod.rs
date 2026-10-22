@@ -569,11 +569,15 @@ impl<'a> App<'a> {
         self.line.set(&aequalis::sizes::write_key(&self.line.text(), key));
     }
 
-    /// The Sizes' keys: ↑ ↓ (j k) choose, Enter writes the group's word or the system's code.
+    /// The Sizes' keys: ↑ ↓ (j k) choose, Enter writes the group's word or the system's code; the
+    /// size's digits (and ⌫) go on into the request, the window open (`12`, ↓ to US, Enter:
+    /// `shoes 12 us`).
     fn sizes_key(&mut self, key: Key) {
         let Some(Overlay::Sizes(v)) = &mut self.overlay else { return };
         match key {
             Key::Esc => self.overlay = None,
+            Key::Char(c) if c.is_ascii_digit() || matches!(c, '.' | ',' | '½' | '⅓' | '⅔') => self.line.insert(c),
+            Key::Backspace => self.line.backspace(),
             Key::Down | Key::Tab | Key::Char('j') => v.step(true),
             Key::Up | Key::BackTab | Key::Char('k') => v.step(false),
             Key::Enter => {
@@ -1775,6 +1779,19 @@ mod tests {
         app.handle(Key::Enter);
         assert_eq!(app.line.text(), "shoes ");
         assert!(app.overlay.is_none());
+        // The size typed with the window open: its digits go into the line.
+        app.handle(Key::Esc);
+        app.line.set("");
+        app.handle(Key::F(4));
+        app.handle(Key::Char('1'));
+        app.handle(Key::Char('2'));
+        assert!(matches!(app.overlay, Some(Overlay::Sizes(_))), "still open");
+        for _ in 0..6 {
+            app.handle(Key::Down);
+        }
+        app.handle(Key::Enter);
+        assert_eq!(app.line.text(), "shoes 12 us ", "the size, then US");
+        app.line.set("shoes ");
         // A person: Alt+Z, down to Men; then another in its place.
         app.handle(Key::Char('4'));
         app.handle(Key::Char('2'));

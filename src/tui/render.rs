@@ -1122,7 +1122,7 @@ fn status(app: &App, canvas: &mut Canvas, row: usize) {
         }
         Some(Overlay::Search(_)) => (" SEARCH ", &[("type", "search"), ("↑↓", "choose"), ("Enter", "write"), ("<Esc>", "back")]),
         Some(Overlay::Currencies(_)) => (" CURRENCIES ", &[("type", "search"), ("↑↓", "choose"), ("Enter", "write"), ("<Esc>", "back")]),
-        Some(Overlay::Sizes(_)) => (" SIZES ", &[("↑↓ j k", "choose"), ("Enter", "write"), ("<Esc>", "back")]),
+        Some(Overlay::Sizes(_)) => (" SIZES ", &[("0-9", "the size"), ("↑↓ j k", "choose"), ("Enter", "write"), ("<Esc>", "back")]),
         Some(Overlay::Measures(_)) => (" MEASURES ", &[("↑↓ j k", "choose"), ("letter Enter", "open"), ("<Esc>", "back")]),
         Some(Overlay::Picker(_)) => (" UNITS ", &[("←↓↑→ h j k l", "move"), ("Tab", "system"), ("Enter", "write"), ("<Esc>", "measures")]),
         None if app.keyboard_shown() => ("", &[("F1", "help"), ("Tab", "keyboard"), ("Alt+Y", "copy result"), ("Ctrl+Q", "quit")]),
