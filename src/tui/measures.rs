@@ -37,11 +37,13 @@ pub fn columns(category: &Category) -> usize {
     class(category).1
 }
 
-/// A row: a category (index into `Config::categories`), or the Earth distance.
+/// A row: a category (index into `Config::categories`), the Earth distance, or the sizes.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Item {
     Category(usize),
     EarthDistance,
+    /// Clothing and shoe sizes (the Sizes window, F4).
+    Sizes,
 }
 
 /// A measure that is no unit class: the distance between two places on the Earth (`geo.rs`),
@@ -49,11 +51,16 @@ pub enum Item {
 pub const EARTH_DISTANCE: &str = "Earth distance";
 pub const EARTH_DISTANCE_KEY: char = 'D';
 
-/// The rows, in the categories' order, the Earth distance after Length.
+/// The sizes, listed with the classes, and their letter (as their Alt letter in the toolbar).
+pub const SIZES: &str = "Sizes";
+pub const SIZES_KEY: char = 'Z';
+
+/// The rows, in the categories' order, the Earth distance after Length, the sizes last.
 pub fn items(config: &Config) -> Vec<Item> {
     let mut items: Vec<Item> = (0..config.categories.len()).map(Item::Category).collect();
     let at = config.categories.iter().position(|c| c.name == "Length").map_or(items.len(), |i| i + 1);
     items.insert(at, Item::EarthDistance);
+    items.push(Item::Sizes);
     items
 }
 
@@ -62,6 +69,7 @@ pub fn label(config: &Config, item: Item) -> (&'static str, char) {
     match item {
         Item::Category(i) => (config.categories[i].name, key(&config.categories[i])),
         Item::EarthDistance => (EARTH_DISTANCE, EARTH_DISTANCE_KEY),
+        Item::Sizes => (SIZES, SIZES_KEY),
     }
 }
 
@@ -101,7 +109,7 @@ mod tests {
     fn every_class_once_with_its_own_letter() {
         let config = Config::default();
         let items = items(&config);
-        assert_eq!(items.len(), config.categories.len() + 1);
+        assert_eq!(items.len(), config.categories.len() + 2, "the classes, the Earth distance and the sizes");
         let names: Vec<&str> = items.iter().map(|&i| label(&config, i).0).collect();
         assert_eq!(&names[..4], [aequalis::config::TIME, aequalis::config::BITS, "Length", EARTH_DISTANCE]);
         let mut keys: Vec<char> = items.iter().map(|&i| label(&config, i).1).collect();
@@ -115,6 +123,7 @@ mod tests {
         }
         assert_eq!(by_key(&config, 'k').map(|i| label(&config, i).0), Some("Temperature"));
         assert_eq!(by_key(&config, 'd'), Some(Item::EarthDistance));
+        assert_eq!(by_key(&config, 'z'), Some(Item::Sizes));
     }
 
     #[test]

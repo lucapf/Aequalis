@@ -350,8 +350,8 @@ const TILE: usize = 11;
 /// currencies a heading and rows of tiles (three high), or one row.
 fn item_rows(item: super::board::Item, tall: bool, width: usize) -> usize {
     match (item, tall) {
-        (super::board::Item::Class(_), true) => 3,
-        (super::board::Item::Class(_), false) => 1,
+        (super::board::Item::Class(_) | super::board::Item::Sizes, true) => 3,
+        (super::board::Item::Class(_) | super::board::Item::Sizes, false) => 1,
         (super::board::Item::Currencies, true) => 1 + 3 * super::board::CURRENCIES.div_ceil(((width.saturating_sub(1)) / (TILE + 1)).max(1)),
         (super::board::Item::Currencies, false) => 1,
     }
@@ -396,7 +396,16 @@ fn board_view(app: &App, canvas: &mut Canvas, area: Area) {
         let h = item_rows(*item, tall, width);
         let row = Area { top: y, left, width, height: h };
         match *item {
-            Item::Class(ci) => board_class(canvas, row, tall, ci, &classes[ci]),
+            Item::Class(ci) => {
+                let class = &classes[ci];
+                board_row(canvas, row, tall, &format!("{} {}", class.letter, class.name), &class.buttons, Target::BoardClass(ci), |bi| {
+                    Target::BoardUnit(ci, bi)
+                });
+            }
+            Item::Sizes => {
+                let label = format!("{} {}", super::measures::SIZES_KEY, super::measures::SIZES);
+                board_row(canvas, row, tall, &label, &super::board::size_buttons(), Target::BoardSizes, Target::BoardSize);
+            }
             Item::Currencies => board_currencies(app, canvas, row, tall),
         }
         y += h;
@@ -465,15 +474,16 @@ fn fitting(items: &[super::board::Item], tall: bool, width: usize, limit: usize)
     n
 }
 
-/// A class of the board, in `row`: its name, then its units as buttons (boxes when `tall`).
-fn board_class(canvas: &mut Canvas, row: Area, tall: bool, ci: usize, class: &super::board::Class) {
+/// A row of the board: a class (or the sizes), its name, then its buttons (boxes when `tall`);
+/// `open` for a click on the name, `button` for one on the n-th button.
+fn board_row(canvas: &mut Canvas, row: Area, tall: bool, label: &str, buttons: &[super::board::Button], open: Target, button: impl Fn(usize) -> Target) {
     let Area { top: y, left, width, height: h } = row;
     let right = left + width;
     let name_row = if tall { y + 1 } else { y };
-    canvas.put_within(name_row, left + 1, left + CLASS_NAME, &format!("{} {}", class.letter, class.name), Style::Bold);
-    canvas.hit_rect(y, left + 1, CLASS_NAME - 1, h, Target::BoardClass(ci));
+    canvas.put_within(name_row, left + 1, left + CLASS_NAME, label, Style::Bold);
+    canvas.hit_rect(y, left + 1, CLASS_NAME - 1, h, open);
     let mut x = left + 1 + CLASS_NAME;
-    for (bi, b) in class.buttons.iter().enumerate() {
+    for (bi, b) in buttons.iter().enumerate() {
         let w = (b.label.chars().count() + 4).max(6);
         if x + w > right {
             break;
@@ -487,7 +497,7 @@ fn board_class(canvas: &mut Canvas, row: Area, tall: bool, ci: usize, class: &su
             canvas.put(y, x + 1, &format!(" {} ", b.label), style);
             canvas.put(y, x + w - 1, "]", Style::Dim);
         }
-        canvas.hit_rect(y, x, w, h, Target::BoardUnit(ci, bi));
+        canvas.hit_rect(y, x, w, h, button(bi));
         x += w + 1;
     }
 }
@@ -568,8 +578,9 @@ pub fn render(app: &App, rows: usize, cols: usize) -> Frame {
         None => {
             let band = band_rows(app, rows);
             let band_top = rows - 1 - band;
-            history(app, &mut canvas, HEAD, band_top - 3 - HEAD);
-            let mut cursor = expression(app, &mut canvas, band_top - 3);
+            let block = 3 + answer_rows(app, band_top - HEAD);
+            history(app, &mut canvas, HEAD, band_top - block - HEAD);
+            let mut cursor = expression(app, &mut canvas, band_top - block);
             // What the band holds: a panel, else the keypad; with nothing open, only the rule.
             let width = cols.min(PANEL_WIDTH);
             let area = Area { top: band_top, left: (cols - width) / 2, width, height: band };
@@ -594,8 +605,9 @@ fn wide(app: &App, canvas: &mut Canvas, pane_w: usize) -> Option<(usize, usize)>
     let left_w = cols - pane_w - 1;
     let band_top = rows - 2;
     let mut left = Canvas::new(rows, left_w);
-    history(app, &mut left, HEAD, band_top - 3 - HEAD);
-    let mut cursor = expression(app, &mut left, band_top - 3);
+    let block = 3 + answer_rows(app, band_top - HEAD);
+    history(app, &mut left, HEAD, band_top - block - HEAD);
+    let mut cursor = expression(app, &mut left, band_top - block);
     left.rule(band_top);
     let mut pane = Canvas::new(rows, pane_w);
     let area = Area { top: 1, left: 0, width: pane_w, height: rows - 2 };
@@ -734,11 +746,25 @@ fn history(app: &App, canvas: &mut Canvas, top: usize, height: usize) {
     }
     let scroll = app.scroll.min(entries.len().saturating_sub(1));
     let end = entries.len() - scroll;
-    let start = end.saturating_sub(inner);
+    // An entry takes a row per line of its result (the table, the list beside a currency): as many
+    // as fit, the newest at the bottom.
+    let height_of = |e: &super::editor::Entry| match &e.result {
+        Ok(text) | Err(text) => text.lines().count().max(1),
+    };
+    let (mut start, mut used) = (end, 0);
+    while start > 0 && used + height_of(&entries[start - 1]) <= inner {
+        start -= 1;
+        used += height_of(&entries[start]);
+    }
+    // Taller than the history: the newest anyway, cut.
+    if start == end && end > 0 {
+        start = end - 1;
+        used = height_of(&entries[start]).min(inner);
+    }
+    let last_row = top + inner;
     let width = entries.range(start..end).map(|e| e.input.chars().count()).max().unwrap_or(0).min(cols / 2);
-    let first_row = top + 1 + inner - (end - start);
+    let mut row = top + 1 + inner - used;
     for (i, entry) in entries.range(start..end).enumerate() {
-        let row = first_row + i;
         let mut col = canvas.put_within(row, 2, right, "  ", Style::Bold);
         let input_style = Style::Plain;
         // The request recalls into the line; the result is copied.
@@ -746,17 +772,18 @@ fn history(app: &App, canvas: &mut Canvas, top: usize, height: usize) {
         col = canvas.put_within(row, col, right, &format!("{:<width$}", entry.input), input_style);
         canvas.hit(row, 2, col - from, Target::Entry(start + i));
         let result_from = col;
-        match &entry.result {
-            Ok(result) => {
-                col = canvas.put_within(row, col, right, "  = ", Style::Dim);
-                col = canvas.put_within(row, col, right, result, Style::Bold);
-            }
-            Err(msg) => {
-                col = canvas.put_within(row, col, right, "  ✗ ", Style::Red);
-                col = canvas.put_within(row, col, right, msg, Style::Red);
-            }
+        let (sign, text, style) = match &entry.result {
+            Ok(result) => ("  = ", result, Style::Bold),
+            Err(msg) => ("  ✗ ", msg, Style::Red),
+        };
+        col = canvas.put_within(row, col, right, sign, if entry.result.is_ok() { Style::Dim } else { Style::Red });
+        let text_from = col;
+        let mut end_col = col;
+        for (n, line) in text.lines().enumerate().take_while(|(n, _)| row + n <= last_row) {
+            end_col = end_col.max(canvas.put_within(row + n, text_from, right, line, style));
         }
-        canvas.hit(row, result_from, col - result_from, Target::EntryResult(start + i));
+        canvas.hit_rect(row, result_from, end_col - result_from, height_of(entry).min(last_row + 1 - row), Target::EntryResult(start + i));
+        row += height_of(entry);
     }
     if scroll > 0 {
         // On the rule under the history.
@@ -943,8 +970,9 @@ const PROMPT: &str = "> ";
 /// the cursor.
 fn expression(app: &App, canvas: &mut Canvas, top: usize) -> Option<(usize, usize)> {
     let cols = canvas.cols;
+    let more = answer_rows(app, usize::MAX);
     canvas.rule(top);
-    canvas.rule(top + 3);
+    canvas.rule(top + 3 + more);
     let right = cols - 2;
     // Scrolled sideways so the cursor stays visible.
     let start = 2 + PROMPT.len();
@@ -960,7 +988,21 @@ fn expression(app: &App, canvas: &mut Canvas, top: usize) -> Option<(usize, usiz
     // applied (when there are operations), the error, the currencies, the suggestions as buttons.
     let row = top + 2;
     let preview = app.preview();
+    // An answer of several lines (the table, the list beside a currency): under this row, one row
+    // each; here only its copy button.
+    if more > 0 {
+        let (lines, style) = match &preview {
+            Some(Ok(text)) => (text.lines().collect::<Vec<_>>(), Style::Green),
+            Some(Err(text)) => (text.lines().skip(1).collect(), Style::Green),
+            None => (Vec::new(), Style::Plain),
+        };
+        for (i, line) in lines.iter().take(more).enumerate() {
+            canvas.put_within(row + 1 + i, 4, right, line, style);
+        }
+    }
+    let preview = preview.map(|p| p.map_err(|e| e.lines().next().unwrap_or_default().to_string()));
     let answer = match &preview {
+        Some(Ok(_)) if more > 0 => Some("⧉".to_string()),
         Some(Ok(result)) => Some(format!("= {result} ⧉")),
         _ => None,
     };
@@ -985,6 +1027,22 @@ fn expression(app: &App, canvas: &mut Canvas, top: usize) -> Option<(usize, usiz
     }
     Some((top + 1, start + app.line.cursor() - offset))
 }
+
+/// The rows an answer of several lines takes under the request (the table, the list beside a
+/// currency; a hint with the shoe sizes it already has), at most `room` and `ANSWER_ROWS`; none for
+/// one line.
+fn answer_rows(app: &App, room: usize) -> usize {
+    let lines = match app.preview() {
+        Some(Ok(text)) => text.lines().count(),
+        Some(Err(text)) => text.lines().count().saturating_sub(1),
+        None => 0,
+    };
+    let lines = if lines > 1 || matches!(app.preview(), Some(Err(_))) { lines } else { 0 };
+    lines.min(ANSWER_ROWS).min(room.saturating_sub(6))
+}
+
+/// At most this many rows for an answer under the request.
+const ANSWER_ROWS: usize = 8;
 
 /// The suggestions for the word at the cursor, from `col` of `row` up to `limit`: buttons
 /// (`[ mi ]`) when there is room for the brackets, plain words in a narrow window. Returns where
@@ -1484,6 +1542,7 @@ fn measures(app: &App, v: &super::measures::View, canvas: &mut Canvas, area: Are
                 sample.trim_start().to_string()
             }
             Item::EarthDistance => "Rome to Paris, 41.9,12.5 to Tokyo".to_string(),
+            Item::Sizes => "shoes · EU UK US JP CN".to_string(),
         };
         canvas.put_within(row, col + 1, right - 1, &sample, Style::Dim);
     }
@@ -2886,6 +2945,45 @@ mod tests {
         mouse_at(&mut app, size, "▼", MouseKind::Down(Button::Left));
         mouse_at(&mut app, size, "▼", MouseKind::Up);
         assert!(app.board_scroll > 1, "{}", app.board_scroll);
+    }
+
+    #[test]
+    fn answers_of_several_lines() {
+        // The table under the request, a row per person, lined up; ⧉ on the row above.
+        let (lines, _) = screen("42 eu shoes", 24, 100);
+        let text = lines.join("\n");
+        for row in ["         US    UK   EU     JP   CN", "men     8.5   7.5   42   26.5   42", "women  10     7.5   42   27     42"] {
+            assert!(lines.iter().any(|l| l.trim_end() == format!("    {row}")), "{row}:\n{text}");
+        }
+        // In the history, a row per line under the first, at the result's column.
+        let (lines, _) = screen("42 eu shoes\n", 24, 100);
+        let at = lines.iter().position(|l| l.contains("42 eu shoes  =")).unwrap_or_else(|| panic!("{}", lines.join("\n")));
+        assert!(lines[at + 1].trim_start().starts_with("men     8.5") && lines[at + 2].trim_start().starts_with("women  10"), "{}", lines.join("\n"));
+        // One line stays at the right edge.
+        let (lines, _) = screen("42 eu men shoes us", 24, 100);
+        assert!(lines.iter().any(|l| l.ends_with("= US 8.5 (Nike), 9 (Clarks) ⧉")), "{}", lines.join("\n"));
+    }
+
+    #[test]
+    fn sizes_on_the_board_and_in_the_measures() {
+        use super::super::keys::{Button, MouseKind};
+        let config = Config::default();
+        let opts = OPTS;
+        let size = (60, 140);
+        // The board's last entry: its buttons write the words, its name opens the window.
+        let mut app = app_after_in(&config, &opts, "", size);
+        app.board_scroll = 1 + config.categories.len();
+        let text = render(&app, size.0, size.1).lines.iter().map(|l| plain(l)).collect::<Vec<_>>().join("\n");
+        assert!(text.contains("Z Sizes") && text.contains("│ shoes │"), "{text}");
+        mouse_at(&mut app, size, "│ shoes │", MouseKind::Down(Button::Left));
+        mouse_at(&mut app, size, "│ shoes │", MouseKind::Up);
+        assert_eq!(app.line.text(), "shoes ");
+        mouse_at(&mut app, size, "Z Sizes", MouseKind::Down(Button::Left));
+        mouse_at(&mut app, size, "Z Sizes", MouseKind::Up);
+        assert!(matches!(app.overlay, Some(Overlay::Sizes(_))));
+        // In the Measures, its letter opens the same window.
+        let app = app_after(&config, &opts, "<F2>Z");
+        assert!(matches!(app.overlay, Some(Overlay::Sizes(_))));
     }
 
     #[test]

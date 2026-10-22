@@ -93,8 +93,11 @@ pub enum Target {
     /// The unit keys' date formats: the cell at (row, column), chosen and used.
     Cell(usize, usize),
     /// The board: the n-th unit button of the n-th class, the n-th currency, the n-th clock, the
-    /// name of the n-th class (its units open).
+    /// name of the n-th class (its units open), the n-th button of the sizes, their name (the
+    /// Sizes window).
     BoardUnit(usize, usize),
+    BoardSize(usize),
+    BoardSizes,
     BoardMoney(usize),
     BoardClock(usize),
     BoardClass(usize),
@@ -269,7 +272,14 @@ impl<'a> App<'a> {
         let on_board_item = hit.is_none_or(|h| {
             matches!(
                 h.target,
-                Target::BoardUnit(..) | Target::BoardMoney(_) | Target::BoardClock(_) | Target::BoardClass(_) | Target::BoardScroll(_) | Target::BoardJump(_)
+                Target::BoardUnit(..)
+                    | Target::BoardSize(_)
+                    | Target::BoardSizes
+                    | Target::BoardMoney(_)
+                    | Target::BoardClock(_)
+                    | Target::BoardClass(_)
+                    | Target::BoardScroll(_)
+                    | Target::BoardJump(_)
             )
         });
         match hit {
@@ -298,7 +308,8 @@ impl<'a> App<'a> {
 
     /// How many entries the board's list has: the currencies and the classes.
     fn board_len(&self) -> usize {
-        1 + self.config.categories.len()
+        // The currencies, the classes, the sizes.
+        2 + self.config.categories.len()
     }
 
     /// The board's list at the currencies (true) or at the first class (false).
@@ -380,7 +391,9 @@ impl<'a> App<'a> {
             Target::EntryResult(i) => self.copy_entry(i),
             Target::Line(offset) => self.line.move_to(offset + col - hit.col),
             Target::Suggest(i) => self.complete_with(i),
-            Target::BoardUnit(..) | Target::BoardMoney(_) | Target::BoardClock(_) | Target::BoardClass(_) => self.click_board(hit.target),
+            Target::BoardUnit(..) | Target::BoardSize(_) | Target::BoardSizes | Target::BoardMoney(_) | Target::BoardClock(_) | Target::BoardClass(_) => {
+                self.click_board(hit.target)
+            }
             Target::BoardScroll(by) => self.scroll_board(by),
             Target::BoardJump(currencies) => self.jump_board(currencies),
             Target::Dismiss => self.handle(Key::Esc),
@@ -423,6 +436,12 @@ impl<'a> App<'a> {
                     self.write_unit(&name, false);
                 }
             }
+            Target::BoardSize(i) => {
+                if let Some(b) = super::board::size_buttons().get(i) {
+                    self.write_word(&b.written);
+                }
+            }
+            Target::BoardSizes => self.overlay = Some(Overlay::Sizes(sizes::View::default())),
             Target::BoardMoney(i) => {
                 let code = self.board_money().get(i).map(|m| m.code.clone());
                 if let Some(code) = code {

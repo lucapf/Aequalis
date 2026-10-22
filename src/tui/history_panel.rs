@@ -26,7 +26,7 @@ mod tests {
     fn newest_first_and_filtered() {
         let mut h = History::new(10);
         for input in ["1+1", "10 km mi", "2^8", "5 KM ft"] {
-            h.push(Entry { input: input.into(), result: Ok(String::new()) });
+            h.push(Entry { input: input.into(), result: Ok(String::new()), copy: None });
         }
         assert_eq!(matches(&h, ""), [3, 2, 1, 0]);
         assert_eq!(matches(&h, " km"), [3, 1], "case aside");

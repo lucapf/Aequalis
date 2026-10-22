@@ -80,6 +80,16 @@ pub fn classes(config: &Config, usage: &Usage) -> Vec<Class> {
 pub enum Item {
     Currencies,
     Class(usize),
+    /// The sizes: their group and the systems, as buttons that write the words.
+    Sizes,
+}
+
+/// The Sizes row's buttons: the groups (`shoes`), then the systems (`eu`, `uk`, `us`, `jp`), at
+/// most `UNITS_PER_CLASS`.
+pub fn size_buttons() -> Vec<Button> {
+    let groups = aequalis::sizes::groups().into_iter().map(|g| g.write);
+    let systems = ["eu", "uk", "us", "jp"].into_iter();
+    groups.chain(systems).take(UNITS_PER_CLASS).map(|w| Button { written: w.to_string(), label: w.to_string(), used: false }).collect()
 }
 
 /// The list the board scrolls: the currencies always first (what the board opens at), then the
@@ -87,7 +97,7 @@ pub enum Item {
 pub fn items(classes: &[Class], _usage: &Usage) -> Vec<Item> {
     let mut by_use: Vec<(usize, u64)> = classes.iter().enumerate().map(|(i, c)| (i, c.total)).collect();
     by_use.sort_by_key(|(_, total)| std::cmp::Reverse(*total));
-    std::iter::once(Item::Currencies).chain(by_use.into_iter().map(|(i, _)| Item::Class(i))).collect()
+    std::iter::once(Item::Currencies).chain(by_use.into_iter().map(|(i, _)| Item::Class(i))).chain([Item::Sizes]).collect()
 }
 
 /// A currency of the board and what one of it is in the base currency (when the rate is known).
@@ -231,6 +241,7 @@ mod tests {
                 .map(|i| match i {
                     Item::Currencies => "Currencies".to_string(),
                     Item::Class(c) => classes[c].name.to_string(),
+                    Item::Sizes => "Sizes".to_string(),
                 })
                 .collect::<Vec<_>>()
         };

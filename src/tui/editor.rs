@@ -119,6 +119,8 @@ pub struct Entry {
     pub input: String,
     /// The printed result, or the error message.
     pub result: Result<String, String>,
+    /// What Copy gives when the result shows more (`42 eu us`: the currency beside the sizes).
+    pub copy: Option<String>,
 }
 
 /// Evaluated expressions, oldest first, capped at `cap` entries. The History panel lists them.
@@ -226,7 +228,7 @@ mod tests {
     }
 
     fn entry(input: &str) -> Entry {
-        Entry { input: input.into(), result: Ok(String::new()) }
+        Entry { input: input.into(), result: Ok(String::new()), copy: None }
     }
 
     #[test]

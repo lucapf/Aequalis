@@ -130,7 +130,8 @@ pub fn suggestions(before: &str, typing: bool) -> Option<(usize, Vec<(String, St
         .iter()
         .filter(|(w, ..)| w.starts_with(typed.as_str()))
         .take(crate::suggest::MAX)
-        .map(|(w, word, _)| (w.to_string(), format!("{w} - {}", meaning(*word))))
+        // `shoes`, not `shoes - shoes`.
+        .map(|&(w, word, _)| (w.to_string(), if meaning(word) == w { w.to_string() } else { format!("{w} - {}", meaning(word)) }))
         .collect();
     (!found.is_empty()).then(|| (end - prefix.chars().count(), found))
 }

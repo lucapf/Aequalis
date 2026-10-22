@@ -15,10 +15,6 @@ done, move it to DONE and note the commit.
 
 By priority, most urgent first.
 
-- [ ] **size-9** Phase 1, TUI: the Sizes class in Measures (its letter, the
-      system tabs, the Shoes group writing `shoes`), the shoes line beside a
-      currency (the list, §4.1), a two-chart result at the right edge and in the
-      history, the board.
 - [ ] **size-10** Phase 1, Omarchy widget: the Sizes class in Measures, the
       shoes line beside a currency (the list, from `extra`), a two-chart result
       and its Copy.
@@ -63,6 +59,10 @@ By priority, most urgent first.
 
 ## DONE
 
+- [x] **size-9** Phase 1, TUI: the Sizes class in Measures (its letter, the
+      system tabs, the Shoes group writing `shoes`), the shoes line beside a
+      currency (the list, §4.1), a two-chart result at the right edge and in the
+      history, the board.
 - [x] **size-19** Phase 1, TUI: the Sizes menu item, `F4 👕👟 Sizes` and Alt+Z,
       opening the groups and system keys (§7); Trivia moves from F4 to F6. The
       help, `--help`, README and `scripts/windows-tui-smoke.py` (it clicks the

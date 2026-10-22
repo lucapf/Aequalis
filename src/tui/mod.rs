@@ -51,6 +51,17 @@ pub enum StatusKind {
     Error,
 }
 
+/// An error as the TUI shows it: with the results it already has under it (`42 eu`: the shoe
+/// sizes, while the currency to convert to is missing).
+fn shown_error(e: &aequalis::CliError) -> String {
+    match e {
+        aequalis::CliError::Incomplete(hint, more) if !more.is_empty() => {
+            std::iter::once(hint.clone()).chain(more.iter().map(|m| format!("- {}", m.line()))).collect::<Vec<_>>().join("\n")
+        }
+        e => e.to_string(),
+    }
+}
+
 /// Drawn over the sections.
 pub enum Overlay {
     /// `M`: the unit classes (Length, Temperature, …).
@@ -500,6 +511,7 @@ impl<'a> App<'a> {
                 self.line.set("distance ");
                 self.overlay = None;
             }
+            measures::Item::Sizes => self.overlay = Some(Overlay::Sizes(sizes::View::default())),
         }
     }
 
@@ -551,6 +563,14 @@ impl<'a> App<'a> {
         }
     }
 
+    /// A word of the request (`shoes`, `eu`) after what the line holds: nothing replaced, as a unit
+    /// would be.
+    fn write_word(&mut self, word: &str) {
+        let text = self.line.text();
+        let line = if text.trim().is_empty() { format!("{word} ") } else { format!("{} {word} ", text.trim_end()) };
+        self.line.set(&line);
+    }
+
     /// The Sizes' keys: ↑ ↓ (j k) choose, Enter writes the group's word or the system's code.
     fn sizes_key(&mut self, key: Key) {
         let Some(Overlay::Sizes(v)) = &mut self.overlay else { return };
@@ -559,11 +579,8 @@ impl<'a> App<'a> {
             Key::Down | Key::Tab | Key::Char('j') => v.step(true),
             Key::Up | Key::BackTab | Key::Char('k') => v.step(false),
             Key::Enter => {
-                // A word of the request, after what is there (not a unit: nothing replaced).
                 if let Some(word) = v.word() {
-                    let text = self.line.text();
-                    let line = if text.trim().is_empty() { format!("{word} ") } else { format!("{} {word} ", text.trim_end()) };
-                    self.line.set(&line);
+                    self.write_word(word);
                     self.overlay = None;
                 }
             }
@@ -909,12 +926,14 @@ impl<'a> App<'a> {
     /// Alt+Y: the chosen entry's result (in the History panel), else the answer of the line, else the last one in
     /// the history, to the clipboard.
     fn copy_answer(&mut self) {
-        let result = match self.chosen_entry().and_then(|i| self.history.entries().get(i)).map(|e| e.result.clone()) {
+        // The result, or what it stands for when it shows more (the currency beside the sizes).
+        let copied = |e: &Entry| e.result.clone().map(|r| e.copy.clone().unwrap_or(r));
+        let result = match self.chosen_entry().and_then(|i| self.history.entries().get(i)).map(copied) {
             Some(Ok(result)) => result,
             Some(Err(_)) => return self.status = Some((StatusKind::Warning, "nothing to copy: that entry is an error".into())),
             None => match self.preview() {
-                Some(Ok(result)) => result,
-                _ => match self.history.entries().back().map(|e| e.result.clone()) {
+                Some(Ok(result)) => self.evaluated(&self.line.text()).as_ref().as_ref().ok().and_then(|out| out.result.clone()).unwrap_or(result),
+                _ => match self.history.entries().back().map(copied) {
                     Some(Ok(result)) => result,
                     _ => return self.status = Some((StatusKind::Warning, "nothing to copy yet".into())),
                 },
@@ -1006,12 +1025,13 @@ impl<'a> App<'a> {
                 };
                 (Ok(out.stdout.clone()), status)
             }
-            Err(e) => (Err(e.to_string()), Some((StatusKind::Error, e.to_string()))),
+            Err(e) => (Err(shown_error(e)), Some((StatusKind::Error, e.to_string()))),
         };
         if result.is_ok() {
             self.used_in(&input);
         }
-        self.history.push(Entry { input, result });
+        let copy = self.evaluated(&input).as_ref().as_ref().ok().and_then(|out| out.result.clone());
+        self.history.push(Entry { input, result, copy });
         self.status = status;
         self.line.set("");
         self.scroll = 0;
@@ -1044,7 +1064,7 @@ impl<'a> App<'a> {
             // Dates and distances come formatted; other numbers get the device's separators here.
             Ok(out) if out.formatted => Ok(out.stdout.clone()),
             Ok(out) => Ok(self.numbers.apply_to_result(&out.stdout)),
-            Err(e) => Err(e.to_string()),
+            Err(e) => Err(shown_error(e)),
         };
         // A word being typed (no space after it yet): no error or question, which would say a
         // request on its way (`Rie` → `Rieti to Rome`) is wrong; a space or Enter shows them.
@@ -1499,7 +1519,7 @@ mod tests {
         assert_eq!(app.preview(), Some(Ok("6.2137 mi".into())));
         app.handle(Key::Enter);
         assert!(app.line.is_empty());
-        assert_eq!(app.history.entries()[0], Entry { input: "10 km mi".into(), result: Ok("6.2137 mi".into()) });
+        assert_eq!(app.history.entries()[0], Entry { input: "10 km mi".into(), result: Ok("6.2137 mi".into()), copy: None });
 
         // F5 opens the History panel; the line is not changed. Alt+Y copies the result of the entry
         // chosen (the newest first), to the clipboard in a real session; the panel stays.
