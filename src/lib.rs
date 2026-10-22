@@ -30,6 +30,7 @@ pub mod online;
 pub mod planets;
 pub mod reply;
 pub mod settings;
+pub mod sizes;
 pub mod suggest;
 pub mod time;
 pub mod trivia;

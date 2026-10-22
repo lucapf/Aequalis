@@ -30,6 +30,7 @@ fn main() {
         "src/data/countries.json",
         "src/data/currencies.json",
         "src/data/places.json",
+        "src/data/sizes.json",
     ] {
         println!("cargo:rerun-if-changed={file}");
     }

@@ -11,7 +11,7 @@ use crate::names::{key, sorted, squeeze, CITIES, EURO_AREA};
 use std::collections::BTreeMap;
 use std::path::Path;
 
-/// Writes `countries.rs`, `currencies.rs` and `places.rs` into `out`.
+/// Writes `countries.rs`, `currencies.rs`, `places.rs`, `units.rs` and `sizes.rs` into `out`.
 pub fn write(out: &Path) {
     let read = |name: &str| {
         let text = std::fs::read_to_string(format!("src/data/{name}.json")).unwrap_or_else(|e| panic!("src/data/{name}.json: {e}"));
@@ -22,6 +22,91 @@ pub fn write(out: &Path) {
     save("currencies.rs", currencies_rs(&currencies(read("currencies"))));
     save("places.rs", places_rs(read("places")));
     save("units.rs", units_rs());
+    save("sizes.rs", sizes_rs(read("sizes")));
+}
+
+/// `SHOE_CHARTS`, `ITEMS`, `BODY` and `SIZE_WORDS` (`sizes.rs`): the shoe charts, their foot lengths in
+/// cm; every word of a size request normalised (`key`), sorted to be found by name, the first of a
+/// word written twice winning.
+fn sizes_rs(mut doc: Value) -> String {
+    let mut out = String::from("/// The shoe charts of `src/data/sizes.json`, in its order (`build.rs`).\nstatic SHOE_CHARTS: &[ShoeChart] = &[\n");
+    for mut chart in doc.take("charts").into_array() {
+        let person = person(&chart.take("person").into_string().expect("a chart's person"));
+        let brand = lit(&chart.take("brand").into_string().expect("a chart's brand"));
+        let inches = chart.take("foot").into_string().as_deref() == Some("in");
+        let columns = chart.take("columns").into_strings();
+        let at = |name: &str| columns.iter().position(|c| c == name);
+        out += &format!("    ShoeChart {{ person: {person}, brand: {brand}, rows: &[\n");
+        for row in chart.take("rows").into_array() {
+            let cells = row.into_strings();
+            let cell = |name: &str| at(name).map_or("", |i| cells[i].as_str());
+            let foot = cell("foot");
+            let cm = if inches { inches_value(foot) * 2.54 } else { foot.parse::<f64>().expect("a foot length in mm") / 10.0 };
+            let (us, uk, eu, jp) = (lit(cell("us")), lit(cell("uk")), lit(cell("eu")), lit(cell("jp")));
+            out += &format!("        ShoeRow {{ us: {us}, uk: {uk}, eu: {eu}, jp: {jp}, foot_cm: {cm:?} }},\n");
+        }
+        out += "    ] },\n";
+    }
+    out += "];\n\n";
+    let mut words = doc.take("words");
+    let weak = words.take("weak").into_strings();
+    let mut table: BTreeMap<String, String> = BTreeMap::new();
+    let mut add = |list: Vec<String>, word: String| {
+        for w in list {
+            table.entry(key(&w)).or_insert_with(|| word.clone());
+        }
+    };
+    out += "/// The items of a size request: (name, not answered yet).\nstatic ITEMS: &[(&str, bool)] = &[\n";
+    for (i, mut item) in words.take("items").into_array().into_iter().enumerate() {
+        let name = item.take("item").into_string().expect("an item's name");
+        let coming = item.get("coming").is_some();
+        out += &format!("    ({}, {coming}),\n", lit(&name));
+        add(item.take("words").into_strings(), format!("Word::Item({i})"));
+    }
+    out += "];\n\n/// The body measures: (measure, its item, not answered yet).\nstatic BODY: &[(&str, &str, bool)] = &[\n";
+    for (i, mut body) in words.take("body").into_array().into_iter().enumerate() {
+        let (measure, item) = (body.take("measure").into_string().expect("a measure"), body.take("item").into_string().expect("its item"));
+        let coming = body.get("coming").is_some();
+        out += &format!("    ({}, {}, {coming}),\n", lit(&measure), lit(&item));
+        add(body.take("words").into_strings(), format!("Word::Body({i})"));
+    }
+    for mut p in words.take("persons").into_array() {
+        let person = person(&p.take("person").into_string().expect("a person"));
+        add(p.take("words").into_strings(), format!("Word::Person({person})"));
+    }
+    for mut a in words.take("ages").into_array() {
+        let age = match a.take("age").into_string().as_deref() {
+            Some("toddler") => "Age::Toddler",
+            Some("youth") => "Age::Youth",
+            other => panic!("src/data/sizes.json: no age {other:?}"),
+        };
+        add(a.take("words").into_strings(), format!("Word::Age({age})"));
+    }
+    let weak: Vec<String> = weak.iter().map(|w| key(w)).collect();
+    out += "];\n\n/// Every word of a size request (`key`), sorted: (word, what it is, counted only beside another).\nstatic SIZE_WORDS: &[(&str, Word, bool)] = &[\n";
+    for (k, word) in &table {
+        out += &format!("    ({}, {word}, {}),\n", lit(k), weak.contains(k));
+    }
+    out + "];\n"
+}
+
+fn person(name: &str) -> &'static str {
+    match name {
+        "men" => "Person::Men",
+        "women" => "Person::Women",
+        "kids" => "Person::Kids",
+        other => panic!("src/data/sizes.json: no person `{other}`"),
+    }
+}
+
+/// `9 5/16` → 9.3125.
+fn inches_value(text: &str) -> f64 {
+    text.split_whitespace()
+        .map(|part| match part.split_once('/') {
+            Some((n, d)) => n.parse::<f64>().expect("a numerator") / d.parse::<f64>().expect("a denominator"),
+            None => part.parse::<f64>().expect("inches"),
+        })
+        .sum()
 }
 
 /// `UNITS_EXACT` and `UNITS_LOWER` (`convert.rs`): every unit by symbol and alias, the first unit

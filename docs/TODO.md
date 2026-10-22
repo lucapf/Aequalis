@@ -15,9 +15,6 @@ done, move it to DONE and note the commit.
 
 By priority, most urgent first.
 
-- [ ] **size-4** Phase 1, data: the shoe charts (Nike's and Clarks's, men,
-      women, kids) and every item, body and person word of the 10 languages in
-      `src/data/sizes.json`, compiled by `build/tables.rs`.
 - [ ] **size-5** Phase 1, rules in `src/sizes.rs`: the request grammar (§3), the
       nearest row, the two charts merged into one result (§6.1), what is missing
       shown instead of asked (no person, no target, the table: §4.1), the
@@ -89,6 +86,9 @@ By priority, most urgent first.
 
 ## DONE
 
+- [x] **size-4** Phase 1, data: the shoe charts (Nike's and Clarks's, men,
+      women, kids) and every item, body and person word of the 10 languages in
+      `src/data/sizes.json`, compiled by `build/tables.rs`.
 - [x] **size-22** Decided: with no person, `result` the first person's and
       `extra` the others, Copy the first value; the table, `result` the text and
       `extra` a row per person, Copy the text. Trivia's shoe tables as entries

@@ -172,6 +172,16 @@ between two rows takes the nearest (§4.4).
 - **Brands are not words.** `42 eu nike shoes us` is not a size request: the
   chart names appear only in answers (§6.1).
 
+- **Words that already mean something** (decided 2026-10-22) count only beside
+  another size word: `kid` and `top` (the Kiribati dollar and the Tongan
+  paʻanga), `foot` and `feet` (the unit). `42 kid us` stays a currency and
+  `27 cm foot` a length; `42 eu kid shoes us` and `27 cm men foot` are sizes.
+
+- **Toddler and youth** (kids' shoes, decided 2026-10-22): toddler, toddlers,
+  baby, infant, bebé, bebê, bébé, Kleinkind, balita, bebek, em bé, primi passi,
+  maluch, niemowlę; youth, junior, juvenil, júnior, ado, Jugend, remaja, genç,
+  thiếu niên, ragazzo, ragazzi, młodzież.
+
 - **Possible clashes** are settled by the grammar (§3.4):
   - `but` (Polish shoe; English "but").
   - `pie` (Spanish foot).
@@ -567,7 +577,10 @@ both 10 3/16 in), which is Brannock's women's = men's + 1.5.
 
 #### Kids'
 
-US toddler sizes end in `C`, youth sizes in `Y`.
+US toddler sizes end in `C`, youth sizes in `Y`. Kids' UK sizes, and a US
+number written without its letter, start over: UK 4.5 is a toddler's 5C and a
+youth's 5Y. Such a size gives both, labelled, `US 5C toddler, US 5Y youth`,
+unless a toddler or youth word says which (§2.4) (decided 2026-10-22).
 
 ##### Nike ²
 
