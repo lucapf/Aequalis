@@ -1,31 +1,38 @@
 # Clothing and shoe sizes — specification
 
-Status: **agreed.** Every decision is settled (§10); implementation follows the phases (§8).
+Status: **agreed.** Every decision is settled (§10); implementation follows the
+phases (§8).
 
 ## 1. Scope and non-goals
 
-Aequalis converts clothing and shoe sizes between countries' systems, and from a body measure to a
-size. Examples:
+Aequalis converts clothing and shoe sizes between countries' systems, and from a
+body measure to a size. Examples:
+
 - `42 eu men shoes us` → `US 8.5 (Nike), 9 (Clarks)`
 - `IT 44 dress US` → `US 8`
 - `27 cm men foot` → `EU 44 (Nike), 43 (Clarks)`
 
-It answers the way it answers units and currencies: as you type, asking when a request could mean
-more than one thing.
+It answers the way it answers units and currencies: as you type, asking when a
+request could mean more than one thing.
 
-**Sizes only when asked for.** A request is a size request only when it says so, with an item word
-(`shoes`, `dress`, `clothes`…) or a body word (`foot`). Everything else reads as before, currencies
-first: `42 eu` is 42 euros. Aequalis may suggest the size request, never assume it (§3.2).
+**Sizes only when asked for.** A request is a size request only when it says so,
+with an item word (`shoes`, `dress`, `clothes`…) or a body word (`foot`).
+Everything else reads as before, currencies first: `42 eu` is 42 euros. Aequalis
+may suggest the size request, never assume it (§3.2).
 
 Non-goals:
-- **Two shoe charts, no more.** Nike's and Clarks's are named in the result where they differ
-  (§6.1). There are no other brand charts, and every answer says brands vary (§4.3).
-- **No fit advice:** no "size up for boots", nothing about widths beyond what the charts give.
+
+- **Two shoe charts, no more.** Nike's and Clarks's are named in the result
+  where they differ (§6.1). There are no other brand charts, and every answer
+  says brands vary (§4.3).
+- **No fit advice:** no "size up for boots", nothing about widths beyond what
+  the charts give.
 - **No vanity sizing history.** The charts are today's usual retail charts.
 
-Sizes are **not units**. There is no factor between EU 42 and US 9. Each item has a **chart**: rows
-of equivalent sizes across systems, each row standing for a body measure. A conversion finds the
-row and reads the target column. A size between two rows takes the nearest (§4.4).
+Sizes are **not units**. There is no factor between EU 42 and US 9. Each item
+has a **chart**: rows of equivalent sizes across systems, each row standing for
+a body measure. A conversion finds the row and reads the target column. A size
+between two rows takes the nearest (§4.4).
 
 ## 2. Vocabulary
 
@@ -44,10 +51,10 @@ row and reads the target column. A size between two rows takes the nearest (§4.
 | `int`      | International letters (XS–XXXL)    | tops, shirts, hats               |
 | `cm`, `in` | The size is a measure              | foot, collar, head, height       |
 
-- **Shoes** have no separate IT, FR or DE system. Those countries use `eu`, so `42 it shoe` is read
-  as EU 42, with a note.
-- **Clothing:** `eu` alone means the **DE** column, the EN 13402 body-based numbering, where it
-  differs from FR or IT. A note says so.
+- **Shoes** have no separate IT, FR or DE system. Those countries use `eu`, so
+  `42 it shoe` is read as EU 42, with a note.
+- **Clothing:** `eu` alone means the **DE** column, the EN 13402 body-based
+  numbering, where it differs from FR or IT. A note says so.
 
 ### 2.2 Size labels
 
@@ -158,10 +165,11 @@ row and reads the target column. A size between two rows takes the nearest (§4.
 | women | damskie, kobieta  |
 | kids  | dzieci, dziecięce |
 
-- **Accents are optional**, as with place names: `ayakkabi`, `giay`, `fuss`, `kadin`,
+- **Accents are optional**, as with place names: `ayakkabi`, `giay`, `fuss`,
+  `kadin`,
 
-- **Brands are not words.** `42 eu nike shoes us` is not a size request: the chart names appear only
-  in answers (§6.1).
+- **Brands are not words.** `42 eu nike shoes us` is not a size request: the
+  chart names appear only in answers (§6.1).
 
 - **Possible clashes** are settled by the grammar (§3.4):
   - `but` (Polish shoe; English "but").
@@ -178,11 +186,11 @@ row and reads the target column. A size between two rows takes the nearest (§4.
 1. `42 eu shoe us` — the size, its system, the item, the target system.
 2. `shoe 42 eu` — the item first, no target: the region's system (§4.2).
 3. `IT 44 dress US` — the system before the number, as on labels.
-4. `27 cm foot` — a body measure, then the measure word; a target system is optional
-   (`27 cm foot us`).
+4. `27 cm foot` — a body measure, then the measure word; a target system is
+   optional (`27 cm foot us`).
 
-Optional connectors between the size and the target, as with units: `to`, `in`, `->`, `→`, and
-their equivalents already accepted.
+Optional connectors between the size and the target, as with units: `to`, `in`,
+`->`, `→`, and their equivalents already accepted.
 
 Person words go anywhere: `42 eu women shoe us`, `scarpe donna 38`.
 
@@ -190,20 +198,25 @@ A person word with no item word means clothing: `12 US woman EU` (§3.2).
 
 ### 3.2 What makes a request a size request
 
-A request is a size request only when the user asks for one explicitly: **an item word or a
-body-measure word** (§2.3), **and a size label** (§2.2). Anything else is read as it is today, and
-**currency is the default**:
-- `42 eu` stays 42 euros (`now the currency to convert to`), and `42 eu us` stays EUR → USD.
-- When such a currency request could also be a size (the amount is in some chart, the codes are
-  size systems), a **suggestion** under the result offers the size request: `42 eu shoes us`.
-  Choosing it writes it. Like every suggestion it gives way to the result, and the currency answer
-  never changes.
+A request is a size request only when the user asks for one explicitly: **an
+item word or a body-measure word** (§2.3), **and a size label** (§2.2). Anything
+else is read as it is today, and **currency is the default**:
+
+- `42 eu` stays 42 euros (`now the currency to convert to`), and `42 eu us`
+  stays EUR → USD.
+- When such a currency request could also be a size (the amount is in some
+  chart, the codes are size systems), a **suggestion** under the result offers
+  the size request: `42 eu shoes us`. Choosing it writes it. Like every
+  suggestion it gives way to the result, and the currency answer never changes.
 - `42 in` stays 42 inches (a length).
 - `cn` is not a currency code, so it never clashes.
 - A **person word** alone counts too, for **clothing**:
-  - `12 US woman EU` is the women's chart (dresses, tops and trousers share one, §6.2): `EU 42`.
-  - `40 US man EU` asks which (§5): suits, collar shirts and letters are three charts.
-  - Shoes always need the shoe word: `42 eu women us` is women's clothing, not shoes.
+  - `12 US woman EU` is the women's chart (dresses, tops and trousers share one,
+    §6.2): `EU 42`.
+  - `40 US man EU` asks which (§5): suits, collar shirts and letters are three
+    charts.
+  - Shoes always need the shoe word: `42 eu women us` is women's clothing, not
+    shoes.
 
 ### 3.3 Partial requests (as you type)
 
@@ -216,12 +229,16 @@ body-measure word** (§2.3), **and a size label** (§2.2). Anything else is read
 
 ### 3.4 Clashes
 
-Without an item, body or person word nothing below applies: every word keeps its usual meaning.
+Without an item, body or person word nothing below applies: every word keeps its
+usual meaning.
 
-- **`in`** after a number with **no item word** is inches. After an item word it's a connector:
-  `shoe 42 eu in us`. When it follows a body measure it's inches: `11 in foot`.
-- **`it`, `de`** count as systems only next to a size (`it 44`, `44 it`) in a size request.
-- **`but`, `pie`, `boy`** count as item/body words only in a size request (a size label present).
+- **`in`** after a number with **no item word** is inches. After an item word
+  it's a connector: `shoe 42 eu in us`. When it follows a body measure it's
+  inches: `11 in foot`.
+- **`it`, `de`** count as systems only next to a size (`it 44`, `44 it`) in a
+  size request.
+- **`but`, `pie`, `boy`** count as item/body words only in a size request (a
+  size label present).
 
 ## 4. Answers
 
@@ -229,11 +246,13 @@ Without an item, body or person word nothing below applies: every word keeps its
 
 - **Result:** the target size with its system, `US 8.5` (`34C`, `M`).
   - **Shoes, where Nike's and Clarks's charts differ:** each value, named:
-    `US 8.5 (Nike), 9 (Clarks)` (§6.1). Where they agree, the size alone: `US 8`.
-- **Details**, one line, the other systems: `UK 7.5 · EU 42 · JP 26.5 cm · CN 42`. For shoes,
-  these are Nike's.
+    `US 8.5 (Nike), 9 (Clarks)` (§6.1). Where they agree, the size alone:
+    `US 8`.
+- **Details**, one line, the other systems:
+  `UK 7.5 · EU 42 · JP 26.5 cm · CN 42`. For shoes, these are Nike's.
 - **Notes:**
-  - which chart (`men's shoes`; for shoes split by brand, `men's shoes (details: Nike)`);
+  - which chart (`men's shoes`; for shoes split by brand,
+    `men's shoes (details: Nike)`);
   - the "between" note (§4.4);
   - the brand note (§4.3).
 - `--json`: `result`, `notes`; the details line is the first note.
@@ -243,9 +262,10 @@ Without an item, body or person word nothing below applies: every word keeps its
 
 ### 4.2 No target: the device's region
 
-As `12 usd` gives the local currency, a size with no target gives the **region's system**. The
-region is the country of the device's time zone (`time::device_zone` → `tz::zone_country`, the
-same reading as the local currency):
+As `12 usd` gives the local currency, a size with no target gives the **region's
+system**. The region is the country of the device's time zone
+(`time::device_zone` → `tz::zone_country`, the same reading as the local
+currency):
 
 | Country                 | Shoes | Women's clothing | Men's clothing | Bras |
 |-------------------------|-------|------------------|----------------|------|
@@ -258,25 +278,28 @@ same reading as the local currency):
 | China                   | CN    | CN               | CN             | CN   |
 | anywhere else           | EU    | EU (= DE)        | EU             | EU   |
 
-When the size is already in the region's system (`shoe 42 eu` in Rome), the result is that same
-size, and the details give the others. This is the "what is this in other countries" answer.
+When the size is already in the region's system (`shoe 42 eu` in Rome), the
+result is that same size, and the details give the others. This is the "what is
+this in other countries" answer.
 
 ### 4.3 The brand note
 
-Every size answer adds the note `sizes vary by brand: check the brand's chart`, shown under the
-result like the currency check note. It is short and always there, because the user asked for it
-on every answer, even on one that already names Nike and Clarks: those are two charts, not every
-brand.
+Every size answer adds the note `sizes vary by brand: check the brand's chart`,
+shown under the result like the currency check note. It is short and always
+there, because the user asked for it on every answer, even on one that already
+names Nike and Clarks: those are two charts, not every brand.
 
 ### 4.4 Between two rows, and body measures
 
-- A size **between rows** (`EU 42.3`), or a body measure, takes the **nearest row**. When it lies
-  within 25% of the step from the midpoint, the note says `between EU 42 and 42.5`.
-- **Exactly at the midpoint**, the larger row: the charts' own advice is to size up between sizes.
-- **A value twice in a column** (Nike writes UK 6 for men's US 6.5 and US 7): both rows, as a range,
-  `US 6.5–7`.
-- A body measure **outside the chart** (a 35 cm foot): the last row, with the note
-  `beyond the chart`.
+- A size **between rows** (`EU 42.3`), or a body measure, takes the **nearest
+  row**. When it lies within 25% of the step from the midpoint, the note says
+  `between EU 42 and 42.5`.
+- **Exactly at the midpoint**, the larger row: the charts' own advice is to size
+  up between sizes.
+- **A value twice in a column** (Nike writes UK 6 for men's US 6.5 and US 7):
+  both rows, as a range, `US 6.5–7`.
+- A body measure **outside the chart** (a 35 cm foot): the last row, with the
+  note `beyond the chart`.
 
 ## 5. Ambiguity (Aequalis asks, as everywhere)
 
@@ -288,73 +311,89 @@ brand.
 | No such size in either chart           | error           | `no EU 52 in women's shoes` ³ |
 | `eu` for clothing (FR/IT/DE differ)    | none: EU = DE   | note `EU sizes as in DE`      |
 
-¹ Shoes, letters and `clothes`. ² Each choice a full request. ³ Followed by the range of both
-charts together, `(EU 34–44.5)`. A size in only one chart is answered by that chart alone, named:
-`US 15.5 (Clarks)`.
+¹ Shoes, letters and `clothes`. ² Each choice a full request. ³ Followed by the
+range of both charts together, `(EU 34–44.5)`. A size in only one chart is
+answered by that chart alone, named: `US 15.5 (Clarks)`.
 
-**Dresses and bras** default to the women's chart, and **suits and collar shirts** to the men's,
-without asking: their charts exist for one person only. A note says which.
+**Dresses and bras** default to the women's chart, and **suits and collar
+shirts** to the men's, without asking: their charts exist for one person only. A
+note says which.
 
 ## 6. Charts
 
-Each chart lists rows. A row is one size in every system, and the body measure it stands for.
-Sources are cited per chart. Where they disagree, the spec says which was chosen.
+Each chart lists rows. A row is one size in every system, and the body measure
+it stands for. Sources are cited per chart. Where they disagree, the spec says
+which was chosen.
 
 ### 6.1 Shoes (phase 1)
 
-Shoes have **no exact conversion**. UK and US sizes step by a barleycorn (⅓ in), EU sizes by a
-Paris point (⅔ cm, the last's length × 1.5), and the zero points differ between men, women and
-children ([BSI](https://knowledge.bsigroup.com/products/footwear-sizing-conversion-of-sizing-systems),
-[ISO 9407 Mondopoint](https://webstore.ansi.org/preview-pages/ISO/preview_ISO+9407-2019.pdf)).
+Shoes have **no exact conversion**. UK and US sizes step by a barleycorn (⅓ in),
+EU sizes by a Paris point (⅔ cm, the last's length × 1.5), and the zero points
+differ between men, women and children
+([BSI](https://knowledge.bsigroup.com/products/footwear-sizing-conversion-of-sizing-systems),
+[ISO 9407
+Mondopoint](https://webstore.ansi.org/preview-pages/ISO/preview_ISO+9407-2019.pdf)).
 
 #### Two charts: Nike and Clarks (decided)
 
-Retail charts fall into two families, which put the same EU number on different UK and US sizes.
-Aequalis holds one chart of each, from the brand's own size guide (read 2026-10-22):
+Retail charts fall into two families, which put the same EU number on different
+UK and US sizes. Aequalis holds one chart of each, from the brand's own size
+guide (read 2026-10-22):
+
 - **Nike**, the sports brands' chart:
   [men's](https://www.nike.com/size-fit/mens-footwear),
   [women's](https://www.nike.com/size-fit/womens-footwear),
-  [kids'](https://www.nike.com/size-fit/kids-footwear). It has JP and the foot length.
+  [kids'](https://www.nike.com/size-fit/kids-footwear). It has JP and the foot
+  length.
 - **Clarks**, the traditional British chart:
-  [clarks.com.au](https://clarks.com.au/pages/size-guide) (UK, EU, US; foot length for women and
-  kids), [clarksstores.ae](https://www.clarksstores.ae/pages/fitguide) (the men's foot lengths; its
-  UK and EU match the Australian chart). Its EU numbers sit about half a size lower: men's EU 42 is
-  UK 7.5 / US 8.5 at Nike, UK 8 / US 9 at Clarks.
+  [clarks.com.au](https://clarks.com.au/pages/size-guide) (UK, EU, US; foot
+  length for women and kids),
+  [clarksstores.ae](https://www.clarksstores.ae/pages/fitguide) (the men's foot
+  lengths; its UK and EU match the Australian chart). Its EU numbers sit about
+  half a size lower: men's EU 42 is UK 7.5 / US 8.5 at Nike, UK 8 / US 9 at
+  Clarks.
 
 How they answer:
+
 - **Each chart answers on its own**, by the nearest row (§4.4).
 - **Same size:** the size alone, `US 8`.
-- **Different sizes:** both, each named once: `US 8.5 (Nike), 9 (Clarks)`. Never more than two
-  values, never more than one name each.
-- **A size in one chart only** (EU 50 men's is past Nike's last row here): that chart alone, still
-  named, `US 15.5 (Clarks)`.
-- **A system one chart lacks** (Clarks has no JP, CN reads EU): the other chart alone.
+- **Different sizes:** both, each named once: `US 8.5 (Nike), 9 (Clarks)`. Never
+  more than two values, never more than one name each.
+- **A size in one chart only** (EU 50 men's is past Nike's last row here): that
+  chart alone, still named, `US 15.5 (Clarks)`.
+- **A system one chart lacks** (Clarks has no JP, CN reads EU): the other chart
+  alone.
 - **The details line** is Nike's (§4.1).
 
 Left out, on purpose:
-- **Adidas.** It labels EU sizes in thirds (42⅔), its UK size is US − ½ (Nike's is US − 1), and its
-  women's EU 42 is US 9.5 (Nike US 10, Clarks US 10.5). It matches neither chart, and naming it would
-  promise values it doesn't have. An Adidas label typed is read as a number like any other:
-  `42⅔ eu men shoes us` → `US 9 (Nike), 9.5 (Clarks)`, Adidas's own US 9 among them
-  ([Adidas's chart](http://www.sport-conrad.com/en/brands/adidas/size-chart/)).
-- **Brannock.** It isn't a chart. It's the US device that measures a foot for a US size, and both
-  charts' US sizes follow its foot lengths: a men's US 9 is a 26.2 cm foot at Nike, 26.3 cm at
-  Clarks.
 
-**JP** is Nike's CM/JP column, the cm on the box and on Japanese labels. It is **not** the foot
-length: Nike's chart gives both, and a men's US 9 is JP 27 for a 26.2 cm foot. **CN = the EU
-number** (as Chinese shops label shoes), so it has no column of its own: `42 cn shoe` is EU 42, with
-a note.
+- **Adidas.** It labels EU sizes in thirds (42⅔), its UK size is US − ½ (Nike's
+  is US − 1), and its women's EU 42 is US 9.5 (Nike US 10, Clarks US 10.5). It
+  matches neither chart, and naming it would promise values it doesn't have. An
+  Adidas label typed is read as a number like any other: `42⅔ eu men shoes us` →
+  `US 9 (Nike), 9.5 (Clarks)`, Adidas's own US 9 among them ([Adidas's
+  chart](http://www.sport-conrad.com/en/brands/adidas/size-chart/)).
+- **Brannock.** It isn't a chart. It's the US device that measures a foot for a
+  US size, and both charts' US sizes follow its foot lengths: a men's US 9 is a
+  26.2 cm foot at Nike, 26.3 cm at Clarks.
 
-**From the foot:** the foot-length column of each chart, not JP. Inches are × 2.54.
-- `27 cm men foot` in Rome: Nike's nearest row is 10 11/16 in = 27.15 cm (US 10, EU 44), Clarks's
-  272 mm (UK 9, US 10, EU 43). The result is `EU 44 (Nike), 43 (Clarks)`.
-- `11 in men foot` (27.94 cm): Nike's 11 in row and Clarks's 280 mm row are both US 11, so the
-  result is `US 11`.
+**JP** is Nike's CM/JP column, the cm on the box and on Japanese labels. It is
+**not** the foot length: Nike's chart gives both, and a men's US 9 is JP 27 for
+a 26.2 cm foot. **CN = the EU number** (as Chinese shops label shoes), so it has
+no column of its own: `42 cn shoe` is EU 42, with a note.
+
+**From the foot:** the foot-length column of each chart, not JP. Inches are ×
+2.54.
+
+- `27 cm men foot` in Rome: Nike's nearest row is 10 11/16 in = 27.15 cm (US 10,
+  EU 44), Clarks's 272 mm (UK 9, US 10, EU 43). The result is
+  `EU 44 (Nike), 43 (Clarks)`.
+- `11 in men foot` (27.94 cm): Nike's 11 in row and Clarks's 280 mm row are both
+  US 11, so the result is `US 11`.
 
 #### Men's
 
-**Nike**
+##### Nike
 
 | US   | UK   | EU   | JP (cm) | Foot (in) |
 |------|------|------|---------|-----------|
@@ -380,7 +419,7 @@ a note.
 
 UK 6 twice is Nike's own (§4.4: `uk 6` → `US 6.5–7`).
 
-**Clarks**
+##### Clarks
 
 | UK   | US   | EU   | Foot (mm) |
 |------|------|------|-----------|
@@ -408,7 +447,7 @@ UK 6 twice is Nike's own (§4.4: `uk 6` → `US 6.5–7`).
 
 #### Women's
 
-**Nike**
+##### Nike
 
 | US   | UK  | EU   | JP (cm) | Foot (in) ¹ |
 |------|-----|------|---------|-------------|
@@ -428,12 +467,12 @@ UK 6 twice is Nike's own (§4.4: `uk 6` → `US 6.5–7`).
 | 11.5 | 9   | 44   | 28.5    | 10 11/16    |
 | 12   | 9.5 | 44.5 | 29      | 10 13/16    |
 
-¹ **To check on nike.com before release.** The page's text loses the table, and its foot column is
-shorter than the size columns. These values line up with the men's chart on the same EU size
-(women's US 10 and men's US 8.5 are both EU 42, both 10 3/16 in), which is Brannock's women's =
-men's + 1.5.
+¹ **To check on nike.com before release.** The page's text loses the table, and
+its foot column is shorter than the size columns. These values line up with the
+men's chart on the same EU size (women's US 10 and men's US 8.5 are both EU 42,
+both 10 3/16 in), which is Brannock's women's = men's + 1.5.
 
-**Clarks**
+##### Clarks
 
 | UK  | US   | EU   | Foot (mm) |
 |-----|------|------|-----------|
@@ -457,7 +496,7 @@ men's + 1.5.
 
 US toddler sizes end in `C`, youth sizes in `Y`.
 
-**Nike** ²
+##### Nike ²
 
 | US    | UK   | EU   | JP (cm) | Foot (in) |
 |-------|------|------|---------|-----------|
@@ -489,10 +528,11 @@ US toddler sizes end in `C`, youth sizes in `Y`.
 | 6.5Y  | 6    | 39   | 24.5    | 9 9/16    |
 | 7Y    | 6    | 40   | 25      | 9 11/16   |
 
-² **To check on nike.com before release**, as the women's: the page's text loses the table. The UK
-column is half a size above the one this spec had before (4C was UK 3, now 3.5, as Nike writes it).
+² **To check on nike.com before release**, as the women's: the page's text loses
+the table. The UK column is half a size above the one this spec had before (4C
+was UK 3, now 3.5, as Nike writes it).
 
-**Clarks** ³
+##### Clarks ³
 
 | UK   | US    | EU   | Foot (mm) |
 |------|-------|------|-----------|
@@ -530,24 +570,28 @@ column is half a size above the one this spec had before (4C was UK 3, now 3.5, 
 | 6    | 7Y    | 39.5 | 246       |
 | 6.5  | 7.5Y  | 40   | 250       |
 
-³ Clarks's chart writes the bare US number. `C` and `Y` are added here as US labels write them, so
-that US 4C (EU 19) and US 4Y (EU 36) stay apart. US 4Y → 5Y with no 4.5Y is as published.
+³ Clarks's chart writes the bare US number. `C` and `Y` are added here as US
+labels write them, so that US 4C (EU 19) and US 4Y (EU 36) stay apart. US 4Y →
+5Y with no 4.5Y is as published.
 
 ### 6.2 Women's clothing (phase 2)
 
-Dresses, tops and trousers share one numeric chart. The offsets most sources agree on
+Dresses, tops and trousers share one numeric chart. The offsets most sources
+agree on
 ([size.ly](https://www.size.ly/conversion-charts/international-size-charts-women),
 [ASOS](https://www.asos.com/discover/size-charts/women/dresses/)) are:
+
 - UK = US + 4;
 - DE (EU) = US + 30;
 - FR = US + 32;
 - IT = US + 36.
 
-Sources **disagree on FR and IT** (some put UK 8 = FR 38 = IT 40, others FR 40 = IT 44). The
-common offsets above are used (decided): `IT 44 = FR 40 = DE 38 = UK 12 = US 8`. Every answer lists
-both IT and FR among the details (from a US size: `IT 44 · FR 40`), with no second, one-step-smaller
-mapping. The brand note covers the rest.
-JP = US + 3 (decided: US 8 = JP 11; Japanese sizes are odd numbers, 5, 7, 9, 11…).
+Sources **disagree on FR and IT** (some put UK 8 = FR 38 = IT 40, others FR 40 =
+IT 44). The common offsets above are used (decided):
+`IT 44 = FR 40 = DE 38 = UK 12 = US 8`. Every answer lists both IT and FR among
+the details (from a US size: `IT 44 · FR 40`), with no second, one-step-smaller
+mapping. The brand note covers the rest. JP = US + 3 (decided: US 8 = JP 11;
+Japanese sizes are odd numbers, 5, 7, 9, 11…).
 
 | US  | UK  | DE/EU | FR  | IT  | JP  | INT  | CN       |
 |-----|-----|-------|-----|-----|-----|------|----------|
@@ -562,11 +606,12 @@ JP = US + 3 (decided: US 8 = JP 11; Japanese sizes are odd numbers, 5, 7, 9, 11�
 | 16  | 20  | 46    | 48  | 52  | 19  | XXL  | 175/110A |
 | 18  | 22  | 48    | 50  | 54  | 21  | XXL  | 175/116A |
 
-**Body measures are not supported in this version** (decided): `92 cm bust` and the like are left
-for later, since sources disagree on them by 2–4 cm.
+**Body measures are not supported in this version** (decided): `92 cm bust` and
+the like are left for later, since sources disagree on them by 2–4 cm.
 
-CN women's: the Chinese GB/T 1335 label is height/bust/body type (`160/84A`), supported in phase 2.
-A label is read by its bust (the number after `/`) and written as the row's label above.
+CN women's: the Chinese GB/T 1335 label is height/bust/body type (`160/84A`),
+supported in phase 2. A label is read by its bust (the number after `/`) and
+written as the row's label above.
 
 ### 6.3 Men's clothing (phase 2)
 
@@ -600,12 +645,13 @@ A label is read by its bust (the number after `/`) and written as the row's labe
 | 45      | 18         | XXL |
 | 46      | 18.5       | XXL |
 
-**Letters:** the men's are the INT column of the suits chart, the women's the INT column of §6.2.
+**Letters:** the men's are the INT column of the suits chart, the women's the
+INT column of §6.2.
 
 ### 6.4 Kids' clothing (phase 3)
 
-Kids' sizes go by **height in cm** (EU/DE/FR/IT/CN), or by **age** (US: months, `2T`–`5T`, then
-years; UK: age ranges).
+Kids' sizes go by **height in cm** (EU/DE/FR/IT/CN), or by **age** (US: months,
+`2T`–`5T`, then years; UK: age ranges).
 
 | Height (EU) | US   | UK     |
 |-------------|------|--------|
@@ -655,11 +701,13 @@ years; UK: age ranges).
 | G     | F   | G        |
 | H     | FF  | H        |
 
-Cups beyond DD vary between US brands: the row above is used (decided), with the brand note.
+Cups beyond DD vary between US brands: the row above is used (decided), with the
+brand note.
 
 ### 6.6 Hats (phase 3)
 
-**EU = head circumference in cm.** US = circumference in inches ÷ π, to the nearest ⅛. UK = US − ⅛.
+**EU = head circumference in cm.** US = circumference in inches ÷ π, to the
+nearest ⅛. UK = US − ⅛.
 
 | EU (cm) | US  | UK  | INT |
 |---------|-----|-----|-----|
@@ -675,16 +723,19 @@ Cups beyond DD vary between US brands: the row above is used (decided), with the
 
 ## 7. UI
 
-- **Measures panel:** a new class, **Sizes**, beside Length, Mass and the others (TUI, widget,
-  Android). Its groups are Shoes, Women, Men, Kids, Bras, Hats, each in its phase.
-- **The systems are the tabs:** EU, UK, US, IT, FR, DE, JP, CN, INT. A key writes its system code;
-  a group writes its item word in the device's language when known, else English.
-- **Suggestions while typing:** the item, person and body words of the 10 languages (`scar` →
-  `scarpe - shoes`), and the system codes after a size in a size request (`shoes 42 ` →
-  `eu, uk, us…`). After a currency request that could be a size (`42 eu`), the size request
-  (`42 eu shoes`), below the result (§3.2).
-- **Android:** the Sizes class in the Measures panel; the quick window answers size requests as any
-  other.
+- **Measures panel:** a new class, **Sizes**, beside Length, Mass and the others
+  (TUI, widget, Android). Its groups are Shoes, Women, Men, Kids, Bras, Hats,
+  each in its phase.
+- **The systems are the tabs:** EU, UK, US, IT, FR, DE, JP, CN, INT. A key
+  writes its system code; a group writes its item word in the device's language
+  when known, else English.
+- **Suggestions while typing:** the item, person and body words of the 10
+  languages (`scar` → `scarpe - shoes`), and the system codes after a size in a
+  size request (`shoes 42` and a space → `eu, uk, us…`). After a currency
+  request that could be a size (`42 eu`), the size request (`42 eu shoes`),
+  below the result (§3.2).
+- **Android:** the Sizes class in the Measures panel; the quick window answers
+  size requests as any other.
 - **Copy:** the value (`8.5`, the first chart's) or the expression
   (`EU 42 = US 8.5 (Nike), 9 (Clarks)`).
 
@@ -697,50 +748,53 @@ Each phase is released as a `minor`.
    - Nike's and Clarks's charts, named in the result where they differ (§6.1);
    - the women's and kids' Nike foot lengths checked on nike.com (§6.1 ¹ ²);
    - currency as the default, with the size suggestion (§3.2);
-   - the words of every item in the 10 languages (later items are recognised and answered with a
-     "coming" error, not misread);
+   - the words of every item in the 10 languages (later items are recognised and
+     answered with a "coming" error, not misread);
    - the Sizes class with its Shoes group.
-2. **Women's and men's clothing:** dresses, tops and trousers, suits, collar shirts, the letters,
-   the CN `160/84A` labels, a person word alone (`12 US woman EU`).
+2. **Women's and men's clothing:** dresses, tops and trousers, suits, collar
+   shirts, the letters, the CN `160/84A` labels, a person word alone
+   (`12 US woman EU`).
 3. **Kids' clothing, bras, hats.**
 
 Each phase:
+
 - its charts in `src/data/sizes.json` (compiled by `build/tables.rs`);
 - its rules in `src/sizes.rs`;
-- its test cases (§9) as `tests/sizes.rs`, on the simulated `italy` and `us` machines;
+- its test cases (§9) as `tests/sizes.rs`, on the simulated `italy` and `us`
+  machines;
 - tried on the phone before release.
 
 ## 9. Test cases
 
-`[italy]` and `[us]` are the simulated machines. **→** is the result, and the details and notes
-are shown where they matter.
+`[italy]` and `[us]` are the simulated machines. **→** is the result, and the
+details and notes are shown where they matter.
 
 ### Phase 1
 
-| Request                  | Machine | Expected                                                    |
-|--------------------------|---------|-------------------------------------------------------------|
-| `42 eu men shoes us`     | any     | `US 8.5 (Nike), 9 (Clarks)` ¹                               |
-| `41 eu men shoes us`     | any     | `US 8` (the charts agree)                                   |
-| `42 eu shoes us`         | any     | question `whose sizes?`: men · women · kids                 |
-| `42 eu donna scarpe us`  | any     | `US 10 (Nike), 10.5 (Clarks)`                               |
-| `scarpe uomo 42`         | italy   | `EU 42`; details `US 8.5 · UK 7.5 · JP 26.5 cm · CN 42`     |
-| `men shoes 9 us`         | italy   | `EU 42.5 (Nike), 42 (Clarks)`                               |
-| `men shoes 42 eu`        | us      | `US 8.5 (Nike), 9 (Clarks)`                                 |
-| `uk 6 men shoes us`      | any     | `US 6.5–7 (Nike), 7 (Clarks)`                               |
-| `27 cm men foot`         | italy   | `EU 44 (Nike), 43 (Clarks)`                                 |
-| `11 in men foot`         | us      | `US 11` (27.94 cm: both charts' US 11)                      |
-| `zapatos mujer 38`       | italy   | `EU 38`                                                     |
-| `42.2 eu men shoes us`   | any     | `US 8.5 (Nike), 9 (Clarks)`, note `between EU 42 and 42.5`  |
-| `42⅔ eu men shoes us`    | any     | `US 9 (Nike), 9.5 (Clarks)` (an Adidas label)               |
-| `50 eu men shoes us`     | any     | `US 15.5 (Clarks)` (past Nike's last row)                   |
-| `60 eu men shoes us`     | any     | error `no EU 60 in men's shoes (EU 38–51)`                  |
-| `42 eu nike shoes us`    | any     | not a size request: brands are not words                    |
-| `42 eu`                  | any     | unchanged: euros, asks for the target; suggests `42 eu shoes` |
-| `42 eu us`               | any     | unchanged: EUR → USD; suggests `42 eu shoes us`             |
-| `42 in`                  | any     | unchanged: a length, asks for the target                    |
-| `12 us woman eu`         | any     | error: women's clothing is coming                           |
-| `42 it men shoes us`     | any     | `US 8.5 (Nike), 9 (Clarks)`, note `Italian shoe sizes are EU sizes` |
-| every answer             |         | note `sizes vary by brand: check the brand's chart`         |
+| Request                 | Machine | Expected                                                            |
+|-------------------------|---------|---------------------------------------------------------------------|
+| `42 eu men shoes us`    | any     | `US 8.5 (Nike), 9 (Clarks)` ¹                                       |
+| `41 eu men shoes us`    | any     | `US 8` (the charts agree)                                           |
+| `42 eu shoes us`        | any     | question `whose sizes?`: men · women · kids                         |
+| `42 eu donna scarpe us` | any     | `US 10 (Nike), 10.5 (Clarks)`                                       |
+| `scarpe uomo 42`        | italy   | `EU 42`; details `US 8.5 · UK 7.5 · JP 26.5 cm · CN 42`             |
+| `men shoes 9 us`        | italy   | `EU 42.5 (Nike), 42 (Clarks)`                                       |
+| `men shoes 42 eu`       | us      | `US 8.5 (Nike), 9 (Clarks)`                                         |
+| `uk 6 men shoes us`     | any     | `US 6.5–7 (Nike), 7 (Clarks)`                                       |
+| `27 cm men foot`        | italy   | `EU 44 (Nike), 43 (Clarks)`                                         |
+| `11 in men foot`        | us      | `US 11` (27.94 cm: both charts' US 11)                              |
+| `zapatos mujer 38`      | italy   | `EU 38`                                                             |
+| `42.2 eu men shoes us`  | any     | `US 8.5 (Nike), 9 (Clarks)`, note `between EU 42 and 42.5`          |
+| `42⅔ eu men shoes us`   | any     | `US 9 (Nike), 9.5 (Clarks)` (an Adidas label)                       |
+| `50 eu men shoes us`    | any     | `US 15.5 (Clarks)` (past Nike's last row)                           |
+| `60 eu men shoes us`    | any     | error `no EU 60 in men's shoes (EU 38–51)`                          |
+| `42 eu nike shoes us`   | any     | not a size request: brands are not words                            |
+| `42 eu`                 | any     | unchanged: euros, asks for the target; suggests `42 eu shoes`       |
+| `42 eu us`              | any     | unchanged: EUR → USD; suggests `42 eu shoes us`                     |
+| `42 in`                 | any     | unchanged: a length, asks for the target                            |
+| `12 us woman eu`        | any     | error: women's clothing is coming                                   |
+| `42 it men shoes us`    | any     | `US 8.5 (Nike), 9 (Clarks)`, note `Italian shoe sizes are EU sizes` |
+| every answer            |         | note `sizes vary by brand: check the brand's chart`                 |
 
 ¹ With the details `UK 7.5 · JP 26.5 cm · CN 42` (Nike's) and the note
 `men's shoes (details: Nike)`.
@@ -773,11 +827,14 @@ are shown where they matter.
 ## 10. Decisions
 
 All settled:
-- Sizes only when asked: an item, body or person word. Currency stays the default, with the size
-  request offered as a suggestion (2026-10-22).
-- A person word alone means clothing: women's and kids' answer, men's asks which.
-- Shoes: Nike's and Clarks's charts, each named in the result where they differ, one name each, two
-  values at most (2026-10-22). Adidas and Brannock are not named (§6.1).
+
+- Sizes only when asked: an item, body or person word. Currency stays the
+  default, with the size request offered as a suggestion (2026-10-22).
+- A person word alone means clothing: women's and kids' answer, men's asks
+  which.
+- Shoes: Nike's and Clarks's charts, each named in the result where they differ,
+  one name each, two values at most (2026-10-22). Adidas and Brannock are not
+  named (§6.1).
 - From the foot: the charts' foot-length column, not JP (JP is the box's cm).
 - CN shoes = the EU number.
 - The common FR/IT mapping, both shown.
