@@ -721,11 +721,8 @@ mod tests {
         assert_eq!(classes[0].get("name").and_then(|v| v.str()), Some(crate::config::TIME));
         assert!(classes.iter().any(|c| c.get("name").and_then(|v| v.str()) == Some("Temperature")));
         // The sizes: a class of their own, its groups and system keys writing words.
-        assert!(
-            measures().contains(r#""sizes":{"name":"Sizes","groups":[{"name":"Shoes","write":"shoes"}],"systems":[{"name":"EU","write":"eu"},"#),
-            "{}",
-            measures()
-        );
+        let text = super::measures();
+        assert!(text.contains(r#""sizes":{"name":"Sizes","groups":[{"name":"Shoes","write":"shoes"}],"systems":[{"name":"EU","write":"eu"},"#), "{text}");
         assert!(currencies().contains(r#"{"code":"EUR","name":"euro","symbols":["€"],"countries":["#));
     }
 
