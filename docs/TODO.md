@@ -58,8 +58,6 @@ By priority, most urgent first.
 - [ ] **size-21** Phase 1: a Shoes section in Trivia: Nike's Men, Women and Kids
       tables (US, UK, EU, JP, foot length in cm), in the core's trivia data and
       in the TUI's and Android's Trivia (§7).
-- [ ] **size-22** Decide: what `--json`, Copy and Share give for an answer with
-      no person (`US 8.5 men, US 10 women`) and for the table (`42 eu shoes`).
 - [ ] **size-12** Phase 1: tried on the phone, released as a `minor`.
 - [ ] **size-13** Phase 2, core: women's and men's clothing charts (dresses,
       tops and trousers, suits, collar shirts, letters, the CN `160/84A` labels)
@@ -91,6 +89,11 @@ By priority, most urgent first.
 
 ## DONE
 
+- [x] **size-22** Decided: with no person, `result` the first person's and
+      `extra` the others, Copy the first value; the table, `result` the text and
+      `extra` a row per person, Copy the text. Trivia's shoe tables as entries
+      with a table popup, a row writing its request; answers of several lines
+      shown below the request (spec §4.1, §7).
 - [x] **size-2** The last phase 1 decisions in the spec: beside a currency that
       could be a shoe size, a list with a shoes line (`extra` in `--json` and
       the UIs' answer); the "between" note named by chart; clothing in phase 1

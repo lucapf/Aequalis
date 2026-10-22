@@ -281,6 +281,18 @@ usual meaning.
   women   10     7.5    42   27       42
   ```
 
+- **`--json` and Copy** (decided 2026-10-22):
+  - no person: `result` is the first person's (`US 8.5 men`), `extra` the
+    others, `"extra":[{"type":"shoes","results":["US 10 women"]}]`; Copy
+    `8.5`;
+  - the table: `result` is the table as text, `extra` one item per person,
+    `{"type":"shoes men","results":["US 8.5","UK 7.5","EU 42","JP 26.5",
+    "CN 42"]}`; Copy the table as text.
+- **Shown below the request**: an answer of several lines (the table, the
+  list beside a currency) takes the rows it needs under the request, in the
+  TUI (live and in the history) and on Android (the result area grows, the
+  table in a monospace font).
+
 **Beside a currency** (decided 2026-10-22). A currency request whose amount and
 codes could also be a shoe size (`42 eu us`) answers with a list, everywhere,
 the CLI's stdout too (the rate is today's):
@@ -803,7 +815,9 @@ nearest ⅛. UK = US − ⅛.
   when known, else English.
 - **Trivia: a Shoes section** (decided 2026-10-22), with three conversion
   tables, Men, Women and Kids, from Nike's chart (§6.1): US, UK, EU, JP and the
-  foot length in cm (Nike's inches × 2.54, one decimal: `25.9 cm`).
+  foot length in cm (Nike's inches × 2.54, one decimal: `25.9 cm`). Three
+  entries, Men's, Women's and Kids' shoes; the popup (the detail on Android)
+  shows the table, and a row writes its request (`42 eu men shoes`).
 - **Suggestions while typing:** the item, person and body words of the 10
   languages (`scar` → `scarpe - shoes`), and the system codes after a size in a
   size request (`shoes 42` and a space → `eu, uk, us…`).
