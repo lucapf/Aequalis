@@ -15,9 +15,6 @@ done, move it to DONE and note the commit.
 
 By priority, most urgent first.
 
-- [ ] **size-10** Phase 1, Omarchy widget: the Sizes class in Measures, the
-      shoes line beside a currency (the list, from `extra`), a two-chart result
-      and its Copy.
 - [ ] **size-21** Phase 1: a Shoes section in Trivia: Nike's Men, Women and Kids
       tables (US, UK, EU, JP, foot length in cm), in the core's trivia data and
       in the TUI's and Android's Trivia (§7).
@@ -52,6 +49,10 @@ By priority, most urgent first.
 
 ## DONE
 
+- [x] **size-10** Phase 1, Omarchy widget: the shoes line beside a currency
+      and the other people's sizes (from `extra`), a table in monospace, a
+      two-chart result and its Copy. No Sizes class: the widget has no
+      Measures.
 - [x] **size-11** Phase 1, Android: the Sizes class in the Measures panel (the
       system tabs, the Shoes group, its icon), the shoes line beside a currency
       (the list, from `extra`), Copy and Share of a two-chart result, the quick

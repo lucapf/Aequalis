@@ -136,6 +136,23 @@ Panel {
 
   // The full interactive mode in a new terminal window, which gets the focus. Only one at a time:
   // the button is disabled while it is open.
+  // The other results under the result or the hint, a line each (`aequalis` reply's `extra`): beside a
+  // currency `shoes: US 8.5 men, US 10 women`; beside a size (`US 8.5 men`) the other people's. A table
+  // (a result of several lines, `42 eu shoes`) says them already: none.
+  function extras() {
+    if (!root.reply || !root.reply.extra) return ""
+    var result = root.reply.result || ""
+    if (result.indexOf("\n") !== -1) return ""
+    var size = ["US", "UK", "EU", "JP", "CN"].indexOf(result.split(" ")[0]) !== -1
+    return root.reply.extra.map(function (e) {
+      var line = e.results.join(", ")
+      return size ? line : e.type + ": " + line
+    }).join("\n")
+  }
+
+  // A result of several lines: a table, its columns lined up.
+  readonly property bool tableResult: root.reply !== null && root.reply.show === "result" && (root.reply.result || "").indexOf("\n") !== -1
+
   function openTui() {
     if (root.tuiOpen) return
     root.focusTui = true
@@ -771,11 +788,12 @@ Panel {
           wrapMode: Text.WrapAtWordBoundaryOrAnywhere
           textFormat: Text.PlainText
           color: root.missing || (root.reply && root.reply.show !== "result") ? Color.muted : Color.foreground
-          font.family: Style.font.family
-          font.pixelSize: root.reply && root.reply.show === "result" ? Style.font.subtitle : Style.font.body
+          font.family: root.tableResult ? "monospace" : Style.font.family
+          font.pixelSize: root.tableResult ? Style.font.body : root.reply && root.reply.show === "result" ? Style.font.subtitle : Style.font.body
           text: root.missing
             ? "`" + root.command + "` not found: install aequalis (see docs/omarchy-widget.md)"
             : !root.reply || root.reply.show === "none" ? ""
+            : root.tableResult ? root.reply.result
             : root.reply.show === "result" ? "= " + root.reply.result
             : root.reply.message || ""
         }
@@ -791,6 +809,18 @@ Panel {
           tooltipText: visible ? "Copy " + root.reply.copy + " to the clipboard" : ""
           onClicked: root.commit()
         }
+      }
+
+      // The other results: the shoe sizes beside a currency, the other people's beside a size.
+      Text {
+        width: parent.width
+        visible: text !== ""
+        wrapMode: Text.Wrap
+        textFormat: Text.PlainText
+        color: Color.foreground
+        font.family: Style.font.family
+        font.pixelSize: Style.font.body
+        text: root.reply && (root.reply.show === "result" || root.reply.show === "hint") ? root.extras() : ""
       }
 
       // Notes (how a date was read) and warnings.

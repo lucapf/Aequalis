@@ -187,10 +187,14 @@ fn question(a: &crate::time::Ambiguity) -> String {
 /// `8.94 EUR` → `8.94`) or the pattern's name (`2026/12/11 YYYY/MM/DD` → `2026/12/11`); anything
 /// else (a date for people, a time in a city) as it is shown.
 pub fn value_of(result: &str) -> String {
+    // A table (several lines) as it is: its first line's spaces line its columns up.
+    if result.trim().contains('\n') {
+        return result.trim_end().to_string();
+    }
     let result = result.trim();
     let parts: Vec<&str> = result.split(' ').collect();
-    // A size: `US 8.5 (Nike), 9 (Clarks)` → the first chart's, `8.5`; a table as it is.
-    if !result.contains('\n') && parts.len() > 1 && ["US", "UK", "EU", "JP", "CN"].contains(&parts[0]) {
+    // A size: `US 8.5 (Nike), 9 (Clarks)` → the first chart's, `8.5`.
+    if parts.len() > 1 && ["US", "UK", "EU", "JP", "CN"].contains(&parts[0]) {
         return parts[1].trim_end_matches(',').to_string();
     }
     let number = parts.len() == 2 && parts[0].starts_with(|c: char| c.is_ascii_digit() || c == '-' || c == '.');
@@ -213,6 +217,9 @@ pub fn expression(request: &str, out: &Output) -> String {
 /// (`2026/11/22 YYYY/MM/DD` → `2026/11/22`), and of a city's time (`… = 2026-10-11T16:00+02:00
 /// Paris`) the ISO time.
 pub fn copy_of(result: &str) -> String {
+    if result.trim().contains('\n') {
+        return result.trim_end().to_string();
+    }
     let clock = |s: &str| {
         s.as_bytes().windows(6).any(|w| w[0] == b'T' && w[1..3].iter().all(u8::is_ascii_digit) && w[3] == b':' && w[4..6].iter().all(u8::is_ascii_digit))
     };
@@ -377,6 +384,12 @@ mod tests {
         // A date in a pattern, a timestamp: without the pattern's name, as a measure without its unit.
         assert_eq!(value_of("2026/12/11 YYYY/MM/DD"), "2026/12/11");
         assert_eq!(value_of("1796338800 unix"), "1796338800");
+        // A size: the first chart's; a table as it is, its first line's spaces kept.
+        assert_eq!(value_of("US 8.5 (Nike), 9 (Clarks)"), "8.5");
+        assert_eq!(value_of("US 15.5 men (Clarks)"), "15.5");
+        assert_eq!(value_of("JP 26.5 cm"), "26.5");
+        let table = "         US    UK\nmen     8.5   7.5";
+        assert_eq!((value_of(table).as_str(), copy_of(table).as_str()), (table, table));
     }
 
     /// What the widget copies: the unit kept, a format's name left out, a city's ISO time.
