@@ -137,6 +137,7 @@ object Core {
     private external fun seed(rates: ByteArray, cities: ByteArray): ByteArray
     private external fun reset(): ByteArray
     private external fun sync(auto: Boolean): ByteArray
+    private external fun sizeKey(line: ByteArray, key: ByteArray): ByteArray
 
     private val launched = java.util.concurrent.atomic.AtomicBoolean(false)
 
@@ -272,6 +273,14 @@ object Core {
         Measure(c.getString("name"), c.getJSONArray("systems").strings(), c.getJSONArray("units").objects { u ->
             MeasureUnit(u.getString("symbol"), u.getString("name"), u.getString("system"))
         })
+    }
+
+    /** The request after a key of the Sizes (`shoes`, `eu`): written after it, and `shoes` at its start
+     *  when it has no item word yet, so that it asks for sizes, not a currency (`42` + `eu` →
+     *  `shoes 42 eu `). */
+    fun writeSizeKey(line: String, key: String): String {
+        started.await()
+        return JSONObject(sizeKey(line.encodeToByteArray(), key.encodeToByteArray()).decodeToString()).optString("line", line)
     }
 
     /** The Sizes class: its groups and system keys. */

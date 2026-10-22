@@ -178,6 +178,8 @@ fun AequalisApp(initial: String = "") {
     // Enter was pressed on this request: the core then shows its error even in the middle of a word.
     var submitted by rememberSaveable { mutableStateOf(false) }
     var panel by rememberSaveable { mutableStateOf<Panel?>(null) }
+    // The Sizes: a strip of keys above the keyboard (the keys stay), not a panel in its place.
+    var sizes by rememberSaveable { mutableStateOf(false) }
     // Letters or the calculator: kept while the app is open, and when the screen turns.
     var mode by rememberSaveable { mutableStateOf(Mode.Text) }
     var settings by rememberSaveable { mutableStateOf(false) }
@@ -262,8 +264,11 @@ fun AequalisApp(initial: String = "") {
                 }
                 Unit
             }
-            // Its key again (the landscape toolbar): closed.
-            is Key.Open -> panel = if (panel == key.panel) null else key.panel
+            // The Sizes: their strip shown or hidden. Another panel: opened; its key again closes it.
+            is Key.Open -> when (key.panel) {
+                Panel.Sizes -> { sizes = !sizes; panel = null }
+                else -> panel = if (panel == key.panel) null else key.panel
+            }
             is Key.Switch -> mode = key.mode
             Key.Settings -> settings = true
         }
@@ -288,10 +293,13 @@ fun AequalisApp(initial: String = "") {
             recent = recent,
         )
     }
+    // A key of the Sizes: after the request, `shoes` brought along when it has no item word (the core's).
+    val sizeKey = { key: String -> Core.writeSizeKey(edit.text, key).let { change(Edit(it, it.length)) } }
     val showPanel = @Composable { open: Panel, size: Modifier, wide: Boolean ->
         PanelView(
             open, write = { change(edit.word(it, Core.maxInput)); panel = null }, close = { panel = null }, openLink = { page = it }, unitClass = reply?.unitClass,
             recall = recall, copy = { value -> copy(value) }, share = share, size = size, wide = wide,
+            sizeKey = { sizeKey(it); panel = null },
         )
     }
 
@@ -314,7 +322,7 @@ fun AequalisApp(initial: String = "") {
                 PanelView(
                     docked, write = { change(edit.word(it, Core.maxInput)) }, close = {}, openLink = { page = it }, unitClass = reply?.unitClass,
                     recall = recall, copy = { value -> copy(value) }, share = share, size = Modifier.fillMaxSize(),
-                    docked = true, select = { docked = it },
+                    docked = true, select = { docked = it }, sizeKey = sizeKey,
                 )
             }
         }
@@ -337,6 +345,7 @@ fun AequalisApp(initial: String = "") {
                     null -> Row(Modifier.weight(1f)) {
                         Column(Modifier.weight(1f).fillMaxHeight()) {
                             workspace(true, Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), true)
+                            if (sizes) SizesStrip(sizeKey)
                             LetterPad(onKey)
                         }
                         NumberPad(scientific = mode == Mode.Scientific, onKey, Modifier.align(Alignment.Bottom))
@@ -350,9 +359,12 @@ fun AequalisApp(initial: String = "") {
     // The phone's keyboard (the Currencies' search): the panel over it, the screen above smaller.
     Column(Modifier.fillMaxSize().imePadding()) {
         workspace(false, Modifier.weight(1f).statusBarsPadding().padding(horizontal = 16.dp), true)
-        // The keyboard, or a panel in its place.
+        // The keyboard (the Sizes' strip above it, when shown), or a panel in its place.
         when (val open = panel) {
-            null -> AequalisKeyboard(mode, onKey)
+            null -> {
+                if (sizes) SizesStrip(sizeKey)
+                AequalisKeyboard(mode, onKey)
+            }
             else -> showPanel(open, Modifier.fillMaxWidth().height(KeyboardHeight), false)
         }
     }

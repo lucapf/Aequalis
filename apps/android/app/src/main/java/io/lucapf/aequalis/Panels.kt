@@ -97,6 +97,8 @@ fun PanelView(
     // close; a class or a section opened has its title bar, to go back.
     docked: Boolean = false,
     select: (Panel) -> Unit = {},
+    // A key of the Sizes (`shoes`, `eu`): the core writes it, `shoes` brought along when missing.
+    sizeKey: (String) -> Unit = write,
 ) {
     // The second level (a class, a section), when one is open, and in the Trivia a third, a value's
     // details: the back gesture goes up one level.
@@ -145,9 +147,9 @@ fun PanelView(
             // Another class or section: its own values, no detail of the previous one.
             val open = { name: String -> opened = name; detail = null }
             when (panel) {
-                Panel.Measures -> MeasuresPanel(opened, open, write, wide, unitClass)
+                Panel.Measures -> MeasuresPanel(opened, open, write, wide, unitClass, sizeKey)
                 Panel.Currencies -> CurrenciesPanel(write, wide)
-                Panel.Sizes -> SizesPanel(write)
+                Panel.Sizes -> SizesPanel(sizeKey)
                 Panel.Trivia -> TriviaPanel(opened, detail, open, show = { detail = it }, write, openLink, wide)
                 Panel.History -> HistoryPanel(recall, copy, share)
             }
@@ -171,7 +173,7 @@ private val DetailWidth = 360.dp
  *  the classes on the left, the units of the one chosen beside them. With a unit in the request
  *  (`10 cm `), its class (`unitClass`, the core's) opened at once: the target is of the same kind. */
 @Composable
-private fun MeasuresPanel(opened: String?, open: (String) -> Unit, write: (String) -> Unit, wide: Boolean, unitClass: String?) {
+private fun MeasuresPanel(opened: String?, open: (String) -> Unit, write: (String) -> Unit, wide: Boolean, unitClass: String?, sizeKey: (String) -> Unit) {
     val measures = loaded { Core.measures() } ?: return
     LaunchedEffect(measures) { if (opened == null) unitClass?.let(open) }
     val measure = measures.firstOrNull { it.name == opened }
@@ -186,11 +188,24 @@ private fun MeasuresPanel(opened: String?, open: (String) -> Unit, write: (Strin
         wide -> Row(Modifier.fillMaxSize()) {
             classes(Modifier.width(ListWidth).fillMaxHeight())
             VerticalDivider()
-            if (opened == SIZES) SizesPanel(write) else measure?.let { MeasureUnits(it, write, columns = GridCells.Adaptive(96.dp)) }
+            if (opened == SIZES) SizesPanel(sizeKey) else measure?.let { MeasureUnits(it, write, columns = GridCells.Adaptive(96.dp)) }
         }
-        opened == SIZES -> SizesPanel(write)
+        opened == SIZES -> SizesPanel(sizeKey)
         measure == null -> classes(Modifier)
         else -> MeasureUnits(measure, write, columns = GridCells.Fixed(3))
+    }
+}
+
+/** The Sizes as a strip over the keyboard (the Sizes key shows and hides it): the groups (Shoes) and
+ *  the systems as chips, in a row that scrolls; a tap writes it (`sizeKey`). The keys stay. */
+@Composable
+fun SizesStrip(sizeKey: (String) -> Unit) {
+    val sizes = loaded { Core.sizes() } ?: return
+    LazyRow(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        items(sizes.groups) { (name, word) ->
+            AssistChip(onClick = { sizeKey(word) }, label = { Text(name) }, leadingIcon = { Icon(ShoesIcon, contentDescription = null, modifier = Modifier.size(18.dp)) })
+        }
+        items(sizes.systems) { (name, code) -> AssistChip(onClick = { sizeKey(code) }, label = { Text(name) }) }
     }
 }
 

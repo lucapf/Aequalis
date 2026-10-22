@@ -812,20 +812,28 @@ nearest ⅛. UK = US − ⅛.
 ## 7. UI
 
 - **A Sizes menu item** (decided 2026-10-22), right after Currencies:
-  - **TUI:** `F4 󰩻󱗈 Sizes`, Alt+Z; Trivia moves from F4 to F6 (Alt+T kept). The
-    symbols are the Nerd Font's md-tshirt_crew and md-shoe_sneaker (U+F0A7B,
-    U+F15C8), monochrome in the terminal's colours (decided 2026-10-22, in place
-    of the emoji 👕👟); the full names only with room for the online indicator:
-    `F2 Measures  F3 Currencies  F4 󰩻󱗈 Sizes  F5 History  F6 Trivia  F9 Keys
-    F10 ⚙`.
+  - **TUI:** `F4 󰩻󱗈 Sizes`, Alt+Z; Trivia moves from F4 to F6 (Alt+T kept).
+    Every toolbar entry has a Nerd Font symbol (Material Design, monochrome in
+    the terminal's colours; decided 2026-10-22, in place of the emoji 👕👟):
+    󰑭 Measures, 󰄖 Currencies, 󰩻󱗈 Sizes (md-tshirt_crew and md-shoe_sneaker),
+    󰋚 History, 󰌶 Trivia, 󰘜 Keys, 󰢻 Settings. Symbol and name with room for
+    the online indicator after them (from 100 columns); else the key and its
+    symbol (from 44 columns); else the keys alone.
   - **Android:** in the toolbar after Currencies, with the Material Symbols
     `apparel` (a T-shirt) and `steps` (footprints: Material Symbols has no
-    shoe) icons, as paths in `Icons.kt`.
+    shoe) icons, as paths in `Icons.kt`. In portrait and landscape the Sizes
+    key shows or hides a **strip of chips above the keys** (Shoes, then the
+    systems), the keyboard whole under it (decided 2026-10-22); on a large
+    screen, the panel beside the keys.
   - **Omarchy widget:** no Sizes item for now; it shows size answers as any
     other.
   - **It opens** the groups (Shoes; later Women, Men, Kids, Bras, Hats, each in
     its phase), which write their item word, and the system keys, which write
     their code.
+  - **A system key brings `shoes`** (decided 2026-10-22): written after the
+    request, and `shoes` at its start when the request has no item word yet,
+    so that it asks for sizes, not a currency: `42` + EU → `shoes 42 eu`, an
+    empty request + EU → `shoes eu`. A group's word is not written twice.
 - **Measures panel:** the same Sizes class there too, beside Length, Mass and
   the others (TUI, widget, Android).
 - **The systems are the tabs:** EU, UK, US, IT, FR, DE, JP, CN, INT. A key
