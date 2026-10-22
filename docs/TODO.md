@@ -18,13 +18,6 @@ By priority, most urgent first.
 - [ ] **size-10** Phase 1, Omarchy widget: the Sizes class in Measures, the
       shoes line beside a currency (the list, from `extra`), a two-chart result
       and its Copy.
-- [ ] **size-11** Phase 1, Android: the Sizes class in the Measures panel (the
-      system tabs, the Shoes group, its icon), the shoes line beside a currency
-      (the list, from `extra`), Copy and Share of a two-chart result, the quick
-      window (QuickActivity) answering size requests; landscape and two panes.
-- [ ] **size-20** Phase 1, Android: the Sizes item in the toolbar after
-      Currencies, with the Material Symbols `apparel` and `steps` icons in
-      `Icons.kt` (§7).
 - [ ] **size-21** Phase 1: a Shoes section in Trivia: Nike's Men, Women and Kids
       tables (US, UK, EU, JP, foot length in cm), in the core's trivia data and
       in the TUI's and Android's Trivia (§7).
@@ -59,6 +52,13 @@ By priority, most urgent first.
 
 ## DONE
 
+- [x] **size-11** Phase 1, Android: the Sizes class in the Measures panel (the
+      system tabs, the Shoes group, its icon), the shoes line beside a currency
+      (the list, from `extra`), Copy and Share of a two-chart result, the quick
+      window (QuickActivity) answering size requests; landscape and two panes.
+- [x] **size-20** Phase 1, Android: the Sizes item in the toolbar after
+      Currencies, with the Material Symbols `apparel` and `steps` icons in
+      `Icons.kt` (§7).
 - [x] **size-9** Phase 1, TUI: the Sizes class in Measures (its letter, the
       system tabs, the Shoes group writing `shoes`), the shoes line beside a
       currency (the list, §4.1), a two-chart result at the right edge and in the

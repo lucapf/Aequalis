@@ -155,7 +155,8 @@ private fun QuickInput(initial: String, open: (String) -> Unit, close: () -> Uni
         // The answer: the result large; a hint, a question or an error as the core words it.
         when {
             result != null -> {
-                Text(result.result.orEmpty(), style = MaterialTheme.typography.headlineMedium)
+                Text(result.result.orEmpty(), style = resultStyle(result.result.orEmpty(), landscape = false))
+                Extras(result)
                 result.details.forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
             reply?.show == Show.Question -> {
@@ -164,7 +165,10 @@ private fun QuickInput(initial: String, open: (String) -> Unit, close: () -> Uni
                     OutlinedButton(onClick = { field = TextFieldValue(c.request, TextRange(c.request.length)); submitted = true }, modifier = Modifier.fillMaxWidth()) { Text(c.label) }
                 }
             }
-            reply?.show == Show.Hint -> Text(reply!!.message, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            reply?.show == Show.Hint -> {
+                Text(reply!!.message, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Extras(reply!!)
+            }
             reply?.show == Show.Error -> Text(reply!!.message, color = MaterialTheme.colorScheme.error)
         }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {

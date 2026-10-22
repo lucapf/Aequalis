@@ -80,6 +80,8 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.dp
 import io.lucapf.aequalis.ui.theme.Appearance
@@ -428,7 +430,7 @@ fun Workspace(
                             // A tap copies the value, a long press the whole expression.
                             Text(
                                 result,
-                                style = if (landscape) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.headlineMedium,
+                                style = resultStyle(result, landscape),
                                 modifier = Modifier.weight(1f)
                                     .combinedClickable(onClickLabel = "Copy the value", onClick = { onCopy(value) }, onLongClickLabel = "Copy the expression", onLongClick = { onCopy(whole) }),
                             )
@@ -437,11 +439,16 @@ fun Workspace(
                             CopyMenu(value, whole, onCopy)
                             IconButton(onClick = { onShare(whole) }) { Icon(ShareIcon, contentDescription = "Share") }
                         }
-                        // The notes and warnings that come with it.
+                        // The other results (the shoe sizes beside a currency), then the notes and warnings.
+                        Extras(reply)
                         reply.details.forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     }
-                    // What comes next (`now the length unit to convert to: in, ft, yd…`): a hint, in grey.
-                    Show.Hint -> Text(reply.message, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    // What comes next (`now the length unit to convert to: in, ft, yd…`): a hint, in grey;
+                    // with the results it already has (`42 eu`: the shoe sizes).
+                    Show.Hint -> Column {
+                        Text(reply.message, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Extras(reply)
+                    }
                     Show.Question -> {
                         Text(reply.message, style = MaterialTheme.typography.titleMedium)
                         // Each choice is a complete request; the default one is ⏎'s.
@@ -458,6 +465,29 @@ fun Workspace(
         }
         // Landscape: beside the request line instead, the short room above the keys all the result's.
         if (!landscape) SuggestionRow(offered, suggest, Modifier.padding(bottom = 4.dp))
+    }
+}
+
+/** A result's style: large; a table (`42 eu shoes`, several lines) smaller and in a monospace
+ *  font, so that its columns line up. */
+@Composable
+fun resultStyle(result: String, landscape: Boolean): TextStyle = when {
+    '\n' in result -> MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily.Monospace)
+    landscape -> MaterialTheme.typography.headlineSmall
+    else -> MaterialTheme.typography.headlineMedium
+}
+
+/** The other results under the result or the hint, a line each: beside a currency
+ *  `shoes: US 8.5 men, US 10 women`; beside a size (`US 8.5 men`) the other people's, as they are.
+ *  A table says them already: none. */
+@Composable
+fun Extras(reply: Reply) {
+    val result = reply.result.orEmpty()
+    if ('\n' in result) return
+    val size = result.substringBefore(' ') in listOf("US", "UK", "EU", "JP", "CN")
+    reply.extra.forEach { e ->
+        val line = e.results.joinToString(", ")
+        Text(if (size) line else "${e.type}: $line", style = MaterialTheme.typography.titleMedium)
     }
 }
 

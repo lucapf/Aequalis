@@ -63,13 +63,14 @@ sealed interface Key {
 }
 
 enum class Panel {
-    Measures, Currencies, Trivia, History;
+    Measures, Currencies, Sizes, Trivia, History;
 
     /** Its icon: on its key, and beside its title. */
     val icon: ImageVector
         get() = when (this) {
             Measures -> MeasuresIcon
             Currencies -> CurrenciesIcon
+            Sizes -> SizesIcon
             Trivia -> TriviaIcon
             History -> HistoryIcon
         }
@@ -275,6 +276,7 @@ private fun ColumnScope.ColumnKey(label: String, small: Boolean = false, lit: Bo
 private fun RowScope.PanelKeys(onKey: (Key) -> Unit) {
     KeyButton("Measures", weight = 2f, tone = Tone.Action, small = true) { onKey(Key.Open(Panel.Measures)) }
     KeyButton("Currencies", weight = 2f, tone = Tone.Action, small = true) { onKey(Key.Open(Panel.Currencies)) }
+    KeyButton("Sizes", weight = 1.4f, tone = Tone.Action, small = true) { onKey(Key.Open(Panel.Sizes)) }
     KeyButton("Trivia", weight = 1.6f, tone = Tone.Action, small = true) { onKey(Key.Open(Panel.Trivia)) }
     KeyButton("History", weight = 1.6f, tone = Tone.Action, small = true) { onKey(Key.Open(Panel.History)) }
 }

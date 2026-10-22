@@ -100,7 +100,17 @@ data class Reply(
     val grouping: String? = null,
     /** The Measures class of the request's unit (`Length`): the Measures open at it. */
     val unitClass: String? = null,
+    /** The other results, each with its kind: `42 eu us` gives the shoe sizes beside the currency
+     *  (`shoes`: `US 8.5 men`, `US 10 women`); shown under the result or the hint. */
+    val extra: List<Extra> = emptyList(),
 )
+
+/** Results beside the result: their kind (`shoes`) and the results. */
+data class Extra(val type: String, val results: List<String>)
+
+/** The Sizes class (the Measures' and the Sizes panel's): its groups and its system keys, each
+ *  (shown, written): `Shoes` writes `shoes`, `EU` writes `eu`. */
+data class Sizes(val groups: List<Pair<String, String>>, val systems: List<Pair<String, String>>)
 
 /** About: the app's name, tagline (`Type it. Get it.`), what it does (`descriptor`) and core version, the facts (online data, last sync) and the
  *  data's sources, each a (label, text). */
@@ -229,6 +239,7 @@ object Core {
             details = json.optJSONArray("details")?.strings().orEmpty(),
             grouping = text("grouping"),
             unitClass = text("class"),
+            extra = json.optJSONArray("extra")?.objects { Extra(it.getString("type"), it.getJSONArray("results").strings()) }.orEmpty(),
         )
     }
 
@@ -261,6 +272,13 @@ object Core {
         Measure(c.getString("name"), c.getJSONArray("systems").strings(), c.getJSONArray("units").objects { u ->
             MeasureUnit(u.getString("symbol"), u.getString("name"), u.getString("system"))
         })
+    }
+
+    /** The Sizes class: its groups and system keys. */
+    fun sizes(): Sizes {
+        val sizes = list("measures").getJSONObject("sizes")
+        val pairs = { key: String -> sizes.getJSONArray(key).objects { it.getString("name") to it.getString("write") } }
+        return Sizes(pairs("groups"), pairs("systems"))
     }
 
     /** Every currency, the most used first. */

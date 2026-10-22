@@ -243,6 +243,12 @@ private val ScienceIcon: ImageVector by lazy { icon(
     "M19.8,18.4L14,10.67V6.5l1.35-1.69C15.61,4.48,15.38,4,14.96,4H9.04C8.62,4,8.39,4.48,8.65,4.81L10,6.5v4.17L4.2,18.4 C3.71,19.06,4.18,20,5,20h14C19.82,20,20.29,19.06,19.8,18.4z",
 ) }
 
+/** Material Symbols' "apparel" (a T-shirt): the sizes. */
+val SizesIcon: ImageVector by lazy { symbol("apparel", "m240-522-40 22q-14 8-30 4t-24-18L66-654q-8-14-4-30t18-24l230-132h70q9 0 14.5 5.5T400-820v20q0 33 23.5 56.5T480-720q33 0 56.5-23.5T560-800v-20q0-9 5.5-14.5T580-840h70l230 132q14 8 18 24t-4 30l-80 140q-8 14-23.5 17.5T760-501l-40-20v361q0 17-11.5 28.5T680-120H280q-17 0-28.5-11.5T240-160v-362Zm80-134v456h320v-456l124 68 42-70-172-100q-15 51-56.5 84.5T480-640q-56 0-97.5-33.5T326-758L154-658l42 70 124-68Zm160 177Z") }
+
+/** Material Symbols' "steps" (footprints: Material Symbols has no shoe): the shoes. */
+val ShoesIcon: ImageVector by lazy { symbol("steps", "M216-580q39 0 74 14t64 41l382 365h24q17 0 28.5-11.5T800-200q0-8-1.5-17T788-235L605-418l-71-214-74 18q-38 10-69-14t-31-63v-84l-28-14-154 206q-1 1-1 1.5t-1 1.5h40Zm0 80h-46q3 7 7.5 13t10.5 11l324 295q11 11 25 16t29 5h54L299-467q-17-17-38.5-25t-44.5-8ZM566-80q-30 0-57-11t-50-31L134-417q-46-42-51.5-103T114-631l154-206q17-23 45.5-30.5T368-861l28 14q21 11 32.5 30t11.5 42v84l74-19q30-8 58 7.5t38 44.5l65 196 170 170q20 20 27.5 43t7.5 49q0 50-35 85t-85 35H566Z") }
+
 /** A unit class's icon, by its name in the core (src/config.rs); null for one without. */
 fun measureIcon(name: String): ImageVector? = when (name) {
     "Date & Time" -> ScheduleIcon
@@ -258,6 +264,7 @@ fun measureIcon(name: String): ImageVector? = when (name) {
     "Fuel economy" -> LocalGasStationIcon
     "Energy" -> BoltIcon
     "Power" -> PowerIcon
+    "Sizes" -> SizesIcon
     else -> null
 }
 

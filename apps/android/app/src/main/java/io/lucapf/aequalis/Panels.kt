@@ -147,6 +147,7 @@ fun PanelView(
             when (panel) {
                 Panel.Measures -> MeasuresPanel(opened, open, write, wide, unitClass)
                 Panel.Currencies -> CurrenciesPanel(write, wide)
+                Panel.Sizes -> SizesPanel(write)
                 Panel.Trivia -> TriviaPanel(opened, detail, open, show = { detail = it }, write, openLink, wide)
                 Panel.History -> HistoryPanel(recall, copy, share)
             }
@@ -177,16 +178,36 @@ private fun MeasuresPanel(opened: String?, open: (String) -> Unit, write: (Strin
     val classes = @Composable { modifier: Modifier ->
         LazyColumn(modifier) {
             items(measures) { m -> Line(m.name, m.units.take(5).joinToString(" · ") { it.symbol }, icon = measureIcon(m.name), selected = m.name == opened) { open(m.name) } }
+            // The sizes, a class of their own: their groups and system keys.
+            item { Line(SIZES, "shoes · EU UK US JP CN", icon = SizesIcon, selected = opened == SIZES) { open(SIZES) } }
         }
     }
     when {
         wide -> Row(Modifier.fillMaxSize()) {
             classes(Modifier.width(ListWidth).fillMaxHeight())
             VerticalDivider()
-            measure?.let { MeasureUnits(it, write, columns = GridCells.Adaptive(96.dp)) }
+            if (opened == SIZES) SizesPanel(write) else measure?.let { MeasureUnits(it, write, columns = GridCells.Adaptive(96.dp)) }
         }
+        opened == SIZES -> SizesPanel(write)
         measure == null -> classes(Modifier)
         else -> MeasureUnits(measure, write, columns = GridCells.Fixed(3))
+    }
+}
+
+/** The Sizes class's name, in the Measures. */
+private const val SIZES = "Sizes"
+
+/** The Sizes: the groups (Shoes), which write their word, then the system keys, which write their
+ *  code (`eu`), as buttons. */
+@Composable
+private fun SizesPanel(write: (String) -> Unit) {
+    val sizes = loaded { Core.sizes() } ?: return
+    Column {
+        sizes.groups.forEach { (name, word) -> Line(name, "men, women, kids: 42 eu men shoes us", icon = ShoesIcon) { write(word) } }
+        HorizontalDivider()
+        LazyVerticalGrid(GridCells.Adaptive(72.dp), Modifier.padding(8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            items(sizes.systems) { (name, code) -> OutlinedButton(onClick = { write(code) }) { Text(name, style = MaterialTheme.typography.titleMedium, maxLines = 1) } }
+        }
     }
 }
 
