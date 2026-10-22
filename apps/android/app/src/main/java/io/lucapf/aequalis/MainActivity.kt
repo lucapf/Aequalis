@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.res.Configuration
 import android.os.Build
 import android.widget.Toast
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Spacer
@@ -58,6 +59,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Text
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -183,6 +185,16 @@ fun AequalisApp(initial: String = "") {
     var sizes by rememberSaveable { mutableStateOf(false) }
     // The keyboard collapsed (⌄, a swipe down): its room to the answer, a bar to bring it back.
     var collapsed by rememberSaveable { mutableStateOf(false) }
+    // ⏎ on an answer taller than its room collapses the keyboard, once for that request (the bar
+    // brings it back and it stays).
+    val answerScroll = rememberScrollState()
+    var collapsedFor by rememberSaveable { mutableStateOf<String?>(null) }
+    LaunchedEffect(submitted, answerScroll.maxValue) {
+        if (submitted && answerScroll.maxValue > 0 && collapsedFor != edit.text) {
+            collapsedFor = edit.text
+            collapsed = true
+        }
+    }
     // Letters or the calculator: kept while the app is open, and when the screen turns.
     var mode by rememberSaveable { mutableStateOf(Mode.Text) }
     var settings by rememberSaveable { mutableStateOf(false) }
@@ -295,6 +307,7 @@ fun AequalisApp(initial: String = "") {
             copyResult = { value -> copy(value) },
             openHistory = { panel = Panel.History },
             recent = recent,
+            scroll = answerScroll,
         )
     }
     // A key of the Sizes: after the request, `shoes` brought along when it has no item word (the core's).
@@ -349,8 +362,12 @@ fun AequalisApp(initial: String = "") {
                     null -> Row(Modifier.weight(1f)) {
                         Column(Modifier.weight(1f).fillMaxHeight()) {
                             workspace(true, Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), true)
-                            if (sizes) SizesStrip(sizeKey)
-                            if (collapsed) KeyboardBar { collapsed = false } else LetterPad(onKey, Modifier.swipe(down = true) { collapsed = true })
+                            // The Sizes in the letters' place (the digits stay); collapsed, a bar.
+                            when {
+                                collapsed -> KeyboardBar { collapsed = false }
+                                sizes -> SizesPad(sizeKey, onKey, Modifier.swipe(down = true) { collapsed = true })
+                                else -> LetterPad(onKey, Modifier.swipe(down = true) { collapsed = true })
+                            }
                         }
                         if (!collapsed) NumberPad(scientific = mode == Mode.Scientific, onKey, Modifier.align(Alignment.Bottom))
                     }
@@ -397,6 +414,8 @@ fun Workspace(
     openHistory: () -> Unit,
     // The latest entries under an empty request: not when the History is open beside it.
     recent: Boolean = true,
+    // The answer's scroll: past its room (the main screen's), ⏎ collapses the keyboard.
+    scroll: ScrollState = rememberScrollState(),
 ) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(if (landscape) 4.dp else 12.dp)) {
         if (!landscape) {
@@ -426,7 +445,7 @@ fun Workspace(
         if (request) RequestLine(edit, onCursor, onPaste, compact = landscape)
         // A live region: a screen reader says the result, the hint or the error as it changes.
         Column(
-            Modifier.weight(1f).verticalScroll(rememberScrollState()).semantics { liveRegion = LiveRegionMode.Polite },
+            Modifier.weight(1f).verticalScroll(scroll).semantics { liveRegion = LiveRegionMode.Polite },
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             // A calculation's grouping (`(12 + (4 / 2))`), as the TUI shows it.

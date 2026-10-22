@@ -29,6 +29,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -44,7 +45,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 
 /** The keyboard's height: the panels (Measures, Currencies, Trivia, History) take its place exactly. */
 val KeyboardHeight: Dp = 380.dp
@@ -282,6 +285,30 @@ fun NumberPad(scientific: Boolean, onKey: (Key) -> Unit, modifier: Modifier = Mo
                 }
                 keys.forEach { k -> CalcKey(k, onKey) }
             }
+        }
+    }
+}
+
+/** Landscape, the Sizes on: big keys in the letters' place (the digits stay beside them): Shoes and
+ *  the systems, written by the core (`sizeKey`, `shoes` brought along); ABC back to the letters; ⌫,
+ *  space and ⏎ as the letters have them. */
+@Composable
+fun SizesPad(sizeKey: (String) -> Unit, onKey: (Key) -> Unit, modifier: Modifier = Modifier) {
+    val sizes = produceState<Sizes?>(null) { value = withContext(Dispatchers.Default) { Core.sizes() } }.value
+    val systems = sizes?.systems.orEmpty()
+    Column(modifier.fillMaxWidth().padding(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        PadRow {
+            sizes?.groups.orEmpty().forEach { (name, word) -> KeyButton(name, weight = 2f, tone = Tone.Operator) { sizeKey(word) } }
+            systems.take(3).forEach { (name, code) -> KeyButton(name, tone = Tone.Operator) { sizeKey(code) } }
+        }
+        PadRow { systems.drop(3).forEach { (name, code) -> KeyButton(name, tone = Tone.Operator) { sizeKey(code) } } }
+        PadRow {
+            KeyButton("ABC", weight = 3f, tone = Tone.Action, small = true) { onKey(Key.Open(Panel.Sizes)) }
+            BackspaceKey(onKey, weight = 1.5f)
+        }
+        PadRow {
+            KeyButton("space", weight = 4f, small = true) { onKey(Key.Write(" ")) }
+            KeyButton("⏎", weight = 1.4f, tone = Tone.Enter) { onKey(Key.Enter) }
         }
     }
 }
