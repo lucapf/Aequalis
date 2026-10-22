@@ -15,9 +15,6 @@ done, move it to DONE and note the commit.
 
 By priority, most urgent first.
 
-- [ ] **size-21** Phase 1: a Shoes section in Trivia: Nike's Men, Women and Kids
-      tables (US, UK, EU, JP, foot length in cm), in the core's trivia data and
-      in the TUI's and Android's Trivia (§7).
 - [ ] **size-12** Phase 1: tried on the phone, released as a `minor`.
 - [ ] **size-13** Phase 2, core: women's and men's clothing charts (dresses,
       tops and trousers, suits, collar shirts, letters, the CN `160/84A` labels)
@@ -49,6 +46,9 @@ By priority, most urgent first.
 
 ## DONE
 
+- [x] **size-21** Phase 1: a Shoes section in Trivia: Nike's Men, Women and Kids
+      tables (US, UK, EU, JP, foot length in cm), in the core's trivia data and
+      in the TUI's and Android's Trivia (§7).
 - [x] **size-10** Phase 1, Omarchy widget: the shoes line beside a currency
       and the other people's sizes (from `extra`), a table in monospace, a
       two-chart result and its Copy. No Sizes class: the widget has no

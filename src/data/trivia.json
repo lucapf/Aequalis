@@ -60,6 +60,14 @@
         {"name": "Avogadro constant", "symbol": "Nₐ", "short": "Particles in a mole", "value": 6.02214076e+23, "decimals": 8, "description": "The number of particles (atoms, molecules) in one mole of a substance: chemists count in moles, as bakers in dozens. A mole of water weighs 18 g, about a spoonful. Exact since the 2019 SI.", "details": [["A spoonful of water", "about 1 mole: 6 × 10²³ molecules"], ["A mole of carbon-12", "exactly 12 g, before 2019 the definition"]], "wikipedia": "https://en.wikipedia.org/wiki/Avogadro_constant"},
         {"name": "Planck constant", "symbol": "ℎ", "short": "Quantum of action", "value": 6.62607015e-34, "unit": "J*s", "decimals": 8, "description": "The constant of quantum mechanics: light comes in packets (photons), each with the energy E = h·f, f being its frequency. Exact since 2019, when it began to define the kilogram.", "details": [["Reduced (ħ = h/2π)", "1.054571817 × 10⁻³⁴ J·s"], ["A photon of green light", "about 3.6 × 10⁻¹⁹ J (2.2 eV)"]], "wikipedia": "https://en.wikipedia.org/wiki/Planck_constant"}
       ]
+    },
+    {
+      "name": "Shoes",
+      "entries": [
+        {"name": "Men's shoes", "symbol": "👟", "short": "US · UK · EU · JP · foot (Nike)", "table": "men", "description": "Nike's men's chart, each row one size in every system and the foot it fits. Other brands cut differently: check the brand's chart. A row writes its request (42 eu men shoes)."},
+        {"name": "Women's shoes", "symbol": "👟", "short": "US · UK · EU · JP · foot (Nike)", "table": "women", "description": "Nike's women's chart, each row one size in every system and the foot it fits. Other brands cut differently: check the brand's chart. A row writes its request (38 eu women shoes)."},
+        {"name": "Kids' shoes", "symbol": "👟", "short": "US · UK · EU · JP · foot (Nike)", "table": "kids", "description": "Nike's kids' chart: toddler sizes (US C) then youth sizes (US Y), each row one size in every system and the foot it fits. Other brands cut differently: check the brand's chart. A row writes its request (30 eu kids shoes)."}
+      ]
     }
   ]
 }

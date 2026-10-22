@@ -617,6 +617,16 @@ impl<'a> App<'a> {
     fn write_trivia(&mut self) {
         let Some(Overlay::Trivia(v)) = &self.overlay else { return };
         let Some(entry) = v.entry() else { return };
+        // A shoe table: the chosen row's request.
+        if let aequalis::trivia::Source::Table(person) = entry.source {
+            let rows = aequalis::trivia::table_rows(person);
+            let chosen = v.popup.unwrap_or(0).min(rows.len().saturating_sub(1));
+            if let Some(row) = rows.get(chosen) {
+                self.line.set(&format!("{} ", row.request));
+                self.overlay = None;
+            }
+            return;
+        }
         if self.write_entry(entry) {
             self.overlay = None;
         }
@@ -1772,6 +1782,23 @@ mod tests {
         app.handle(Key::Down);
         app.handle(Key::Enter);
         assert_eq!(app.line.text(), "shoes 42 eu ");
+    }
+
+    #[test]
+    fn a_shoe_table_writes_the_rows_request() {
+        let config = Config::default();
+        let opts = options(&config);
+        let mut app = App::new(&config, &opts);
+        // The last section, Shoes: Men's shoes, its table; down to its 6th row (US 8.5), Enter.
+        app.handle(Key::F(6));
+        app.handle(Key::BackTab);
+        app.handle(Key::Enter);
+        for _ in 0..5 {
+            app.handle(Key::Down);
+        }
+        app.handle(Key::Enter);
+        assert_eq!(app.line.text(), "42 eu men shoes ");
+        assert!(app.overlay.is_none());
     }
 
     #[test]

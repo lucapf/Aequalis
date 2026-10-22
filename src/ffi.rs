@@ -394,6 +394,7 @@ pub fn trivia() -> String {
                     let facts = trivia::facts(config, e, online.get(&e.name), now);
                     let (value, written) = match (&e.source, &facts.value) {
                         (Source::Tip(example), _) => (example.clone(), example.clone()),
+                        (Source::Table(person), _) => (format!("{} sizes", trivia::table_rows(*person).len()), String::new()),
                         (_, Ok((v, origin))) => {
                             let how = trivia::origin_text(e, *origin).map(|t| format!(" ({t})")).unwrap_or_default();
                             (format!("{}{how}", trivia::shown(config, e, *v, precision, &number)), format!("{} ", trivia::written(config, e, *v)))
@@ -403,15 +404,25 @@ pub fn trivia() -> String {
                     // Each line twice, from the same facts: for people (the device's separators) and
                     // plain, to write a measure.
                     let plain = trivia::popup(config, e, &facts, precision, &|n| n);
-                    let popup: Vec<String> = trivia::popup(config, e, &facts, precision, &number)
-                        .iter()
-                        .zip(&plain)
-                        .map(|((label, text), (_, written))| {
-                            let options: Vec<String> =
-                                trivia_measures(text, written).iter().map(|(s, w)| format!("[{},{}]", json::string(s), json::string(w))).collect();
-                            format!("[{},{},[{}]]", json::string(label), json::string(text), options.join(","))
-                        })
-                        .collect();
+                    let line = |label: &str, text: &str, options: &[(String, String)]| {
+                        let options: Vec<String> = options.iter().map(|(s, w)| format!("[{},{}]", json::string(s), json::string(w))).collect();
+                        format!("[{},{},[{}]]", json::string(label), json::string(text), options.join(","))
+                    };
+                    let popup: Vec<String> = match e.source {
+                        // A shoe table: a line per size, its EU size a chip writing its request.
+                        Source::Table(person) => trivia::table_rows(person)
+                            .iter()
+                            .map(|r| {
+                                let eu = r.text.split(" · ").find(|p| p.starts_with("EU ")).unwrap_or_default().to_string();
+                                line(&r.label, &r.text, &[(eu, format!("{} ", r.request))])
+                            })
+                            .collect(),
+                        _ => trivia::popup(config, e, &facts, precision, &number)
+                            .iter()
+                            .zip(&plain)
+                            .map(|((label, text), (_, written))| line(label, text, &trivia_measures(text, written)))
+                            .collect(),
+                    };
                     Object::new()
                         .str("name", &e.name)
                         .str("short", &trivia::short(e, now))

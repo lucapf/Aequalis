@@ -52,7 +52,7 @@ mod tests {
         v.step(false);
         assert_eq!(v.entry().unwrap().name, "Mount Everest", "above the first: the last");
         v.switch(false);
-        assert_eq!((trivia::sections()[v.section], v.selected), ("Physics", 0));
+        assert_eq!((trivia::sections()[v.section], v.selected), ("Shoes", 0), "before the first: the last");
         v.switch(true);
         v.switch(true);
         assert_eq!(v.entry().unwrap().name, "Voyager 1", "the Voyagers first");

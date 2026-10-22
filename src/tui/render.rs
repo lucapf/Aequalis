@@ -1346,6 +1346,7 @@ fn trivia_entries(app: &App, v: &super::trivia::View, canvas: &mut Canvas, area:
         .iter()
         .map(|e| match &e.source {
             aequalis::trivia::Source::Tip(example) => example.clone(),
+            aequalis::trivia::Source::Table(person) => format!("{} sizes", aequalis::trivia::table_rows(*person).len()),
             _ => aequalis::trivia::value(app.config, e, trivia_live(app, e, now).0, now)
                 .map(|(x, _)| aequalis::trivia::shown(app.config, e, x, app.opts.precision, &|n| app.numbers.apply(&n)))
                 .unwrap_or_else(|err| err),
@@ -1386,6 +1387,7 @@ fn trivia_about(app: &App, e: &aequalis::trivia::Entry, canvas: &mut Canvas, are
         aequalis::trivia::Source::Spacecraft { .. } | aequalis::trivia::Source::Satellites { .. } => trivia_live(app, e, aequalis::time::unix_now()).1,
         aequalis::trivia::Source::Between(..) => "computed from the coordinates".to_string(),
         aequalis::trivia::Source::Tip(_) => "Enter writes the example".to_string(),
+        aequalis::trivia::Source::Table(_) => "Enter: the table; a row writes its request".to_string(),
         aequalis::trivia::Source::Value(_) => String::new(),
     };
     let launched = e.launched.as_ref().map(|l| format!("Launched {l}")).unwrap_or_default();
@@ -1408,6 +1410,9 @@ fn trivia_about(app: &App, e: &aequalis::trivia::Entry, canvas: &mut Canvas, are
 /// Scrolled down by `scroll` lines.
 fn trivia_popup(app: &App, v: &super::trivia::View, canvas: &mut Canvas, rows: usize, scroll: usize) {
     let Some(entry) = v.entry() else { return };
+    if let aequalis::trivia::Source::Table(person) = entry.source {
+        return trivia_table(canvas, rows, entry, person, scroll);
+    }
     let now = aequalis::time::unix_now();
     let live = app.online.get(&entry.name);
     let width = 76.min(canvas.cols - 4);
@@ -1447,6 +1452,30 @@ fn trivia_popup(app: &App, v: &super::trivia::View, canvas: &mut Canvas, rows: u
     }
     if scroll + visible < lines.len() {
         canvas.put_within(top + height - 1, right.saturating_sub(10), right - 1, " ↓ more ", Style::Dim);
+    }
+}
+
+/// A shoe table's popup: its description, then a row per size, the chosen one (`selected`) lit and
+/// in view; Enter writes its request.
+fn trivia_table(canvas: &mut Canvas, rows: usize, entry: &aequalis::trivia::Entry, person: aequalis::sizes::Person, selected: usize) {
+    let table = aequalis::trivia::table_rows(person);
+    let width = 76.min(canvas.cols - 4);
+    let about = wrap(&entry.description, width - 4);
+    let height = (about.len() + 1 + table.len() + 2).min(rows - 2);
+    let (top, left, width, height) = centred(canvas, rows, width, height, &entry.name);
+    modal_hits(canvas, rows, (top, left, width, height));
+    let right = left + width - 1;
+    for (i, line) in about.iter().enumerate().take(height - 3) {
+        canvas.put_within(top + 1 + i, left + 2, right - 1, line, Style::Plain);
+    }
+    let first = top + 2 + about.len().min(height - 3);
+    let visible = (top + height - 1).saturating_sub(first);
+    let selected = selected.min(table.len().saturating_sub(1));
+    let offset = selected.saturating_sub(visible.saturating_sub(1));
+    let label = table.iter().map(|r| r.label.chars().count()).max().unwrap_or(0);
+    for (i, r) in table.iter().enumerate().skip(offset).take(visible) {
+        let style = if i == selected { Style::Lit } else { Style::Plain };
+        canvas.put_within(first + i - offset, left + 2, right - 1, &format!(" {:<label$}  {} ", r.label, r.text), style);
     }
 }
 

@@ -275,5 +275,6 @@ fun triviaIcon(name: String): ImageVector? = when (name) {
     "Satellites" -> SatelliteAltIcon
     "Math" -> FunctionsIcon
     "Physics" -> ScienceIcon
+    "Shoes" -> ShoesIcon
     else -> null
 }

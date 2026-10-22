@@ -30,6 +30,9 @@ pub enum Source {
     },
     /// A tip: an example request, written into the expression (`London to Paris km`).
     Tip(String),
+    /// A shoe size table (`men`, `women`, `kids`): Nike's chart (`sizes.rs`), a row per size, each
+    /// writing its request (`42 eu men shoes`).
+    Table(crate::sizes::Person),
     /// A count of active satellites (`all`, `starlink`, `leo`, `meo`, `geo`, `heo`, `beyond`),
     /// from CelesTrak when online, else `count` as of `as_of`.
     Satellites {
@@ -148,6 +151,16 @@ fn source(name: &str, e: &Value) -> Result<Source, String> {
     if let Some(example) = e.get("tip").and_then(Value::str) {
         return Ok(Source::Tip(example.to_string()));
     }
+    if let Some(table) = e.get("table").and_then(Value::str) {
+        use crate::sizes::Person;
+        let person = match table {
+            "men" => Person::Men,
+            "women" => Person::Women,
+            "kids" => Person::Kids,
+            other => return Err(format!("{name}: no shoe table `{other}`")),
+        };
+        return Ok(Source::Table(person));
+    }
     if let [a, b] = e.get("between").map(Value::array).unwrap_or_default() {
         return Ok(Source::Between(a.str().unwrap_or_default().to_string(), b.str().unwrap_or_default().to_string()));
     }
@@ -163,6 +176,38 @@ fn source(name: &str, e: &Value) -> Result<Source, String> {
             km_per_s: est.get("km_per_s").and_then(Value::number).unwrap_or(0.0),
         },
     })
+}
+
+/// A row of a shoe table: its US size (`US 8.5`), the others and the foot (`UK 7.5 · EU 42 · JP 26.5
+/// · foot 25.9 cm`), and the request it writes (`42 eu men shoes`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct TableRow {
+    pub label: String,
+    pub text: String,
+    pub request: String,
+}
+
+/// The rows of a person's shoe table, Nike's chart.
+pub fn table_rows(person: crate::sizes::Person) -> Vec<TableRow> {
+    use crate::sizes::{shoe_charts, Person};
+    let who = match person {
+        Person::Men => "men",
+        Person::Women => "women",
+        Person::Kids => "kids",
+    };
+    let Some(chart) = shoe_charts().iter().find(|c| c.person == person) else { return Vec::new() };
+    chart
+        .rows
+        .iter()
+        .map(|r| {
+            let foot = crate::convert::format_value((r.foot_cm * 10.0).round() / 10.0, 1);
+            TableRow {
+                label: format!("US {}", r.us),
+                text: format!("UK {} · EU {} · JP {} · foot {foot} cm", r.uk, r.eu, r.jp),
+                request: format!("{} eu {who} shoes", r.eu),
+            }
+        })
+        .collect()
 }
 
 /// How a value was obtained.
@@ -188,6 +233,7 @@ pub fn value(config: &Config, entry: &Entry, synced: Option<crate::online::Store
     match &entry.source {
         Source::Value(v) => Ok((*v, Origin::Fixed)),
         Source::Tip(example) => Err(format!("a tip: {example}")),
+        Source::Table(_) => Err("a table".to_string()),
         Source::Between(a, b) => {
             let (a, b) = (crate::geo::place(a)?, crate::geo::place(b)?);
             let metres = crate::geo::distance(a.point, b.point);
@@ -394,6 +440,7 @@ pub fn popup(config: &Config, entry: &Entry, facts: &Facts, precision: usize, nu
     }
     match &entry.source {
         Source::Tip(example) => lines.push(("Example".to_string(), example.clone())),
+        Source::Table(person) => lines.extend(table_rows(*person).into_iter().map(|r| (r.label, r.text))),
         _ => {
             if let Ok((v, origin)) = facts.value {
                 let how = origin_text(entry, origin).map(|t| format!(" ({t})")).unwrap_or_default();
@@ -619,12 +666,13 @@ pub fn list(config: &Config, precision: usize) -> String {
         }
         let number = |n: String| crate::numbers::device().apply(&n);
         let facts = facts(config, e, live, now);
-        let value = match &facts.value {
-            Ok((v, origin)) => {
+        let value = match (&e.source, &facts.value) {
+            (Source::Table(person), _) => format!("{} sizes", table_rows(*person).len()),
+            (_, Ok((v, origin))) => {
                 let how = origin_text(e, *origin).map(|t| format!(" ({t})")).unwrap_or_default();
                 format!("{}{how}", shown(config, e, *v, precision, &number))
             }
-            Err(err) => format!("error: {err}"),
+            (_, Err(err)) => format!("error: {err}"),
         };
         out.push_str(&format!("  {} = {value} · {}\n    {}\n", e.name, short(e, now), e.description));
         // The popup's other lines: details, launch, a planet's distances.
@@ -663,18 +711,31 @@ mod tests {
     fn the_file_is_valid() {
         let all = entries();
         assert!(all.len() > 30);
-        assert_eq!(sections(), ["Earth", "Space", "Satellites", "Math", "Physics"]);
+        assert_eq!(sections(), ["Earth", "Space", "Satellites", "Math", "Physics", "Shoes"]);
         let config = Config::default();
         for e in all {
             assert!(!e.description.is_empty() && !e.short.is_empty(), "{}", e.name);
             assert!(e.short.chars().count() <= 36, "{}: a short description", e.name);
-            let tip = matches!(e.source, Source::Tip(_));
+            let tip = matches!(e.source, Source::Tip(_) | Source::Table(_));
             assert!(tip || value(&config, e, None, 1_791_676_800).is_ok(), "{}", e.name);
             // Every unit is one aequalis knows.
             if let Some(unit) = &e.unit {
                 assert!(convert::resolve(&config, unit).is_ok(), "{}: {unit}", e.name);
             }
         }
+    }
+
+    #[test]
+    fn shoe_tables() {
+        use crate::sizes::Person;
+        let men = table_rows(Person::Men);
+        let row = men.iter().find(|r| r.label == "US 8.5").unwrap();
+        assert_eq!((row.text.as_str(), row.request.as_str()), ("UK 7.5 · EU 42 · JP 26.5 · foot 25.9 cm", "42 eu men shoes"));
+        assert_eq!(table_rows(Person::Kids)[0].request, "19.5 eu kids shoes");
+        let entry = entries().iter().find(|e| e.name == "Women's shoes").unwrap();
+        assert_eq!(entry.source, Source::Table(Person::Women));
+        let lines = popup(&Config::default(), entry, &facts(&Config::default(), entry, None, 0), 4, &|n| n);
+        assert_eq!(lines.len(), 15, "a line per size");
     }
 
     #[test]
