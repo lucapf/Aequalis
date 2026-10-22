@@ -128,12 +128,12 @@ fn shown(request: &str, submitted: bool, result: &Result<Output, CliError>) -> S
         Ok(out) => {
             let details: Vec<String> = out.warnings.iter().chain(&out.notes).cloned().collect();
             let result = out.result.as_ref().unwrap_or(&out.stdout);
-            let o = Object::new()
-                .str("show", "result")
-                .str("value", &value_of(result))
-                .str("copy", &copy_of(result))
-                .str("expression", &expression(request, out))
-                .strs("details", &details);
+            // Every person's shoe size: all of them, a line each, for Copy and the expression alike.
+            let (value, copy, whole) = match &out.copy {
+                Some(all) => (all.clone(), all.clone(), all.clone()),
+                None => (value_of(result), copy_of(result), expression(request, out)),
+            };
+            let o = Object::new().str("show", "result").str("value", &value).str("copy", &copy).str("expression", &whole).strs("details", &details);
             match &out.rates_age {
                 Some(age) => o.str("rates", &format!("rates {age} old")),
                 None => o,

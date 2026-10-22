@@ -293,11 +293,15 @@ usual meaning.
 
 - **`--json` and Copy** (decided 2026-10-22):
   - no person: `result` is the first person's (`US 8.5 men`), `extra` the
-    others, `"extra":[{"type":"shoes","results":["US 10 women"]}]`; Copy
-    `8.5`;
+    others, `"extra":[{"type":"shoes","results":["US 10 women"]}]`;
   - the table: `result` is the table as text, `extra` one item per person,
     `{"type":"shoes men","results":["US 8.5","UK 7.5","EU 42","JP 26.5",
-    "CN 42"]}`; Copy the table as text.
+    "CN 42"]}`;
+  - Copy, and the expression alike, give every person's sizes, a line each
+    (decided 2026-10-22, in place of the first person's value): `Men US 8.5`
+    / `Women US 10`; for the table `Men US 8.5 · UK 7.5 · EU 42 · JP 26.5 ·
+    CN 42` / `Women …`. One person: the first chart's value (`8.5`), as
+    other answers.
 - **Shown below the request**: an answer of several lines (the table, the
   list beside a currency) takes the rows it needs under the request, in the
   TUI (live and in the history) and on Android (the result area grows, the

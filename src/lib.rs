@@ -341,6 +341,9 @@ pub struct Output {
     pub result: Option<String>,
     /// The other results (`42 eu us`: the shoe sizes), each with its kind.
     pub extra: Vec<Extra>,
+    /// What Copy gives, value and expression alike, when it is neither the result's value nor the
+    /// whole expression: every person's shoe size, a line each (`Men US 8.5` / `Women US 10`).
+    pub copy: Option<String>,
 }
 
 /// Results beside the result: `shoes: 42 eu = US 8.5 men, US 10 women`.
@@ -366,12 +369,18 @@ impl From<String> for Output {
     }
 }
 
+impl From<String> for Box<Output> {
+    fn from(stdout: String) -> Self {
+        Box::new(stdout.into())
+    }
+}
+
 /// Parses `args` (without the program name) and returns what to print, one result per request.
 /// `read_stdin` is only called when the arguments contain no value; it returns `None` if stdin is a terminal.
 pub fn run(config: &Config, args: &[String], read_stdin: impl FnOnce() -> Option<String>) -> Vec<Result<Output, CliError>> {
     match parse_options(config, args) {
         Err(e) => vec![Err(e)],
-        Ok(Parsed::Info(out)) => vec![Ok(out)],
+        Ok(Parsed::Info(out)) => vec![Ok(*out)],
         Ok(Parsed::Convert(opts)) => {
             let args = &opts.positional;
             if let Err(e) = check_words(args) {
@@ -411,8 +420,8 @@ pub struct Options<'a> {
 }
 
 pub enum Parsed<'a> {
-    /// `--help`, `--list`, ...: print and exit.
-    Info(Output),
+    /// `--help`, `--list`, ...: print and exit (boxed: an `Output` is large beside the options).
+    Info(Box<Output>),
     Convert(Options<'a>),
 }
 
@@ -449,7 +458,7 @@ pub fn parse_options<'a>(config: &Config, args: &'a [String]) -> Result<Parsed<'
             // how long ago the last sync was (`synced`).
             "--online" => {
                 let status = Output { synced: network::synced_ago(), ..Output::from(network::status().label().to_string()) };
-                return Ok(Parsed::Info(status));
+                return Ok(Parsed::Info(Box::new(status)));
             }
             "-s" | "--silent" => silent = true,
             "-v" | "--verbose" => verbose = true,
@@ -546,6 +555,7 @@ fn money(opts: &Options, c: currency::Converted) -> Output {
         from: Some(c.from),
         result: None,
         extra: Vec::new(),
+        copy: None,
     }
 }
 
@@ -567,6 +577,7 @@ fn sized(opts: &Options, a: sizes::Answer) -> Output {
         from: Some(a.from),
         result: a.result,
         extra: a.extra.into_iter().map(|(kind, results)| Extra { kind, results, ..Extra::default() }).collect(),
+        copy: a.copy,
         ..Output::default()
     }
 }

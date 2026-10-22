@@ -102,6 +102,19 @@ fn json_and_its_extra_results() {
 }
 
 #[test]
+fn copy_every_person() {
+    // The UIs' reply (`--as-typed`): Copy and the expression give every person's size, a line each.
+    let view = |request: &str| out(&on("italy", &format!("--json --as-typed {request}")));
+    let shoes = view("42 eu shoes us ");
+    assert!(shoes.contains(r#""value":"Men US 8.5\nWomen US 10""#) && shoes.contains(r#""expression":"Men US 8.5\nWomen US 10""#), "{shoes}");
+    let table = view("shoes 42 ");
+    assert!(table.contains(r#""value":"Men US 8.5 · UK 7.5 · EU 42 · JP 26.5 · CN 42\nWomen US 10 · UK 7.5 · EU 42 · JP 27 · CN 42""#), "{table}");
+    // One person: the first chart's value, as before; --json's result unchanged.
+    assert!(view("42 eu men shoes us ").contains(r#""value":"8.5""#));
+    assert!(out(&on("italy", "--json 42 eu shoes us")).contains(r#""result":"US 8.5 men""#));
+}
+
+#[test]
 fn errors_and_what_stays_as_it_was() {
     let o = on("italy", "60 eu men shoes us");
     assert_eq!((o.status.code(), err(&o)), (Some(1), "aequalis: error: no EU 60 in men's shoes (EU 38–51)".to_string()));

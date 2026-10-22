@@ -271,6 +271,15 @@ pub struct Answer {
     pub notes: Vec<String>,
     /// What was converted, as shown: `EU 42`, `27 cm foot`.
     pub from: String,
+    /// What Copy gives when every person's size is shown (no person typed): a line each,
+    /// `Men US 8.5` / `Women US 10`; `Men US 8.5 · UK 7.5 · EU 42 · JP 26.5 · CN 42`.
+    pub copy: Option<String>,
+}
+
+/// A person's label in a copied line: `Men`, `Toddler`.
+fn title(who: &str) -> String {
+    let mut chars = who.chars();
+    chars.next().map(|c| c.to_uppercase().chain(chars).collect()).unwrap_or_default()
 }
 
 const COMING: &str = "only shoes for now";
@@ -802,7 +811,13 @@ fn one_person(person: Person, from: From, age: Option<Age>, target: System, show
 /// Every person's size in the target, the first chart's, Clarks's named when only it has the size:
 /// `US 8.5 men`, `US 10 women`, `US 15.5 men (Clarks)`.
 fn everyone(from: From, age: Option<Age>, target: System) -> Vec<String> {
-    let mut all: Vec<String> = Vec::new();
+    people_sizes(from, age, target).into_iter().map(|(who, size, brand)| format!("{size} {who}{brand}")).collect()
+}
+
+/// Every person's size in the target, as (person, size, chart): (`men`, `US 8.5`, ``), (`men`,
+/// `US 15.5`, ` (Clarks)`).
+fn people_sizes(from: From, age: Option<Age>, target: System) -> Vec<(&'static str, String, String)> {
+    let mut all = Vec::new();
     for p in PEOPLE {
         let parts = parts(p, from, if p == Person::Kids { age } else { None }, target);
         // Toddler and youth only when the size is both; else kids.
@@ -810,7 +825,7 @@ fn everyone(from: From, age: Option<Age>, target: System) -> Vec<String> {
         for part in &parts {
             let (size, brand) = part.first();
             let brand = brand.map(|b| format!(" ({b})")).unwrap_or_default();
-            all.push(format!("{} {}{brand}", target.show(size), person_word(p, part.age.filter(|_| both))));
+            all.push((person_word(p, part.age.filter(|_| both)), target.show(size), brand));
         }
     }
     all
@@ -843,17 +858,20 @@ pub fn beside(input: &str) -> Option<crate::Extra> {
 
 /// Every person's size in the target, the first chart's: `US 8.5 men, US 10 women`.
 fn people(from: From, age: Option<Age>, target: System, shown_from: &str, mut notes: Vec<String>) -> Result<Answer, Error> {
-    let all = everyone(from, age, target);
-    if all.is_empty() {
+    let sizes = people_sizes(from, age, target);
+    if sizes.is_empty() {
         return Err(not_found(shown_from, &PEOPLE, from));
     }
     notes.push(BRAND_NOTE.to_string());
+    let all: Vec<String> = sizes.iter().map(|(who, size, brand)| format!("{size} {who}{brand}")).collect();
+    let copy = sizes.iter().map(|(who, size, brand)| format!("{} {size}{brand}", title(who))).collect::<Vec<_>>().join("\n");
     let rest: Vec<String> = all[1..].to_vec();
     Ok(Answer {
         text: all.join(", "),
         result: Some(all[0].clone()),
         extra: if rest.is_empty() { Vec::new() } else { vec![("shoes".to_string(), rest)] },
         notes,
+        copy: Some(copy),
         ..Answer::default()
     })
 }
@@ -873,14 +891,15 @@ fn table(from: From, age: Option<Age>, shown_from: &str, mut notes: Vec<String>)
         return Err(not_found(shown_from, &PEOPLE, from));
     }
     notes.push(BRAND_NOTE.to_string());
-    let extra = lines
+    let extra: Vec<(String, Vec<String>)> = lines
         .iter()
         .map(|(who, sizes)| {
             let results = System::ALL.iter().zip(sizes).filter(|(_, v)| !v.is_empty()).map(|(s, v)| format!("{} {v}", s.name())).collect();
             (format!("shoes {who}"), results)
         })
         .collect();
-    Ok(Answer { text: aligned(&lines), extra, notes, ..Answer::default() })
+    let copy = lines.iter().zip(&extra).map(|((who, _), (_, results))| format!("{} {}", title(who), results.join(" · "))).collect::<Vec<_>>().join("\n");
+    Ok(Answer { text: aligned(&lines), extra, notes, copy: Some(copy), ..Answer::default() })
 }
 
 /// The table: a column per system, the sizes lined up on their decimal point.

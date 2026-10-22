@@ -940,7 +940,9 @@ impl<'a> App<'a> {
             Some(Ok(result)) => result,
             Some(Err(_)) => return self.status = Some((StatusKind::Warning, "nothing to copy: that entry is an error".into())),
             None => match self.preview() {
-                Some(Ok(result)) => self.evaluated(&self.line.text()).as_ref().as_ref().ok().and_then(|out| out.result.clone()).unwrap_or(result),
+                Some(Ok(result)) => {
+                    self.evaluated(&self.line.text()).as_ref().as_ref().ok().and_then(|out| out.copy.clone().or_else(|| out.result.clone())).unwrap_or(result)
+                }
                 _ => match self.history.entries().back().map(copied) {
                     Some(Ok(result)) => result,
                     _ => return self.status = Some((StatusKind::Warning, "nothing to copy yet".into())),
@@ -1038,7 +1040,7 @@ impl<'a> App<'a> {
         if result.is_ok() {
             self.used_in(&input);
         }
-        let copy = self.evaluated(&input).as_ref().as_ref().ok().and_then(|out| out.result.clone());
+        let copy = self.evaluated(&input).as_ref().as_ref().ok().and_then(|out| out.copy.clone().or_else(|| out.result.clone()));
         self.history.push(Entry { input, result, copy });
         self.status = status;
         self.line.set("");
