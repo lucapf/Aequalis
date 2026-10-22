@@ -492,6 +492,12 @@ pub fn measures() -> String {
     Object::new().list("classes", &classes).raw("sizes", &sizes).finish()
 }
 
+/// The request after a key of the Sizes (`ffi`'s `measures` → `sizes`): `{"line":"shoes 42 eu "}`
+/// (`sizes::write_key`: `shoes` added when the request has no item word).
+pub fn size_key(line: &str, key: &str) -> String {
+    Object::new().str("line", &crate::sizes::write_key(line, key)).finish()
+}
+
 /// Suggestions for the word being typed at the end of `before` (the text up to the cursor), from
 /// its `min`-th character: `{"start":N,"items":[{"write":"km","label":"km - kilometre"}]}`, `start`
 /// in characters (Unicode scalar values), `items` empty when there is nothing to offer. Units come

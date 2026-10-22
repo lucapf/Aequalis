@@ -49,24 +49,25 @@ impl Panel {
 }
 
 /// An entry of the toolbar: the function key, the Alt letter for terminals that keep the function
-/// keys, its label, a shorter one for a narrow terminal, and what it asks for.
+/// keys, its symbol (a Nerd Font's, Material Design), its name (none: the symbol says it), and what
+/// it asks for. A narrow terminal shows the symbols alone.
 pub struct Tool {
     pub fkey: u8,
     pub alt: char,
+    pub symbol: &'static str,
     pub label: &'static str,
-    pub short: &'static str,
     pub action: Action,
 }
 
 /// The toolbar, left to right.
 pub const TOOLBAR: [Tool; 7] = [
-    Tool { fkey: 2, alt: 'm', label: "Measures", short: "Meas", action: Action::Open(Panel::Measures) },
-    Tool { fkey: 3, alt: 'c', label: "Currencies", short: "Curr", action: Action::Open(Panel::Currencies) },
-    Tool { fkey: 4, alt: 'z', label: "󰩻󱗈 Sizes", short: "󰩻󱗈", action: Action::Open(Panel::Sizes) },
-    Tool { fkey: 5, alt: 'h', label: "History", short: "Hist", action: Action::Open(Panel::History) },
-    Tool { fkey: 6, alt: 't', label: "Trivia", short: "Triv", action: Action::Open(Panel::Trivia) },
-    Tool { fkey: 9, alt: 'b', label: "Keys", short: "Keys", action: Action::ToggleKeypad },
-    Tool { fkey: 10, alt: 's', label: "⚙", short: "⚙", action: Action::Open(Panel::Settings) },
+    Tool { fkey: 2, alt: 'm', symbol: "󰑭", label: "Measures", action: Action::Open(Panel::Measures) },
+    Tool { fkey: 3, alt: 'c', symbol: "󰄖", label: "Currencies", action: Action::Open(Panel::Currencies) },
+    Tool { fkey: 4, alt: 'z', symbol: "󰩻󱗈", label: "Sizes", action: Action::Open(Panel::Sizes) },
+    Tool { fkey: 5, alt: 'h', symbol: "󰋚", label: "History", action: Action::Open(Panel::History) },
+    Tool { fkey: 6, alt: 't', symbol: "󰌶", label: "Trivia", action: Action::Open(Panel::Trivia) },
+    Tool { fkey: 9, alt: 'b', symbol: "󰘜", label: "Keys", action: Action::ToggleKeypad },
+    Tool { fkey: 10, alt: 's', symbol: "󰢻", label: "", action: Action::Open(Panel::Settings) },
 ];
 
 /// What a click on a region of the screen asks for (`render::Hit`).
@@ -438,7 +439,7 @@ impl<'a> App<'a> {
             }
             Target::BoardSize(i) => {
                 if let Some(b) = super::board::size_buttons().get(i) {
-                    self.write_word(&b.written);
+                    self.write_size_key(&b.written);
                 }
             }
             Target::BoardSizes => self.overlay = Some(Overlay::Sizes(sizes::View::default())),

@@ -163,6 +163,23 @@ pub unsafe extern "system" fn Java_io_lucapf_aequalis_Core_suggest(env: Env, _cl
     unsafe { to_java(env, &reply) }
 }
 
+/// `Core.sizeKey(line, key)`: the request after a key of the Sizes strip or panel, `shoes` added when it
+/// has none (`ffi::size_key`).
+///
+/// # Safety
+/// Called by the JVM with valid `env`, `line` and `key`.
+#[no_mangle]
+pub unsafe extern "system" fn Java_io_lucapf_aequalis_Core_sizeKey(env: Env, _class: Class, line: ByteArray, key: ByteArray) -> ByteArray {
+    if unsafe { too_many_bytes(env, line) } {
+        return unsafe { to_java(env, &crate::ffi::too_long()) };
+    }
+    let reply = match unsafe { (text(env, line), text(env, key)) } {
+        (Some(line), Some(key)) => crate::ffi::size_key(&line, &key),
+        _ => error("sizeKey: a line and a key"),
+    };
+    unsafe { to_java(env, &reply) }
+}
+
 /// `Core.lists(which)`: the lists for the keyboard's panels and Settings, as the C interface gives
 /// them: `measures` (the unit classes and their units), `currencies`, `trivia`, `settings`; and
 /// `about`, `memory` (what the core holds, `ffi::memory`), `online` (online or offline, and the age

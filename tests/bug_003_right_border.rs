@@ -144,8 +144,8 @@ fn assert_rules_reach_the_edge(screen: &Screen) {
 fn reported_rules_reach_the_right_edge() {
     let Some(screen) = session(&["10 km mi\r", "12+12/3"]) else { return };
     assert_rules_reach_the_edge(&screen);
-    // At 80 columns the short names (the full ones need 82).
-    assert!(screen.line(0).starts_with(" F2 Meas  F3 Curr"), "{}", screen.line(0));
+    // At 80 columns the keys and their symbols (the names need 100).
+    assert!(screen.line(0).starts_with(" F2 \u{f046d}  F3 \u{f0116}"), "{}", screen.line(0));
 }
 
 #[test]

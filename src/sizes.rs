@@ -94,6 +94,26 @@ fn group_name(item: &str) -> &'static str {
 /// The system keys of the Sizes class, (shown, written): EU, UK, US, IT, FR, DE, JP, CN.
 pub const SYSTEM_KEYS: [(&str, &str); 8] = [("EU", "eu"), ("UK", "uk"), ("US", "us"), ("IT", "it"), ("FR", "fr"), ("DE", "de"), ("JP", "jp"), ("CN", "cn")];
 
+/// Whether `line` has an item or body word (`shoes`, `scarpe`, `foot`): then it asks for sizes.
+fn has_item(line: &str) -> bool {
+    let words: Vec<&str> = line.split_whitespace().collect();
+    (0..words.len()).any(|i| (1..=3.min(words.len() - i)).any(|n| matches!(word(&words[i..i + n].join(" ")), Some((Word::Item(_) | Word::Body(_), _)))))
+}
+
+/// `line` with a Sizes key written after it (a group's word, `shoes`, or a system's code, `eu`),
+/// and `shoes` at its start when it has no item word yet, so that it asks for sizes, not a
+/// currency: `42` + `eu` → `shoes 42 eu `. A group's word is not written twice.
+pub fn write_key(line: &str, key: &str) -> String {
+    let line = line.trim();
+    let join = |parts: &[&str]| format!("{} ", parts.iter().filter(|p| !p.is_empty()).copied().collect::<Vec<_>>().join(" "));
+    let group = groups().iter().any(|g| g.write == key);
+    match (has_item(line), group) {
+        (true, true) => join(&[line]),
+        (true, false) | (false, true) => join(&[line, key]),
+        (false, false) => join(&["shoes", line, key]),
+    }
+}
+
 /// What a size word means, for a suggestion's label: `shoes`, `foot`, `women`, `toddler`.
 fn meaning(word: Word) -> &'static str {
     match word {
@@ -904,6 +924,20 @@ mod tests {
         assert_eq!(line("42 eu"), None);
         let _dublin = crate::machine::Mock::italy().with_zone("Europe/Dublin").install();
         assert_eq!(line("42 eu").as_deref(), Some("shoes: 42 eu = UK 7.5 men, UK 7.5 women"));
+    }
+
+    #[test]
+    fn a_sizes_key_brings_shoes() {
+        assert_eq!(write_key("", "eu"), "shoes eu ");
+        assert_eq!(write_key("42", "eu"), "shoes 42 eu ");
+        assert_eq!(write_key("42 eu", "us"), "shoes 42 eu us ");
+        assert_eq!(write_key("42 eu men shoes", "us"), "42 eu men shoes us ");
+        assert_eq!(write_key("scarpe uomo 42", "eu"), "scarpe uomo 42 eu ");
+        assert_eq!(write_key("27 cm men foot", "us"), "27 cm men foot us ");
+        // The group's word itself: once.
+        assert_eq!(write_key("", "shoes"), "shoes ");
+        assert_eq!(write_key("42 eu", "shoes"), "42 eu shoes ");
+        assert_eq!(write_key("shoes 42", "shoes"), "shoes 42 ");
     }
 
     #[test]

@@ -563,12 +563,10 @@ impl<'a> App<'a> {
         }
     }
 
-    /// A word of the request (`shoes`, `eu`) after what the line holds: nothing replaced, as a unit
-    /// would be.
-    fn write_word(&mut self, word: &str) {
-        let text = self.line.text();
-        let line = if text.trim().is_empty() { format!("{word} ") } else { format!("{} {word} ", text.trim_end()) };
-        self.line.set(&line);
+    /// A key of the Sizes (`shoes`, `eu`) after what the line holds, `shoes` at its start when it has
+    /// no item word yet (`42` + `eu` → `shoes 42 eu `): sizes, not a currency.
+    fn write_size_key(&mut self, key: &str) {
+        self.line.set(&aequalis::sizes::write_key(&self.line.text(), key));
     }
 
     /// The Sizes' keys: ↑ ↓ (j k) choose, Enter writes the group's word or the system's code.
@@ -580,7 +578,7 @@ impl<'a> App<'a> {
             Key::Up | Key::BackTab | Key::Char('k') => v.step(false),
             Key::Enter => {
                 if let Some(word) = v.word() {
-                    self.write_word(word);
+                    self.write_size_key(word);
                     self.overlay = None;
                 }
             }
