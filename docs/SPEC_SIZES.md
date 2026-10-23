@@ -1,7 +1,10 @@
 # Clothing and shoe sizes — specification
 
 Status: **agreed.** Every decision is settled (§10); implementation follows the
-phases (§8).
+phases (§8). **Clothing** (phase 2) is specified in `docs/SPEC_CLOTHES.md`
+(23 Oct 2026), which replaces this spec's clothing parts where they differ:
+§3.2's person word, §5's questions, §6.2, §6.3, §7's system key, §8's and §9's
+phase 2.
 
 ## 1. Scope and non-goals
 
@@ -219,7 +222,8 @@ else is read as it is today, and **currency is the default**:
   **list**: the currency first, then a **shoes line** (§4.1).
 - `42 in` stays 42 inches (a length).
 - `cn` is not a currency code, so it never clashes.
-- A **person word** alone counts too, for **clothing**:
+- A **person word** alone counts too, for **clothing** (replaced by
+  `docs/SPEC_CLOTHES.md` §3.2: clothes first, then the shoes line):
   - `12 US woman EU` is the women's chart (dresses, tops and trousers share one,
     §6.2): `EU 42`.
   - `40 US man EU` asks which (§5): suits, collar shirts and letters are three
@@ -390,6 +394,10 @@ names Nike and Clarks: those are two charts, not every brand.
   note `beyond the chart`.
 
 ## 5. Ambiguity (Aequalis asks, as everywhere)
+
+For clothing, `docs/SPEC_CLOTHES.md` §3.4 and §5 replace the `which?` and
+`which sizing?` rows below: every chart that fits answers, a line each, by
+priority, with no question.
 
 | Situation                              | Question        | Choices                       |
 |----------------------------------------|-----------------|-------------------------------|
@@ -672,79 +680,10 @@ foot length). The UK column is half a size above the one this spec had before
 labels write them, so that US 4C (EU 19) and US 4Y (EU 36) stay apart. US 4Y →
 5Y with no 4.5Y is as published.
 
-### 6.2 Women's clothing (phase 2)
+### 6.2 Women's clothing and 6.3 Men's clothing (phase 2)
 
-Dresses, tops and trousers share one numeric chart. The offsets most sources
-agree on
-([size.ly](https://www.size.ly/conversion-charts/international-size-charts-women),
-[ASOS](https://www.asos.com/discover/size-charts/women/dresses/)) are:
-
-- UK = US + 4;
-- DE (EU) = US + 30;
-- FR = US + 32;
-- IT = US + 36.
-
-Sources **disagree on FR and IT** (some put UK 8 = FR 38 = IT 40, others FR 40 =
-IT 44). The common offsets above are used (decided):
-`IT 44 = FR 40 = DE 38 = UK 12 = US 8`. Every answer lists both IT and FR among
-the details (from a US size: `IT 44 · FR 40`), with no second, one-step-smaller
-mapping. The brand note covers the rest. JP = US + 3 (decided: US 8 = JP 11;
-Japanese sizes are odd numbers, 5, 7, 9, 11…).
-
-| US  | UK  | DE/EU | FR  | IT  | JP  | INT  | CN       |
-|-----|-----|-------|-----|-----|-----|------|----------|
-| 0   | 4   | 30    | 32  | 36  | 3   | XXS  | 150/76A  |
-| 2   | 6   | 32    | 34  | 38  | 5   | XS   | 155/80A  |
-| 4   | 8   | 34    | 36  | 40  | 7   | S    | 155/84A  |
-| 6   | 10  | 36    | 38  | 42  | 9   | S/M  | 160/88A  |
-| 8   | 12  | 38    | 40  | 44  | 11  | M    | 165/92A  |
-| 10  | 14  | 40    | 42  | 46  | 13  | L    | 165/96A  |
-| 12  | 16  | 42    | 44  | 48  | 15  | L/XL | 170/100A |
-| 14  | 18  | 44    | 46  | 50  | 17  | XL   | 170/104A |
-| 16  | 20  | 46    | 48  | 52  | 19  | XXL  | 175/110A |
-| 18  | 22  | 48    | 50  | 54  | 21  | XXL  | 175/116A |
-
-**Body measures are not supported in this version** (decided): `92 cm bust` and
-the like are left for later, since sources disagree on them by 2–4 cm.
-
-CN women's: the Chinese GB/T 1335 label is height/bust/body type (`160/84A`),
-supported in phase 2. A label is read by its bust (the number after `/`) and
-written as the row's label above.
-
-### 6.3 Men's clothing (phase 2)
-
-**Suits and jackets:** chest in inches (US/UK), EU/IT/FR = US + 10.
-
-| US/UK (in) | EU/IT/FR | JP  | INT |
-|------------|----------|-----|-----|
-| 34         | 44       | S   | XS  |
-| 36         | 46       | S   | S   |
-| 38         | 48       | M   | M   |
-| 40         | 50       | L   | L   |
-| 42         | 52       | L   | L   |
-| 44         | 54       | LL  | XL  |
-| 46         | 56       | LL  | XL  |
-| 48         | 58       | 3L  | XXL |
-| 50         | 60       | 3L  | XXL |
-
-**Shirts by collar:** cm (EU) and inches (US/UK), the nearest half inch.
-
-| EU (cm) | US/UK (in) | INT |
-|---------|------------|-----|
-| 36      | 14         | XS  |
-| 37      | 14.5       | S   |
-| 38      | 15         | S   |
-| 39      | 15.5       | M   |
-| 40      | 15.75      | M   |
-| 41      | 16         | L   |
-| 42      | 16.5       | L   |
-| 43      | 17         | XL  |
-| 44      | 17.5       | XL  |
-| 45      | 18         | XXL |
-| 46      | 18.5       | XXL |
-
-**Letters:** the men's are the INT column of the suits chart, the women's the
-INT column of §6.2.
+Moved to `docs/SPEC_CLOTHES.md` §6, with the body measures, the men's trousers
+by waist, and the men's letters from ASOS's chest ranges.
 
 ### 6.4 Kids' clothing (phase 3)
 
@@ -858,7 +797,9 @@ nearest ⅛. UK = US − ⅛.
     answer of `42 eu shoes us`, as the table's, is a line per person in the same
     style (`Men  US 8.5`, `Women  US 10`), not the first large and the others
     small.
-  - **A system key brings `shoes`** (decided 2026-10-22): written after the
+  - **A system key brings `shoes`** (decided 2026-10-22; replaced by
+    `docs/SPEC_CLOTHES.md` §7: a system key writes only its code, and the answer
+    brings the currency, the shoes line and the clothes line): written after the
     request, and `shoes` at its start when the request has no item word yet,
     so that it asks for sizes, not a currency: `42` + EU → `shoes 42 eu`, an
     empty request + EU → `shoes eu`. A group's word is not written twice.
@@ -896,9 +837,7 @@ Each phase is released as a `minor`.
    - the Sizes class with its Shoes group, in Measures and as its own menu item
      (§7);
    - the Shoes section in Trivia.
-2. **Women's and men's clothing:** dresses, tops and trousers, suits, collar
-   shirts, the letters, the CN `160/84A` labels, a person word alone
-   (`12 US woman EU`).
+2. **Women's and men's clothing:** `docs/SPEC_CLOTHES.md`.
 3. **Kids' clothing, bras, hats.**
 
 Each phase:
@@ -967,19 +906,7 @@ but the result's, §4.1) and the note `men's shoes (details: Nike)`.
 
 ### Phase 2
 
-| Request            | Machine | Expected                                            |
-|--------------------|---------|-----------------------------------------------------|
-| `IT 44 dress US`   | any     | `US 8`; details `UK 12 · FR 40 · DE 38 · JP 11 · M` |
-| `vestito 44`       | italy   | `IT 44` (a dress: women's chart, no question)       |
-| `us 8 dress`       | italy   | `IT 44`                                             |
-| `M women top it`   | any     | `IT 44`                                             |
-| `12 US woman EU`   | any     | `EU 42` (a person word alone: clothing)             |
-| `42 eu women us`   | any     | `US 12` (women's clothing, not shoes)               |
-| `40 US man EU`     | any     | question `which?`: suit · shirt · letters           |
-| `40 us suit eu`    | any     | `EU 50`                                             |
-| `39 cm collar`     | us      | `US 15.5`                                           |
-| `40 us suit int`   | any     | `L`                                                 |
-| `160/92A dress us` | any     | `US 8`                                              |
+`docs/SPEC_CLOTHES.md` §9.
 
 ### Phase 3
 

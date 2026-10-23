@@ -13,18 +13,29 @@ done, move it to DONE and note the commit.
 
 By priority, most urgent first.
 
-- [ ] **size-13** Phase 2, core: women's and men's clothing charts (dresses,
-      tops and trousers, suits, collar shirts, letters, the CN `160/84A` labels)
-      in `sizes.json`; a person word alone means clothing (`12 US woman EU`;
-      men's asks `which?`); the §9 phase 2 tests.
-- [ ] **size-14** Phase 2, UIs: the Women and Men groups in Measures, in the
-      TUI, the Omarchy widget and Android; the `which?` question's choices.
-- [ ] **size-15** Phase 2: tried on the phone, released as a `minor`.
+- [ ] **size-13** Clothes, core (`docs/SPEC_CLOTHES.md` §11.1): the four
+      charts with their body measures and the words (items, body, countries,
+      adjectives, fillers) in `sizes.json`; labels, ranges, CN and waist
+      labels, attached systems; every reading by priority, the clothes line,
+      sizes as the result when nothing else answers; the §9 cases in every
+      phrasing (§8.1).
+- [ ] **size-24** Clothes, fuzz (§11.2): shoe and clothes requests; same
+      answer in any phrasing, round trip, extra lines, partial typing.
+- [ ] **size-14** Clothes, TUI (§11.3): Shoes and Clothes keys, INT and the
+      letter keys in the Sizes window and board, every line drawn, Trivia's
+      Clothes section; a system key writes only its code.
+- [ ] **size-25** Clothes, Android (§11.4): the same in the Sizes keys, strip
+      and panel; the lines; Trivia.
+- [ ] **size-26** Clothes, widget (§11.5): the extra lines.
+- [ ] **size-15** Clothes: tried on the phone, released as a `minor` (§11.6).
 - [ ] **size-16** Phase 3, core: kids' clothing (height, age), bras (band and
       cup), hats (fractions: `7⅛`); the §9 phase 3 tests.
 - [ ] **size-17** Phase 3, UIs: the Kids, Bras and Hats groups in Measures, in
       the TUI, the Omarchy widget and Android.
 - [ ] **size-18** Phase 3: tried on the phone, released as a `minor`.
+- [ ] **nl-1** Natural phrasing for every request, in the 10 languages
+      (`tell me how many km are 10 mi`, `quanti km sono 10 mi`): a spec of its
+      own, after clothes (`docs/SPEC_CLOTHES.md` §1).
 - [ ] **git-1** Push the local commits (`git status` says how many).
 - [ ] **tui-7** Docs, help, dead-code cleanup.
 - [ ] **android-26** Errors and hints told apart by more than colour (#12).
