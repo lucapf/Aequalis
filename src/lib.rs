@@ -495,7 +495,8 @@ pub fn convert_request(config: &Config, opts: &Options, tokens: &[&str]) -> Resu
     if input.trim().is_empty() {
         return usage(EXPECTED);
     }
-    // Clothing and shoe sizes: only with a size word (`42 eu men shoes us`); `42 eu` stays euros.
+    // Clothing and shoe sizes: only with a size word (`42 eu men shoes us`, `dress 44 it`, `size 42
+    // eu us`); `42 eu` stays euros.
     if let Some(result) = sizes::request(&input) {
         return result.map(|a| sized(opts, a)).map_err(CliError::from);
     }
@@ -503,15 +504,28 @@ pub fn convert_request(config: &Config, opts: &Options, tokens: &[&str]) -> Resu
     // countries, nothing else (a time with countries is a time request, countries alone a distance).
     // The rates and the local currency are read only for a currency request.
     let context = || currency::Context { rates: currency::load(), now: time::unix_now(), local: currency::local().ok().flatten() };
-    // Beside a currency that could be a shoe size (`42 eu us`), the sizes too: a list.
+    // Beside a currency that could be a size (`42 eu us`), the shoes and the clothes too: a list.
     if let Some(result) = currency::request(config, &input, context) {
-        let shoes = || sizes::beside(&input);
+        let lines = || sizes::beside(&input);
         return match result {
-            Ok(c) => Ok(beside(money(opts, c), shoes())),
-            Err(currency::Error::Incomplete(hint)) => Err(CliError::Incomplete(hint, shoes().into_iter().collect())),
+            Ok(c) => Ok(beside(money(opts, c), lines())),
+            Err(currency::Error::Incomplete(hint)) => Err(CliError::Incomplete(hint, lines())),
             Err(e) => Err(e.into()),
         };
     }
+    // Anything else, and the sizes it could also be (SPEC_CLOTHES §3.3); when only sizes answer
+    // (`44 it us`, `M it`), they are the answer.
+    let lines = sizes::beside(&input);
+    match others(config, opts, &input) {
+        Ok(out) => Ok(beside(out, lines)),
+        Err(e) if lines.is_empty() => Err(e),
+        Err(_) => Ok(only_sizes(lines)),
+    }
+}
+
+/// A request that is no size and no currency: a distance, a date, a calculation.
+fn others(config: &Config, opts: &Options, input: &str) -> Result<Output, CliError> {
+    let input = input.to_string();
     // A date or a distance: formatted for people, its notes shown with `-v`.
     let formatted = |(stdout, notes): (String, Vec<String>)| Output {
         stdout,
@@ -559,24 +573,59 @@ fn money(opts: &Options, c: currency::Converted) -> Output {
     }
 }
 
-/// A currency result with the shoe sizes it could also be: a list, `- 42 EUR = 47.15 USD`,
-/// `- shoes: 42 eu = …`; the currency stays the result.
-fn beside(out: Output, shoes: Option<Extra>) -> Output {
-    let Some(shoes) = shoes else { return out };
-    let currency = format!("{} = {}", out.from.as_deref().unwrap_or_default(), out.stdout);
-    Output { stdout: format!("- {currency}\n- {}", shoes.line()), result: Some(out.stdout.clone()), extra: vec![shoes], ..out }
+/// An answer with the sizes it could also be: a list, `- 42 EUR = 47.15 USD`, `- shoes: 42 eu = …`,
+/// `- clothes: 42 eu = …`; the answer stays the result.
+fn beside(out: Output, lines: Vec<Extra>) -> Output {
+    if lines.is_empty() {
+        return out;
+    }
+    let first = match out.from.as_deref() {
+        Some(from) => format!("{from} = {}", out.stdout),
+        None => out.stdout.clone(),
+    };
+    let stdout = std::iter::once(first).chain(lines.iter().map(Extra::line)).map(|l| format!("- {l}")).collect::<Vec<_>>().join("\n");
+    Output { stdout, result: Some(out.stdout.clone()), extra: lines, ..out }
+}
+
+/// The sizes a request with no size word can only be (`44 it us`): a list, shoes then clothes; the
+/// first size is the result, Copy gives every line.
+fn only_sizes(lines: Vec<Extra>) -> Output {
+    let all: Vec<String> = lines.iter().map(Extra::line).collect();
+    Output {
+        stdout: all.iter().map(|l| format!("- {l}")).collect::<Vec<_>>().join("\n"),
+        formatted: true,
+        result: lines.first().and_then(|e| e.results.first().cloned()),
+        copy: Some(all.join("\n")),
+        extra: lines,
+        ..Output::default()
+    }
 }
 
 /// A size: its other systems and its notes always shown (the brand note on every answer), as the
-/// currencies' check.
+/// currencies' check. Its other readings (`42 eu women us`: the shoes after the clothes) make a list.
 fn sized(opts: &Options, a: sizes::Answer) -> Output {
+    let mut extra: Vec<Extra> = a.extra.into_iter().map(|(kind, results)| Extra { kind, results, ..Extra::default() }).collect();
+    let (stdout, result) = match a.also.is_empty() {
+        true => (a.text, a.result),
+        // A table stays one, the lines after it.
+        false if a.text.contains('\n') => {
+            let lines = a.also.iter().map(|e| format!("- {}", e.line())).collect::<Vec<_>>().join("\n");
+            (format!("{}\n{lines}", a.text), a.result)
+        }
+        false => {
+            let main = format!("{} = {}", a.from, a.text);
+            let all = std::iter::once(main).chain(a.also.iter().map(Extra::line)).map(|l| format!("- {l}")).collect::<Vec<_>>().join("\n");
+            (all, Some(a.result.unwrap_or(a.text)))
+        }
+    };
+    extra.extend(a.also);
     Output {
-        stdout: a.text,
+        stdout,
         notes: if opts.silent { Vec::new() } else { a.details.into_iter().chain(a.notes).collect() },
         formatted: true,
         from: Some(a.from),
-        result: a.result,
-        extra: a.extra.into_iter().map(|(kind, results)| Extra { kind, results, ..Extra::default() }).collect(),
+        result,
+        extra,
         copy: a.copy,
         ..Output::default()
     }

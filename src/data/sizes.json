@@ -1,5 +1,5 @@
 {
- "about": "Shoe size charts and the words of size requests (docs/SPEC_SIZES.md §2, §6.1). Charts: each brand's own size guide, read 2026-10-22; foot lengths as published (Nike in inches, Clarks in mm).",
+ "about": "Shoe and clothing size charts and the words of size requests (docs/SPEC_SIZES.md §2, §6.1; docs/SPEC_CLOTHES.md §2, §6). Shoes: each brand's own size guide, read 2026-10-22; foot lengths as published (Nike in inches, Clarks in mm). Clothes: the common retail offsets and ASOS's body measures in cm, read 2026-10-23.",
  "charts": [
   {"item": "shoes", "person": "men", "brand": "Nike", "foot": "in", "columns": ["us", "uk", "eu", "jp", "foot"], "rows": [
    ["6", "5.5", "38.5", "24", "9 5/16"],
@@ -144,23 +144,79 @@
    ["6.5", "7.5Y", "40", "250"]
   ]}
  ],
+ "clothes": [
+  {"chart": "women", "person": "women", "columns": ["us", "uk", "de", "fr", "it", "jp", "int", "cn", "bust", "waist", "hip"], "rows": [
+   ["0", "4", "30", "32", "36", "3", "XXS", "150/76A", "78", "60", "83.5"],
+   ["2", "6", "32", "34", "38", "5", "XS", "155/80A", "80.5", "62.5", "86"],
+   ["4", "8", "34", "36", "40", "7", "S", "155/84A", "83", "65", "88.5"],
+   ["6", "10", "36", "38", "42", "9", "S/M", "160/88A", "88", "70", "93.5"],
+   ["8", "12", "38", "40", "44", "11", "M", "165/92A", "93", "75", "98.5"],
+   ["10", "14", "40", "42", "46", "13", "L", "165/96A", "98", "80", "103.5"],
+   ["12", "16", "42", "44", "48", "15", "L/XL", "170/100A", "103", "85", "108.5"],
+   ["14", "18", "44", "46", "50", "17", "XL", "170/104A", "110.5", "92.5", "116"],
+   ["16", "20", "46", "48", "52", "19", "XXL", "175/110A", "116", "98", "123.5"],
+   ["18", "22", "48", "50", "54", "21", "XXL", "175/116A", "123", "105", "130.5"]
+  ]},
+  {"chart": "suit", "person": "men", "columns": ["us", "eu", "jp", "int"], "rows": [
+   ["34", "44", "S", "XS"],
+   ["36", "46", "S", "S"],
+   ["38", "48", "M", "M"],
+   ["40", "50", "L", "L"],
+   ["42", "52", "L", "XL"],
+   ["44", "54", "LL", "XXL"],
+   ["46", "56", "LL", "XXXL"],
+   ["48", "58", "3L", ""],
+   ["50", "60", "3L", ""]
+  ]},
+  {"chart": "trousers", "person": "men", "columns": ["us", "eu", "int", "waist"], "rows": [
+   ["26", "42", "XXS", "66"],
+   ["28", "44", "XS", "71"],
+   ["29", "45", "XS", "73.5"],
+   ["30", "46", "S", "76"],
+   ["31", "47", "S", "78.5"],
+   ["32", "48", "M", "81"],
+   ["33", "49", "M", "83.5"],
+   ["34", "50", "L", "86"],
+   ["36", "52", "XL", "91"],
+   ["38", "54", "XXL", "96"],
+   ["40", "56", "XXXL", "101"]
+  ]},
+  {"chart": "shirt", "person": "men", "columns": ["eu", "us", "int"], "rows": [
+   ["36", "14", "XS"],
+   ["37", "14.5", "S"],
+   ["38", "15", "S"],
+   ["39", "15.5", "M"],
+   ["40", "15.75", "M"],
+   ["41", "16", "L"],
+   ["42", "16.5", "L"],
+   ["43", "17", "XL"],
+   ["44", "17.5", "XL"],
+   ["45", "18", "XXL"],
+   ["46", "18.5", "XXL"]
+  ]}
+ ],
  "words": {
   "items": [
    {"item": "shoes", "words": ["shoe", "shoes", "zapato", "zapatos", "sapato", "sapatos", "chaussure", "chaussures", "schuh", "schuhe", "sepatu", "ayakkabı", "ayakkabi", "giày", "giay", "scarpa", "scarpe", "but", "buty"]},
-   {"item": "clothes", "coming": true, "words": ["clothes", "clothing", "ropa", "roupa", "roupas", "vêtements", "vetements", "kleidung", "pakaian", "giysi", "quần áo", "quan ao", "abbigliamento", "ubrania", "odzież", "odziez"]},
-   {"item": "dress", "coming": true, "words": ["dress", "dresses", "vestido", "vestidos", "robe", "robes", "kleid", "kleider", "gaun", "elbise", "váy", "vay", "vestito", "vestiti", "abito", "sukienka"]},
-   {"item": "top", "coming": true, "words": ["top", "tops", "t-shirt", "t-shirts", "tee", "tees", "camiseta", "camisetas", "haut", "hauts", "oberteil", "kaos", "atasan", "tişört", "tisort", "áo thun", "ao thun", "maglietta", "magliette", "koszulka"]},
-   {"item": "trousers", "coming": true, "words": ["trousers", "pants", "pantalón", "pantalon", "pantalones", "pantalons", "calça", "calca", "calças", "calcas", "hose", "celana", "pantolon", "quần", "quan", "pantaloni", "spodnie"]},
-   {"item": "shirt", "coming": true, "words": ["shirt", "shirts", "camisa", "camisas", "chemise", "chemises", "hemd", "hemden", "kemeja", "gömlek", "gomlek", "áo sơ mi", "ao so mi", "camicia", "camicie", "koszula"]},
-   {"item": "suit", "coming": true, "words": ["suit", "suits", "jacket", "jackets", "blazer", "blazers", "traje", "chaqueta", "terno", "casaco", "costume", "veste", "anzug", "sakko", "jas", "takım", "takim", "ceket", "com lê", "com le", "áo vest", "ao vest", "abito", "giacca", "garnitur", "marynarka"]},
+   {"item": "clothes", "words": ["clothes", "clothing", "ropa", "roupa", "roupas", "vêtements", "vetements", "kleidung", "pakaian", "giysi", "quần áo", "quan ao", "abbigliamento", "ubrania", "odzież", "odziez"]},
+   {"item": "dress", "words": ["dress", "dresses", "vestido", "vestidos", "robe", "robes", "kleid", "kleider", "gaun", "elbise", "váy", "vay", "vestito", "vestiti", "abito", "sukienka"]},
+   {"item": "top", "words": ["top", "tops", "t-shirt", "t-shirts", "tee", "tees", "camiseta", "camisetas", "haut", "hauts", "oberteil", "kaos", "atasan", "tişört", "tisort", "áo thun", "ao thun", "maglietta", "magliette", "koszulka"]},
+   {"item": "trousers", "words": ["trousers", "pants", "pantalón", "pantalon", "pantalones", "pantalons", "calça", "calca", "calças", "calcas", "hose", "celana", "pantolon", "quần", "quan", "pantaloni", "spodnie"]},
+   {"item": "shirt", "words": ["shirt", "shirts", "camisa", "camisas", "chemise", "chemises", "hemd", "hemden", "kemeja", "gömlek", "gomlek", "áo sơ mi", "ao so mi", "camicia", "camicie", "koszula"]},
+   {"item": "suit", "words": ["suit", "suits", "jacket", "jackets", "blazer", "blazers", "traje", "chaqueta", "terno", "casaco", "costume", "veste", "anzug", "sakko", "jas", "takım", "takim", "ceket", "com lê", "com le", "áo vest", "ao vest", "abito", "giacca", "garnitur", "marynarka"]},
    {"item": "bra", "coming": true, "words": ["bra", "bras", "sujetador", "sostén", "sosten", "sutiã", "sutia", "soutien-gorge", "bh", "beha", "sütyen", "sutyen", "áo ngực", "ao nguc", "reggiseno", "biustonosz", "stanik"]},
    {"item": "hat", "coming": true, "words": ["hat", "hats", "cap", "caps", "sombrero", "gorra", "chapéu", "chapeu", "boné", "bone", "chapeau", "hut", "mütze", "mutze", "muetze", "topi", "şapka", "sapka", "mũ", "mu", "cappello", "czapka", "kapelusz"]}
   ],
   "body": [
    {"measure": "foot", "item": "shoes", "words": ["foot", "feet", "pie", "pé", "pe", "pied", "fuß", "fuss", "kaki", "ayak", "chân", "chan", "piede", "stopa"]},
-   {"measure": "collar", "item": "shirt", "coming": true, "words": ["collar", "neck", "cuello", "colarinho", "pescoço", "pescoco", "col", "cou", "kragen", "hals", "kerah", "leher", "yaka", "boyun", "cổ", "co", "collo", "kołnierzyk", "kolnierzyk", "szyja"]},
+   {"measure": "collar", "item": "clothes", "words": ["collar", "neck", "cuello", "colarinho", "pescoço", "pescoco", "col", "cou", "kragen", "hals", "kerah", "leher", "yaka", "boyun", "cổ", "co", "collo", "kołnierzyk", "kolnierzyk", "szyja"]},
+   {"measure": "bust", "item": "clothes", "words": ["bust", "busto", "poitrine", "brust", "lingkar dada", "vòng ngực", "vong nguc", "seno", "biust"]},
+   {"measure": "chest", "item": "clothes", "words": ["chest", "pecho", "peito", "torse", "dada", "ngực", "nguc", "torace", "petto", "klatka piersiowa"]},
+   {"measure": "torso", "item": "clothes", "words": ["göğüs", "gogus", "brustumfang"]},
+   {"measure": "waist", "item": "clothes", "words": ["waist", "cintura", "taille", "bund", "pinggang", "bel", "eo", "vita", "talia", "pas"]},
+   {"measure": "hip", "item": "clothes", "words": ["hip", "hips", "cadera", "caderas", "quadril", "hanches", "hanche", "hüfte", "hufte", "huefte", "pinggul", "kalça", "kalca", "hông", "hong", "fianchi", "biodra"]},
    {"measure": "head", "item": "hat", "coming": true, "words": ["head", "cabeza", "cabeça", "cabeca", "tête", "tete", "kopf", "kepala", "kafa", "baş", "bas", "đầu", "dau", "testa", "głowa", "glowa"]},
-   {"measure": "height", "item": "kids clothing", "coming": true, "words": ["height", "tall", "altura", "estatura", "taille", "hauteur", "größe", "grösse", "grosse", "groesse", "körpergröße", "korpergrosse", "koerpergroesse", "tinggi", "boy", "chiều cao", "chieu cao", "altezza", "statura", "wzrost"]}
+   {"measure": "height", "item": "kids clothing", "coming": true, "words": ["height", "tall", "altura", "estatura", "hauteur", "körpergröße", "korpergrosse", "koerpergroesse", "tinggi", "boy", "chiều cao", "chieu cao", "altezza", "statura", "wzrost"]}
   ],
   "persons": [
    {"person": "men", "words": ["men", "man", "mens", "male", "hombre", "hombres", "caballero", "homem", "homens", "masculino", "homme", "hommes", "herren", "mann", "männer", "manner", "maenner", "pria", "laki-laki", "erkek", "nam", "uomo", "uomini", "męskie", "meskie", "mężczyzna", "mezczyzna"]},
@@ -171,6 +227,19 @@
    {"age": "toddler", "words": ["toddler", "toddlers", "baby", "infant", "bebé", "bebe", "bebê", "bébé", "kleinkind", "balita", "bebek", "em bé", "em be", "primi passi", "maluch", "niemowlę", "niemowle"]},
    {"age": "youth", "words": ["youth", "junior", "juvenil", "júnior", "ado", "jugend", "remaja", "genç", "genc", "thiếu niên", "thieu nien", "ragazzo", "ragazzi", "młodzież", "mlodziez"]}
   ],
-  "weak": ["kid", "top", "foot", "feet"]
+  "weak": ["kid", "top", "foot", "feet"],
+  "size": ["size", "sizes", "talla", "tallas", "tamanho", "tamanhos", "größe", "grösse", "grosse", "groesse", "ukuran", "beden", "bedenim", "numara", "kích cỡ", "kich co", "taglia", "taglie", "misura", "numero", "número", "rozmiar", "rozmiary"],
+  "fillers": ["my", "is", "what", "what's", "whats", "convert", "mi", "es", "qué", "que", "convertir", "meu", "minha", "é", "o", "converter", "ma", "mon", "est", "quelle", "quel", "saya", "berapa", "konversi", "nedir", "çevir", "cevir", "là", "gì", "gi", "đổi", "doi", "la", "mia", "mio", "è", "quanto", "converti", "meine", "mein", "ist", "was", "umrechnen", "mój", "moj", "ile", "przelicz"],
+  "systems": [
+   {"system": "us", "words": ["american", "america", "usa", "americano", "americana", "estadounidense", "américain", "américaine", "americain", "americaine", "amerikanisch", "amerika", "amerikan", "amerykański", "amerykanski"]},
+   {"system": "uk", "words": ["british", "english", "britain", "británico", "britanico", "británica", "inglés", "ingles", "inglesa", "britânico", "britanico", "inglês", "britannique", "anglais", "anglaise", "britisch", "englisch", "inggris", "ingiliz", "anh", "inglese", "britannico", "britannica", "brytyjski", "angielski"]},
+   {"system": "eu", "words": ["european", "europe", "europeo", "europea", "europeu", "européen", "europeen", "européenne", "europäisch", "europaisch", "europa", "eropa", "avrupa", "châu âu", "chau au", "europejski"]},
+   {"system": "it", "words": ["italian", "italy", "italiano", "italiana", "italiani", "italiane", "italien", "italienne", "italienisch", "italia", "italyan", "włoski", "wloski"]},
+   {"system": "fr", "words": ["french", "france", "francés", "frances", "francesa", "francês", "français", "francais", "française", "francaise", "französisch", "franzosisch", "prancis", "fransız", "fransiz", "pháp", "phap", "francese", "francuski"]},
+   {"system": "de", "words": ["german", "germany", "alemán", "aleman", "alemana", "alemão", "alemao", "allemand", "allemande", "deutsch", "deutsche", "jerman", "alman", "đức", "duc", "tedesco", "tedesca", "niemiecki"]},
+   {"system": "jp", "words": ["japanese", "japan", "japonés", "japones", "japonesa", "japonês", "japonais", "japonaise", "japanisch", "jepang", "japon", "nhật", "nhat", "giapponese", "japoński", "japonski"]},
+   {"system": "cn", "words": ["chinese", "china", "chino", "chinês", "chines", "chinois", "chinoise", "chinesisch", "cina", "tiongkok", "çin", "cin", "trung quốc", "trung quoc", "cinese", "chiński", "chinski"]},
+   {"system": "int", "words": ["international", "letters", "letter", "internacional", "letras", "lettres", "buchstaben", "internasional", "huruf", "uluslararası", "uluslararasi", "harf", "quốc tế", "quoc te", "chữ", "chu", "internazionale", "lettere", "międzynarodowy", "miedzynarodowy", "litery"]}
+  ]
  }
 }

@@ -1,18 +1,20 @@
 //! The Sizes window (F4, Alt+Z, or 󰩻󱗈 Sizes in the top bar; Sizes in the Measures): the groups of
-//! the Sizes class (Shoes), which write their item word, the people (Men, Women, Kids), then the
-//! system keys, which write their code. ↑↓ (j k) choose, Enter writes.
+//! the Sizes class (Shoes, Clothes), which write their item word, the people (Men, Women, Kids), the
+//! system keys, which write their code, then the letters. ↑↓ (j k) choose, Enter writes.
 
 /// A row: (name, what it is, what it writes).
 pub fn rows() -> Vec<(&'static str, &'static str, &'static str)> {
     let groups = aequalis::sizes::groups().into_iter().map(|g| (g.name, group_sample(g.write), g.write));
     let people = aequalis::sizes::PEOPLE_KEYS.iter().map(|&(name, write)| (name, "whose sizes", write));
     let systems = aequalis::sizes::SYSTEM_KEYS.iter().map(|&(name, write)| (name, system_sample(write), write));
-    groups.chain(people).chain(systems).collect()
+    let letters = aequalis::sizes::LETTER_KEYS.iter().map(|&(name, write)| (name, "a letter size", write));
+    groups.chain(people).chain(systems).chain(letters).collect()
 }
 
 fn group_sample(word: &str) -> &'static str {
     match word {
         "shoes" => "men, women, kids: 42 eu men shoes us",
+        "clothes" => "women, men: 44 it dress us, M top it",
         _ => "",
     }
 }
@@ -22,11 +24,12 @@ fn system_sample(code: &str) -> &'static str {
         "eu" => "Europe",
         "uk" => "United Kingdom",
         "us" => "United States",
-        "it" => "Italy: shoes in EU sizes",
-        "fr" => "France: shoes in EU sizes",
-        "de" => "Germany: shoes in EU sizes",
-        "jp" => "Japan, in cm",
-        "cn" => "China: the EU number",
+        "it" => "Italy: clothes; shoes in EU sizes",
+        "fr" => "France: clothes; shoes in EU sizes",
+        "de" => "Germany: clothes; shoes in EU sizes",
+        "jp" => "Japan: shoes in cm",
+        "cn" => "China: shoes the EU number, 165/92A",
+        "int" => "letters: XS, S, M, L, XL",
         _ => "",
     }
 }
@@ -57,10 +60,13 @@ mod tests {
     fn groups_then_systems() {
         let rows = rows();
         assert_eq!(rows[0], ("Shoes", "men, women, kids: 42 eu men shoes us", "shoes"));
-        assert_eq!(rows.iter().map(|r| r.2).collect::<Vec<_>>(), ["shoes", "men", "women", "kids", "eu", "uk", "us", "it", "fr", "de", "jp", "cn"]);
+        assert_eq!(
+            rows.iter().map(|r| r.2).collect::<Vec<_>>(),
+            ["shoes", "clothes", "men", "women", "kids", "eu", "uk", "us", "it", "fr", "de", "jp", "cn", "int", "XS", "S", "M", "L", "XL", "XXL"]
+        );
         let mut v = View::default();
         v.step(false);
-        assert_eq!(v.word(), Some("cn"), "round");
+        assert_eq!(v.word(), Some("XXL"), "round");
         v.step(true);
         assert_eq!(v.word(), Some("shoes"));
     }

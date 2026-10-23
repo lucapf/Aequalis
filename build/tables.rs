@@ -25,9 +25,10 @@ pub fn write(out: &Path) {
     save("sizes.rs", sizes_rs(read("sizes")));
 }
 
-/// `SHOE_CHARTS`, `ITEMS`, `BODY` and `SIZE_WORDS` (`sizes.rs`): the shoe charts, their foot lengths in
-/// cm; every word of a size request normalised (`key`), sorted to be found by name, the first of a
-/// word written twice winning.
+/// `SHOE_CHARTS`, `CLOTHES_CHARTS`, `ITEMS`, `BODY` and `SIZE_WORDS` (`sizes.rs`): the shoe charts,
+/// their foot lengths in cm; the clothes charts, every system filled in (the men's continental number
+/// in EU, IT, FR and DE); every word of a size request normalised (`key`), sorted to be found by
+/// name, the first of a word written twice winning.
 fn sizes_rs(mut doc: Value) -> String {
     let mut out = String::from("/// The shoe charts of `src/data/sizes.json`, in its order (`build.rs`).\nstatic SHOE_CHARTS: &[ShoeChart] = &[\n");
     for mut chart in doc.take("charts").into_array() {
@@ -48,6 +49,7 @@ fn sizes_rs(mut doc: Value) -> String {
         out += "    ] },\n";
     }
     out += "];\n\n";
+    out += &clothes_rs(doc.take("clothes"));
     let mut words = doc.take("words");
     let weak = words.take("weak").into_strings();
     let mut table: BTreeMap<String, String> = BTreeMap::new();
@@ -82,12 +84,79 @@ fn sizes_rs(mut doc: Value) -> String {
         };
         add(a.take("words").into_strings(), format!("Word::Age({age})"));
     }
+    add(words.take("size").into_strings(), "Word::Size".to_string());
+    for mut s in words.take("systems").into_array() {
+        let system = system(&s.take("system").into_string().expect("a system"));
+        add(s.take("words").into_strings(), format!("Word::System({system})"));
+    }
+    add(words.take("fillers").into_strings(), "Word::Filler".to_string());
     let weak: Vec<String> = weak.iter().map(|w| key(w)).collect();
     out += "];\n\n/// Every word of a size request (`key`), sorted: (word, what it is, counted only beside another).\nstatic SIZE_WORDS: &[(&str, Word, bool)] = &[\n";
     for (k, word) in &table {
         out += &format!("    ({}, {word}, {}),\n", lit(k), weak.contains(k));
     }
     out + "];\n"
+}
+
+/// `CLOTHES_CHARTS`: each chart's rows with a size in every system (empty: none) and the body
+/// measures in cm (0: none).
+fn clothes_rs(charts: Value) -> String {
+    let mut out = String::from("/// The clothes charts of `src/data/sizes.json`, in priority order (`build.rs`).\nstatic CLOTHES_CHARTS: &[ClothesChart] = &[\n");
+    for mut chart in charts.into_array() {
+        let id = chart.take("chart").into_string().expect("a chart's name");
+        let kind = match id.as_str() {
+            "women" => "Chart::Women",
+            "suit" => "Chart::Suit",
+            "trousers" => "Chart::Trousers",
+            "shirt" => "Chart::Shirt",
+            other => panic!("src/data/sizes.json: no clothes chart `{other}`"),
+        };
+        let person = person(&chart.take("person").into_string().expect("a chart's person"));
+        let columns = chart.take("columns").into_strings();
+        out += &format!("    ClothesChart {{ chart: {kind}, person: {person}, rows: &[\n");
+        for row in chart.take("rows").into_array() {
+            let cells = row.into_strings();
+            let cell = |name: &str| columns.iter().position(|c| c == name).map_or("", |i| cells[i].as_str());
+            let measure = |name: &str| if cell(name).is_empty() { 0.0 } else { cell(name).parse::<f64>().expect("a measure in cm") };
+            // The men's charts: US = UK, one continental number; the shirts have no IT size.
+            let (us, eu) = (cell("us"), if id == "women" { cell("de") } else { cell("eu") });
+            let uk = if id == "women" { cell("uk") } else { us };
+            let (it, fr, de) = match id.as_str() {
+                "women" => (cell("it"), cell("fr"), cell("de")),
+                "shirt" => ("", eu, eu),
+                _ => (eu, eu, eu),
+            };
+            let (chest, neck) = match id.as_str() {
+                "suit" => (us.parse::<f64>().expect("a chest in inches") * 2.54, 0.0),
+                "shirt" => (0.0, eu.parse::<f64>().expect("a collar in cm")),
+                _ => (0.0, 0.0),
+            };
+            let sizes = [us, uk, eu, it, fr, de, cell("jp"), cell("int"), cell("cn")].map(lit);
+            let [us, uk, eu, it, fr, de, jp, int, cn] = sizes;
+            let (bust, waist, hip) = (measure("bust"), measure("waist"), measure("hip"));
+            out += &format!(
+                "        ClothesRow {{ us: {us}, uk: {uk}, eu: {eu}, it: {it}, fr: {fr}, de: {de}, jp: {jp}, int: {int}, cn: {cn}, bust: {bust:?}, waist: {waist:?}, hip: {hip:?}, chest: {chest:?}, neck: {neck:?} }},\n"
+            );
+        }
+        out += "    ] },\n";
+    }
+    out + "];\n\n"
+}
+
+/// A system's variant: `us` → `System::Us`.
+fn system(code: &str) -> &'static str {
+    match code {
+        "us" => "System::Us",
+        "uk" => "System::Uk",
+        "eu" => "System::Eu",
+        "jp" => "System::Jp",
+        "cn" => "System::Cn",
+        "it" => "System::It",
+        "fr" => "System::Fr",
+        "de" => "System::De",
+        "int" => "System::Int",
+        other => panic!("src/data/sizes.json: no system `{other}`"),
+    }
 }
 
 fn person(name: &str) -> &'static str {

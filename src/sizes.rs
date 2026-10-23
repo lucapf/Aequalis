@@ -1,5 +1,10 @@
-//! Clothing and shoe sizes (`docs/SPEC_SIZES.md`): the shoe charts and the words of a size request,
-//! compiled from `src/data/sizes.json` (`build/tables.rs`).
+//! Clothing and shoe sizes (`docs/SPEC_SIZES.md`, `docs/SPEC_CLOTHES.md`): the shoe charts and the
+//! words of a size request, compiled from `src/data/sizes.json` (`build/tables.rs`); the clothes in
+//! `clothes`. A request that means several things answers every reading, by priority.
+
+mod clothes;
+
+pub use clothes::{clothes_charts, Chart, ClothesChart, ClothesRow};
 
 /// Whose sizes: a chart is for one of them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -25,6 +30,12 @@ pub enum Word {
     Body(usize),
     Person(Person),
     Age(Age),
+    /// `size`, `taglia`, `Größe`: a size request, shoes and clothes alike.
+    Size,
+    /// A country or its adjective as a system (`italian`, `USA`): only beside a size word.
+    System(System),
+    /// Words a size request may have around it (`my`, `what`, `is`): ignored.
+    Filler,
 }
 
 /// A row of a shoe chart: one size in every system, as the brand writes it (empty: the chart has no
@@ -79,35 +90,32 @@ pub struct Group {
     pub write: &'static str,
 }
 
-/// The groups answered so far, in the data's order: Shoes (phase 1).
+/// The groups of the Sizes class: Shoes and Clothes (SPEC_CLOTHES §7); the item words (`dress`,
+/// `suit`) are typed or suggested.
 pub fn groups() -> Vec<Group> {
-    ITEMS.iter().filter(|(_, coming)| !coming).map(|&(name, _)| Group { name: group_name(name), write: name }).collect()
-}
-
-fn group_name(item: &str) -> &'static str {
-    match item {
-        "shoes" => "Shoes",
-        _ => "Sizes",
-    }
+    vec![Group { name: "Shoes", write: "shoes" }, Group { name: "Clothes", write: "clothes" }]
 }
 
 /// The people keys of the Sizes class, (shown, written): Men, Women, Kids.
 pub const PEOPLE_KEYS: [(&str, &str); 3] = [("Men", "men"), ("Women", "women"), ("Kids", "kids")];
 
-/// The system keys of the Sizes class, (shown, written): EU, UK, US, IT, FR, DE, JP, CN.
-pub const SYSTEM_KEYS: [(&str, &str); 8] = [("EU", "eu"), ("UK", "uk"), ("US", "us"), ("IT", "it"), ("FR", "fr"), ("DE", "de"), ("JP", "jp"), ("CN", "cn")];
+/// The system keys of the Sizes class, (shown, written): EU, UK, US, IT, FR, DE, JP, CN, INT.
+pub const SYSTEM_KEYS: [(&str, &str); 9] =
+    [("EU", "eu"), ("UK", "uk"), ("US", "us"), ("IT", "it"), ("FR", "fr"), ("DE", "de"), ("JP", "jp"), ("CN", "cn"), ("INT", "int")];
 
-/// Whether `line` has an item or body word (`shoes`, `scarpe`, `foot`): then it asks for sizes.
-fn has_item(line: &str) -> bool {
-    let words: Vec<&str> = line.split_whitespace().collect();
-    (0..words.len()).any(|i| (1..=3.min(words.len() - i)).any(|n| matches!(word(&words[i..i + n].join(" ")), Some((Word::Item(_) | Word::Body(_), _)))))
+/// The letter keys of the Sizes class, (shown, written): XS to XXL.
+pub const LETTER_KEYS: [(&str, &str); 6] = [("XS", "XS"), ("S", "S"), ("M", "M"), ("L", "L"), ("XL", "XL"), ("XXL", "XXL")];
+
+/// Where `line`'s first item word is (`scarpe`, `quần áo`): (first word, how many words).
+fn item_at(words: &[&str]) -> Option<(usize, usize)> {
+    (0..words.len()).find_map(|i| (1..=3.min(words.len() - i)).rev().find(|&n| matches!(word(&words[i..i + n].join(" ")), Some((Word::Item(_), _)))).map(|n| (i, n)))
 }
 
-/// `line` with a Sizes key written after it (a group's word, `shoes`, or a system's code, `eu`),
-/// and `shoes` at its start when it has no item word yet, so that it asks for sizes, not a
-/// currency: `42` + `eu` → `shoes 42 eu `. A group's word is not written twice.
+/// `line` with a Sizes key written (SPEC_CLOTHES §7): a system's code or a letter after it, nothing
+/// else (`42` + `eu` → `42 eu `: the answer brings the currency, the shoes and the clothes); a
+/// group's word in place of the item word there (`shoes 42 eu` + clothes → `clothes 42 eu `), else
+/// after it; a person in place of the one there (`shoes 42 men` + women → `shoes 42 women `).
 pub fn write_key(line: &str, key: &str) -> String {
-    // A person: in place of the one there (`shoes 42 men` + women → `shoes 42 women`).
     let kept;
     let line = match word(key) {
         Some((Word::Person(_), _)) => {
@@ -117,11 +125,15 @@ pub fn write_key(line: &str, key: &str) -> String {
         _ => line.trim(),
     };
     let join = |parts: &[&str]| format!("{} ", parts.iter().filter(|p| !p.is_empty()).copied().collect::<Vec<_>>().join(" "));
-    let group = groups().iter().any(|g| g.write == key);
-    match (has_item(line), group) {
-        (true, true) => join(&[line]),
-        (true, false) | (false, true) => join(&[line, key]),
-        (false, false) => join(&["shoes", line, key]),
+    let words: Vec<&str> = line.split_whitespace().collect();
+    match (groups().iter().any(|g| g.write == key), item_at(&words)) {
+        (true, Some((i, n))) => {
+            let mut out: Vec<&str> = words[..i].to_vec();
+            out.push(key);
+            out.extend(&words[i + n..]);
+            join(&out)
+        }
+        _ => join(&[line, key]),
     }
 }
 
@@ -150,6 +162,9 @@ fn meaning(word: Word) -> &'static str {
         Word::Body(i) => BODY[i].0,
         Word::Person(p) => person_word(p, None),
         Word::Age(a) => person_word(Person::Kids, Some(a)),
+        Word::Size => "size",
+        Word::System(s) => s.code(),
+        Word::Filler => "",
     }
 }
 
@@ -160,14 +175,19 @@ pub fn suggestions(before: &str, typing: bool) -> Option<(usize, Vec<(String, St
     let end = before.chars().count();
     if !typing {
         let tokens = tokens(before)?;
-        let shoes =
-            tokens.iter().any(|t| matches!(t, Token::Word(Word::Item(i), _) if !ITEMS[*i].1) || matches!(t, Token::Word(Word::Body(i), _) if !BODY[*i].2));
+        let shoes = tokens.iter().any(|t| matches!(t, Token::Word(Word::Item(i), _) if ITEMS[*i].0 == "shoes") || matches!(t, Token::Word(Word::Body(i), _) if BODY[*i].1 == "shoes"));
+        let clothes = tokens.iter().any(|t| {
+            matches!(t, Token::Word(Word::Item(i), _) if !ITEMS[*i].1 && ITEMS[*i].0 != "shoes") || matches!(t, Token::Word(Word::Body(i), _) if !BODY[*i].2 && BODY[*i].1 != "shoes")
+        });
         let after_size = matches!(tokens.last(), Some(Token::Number(n)) if n.age.is_none());
         let system = tokens.iter().any(|t| matches!(t, Token::System(..)));
-        if !(shoes && after_size && !system) {
+        if !((shoes || clothes) && after_size && !system) {
             return None;
         }
-        let names = ["eu - Europe", "uk - United Kingdom", "us - United States", "jp - Japan (cm)", "cn - China"];
+        let names: &[&str] = match clothes {
+            false => &["eu - Europe", "uk - United Kingdom", "us - United States", "jp - Japan (cm)", "cn - China"],
+            true => &["eu - Europe", "uk - United Kingdom", "us - United States", "it - Italy", "fr - France", "de - Germany", "jp - Japan", "cn - China"],
+        };
         return Some((end, names.iter().map(|n| (n[..2].to_string(), n.to_string())).collect()));
     }
     let prefix = before.split_whitespace().last()?;
@@ -175,9 +195,11 @@ pub fn suggestions(before: &str, typing: bool) -> Option<(usize, Vec<(String, St
         return None;
     }
     let typed = crate::time::tz::key(prefix);
+    // Countries and adjectives only in a size request (`dress 44 ital`): `12 usd eur` is a currency.
+    let asking = before.split_whitespace().rev().skip(1).any(|w| matches!(word(w), Some((Word::Item(_) | Word::Body(_) | Word::Person(_) | Word::Size, _))));
     let found: Vec<(String, String)> = SIZE_WORDS
         .iter()
-        .filter(|(w, ..)| w.starts_with(typed.as_str()))
+        .filter(|(w, word, _)| w.starts_with(typed.as_str()) && *word != Word::Filler && (asking || !matches!(word, Word::System(_))))
         .take(crate::suggest::MAX)
         // `shoes`, not `shoes - shoes`.
         .map(|&(w, word, _)| (w.to_string(), if meaning(word) == w { w.to_string() } else { format!("{w} - {}", meaning(word)) }))
@@ -187,8 +209,8 @@ pub fn suggestions(before: &str, typing: bool) -> Option<(usize, Vec<(String, St
 
 // ---------------------------------------------------------------- a size request
 
-/// A shoe size system. Italian, French and German shoe sizes are EU sizes; Chinese ones the EU
-/// number, written CN.
+/// A size system. For shoes, Italian, French and German sizes are EU sizes and Chinese ones the EU
+/// number, written CN; INT (the letters) is clothes' only.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum System {
     Us,
@@ -196,10 +218,14 @@ pub enum System {
     Eu,
     Jp,
     Cn,
+    It,
+    Fr,
+    De,
+    Int,
 }
 
 impl System {
-    /// In the order the details and the table give them.
+    /// The shoes' systems, in the order the details and the table give them.
     pub const ALL: [System; 5] = [System::Us, System::Uk, System::Eu, System::Jp, System::Cn];
 
     pub fn name(self) -> &'static str {
@@ -209,16 +235,36 @@ impl System {
             System::Eu => "EU",
             System::Jp => "JP",
             System::Cn => "CN",
+            System::It => "IT",
+            System::Fr => "FR",
+            System::De => "DE",
+            System::Int => "INT",
         }
     }
 
-    /// A row's size in this system (empty: the chart has none); CN reads EU.
+    /// As typed and written by the keys: `us`, `int`.
+    pub fn code(self) -> &'static str {
+        match self {
+            System::Us => "us",
+            System::Uk => "uk",
+            System::Eu => "eu",
+            System::Jp => "jp",
+            System::Cn => "cn",
+            System::It => "it",
+            System::Fr => "fr",
+            System::De => "de",
+            System::Int => "int",
+        }
+    }
+
+    /// A shoe row's size in this system (empty: the chart has none); CN, IT, FR and DE read EU.
     fn of(self, row: &ShoeRow) -> &'static str {
         match self {
             System::Us => row.us,
             System::Uk => row.uk,
-            System::Eu | System::Cn => row.eu,
+            System::Eu | System::Cn | System::It | System::Fr | System::De => row.eu,
             System::Jp => row.jp,
+            System::Int => "",
         }
     }
 
@@ -229,19 +275,33 @@ impl System {
             s => format!("{} {size}", s.name()),
         }
     }
+
+    /// For shoes: the system a size is read in, and the note an alias brings (`it`: Italian shoe
+    /// sizes are EU sizes); `None`: no shoe system (INT).
+    fn for_shoes(self) -> Option<(System, Option<&'static str>)> {
+        Some(match self {
+            System::Cn => (System::Cn, Some("Chinese shoe sizes are EU sizes")),
+            System::It => (System::Eu, Some("Italian shoe sizes are EU sizes")),
+            System::Fr => (System::Eu, Some("French shoe sizes are EU sizes")),
+            System::De => (System::Eu, Some("German shoe sizes are EU sizes")),
+            System::Int => return None,
+            s => (s, None),
+        })
+    }
 }
 
-/// A system as typed, and the note an alias brings (`it`: Italian shoe sizes are EU sizes).
-fn system(word: &str) -> Option<(System, Option<&'static str>)> {
+/// A system's code as typed (`eu`, `IT`, `int`).
+fn system(word: &str) -> Option<System> {
     Some(match word.to_ascii_lowercase().as_str() {
-        "us" => (System::Us, None),
-        "uk" => (System::Uk, None),
-        "eu" => (System::Eu, None),
-        "jp" => (System::Jp, None),
-        "cn" => (System::Cn, Some("Chinese shoe sizes are EU sizes")),
-        "it" => (System::Eu, Some("Italian shoe sizes are EU sizes")),
-        "fr" => (System::Eu, Some("French shoe sizes are EU sizes")),
-        "de" => (System::Eu, Some("German shoe sizes are EU sizes")),
+        "us" => System::Us,
+        "uk" => System::Uk,
+        "eu" => System::Eu,
+        "jp" => System::Jp,
+        "cn" => System::Cn,
+        "it" => System::It,
+        "fr" => System::Fr,
+        "de" => System::De,
+        "int" => System::Int,
         _ => return None,
     })
 }
@@ -253,7 +313,7 @@ pub enum Error {
     Usage(String),
     /// On its way: what comes next.
     Incomplete(String),
-    /// Read, but no size to give (`no EU 60 in men's shoes`, `only shoes for now`): exit code 1.
+    /// Read, but no size to give (`no EU 60 in men's shoes`, `kids' clothes: not yet`): exit code 1.
     Answer(String),
 }
 
@@ -274,6 +334,12 @@ pub struct Answer {
     /// What Copy gives when every person's size is shown (no person typed): a line each,
     /// `Men US 8.5` / `Women US 10`; `Men US 8.5 · UK 7.5 · EU 42 · JP 26.5 · CN 42`.
     pub copy: Option<String>,
+    /// This answer as one line of another's (`US 10 women`, `IT 44 women, IT 48 men's suit`): the
+    /// results of `shoes: 42 eu = …`.
+    pub line: Vec<String>,
+    /// The request's other readings, by priority (`42 eu women us`: the women's shoes after the
+    /// clothes): `shoes: EU 42 = US 10 women`.
+    pub also: Vec<crate::Extra>,
 }
 
 /// A person's label in a copied line: `Men`, `Toddler`.
@@ -282,7 +348,7 @@ fn title(who: &str) -> String {
     chars.next().map(|c| c.to_uppercase().chain(chars).collect()).unwrap_or_default()
 }
 
-const COMING: &str = "only shoes for now";
+const COMING: &str = "only shoes and clothes for now";
 const BRAND_NOTE: &str = "sizes vary by brand: check the brand's chart";
 
 /// A size typed: `42`, `9.5`, `9½`, `42⅔`, `4C`, `2Y`.
@@ -312,21 +378,122 @@ fn number(word: &str) -> Option<Number> {
     (value.is_finite() && value > 0.0).then(|| Number { value, age, text: word.to_string() })
 }
 
+/// A plain number, no age: `32`, `15.5`.
+fn plain(word: &str) -> Option<Number> {
+    number(word).filter(|n| n.age.is_none())
+}
+
+/// A letter size, as the charts write it: `m` → `M`, `2XL` → `XXL`; JP's `LL` and `3L`.
+fn letter(word: &str) -> Option<String> {
+    let up = word.to_ascii_uppercase();
+    let up = match up.as_str() {
+        "2XL" => "XXL".to_string(),
+        "3XL" => "XXXL".to_string(),
+        _ => up,
+    };
+    ["XXS", "XS", "S", "M", "L", "XL", "XXL", "XXXL", "LL", "3L"].contains(&up.as_str()).then_some(up)
+}
+
+/// A size label of one word (`44`, `M`).
+#[derive(Debug, Clone, PartialEq)]
+enum Label {
+    Number(Number),
+    Letter(String),
+}
+
 #[derive(Debug, Clone, PartialEq)]
 enum Token {
+    /// A size word, and whether it counts only beside another.
     Word(Word, bool),
     Number(Number),
-    /// A system, its note, as typed (`eu`).
-    System(System, Option<&'static str>, String),
+    /// A letter size: `M`, `XXL`, `3L`.
+    Letter(String),
+    /// Two sizes: `8-10`, `S/M`, `32/34` (a waist and its inseam for trousers), as typed.
+    Range(Label, Label, String),
+    /// A Chinese label, `160/84A`: the bust (after the `/`), as typed.
+    Cn(f64, String),
+    /// A waist, `W32`, `32W`, `32x34`: the waist and the inseam, in inches.
+    Waist(f64, Option<f64>, String),
+    /// An inseam alone, `L34`: beside a waist.
+    Inseam(f64),
+    /// A system, as typed (`eu`, `italian`); and whether a word named it (a country, an adjective).
+    System(System, String, bool),
     Cm,
     In,
     Connector,
 }
 
+/// A word as a size label, or a pair of them: `44`, `M`, `8-10`, `S/M`, `160/84A`, `W32`, `32x34`.
+fn label_token(w: &str) -> Option<Token> {
+    if let Some(n) = number(w) {
+        return Some(Token::Number(n));
+    }
+    if let Some(l) = letter(w) {
+        return Some(Token::Letter(l));
+    }
+    let lower = w.to_ascii_lowercase();
+    // `W32`, `32W`, `L34`.
+    let digits = |s: &str| plain(s).map(|n| n.value);
+    if let Some(v) = lower.strip_prefix('w').and_then(digits).or_else(|| lower.strip_suffix('w').and_then(digits)) {
+        return Some(Token::Waist(v, None, w.to_string()));
+    }
+    if let Some(v) = lower.strip_prefix('l').and_then(digits) {
+        return Some(Token::Inseam(v));
+    }
+    if let Some((a, b)) = lower.split_once('x') {
+        if let (Some(a), Some(b)) = (digits(a), digits(b)) {
+            return Some(Token::Waist(a, Some(b), w.to_string()));
+        }
+    }
+    // `160/84A`, `165/92`: a height of three digits, then the bust.
+    if let Some((h, rest)) = w.split_once('/') {
+        let bust = rest.trim_end_matches(|c: char| c.is_ascii_alphabetic());
+        if h.len() == 3 && h.bytes().all(|b| b.is_ascii_digit()) && (2..=3).contains(&bust.len()) && rest.len() - bust.len() <= 1 {
+            if let Some(b) = digits(bust) {
+                return Some(Token::Cn(b, w.to_string()));
+            }
+        }
+    }
+    let (a, b) = w.split_once('-').or_else(|| w.split_once('/'))?;
+    let one = |s: &str| plain(s).map(Label::Number).or_else(|| letter(s).map(Label::Letter));
+    match (one(a)?, one(b)?) {
+        (l @ Label::Number(_), r @ Label::Number(_)) | (l @ Label::Letter(_), r @ Label::Letter(_)) => Some(Token::Range(l, r, w.to_string())),
+        _ => None,
+    }
+}
+
+/// A size and its system written as one word: `IT44`, `44it`, `eu42.5`; the system as typed, and
+/// whether it comes first.
+fn attached(w: &str) -> Option<(System, String, Number, bool)> {
+    let lower = w.to_ascii_lowercase();
+    let cut = lower.len().checked_sub(2)?;
+    if lower.len() > 2 && lower.is_char_boundary(2) {
+        if let (Some(s), Some(n)) = (system(&lower[..2]), plain(&lower[2..])) {
+            return Some((s, lower[..2].to_string(), n, true));
+        }
+    }
+    if cut > 0 && lower.is_char_boundary(cut) {
+        if let (Some(s), Some(n)) = (system(&lower[cut..]), plain(&lower[..cut])) {
+            return Some((s, lower[cut..].to_string(), n, false));
+        }
+    }
+    None
+}
+
 /// The request's words, a size word of up to three words first (`trẻ em`, `ao so mi`); `None`
-/// when a word is none of a size request's (a brand, a unit, a place).
+/// when a word is none of a size request's (a brand, a unit, a place). Punctuation around words is
+/// dropped (`44 it,`, `us?`).
 fn tokens(input: &str) -> Option<Vec<Token>> {
-    let words: Vec<&str> = input.split_whitespace().collect();
+    let words: Vec<&str> = input
+        .split_whitespace()
+        .map(|w| w.trim_matches(|c: char| matches!(c, ',' | '?' | '!' | ':' | ';' | '¿' | '¡')))
+        .filter(|w| !w.is_empty())
+        .collect();
+    // `taille` is French for waist beside a measure (`70 cm taille`), else for size (SPEC_CLOTHES §2.3).
+    let measured = words.iter().any(|w| {
+        let lower = w.to_ascii_lowercase();
+        lower == "cm" || lower == "in" || lower.ends_with('"') || ["cm", "in"].iter().any(|u| lower.strip_suffix(u).and_then(plain).is_some())
+    });
     let mut out = Vec::new();
     let mut i = 0;
     'next: while i < words.len() {
@@ -335,28 +502,89 @@ fn tokens(input: &str) -> Option<Vec<Token>> {
             // `men's`, `women’s`.
             let plain = phrase.strip_suffix("'s").or_else(|| phrase.strip_suffix("’s")).unwrap_or(&phrase);
             if let Some((w, weak)) = word(&phrase).or_else(|| word(plain)) {
-                out.push(Token::Word(w, weak));
+                out.push(match w {
+                    Word::System(s) => Token::System(s, phrase, true),
+                    Word::Body(_) if !measured && crate::time::tz::key(&phrase) == "taille" => Token::Word(Word::Size, false),
+                    w => Token::Word(w, weak),
+                });
                 i += n;
                 continue 'next;
             }
+            // A country (`Italy`, `United States`) as its system; not a code (`us` is the system).
+            if phrase.chars().count() > 3 {
+                if let Some(s) = crate::time::tz::country(&phrase).and_then(|c| country_system(c.code)) {
+                    out.push(Token::System(s, phrase, true));
+                    i += n;
+                    continue 'next;
+                }
+            }
         }
         let w = words[i];
-        out.push(if let Some(n) = number(w) {
-            Token::Number(n)
-        } else if let Some((s, note)) = system(w) {
-            Token::System(s, note, w.to_string())
-        } else if w.eq_ignore_ascii_case("cm") {
-            Token::Cm
-        } else if w.eq_ignore_ascii_case("in") {
-            Token::In
-        } else if ["to", "->", "→"].iter().any(|c| w.eq_ignore_ascii_case(c)) {
-            Token::Connector
+        let lower = w.to_ascii_lowercase();
+        // `92cm`, `36"`, `36in`.
+        let unit = [("cm", Token::Cm), ("\"", Token::In), ("″", Token::In), ("in", Token::In)]
+            .into_iter()
+            .find_map(|(u, t)| lower.strip_suffix(u).and_then(plain).map(|n| (n, t)));
+        if let Some(t) = label_token(w) {
+            out.push(t);
+        } else if let Some((n, unit)) = unit {
+            out.extend([Token::Number(n), unit]);
+        } else if let Some((s, typed, n, before)) = attached(w) {
+            let s = Token::System(s, typed, false);
+            if before {
+                out.extend([s, Token::Number(n)]);
+            } else {
+                out.extend([Token::Number(n), s]);
+            }
+        } else if let Some(s) = system(w) {
+            out.push(Token::System(s, w.to_string(), false));
+        } else if lower == "cm" {
+            out.push(Token::Cm);
+        } else if lower == "in" {
+            out.push(Token::In);
+        } else if ["to", "->", "→", "a", "en", "nach", "=", "em", "ke", "sang", "na"].contains(&lower.as_str()) {
+            out.push(Token::Connector);
         } else {
             return None;
-        });
+        }
         i += 1;
     }
-    Some(out)
+    Some(pronouns(out))
+}
+
+/// `it` and `de` as words, not systems, dropped: the English pronoun beside a filler or before a
+/// connector, away from a size (`what is it in us`); the Spanish and Portuguese "of" between a size
+/// word and the size (`talla de 44`).
+fn pronouns(tokens: Vec<Token>) -> Vec<Token> {
+    let label = |t: Option<&Token>| matches!(t, Some(Token::Number(_) | Token::Letter(_) | Token::Range(..) | Token::Cn(..) | Token::Waist(..)));
+    let word = |t: Option<&Token>| matches!(t, Some(Token::Word(Word::Size | Word::Item(_), _)));
+    (0..tokens.len())
+        .filter(|&i| {
+            let (before, after) = (i.checked_sub(1).and_then(|j| tokens.get(j)), tokens.get(i + 1));
+            match &tokens[i] {
+                Token::System(System::It, typed, false) if typed.len() == 2 => {
+                    label(before) || label(after) || !(matches!(before, Some(Token::Word(Word::Filler, _))) || matches!(after, Some(Token::In | Token::Connector)))
+                }
+                Token::System(System::De, typed, false) if typed.len() == 2 => !(word(before) && label(after)),
+                _ => true,
+            }
+        })
+        .map(|i| tokens[i].clone())
+        .collect()
+}
+
+/// The size system of a country (`IT` → IT), for the countries that have one.
+fn country_system(code: &str) -> Option<System> {
+    Some(match code {
+        "US" => System::Us,
+        "GB" => System::Uk,
+        "IT" => System::It,
+        "FR" => System::Fr,
+        "DE" => System::De,
+        "JP" => System::Jp,
+        "CN" => System::Cn,
+        _ => return None,
+    })
 }
 
 /// What a size is read from: a size in a system, or a foot's length in cm.
@@ -627,23 +855,29 @@ pub fn region() -> System {
     }
 }
 
-/// A size request, if `input` is one: a size word (an item, a body measure, a person; `kid`,
-/// `top`, `foot` only beside another), and the size. `None` leaves the request to the others.
+/// A size request, if `input` is one: a size word (an item, a body measure, a person, `size`;
+/// `kid`, `top`, `foot` only beside another), and the size. `None` leaves the request to the others.
+/// A request that means several things answers each reading, the first that answers as the result
+/// and the others as lines (SPEC_CLOTHES §3.4): a person word alone is clothes then shoes, `size`
+/// shoes then clothes.
 pub fn request(input: &str) -> Option<Result<Answer, Error>> {
     let tokens = tokens(input)?;
-    let words: Vec<(Word, bool)> = tokens.iter().filter_map(|t| if let Token::Word(w, weak) = t { Some((*w, *weak)) } else { None }).collect();
+    let words: Vec<(Word, bool)> =
+        tokens.iter().filter_map(|t| if let Token::Word(w, weak) = t { Some((*w, *weak)) } else { None }).filter(|(w, _)| *w != Word::Filler).collect();
     if words.is_empty() || words.iter().all(|(_, weak)| *weak) && words.len() < 2 {
         return None;
     }
     let numbers: Vec<(usize, &Number)> = tokens.iter().enumerate().filter_map(|(i, t)| if let Token::Number(n) = t { Some((i, n)) } else { None }).collect();
-    let (mut item, mut measure, mut person, mut age) = (None, None, None, None);
+    let (mut items, mut measures, mut person, mut age, mut size) = (Vec::new(), Vec::new(), None, None, false);
     for (w, _) in &words {
         match *w {
-            Word::Item(i) => item = Some(i),
-            Word::Body(i) => measure = Some(i),
+            Word::Item(i) => items.push(i),
+            Word::Body(i) => measures.push(i),
             Word::Person(p) if person.is_some_and(|q| q != p) => return Some(Err(Error::Usage("one person at a time: men, women or kids".into()))),
             Word::Person(p) => person = Some(p),
             Word::Age(a) => age = Some(a),
+            Word::Size => size = true,
+            Word::System(_) | Word::Filler => {}
         }
     }
     if age.is_some() {
@@ -652,20 +886,53 @@ pub fn request(input: &str) -> Option<Result<Answer, Error>> {
             _ => person = Some(Person::Kids),
         }
     }
-    // Not shoes (yet): clothing, the other measures, a person word alone (clothing).
-    let shoes = item.is_some_and(|i| !self::item(i).1) || measure.is_some_and(|i| !body(i).2);
-    let coming = item.is_some_and(|i| self::item(i).1) || measure.is_some_and(|i| body(i).2);
-    if coming || !shoes {
-        return match (coming, numbers.is_empty()) {
-            (false, true) => None,
-            _ => Some(Err(Error::Answer(COMING.into()))),
-        };
+    let coming = items.iter().any(|&i| self::item(i).1) || measures.iter().any(|&i| body(i).2);
+    let shoes = items.iter().any(|&i| self::item(i).0 == "shoes") || measures.iter().any(|&i| body(i).1 == "shoes");
+    let clothes = items.iter().any(|&i| !self::item(i).1 && self::item(i).0 != "shoes") || measures.iter().any(|&i| !body(i).2 && body(i).1 != "shoes");
+    let labels = tokens.iter().any(|t| matches!(t, Token::Number(_) | Token::Letter(_) | Token::Range(..) | Token::Cn(..) | Token::Waist(..)));
+    if coming {
+        return labels.then(|| Err(Error::Answer(COMING.into())));
     }
-    Some(shoe(&tokens, &numbers, measure.is_some(), person, age))
+    let clothes_answer = || match person {
+        Some(Person::Kids) => Err(Error::Answer("kids' clothes: not yet".into())),
+        _ => clothes::answer(&tokens, &items, &measures, person),
+    };
+    let shoe_answer = || shoe(&tokens, &numbers, measures.iter().any(|&i| body(i).1 == "shoes"), person, age);
+    Some(match (shoes, clothes) {
+        (true, true) => Err(Error::Usage("shoes or clothes, one at a time".into())),
+        (true, false) => shoe_answer(),
+        (false, true) => clothes_answer(),
+        // A person, an age or `size` alone, and a size: every reading.
+        (false, false) if !labels => return None,
+        (false, false) if age.is_some() => shoe_answer(),
+        (false, false) if size => by_priority(vec![("shoes", shoe_answer()), ("clothes", clothes_answer())]),
+        (false, false) => by_priority(vec![("clothes", clothes_answer()), ("shoes", shoe_answer())]),
+    })
+}
+
+/// The readings of a request, by priority: the first that answers is the answer, the others that
+/// answer its lines (`also`); when none answers, the first one's error.
+fn by_priority(readings: Vec<(&str, Result<Answer, Error>)>) -> Result<Answer, Error> {
+    let mut main: Option<Answer> = None;
+    let mut first_error = None;
+    for (kind, reading) in readings {
+        match (reading, &mut main) {
+            (Ok(a), None) => main = Some(a),
+            (Ok(a), Some(_)) if a.line.is_empty() => {}
+            (Ok(a), Some(m)) => m.also.push(crate::Extra { kind: kind.to_string(), from: a.from.clone(), results: a.line }),
+            (Err(e), _) => {
+                first_error.get_or_insert(e);
+            }
+        }
+    }
+    main.ok_or_else(|| first_error.unwrap_or_else(|| Error::Incomplete("now the size: 42 eu, M, 9 us…".into())))
 }
 
 /// A shoe size request (`42 eu men shoes us`, `27 cm men foot`).
 fn shoe(tokens: &[Token], numbers: &[(usize, &Number)], foot: bool, person: Option<Person>, age: Option<Age>) -> Result<Answer, Error> {
+    if tokens.iter().any(|t| matches!(t, Token::Letter(_) | Token::Range(..) | Token::Cn(..) | Token::Waist(..) | Token::Inseam(_))) {
+        return Err(Error::Usage("shoe sizes are numbers: 42 eu, 9.5 us, 4C".into()));
+    }
     let (at, n) = match numbers {
         [] => return Err(Error::Incomplete("now the size: 42 eu, 9 us…".into())),
         [one] => *one,
@@ -679,8 +946,15 @@ fn shoe(tokens: &[Token], numbers: &[(usize, &Number)], foot: bool, person: Opti
     };
     let age = age.or(n.age);
     let mut notes: Vec<&'static str> = Vec::new();
-    let systems: Vec<(usize, System, Option<&'static str>)> =
-        tokens.iter().enumerate().filter_map(|(i, t)| if let Token::System(s, note, _) = t { Some((i, *s, *note)) } else { None }).collect();
+    let mut systems: Vec<(usize, System, Option<&'static str>)> = Vec::new();
+    for (i, t) in tokens.iter().enumerate() {
+        if let Token::System(s, typed, _) = t {
+            match s.for_shoes() {
+                Some((s, note)) => systems.push((i, s, note)),
+                None => return Err(Error::Usage(format!("`{typed}` sizes are clothes sizes: shoes are eu, uk, us, jp, cn"))),
+            }
+        }
+    }
     let (from, shown_from, source_at) = match (foot, unit) {
         (true, Some(k)) => {
             let unit = if k == 1.0 { "cm" } else { "in" };
@@ -805,7 +1079,16 @@ fn one_person(person: Person, from: From, age: Option<Age>, target: System, show
     }
     notes.extend(system_notes);
     notes.push(BRAND_NOTE.to_string());
-    Ok(Answer { text, details, notes, ..Answer::default() })
+    // As the shoes line beside a currency: the first chart's size, Clarks's named when only it has it.
+    let line = parts
+        .iter()
+        .map(|p| {
+            let (size, brand) = p.first();
+            let brand = brand.map(|b| format!(" ({b})")).unwrap_or_default();
+            format!("{} {}{brand}", target.show(size), person_word(person, p.age.filter(|_| parts.len() > 1)))
+        })
+        .collect();
+    Ok(Answer { text, details, notes, line, ..Answer::default() })
 }
 
 /// Every person's size in the target, the first chart's, Clarks's named when only it has the size:
@@ -831,16 +1114,23 @@ fn people_sizes(from: From, age: Option<Age>, target: System) -> Vec<(&'static s
     all
 }
 
-/// The shoe sizes beside a currency that could also be one (`42 eu us`, §4.1): every person's, no
-/// notes; in the region's system without a target, none when that is the typed one. `None` when
-/// the request is no size: an amount in no chart, a code that is no size system.
-pub fn beside(input: &str) -> Option<crate::Extra> {
+/// The size readings of a request that has no size word (`42 eu us`, `M it`, §3.3 of both specs):
+/// the shoes line, then the clothes line; none when the request is no size (an amount in no chart,
+/// a code that is no size system, a word that is no size's).
+pub fn beside(input: &str) -> Vec<crate::Extra> {
+    let Some(tokens) = tokens(input) else { return Vec::new() };
+    [shoes_beside(&tokens), clothes::beside(&tokens)].into_iter().flatten().collect()
+}
+
+/// The shoe sizes beside a currency that could also be one (`42 eu us`, SPEC_SIZES §4.1): every
+/// person's, no notes; in the region's system without a target, none when that is the typed one.
+fn shoes_beside(tokens: &[Token]) -> Option<crate::Extra> {
     let mut amount = None;
     let mut systems: Vec<(System, String)> = Vec::new();
-    for t in tokens(input)? {
+    for t in tokens {
         match t {
             Token::Number(n) if n.age.is_none() && amount.is_none() => amount = Some(n),
-            Token::System(s, _, typed) => systems.push((s, typed)),
+            Token::System(s, typed, false) => systems.push((s.for_shoes()?.0, typed.clone())),
             Token::Connector | Token::In => {}
             _ => return None,
         }
@@ -849,9 +1139,11 @@ pub fn beside(input: &str) -> Option<crate::Extra> {
     let source = if source == System::Cn { System::Eu } else { source };
     let target = match systems.get(1) {
         Some(&(t, _)) => t,
-        None if region() == source => return None,
         None => region(),
     };
+    if target == source || target == System::Cn && source == System::Eu {
+        return None;
+    }
     let results = everyone(From::Size(source, amount.value), None, target);
     (!results.is_empty()).then(|| crate::Extra { kind: "shoes".into(), from: format!("{} {typed}", amount.text), results })
 }
@@ -872,6 +1164,7 @@ fn people(from: From, age: Option<Age>, target: System, shown_from: &str, mut no
         extra: if rest.is_empty() { Vec::new() } else { vec![("shoes".to_string(), rest)] },
         notes,
         copy: Some(copy),
+        line: all,
         ..Answer::default()
     })
 }
@@ -899,7 +1192,7 @@ fn table(from: From, age: Option<Age>, shown_from: &str, mut notes: Vec<String>)
         })
         .collect();
     let copy = lines.iter().zip(&extra).map(|((who, _), (_, results))| format!("{} {}", title(who), results.join(" · "))).collect::<Vec<_>>().join("\n");
-    Ok(Answer { text: aligned(&lines), extra, notes, copy: Some(copy), ..Answer::default() })
+    Ok(Answer { text: aligned(&lines), extra, notes, copy: Some(copy), line: everyone(from, age, region()), ..Answer::default() })
 }
 
 /// The table: a column per system, the sizes lined up on their decimal point.
@@ -949,14 +1242,15 @@ mod tests {
         for input in ["42 eu us", "42 in", "10 km mi", "42 kid us", "42 top eu", "27 cm foot", "42 eu nike shoes us", "now", "shoes in Rome"] {
             assert!(request(input).is_none(), "{input}");
         }
-        assert_eq!(request("12 us woman eu").unwrap(), Err(Error::Answer(COMING.into())));
-        assert_eq!(request("44 it dress us").unwrap(), Err(Error::Answer(COMING.into())));
+        assert_eq!(request("34 bra eu").unwrap(), Err(Error::Answer(COMING.into())));
+        assert_eq!(request("7 hat us").unwrap(), Err(Error::Answer(COMING.into())));
         assert_eq!(request("shoes").unwrap(), Err(Error::Incomplete("now the size: 42 eu, 9 us…".into())));
+        assert_eq!(request("clothes").unwrap(), Err(Error::Incomplete("now the size: 44 it, M, 8 us…".into())));
     }
 
     #[test]
     fn the_shoes_line_beside_a_currency() {
-        let line = |input: &str| beside(input).map(|e| e.line());
+        let line = |input: &str| beside(input).into_iter().find(|e| e.kind == "shoes").map(|e| e.line());
         assert_eq!(line("42 eu us").as_deref(), Some("shoes: 42 eu = US 8.5 men, US 10 women"));
         assert_eq!(line("36 eu us").as_deref(), Some("shoes: 36 eu = US 5.5 women, US 4Y kids"));
         assert_eq!(line("50 eu us").as_deref(), Some("shoes: 50 eu = US 15.5 men (Clarks)"));
@@ -975,19 +1269,23 @@ mod tests {
     }
 
     #[test]
-    fn a_sizes_key_brings_shoes() {
-        assert_eq!(write_key("", "eu"), "shoes eu ");
-        assert_eq!(write_key("42", "eu"), "shoes 42 eu ");
-        assert_eq!(write_key("42 eu", "us"), "shoes 42 eu us ");
+    fn a_sizes_key_writes_its_word() {
+        // A system or a letter: its code alone, the answer brings everything.
+        assert_eq!(write_key("", "eu"), "eu ");
+        assert_eq!(write_key("42", "eu"), "42 eu ");
+        assert_eq!(write_key("42 eu", "us"), "42 eu us ");
         assert_eq!(write_key("42 eu men shoes", "us"), "42 eu men shoes us ");
-        assert_eq!(write_key("scarpe uomo 42", "eu"), "scarpe uomo 42 eu ");
+        assert_eq!(write_key("clothes", "M"), "clothes M ");
         assert_eq!(write_key("27 cm men foot", "us"), "27 cm men foot us ");
-        // The group's word itself: once.
+        // A group: in place of the item word there, else after.
         assert_eq!(write_key("", "shoes"), "shoes ");
         assert_eq!(write_key("42 eu", "shoes"), "42 eu shoes ");
         assert_eq!(write_key("shoes 42", "shoes"), "shoes 42 ");
-        // A person: shoes brought along too; another person in place of the one there.
-        assert_eq!(write_key("42", "men"), "shoes 42 men ");
+        assert_eq!(write_key("shoes 42 eu", "clothes"), "clothes 42 eu ");
+        assert_eq!(write_key("scarpe 42", "clothes"), "clothes 42 ");
+        assert_eq!(write_key("44 it vestito", "shoes"), "44 it shoes ");
+        // A person in place of the one there.
+        assert_eq!(write_key("42", "men"), "42 men ");
         assert_eq!(write_key("shoes 42 men", "women"), "shoes 42 women ");
         assert_eq!(write_key("scarpe donna 38", "kids"), "scarpe 38 kids ");
         assert_eq!(write_key("42 eu trẻ em shoes", "men"), "42 eu shoes men ");
@@ -1039,12 +1337,85 @@ mod tests {
         assert_eq!(word("Männer"), Some((Word::Person(Person::Men), false)));
         assert_eq!(word("toddler"), Some((Word::Age(Age::Toddler), false)));
         assert!(matches!(word("fuß"), Some((Word::Body(0), false))));
-        // Clothing is recognised, not answered yet.
+        // Clothing is answered; bras and hats are recognised, not answered yet.
         let Some((Word::Item(dress), false)) = word("vestito") else { panic!() };
-        assert_eq!(item(dress), ("dress", true));
+        assert_eq!(item(dress), ("dress", false));
+        let Some((Word::Item(bra), false)) = word("reggiseno") else { panic!() };
+        assert_eq!(item(bra), ("bra", true));
+        // The size, system and filler words.
+        assert_eq!(word("taglia"), Some((Word::Size, false)));
+        assert_eq!(word("Größe"), Some((Word::Size, false)));
+        assert_eq!(word("italiana"), Some((Word::System(System::It), false)));
+        assert_eq!(word("américain"), Some((Word::System(System::Us), false)));
+        assert_eq!(word("what's"), Some((Word::Filler, false)));
         // A currency or a unit too: only beside another size word.
         assert_eq!(word("kid"), Some((Word::Person(Person::Kids), true)));
         assert!(word("top").unwrap().1 && word("foot").unwrap().1);
         assert_eq!(word("nike"), None);
+    }
+
+    #[test]
+    fn clothes_labels() {
+        let t = label_token;
+        assert_eq!(t("M"), Some(Token::Letter("M".into())));
+        assert_eq!(t("2xl"), Some(Token::Letter("XXL".into())));
+        assert_eq!(t("3L"), Some(Token::Letter("3L".into())));
+        assert!(matches!(t("W32"), Some(Token::Waist(w, None, _)) if w == 32.0));
+        assert!(matches!(t("32w"), Some(Token::Waist(w, None, _)) if w == 32.0));
+        assert!(matches!(t("32x34"), Some(Token::Waist(w, Some(l), _)) if w == 32.0 && l == 34.0));
+        assert!(matches!(t("L34"), Some(Token::Inseam(l)) if l == 34.0));
+        assert!(matches!(t("160/84A"), Some(Token::Cn(b, _)) if b == 84.0));
+        assert!(matches!(t("165/92"), Some(Token::Cn(b, _)) if b == 92.0));
+        assert!(matches!(t("8-10"), Some(Token::Range(Label::Number(_), Label::Number(_), _))));
+        assert!(matches!(t("S/M"), Some(Token::Range(Label::Letter(_), Label::Letter(_), _))));
+        for not in ["12/04/2026", "-3", "S-10", "km", "W", "x34", "MM"] {
+            assert_eq!(t(not), None, "{not}");
+        }
+    }
+
+    #[test]
+    fn attached_systems_countries_and_fillers() {
+        let systems = |input: &str| {
+            tokens(input).unwrap().into_iter().filter_map(|t| if let Token::System(s, _, named) = t { Some((s, named)) } else { None }).collect::<Vec<_>>()
+        };
+        assert_eq!(systems("IT44 dress US"), [(System::It, false), (System::Us, false)]);
+        assert_eq!(systems("44it dress"), [(System::It, false)]);
+        assert_eq!(systems("dress 44 italian to American"), [(System::It, true), (System::Us, true)]);
+        assert_eq!(systems("dress 44 Italy to United States"), [(System::It, true), (System::Us, true)]);
+        // `it` and `de` as words: the pronoun, the Spanish "of".
+        assert_eq!(systems("what is it in us dress 44 it"), [(System::Us, false), (System::It, false)]);
+        assert_eq!(systems("talla de 44 vestido us"), [(System::Us, false)]);
+        assert_eq!(systems("M women top it"), [(System::It, false)]);
+        // Punctuation and fillers.
+        assert!(tokens("my size is 44 it, what is it in us?").is_some());
+        assert!(tokens("dress 44 nike us").is_none(), "a brand is no word of a size request");
+        // `taille`: waist beside a measure, else size.
+        assert!(tokens("70 cm taille").unwrap().iter().any(|t| matches!(t, Token::Word(Word::Body(_), _))));
+        assert!(tokens("taille 44 it").unwrap().iter().any(|t| matches!(t, Token::Word(Word::Size, _))));
+    }
+
+    #[test]
+    fn words_that_are_units_or_currencies_count_only_beside_another() {
+        // A word that is also a unit or a currency must not make a size request by itself: weak, or
+        // a system or filler (they never do).
+        let config = crate::config::Config::default();
+        for (w, word, weak) in SIZE_WORDS {
+            let other = crate::convert::find_unit(&config, w).is_some() || crate::currency::exact(w).is_some();
+            assert!(!other || *weak || matches!(word, Word::System(_) | Word::Filler), "`{w}` is a unit or a currency too");
+        }
+    }
+
+    #[test]
+    fn the_four_clothes_charts() {
+        let charts: Vec<(Chart, Person, usize)> = clothes_charts().iter().map(|c| (c.chart, c.person, c.rows.len())).collect();
+        assert_eq!(charts, [(Chart::Women, Person::Women, 10), (Chart::Suit, Person::Men, 9), (Chart::Trousers, Person::Men, 11), (Chart::Shirt, Person::Men, 11)]);
+        // Women's US 8: IT 44, EU = DE 38, a 93 cm bust; a men's suit 40: EU = IT = FR 50, 101.6 cm.
+        let w = &clothes_charts()[0].rows[4];
+        assert_eq!((w.us, w.uk, w.eu, w.de, w.fr, w.it, w.int, w.cn, w.bust), ("8", "12", "38", "38", "40", "44", "M", "165/92A", 93.0));
+        let s = &clothes_charts()[1].rows[3];
+        assert_eq!((s.us, s.uk, s.eu, s.it, s.fr, s.jp, s.int), ("40", "40", "50", "50", "50", "L", "L"));
+        assert!((s.chest - 101.6).abs() < 1e-9);
+        let shirt = &clothes_charts()[3].rows[4];
+        assert_eq!((shirt.eu, shirt.us, shirt.it, shirt.neck), ("40", "15.75", "", 40.0));
     }
 }

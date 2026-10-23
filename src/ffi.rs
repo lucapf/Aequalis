@@ -496,7 +496,7 @@ pub fn measures() -> String {
 }
 
 /// The request after a key of the Sizes (`ffi`'s `measures` → `sizes`): `{"line":"shoes 42 eu "}`
-/// (`sizes::write_key`: `shoes` added when the request has no item word).
+/// (`sizes::write_key`: a system or letter alone, a group in place of the item word).
 pub fn size_key(line: &str, key: &str) -> String {
     Object::new().str("line", &crate::sizes::write_key(line, key)).finish()
 }

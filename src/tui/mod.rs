@@ -1786,31 +1786,38 @@ mod tests {
         app.handle(Key::Char('1'));
         app.handle(Key::Char('2'));
         assert!(matches!(app.overlay, Some(Overlay::Sizes(_))), "still open");
-        for _ in 0..6 {
+        for _ in 0..7 {
             app.handle(Key::Down);
         }
         app.handle(Key::Enter);
-        assert_eq!(app.line.text(), "shoes 12 us ", "the size, then US");
+        assert_eq!(app.line.text(), "12 us ", "the size, then US: its code alone");
         app.line.set("shoes ");
         // A person: Alt+Z, down to Men; then another in its place.
         app.handle(Key::Char('4'));
         app.handle(Key::Char('2'));
         app.handle(Key::Alt('z'));
         app.handle(Key::Down);
+        app.handle(Key::Down);
         app.handle(Key::Enter);
         assert_eq!(app.line.text(), "shoes 42 men ");
         app.handle(Key::Alt('z'));
-        app.handle(Key::Down);
-        app.handle(Key::Down);
+        for _ in 0..3 {
+            app.handle(Key::Down);
+        }
         app.handle(Key::Enter);
         assert_eq!(app.line.text(), "shoes 42 women ");
         // Then a system: down past the people to EU.
         app.handle(Key::Alt('z'));
-        for _ in 0..4 {
+        for _ in 0..5 {
             app.handle(Key::Down);
         }
         app.handle(Key::Enter);
         assert_eq!(app.line.text(), "shoes 42 women eu ");
+        // Clothes in place of shoes.
+        app.handle(Key::Alt('z'));
+        app.handle(Key::Down);
+        app.handle(Key::Enter);
+        assert_eq!(app.line.text(), "clothes 42 women eu ");
     }
 
     #[test]
