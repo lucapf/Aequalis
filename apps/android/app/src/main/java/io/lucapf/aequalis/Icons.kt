@@ -282,5 +282,9 @@ fun triviaIcon(name: String): ImageVector? = when (name) {
     "Math" -> FunctionsIcon
     "Physics" -> ScienceIcon
     "Shoes" -> ShoesIcon
+    "Clothes" -> SizesIcon
     else -> null
 }
+
+/** A Sizes group's icon: the shoes' footprints, the clothes' T-shirt. */
+fun groupIcon(name: String): ImageVector = if (name == "Clothes") SizesIcon else ShoesIcon

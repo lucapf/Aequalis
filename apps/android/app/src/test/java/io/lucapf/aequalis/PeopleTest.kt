@@ -25,6 +25,31 @@ class PeopleTest {
     }
 
     @Test
+    fun theClothesCharts() {
+        // `clothes M it`: the first chart's size the result, the others' by their chart.
+        val reply = Reply(
+            show = Show.Result,
+            result = "IT 44 women",
+            extra = listOf(Extra("clothes men's suit", listOf("IT 48")), Extra("clothes men's trousers", listOf("IT 48–49"))),
+        )
+        assertEquals(listOf("Women" to "IT 44", "Men's suit" to "IT 48", "Men's trousers" to "IT 48–49"), peopleOf(reply))
+        // `clothes 44 it`: a line per chart, every system.
+        val table = Reply(
+            show = Show.Result,
+            result = "women       US 8 · IT 44\nmen's suit  US 34 · EU 44",
+            extra = listOf(Extra("clothes women", listOf("US 8", "IT 44")), Extra("clothes men's suit", listOf("US 34", "EU 44"))),
+        )
+        assertEquals(listOf("Women" to "US 8 · IT 44", "Men's suit" to "US 34 · EU 44"), peopleOf(table))
+    }
+
+    @Test
+    fun anotherReadingIsNoPerson() {
+        // `42 eu women us`: the clothes size, the women's shoes a line of another reading.
+        val reply = Reply(show = Show.Result, result = "US 12", extra = listOf(Extra("shoes", listOf("US 10 women"), from = "EU 42")))
+        assertNull(peopleOf(reply))
+    }
+
+    @Test
     fun notOtherAnswers() {
         // One person, a currency with the sizes beside it, a unit.
         assertNull(peopleOf(Reply(show = Show.Result, result = "US 8.5 (Nike), 9 (Clarks)")))

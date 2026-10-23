@@ -105,12 +105,18 @@ data class Reply(
     val extra: List<Extra> = emptyList(),
 )
 
-/** Results beside the result: their kind (`shoes`) and the results. */
-data class Extra(val type: String, val results: List<String>)
+/** Results beside the result: their kind (`shoes`, `clothes men's suit`) and the results; for a line
+ *  of another reading (beside a currency, after a size), what it converts (`42 eu`). */
+data class Extra(val type: String, val results: List<String>, val from: String = "")
 
-/** The Sizes class (the Measures' and the Sizes panel's): its groups, people and system keys, each
- *  (shown, written): `Shoes` writes `shoes`, `Men` writes `men`, `EU` writes `eu`. */
-data class Sizes(val groups: List<Pair<String, String>>, val people: List<Pair<String, String>>, val systems: List<Pair<String, String>>)
+/** The Sizes class (the Measures' and the Sizes panel's): its groups, people, system and letter keys,
+ *  each (shown, written): `Shoes` writes `shoes`, `Men` writes `men`, `EU` writes `eu`, `M` writes `M`. */
+data class Sizes(
+    val groups: List<Pair<String, String>>,
+    val people: List<Pair<String, String>>,
+    val systems: List<Pair<String, String>>,
+    val letters: List<Pair<String, String>> = emptyList(),
+)
 
 /** About: the app's name, tagline (`Type it. Get it.`), what it does (`descriptor`) and core version, the facts (online data, last sync) and the
  *  data's sources, each a (label, text). */
@@ -240,7 +246,7 @@ object Core {
             details = json.optJSONArray("details")?.strings().orEmpty(),
             grouping = text("grouping"),
             unitClass = text("class"),
-            extra = json.optJSONArray("extra")?.objects { Extra(it.getString("type"), it.getJSONArray("results").strings()) }.orEmpty(),
+            extra = json.optJSONArray("extra")?.objects { Extra(it.getString("type"), it.getJSONArray("results").strings(), it.optString("from")) }.orEmpty(),
         )
     }
 
@@ -283,11 +289,11 @@ object Core {
         return JSONObject(sizeKey(line.encodeToByteArray(), key.encodeToByteArray()).decodeToString()).optString("line", line)
     }
 
-    /** The Sizes class: its groups and system keys. */
+    /** The Sizes class: its groups, people, system and letter keys. */
     fun sizes(): Sizes {
         val sizes = list("measures").getJSONObject("sizes")
-        val pairs = { key: String -> sizes.getJSONArray(key).objects { it.getString("name") to it.getString("write") } }
-        return Sizes(pairs("groups"), pairs("people"), pairs("systems"))
+        val pairs = { key: String -> sizes.optJSONArray(key)?.objects { it.getString("name") to it.getString("write") }.orEmpty() }
+        return Sizes(pairs("groups"), pairs("people"), pairs("systems"), pairs("letters"))
     }
 
     /** Every currency, the most used first. */

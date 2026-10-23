@@ -513,15 +513,26 @@ fun resultStyle(result: String, landscape: Boolean): TextStyle = when {
     else -> MaterialTheme.typography.headlineMedium
 }
 
-/** The people of an answer that names none (`shoes 42`, `42 eu shoes us`), as (person, sizes): from
- *  the table's rows (`shoes men`: `US 8.5`, `UK 7.5`…), or the result and the others beside it
- *  (`US 8.5 men`, `US 10 women`, `US 15.5 men (Clarks)`). Null for any other answer. */
+/** The clothes charts an answer's line names (`IT 44 women`, `IT 48 men's suit`). */
+private val CHARTS = listOf("men's trousers", "men's shirt", "men's suit", "women")
+
+/** The people (or clothes charts) of an answer that names none (`shoes 42`, `42 eu shoes us`,
+ *  `clothes M it`), as (who, sizes): from the table's rows (`shoes men`: `US 8.5`, `UK 7.5`…;
+ *  `clothes women`: `US 8`, `UK 12`…), or the result and the others beside it (`US 8.5 men`,
+ *  `US 10 women`; `IT 44 women`, `IT 48` of `clothes men's suit`). Null for any other answer. */
 fun peopleOf(reply: Reply): List<Pair<String, String>>? {
     val result = reply.result.orEmpty()
     val title = { s: String -> s.replaceFirstChar { it.uppercase() } }
-    if ('\n' in result) return reply.extra.takeIf { it.isNotEmpty() }?.map { title(it.type.removePrefix("shoes ")) to it.results.joinToString(" · ") }
+    val own = reply.extra.filter { it.from.isEmpty() }
+    if ('\n' in result) return own.takeIf { it.isNotEmpty() }?.map { title(it.type.removePrefix("shoes ").removePrefix("clothes ")) to it.results.joinToString(" · ") }
+    // Clothes: the result's chart, then each other chart's size.
+    val chart = CHARTS.firstOrNull { result.endsWith(" $it") }
+    val clothes = own.filter { it.type.startsWith("clothes ") }
+    if (chart != null && clothes.isNotEmpty()) {
+        return listOf(title(chart) to result.removeSuffix(" $chart")) + clothes.map { title(it.type.removePrefix("clothes ")) to it.results.joinToString(" · ") }
+    }
     val sizes = result.substringBefore(' ') in listOf("US", "UK", "EU", "JP", "CN")
-    val others = reply.extra.filter { it.type == "shoes" }.flatMap { it.results }
+    val others = own.filter { it.type == "shoes" }.flatMap { it.results }
     if (!sizes || others.isEmpty()) return null
     val who = listOf("men", "women", "kids", "toddler", "youth")
     return (listOf(result) + others).map { line ->
@@ -535,28 +546,34 @@ fun peopleOf(reply: Reply): List<Pair<String, String>>? {
  *  under themselves: `Men  US 8.5 · UK 7.5 · EU 42 · JP 26.5 · CN 42`. */
 @Composable
 fun PeopleSizes(people: List<Pair<String, String>>, modifier: Modifier = Modifier) {
+    // Room for `Men's trousers` when a clothes chart is named.
+    val label = if (people.any { it.first.length > 6 }) 128.dp else 76.dp
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         people.forEach { (person, sizes) ->
             Row {
-                Text(person, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold), modifier = Modifier.width(76.dp))
+                Text(person, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold), modifier = Modifier.width(label))
                 Text(sizes, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
             }
         }
     }
 }
 
-/** The other results under the result or the hint, a line each: beside a currency
- *  `shoes: US 8.5 men, US 10 women`; beside a size (`US 8.5 men`) the other people's, as they are.
- *  A table says them already: none. */
+/** The other results under the result or the hint, a line each: the request's other readings, with
+ *  what they convert (`shoes: 42 eu = US 8.5 men, US 10 women`, `clothes: 42 eu = US 12 women`);
+ *  beside a size (`US 8.5 men`) the other people's, as they are. A table or the people's lines say
+ *  the answer's own already. */
 @Composable
 fun Extras(reply: Reply) {
     val result = reply.result.orEmpty()
-    // Every person's sizes: in the list already.
-    if ('\n' in result || peopleOf(reply) != null) return
+    val listed = '\n' in result || peopleOf(reply) != null
     val size = result.substringBefore(' ') in listOf("US", "UK", "EU", "JP", "CN")
     reply.extra.forEach { e ->
         val line = e.results.joinToString(", ")
-        Text(if (size) line else "${e.type}: $line", style = MaterialTheme.typography.titleMedium)
+        when {
+            e.from.isNotEmpty() -> Text("${e.type}: ${e.from} = $line", style = MaterialTheme.typography.titleMedium)
+            listed -> {}
+            else -> Text(if (size) line else "${e.type}: $line", style = MaterialTheme.typography.titleMedium)
+        }
     }
 }
 

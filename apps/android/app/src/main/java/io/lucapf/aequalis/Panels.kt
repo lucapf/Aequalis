@@ -196,38 +196,46 @@ private fun MeasuresPanel(opened: String?, open: (String) -> Unit, write: (Strin
     }
 }
 
-/** The Sizes as a strip over the keyboard (the Sizes key shows and hides it): the groups (Shoes) and
- *  the systems as chips, in a row that scrolls; a tap writes it (`sizeKey`). The keys stay. */
+/** The Sizes as a strip over the keyboard (the Sizes key shows and hides it): the groups (Shoes,
+ *  Clothes), the people, the systems and the letters as chips, in a row that scrolls; a tap writes
+ *  it (`sizeKey`). The keys stay. */
 @Composable
 fun SizesStrip(sizeKey: (String) -> Unit) {
     val sizes = loaded { Core.sizes() } ?: return
     LazyRow(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         items(sizes.groups) { (name, word) ->
-            AssistChip(onClick = { sizeKey(word) }, label = { Text(name) }, leadingIcon = { Icon(ShoesIcon, contentDescription = null, modifier = Modifier.size(18.dp)) })
+            AssistChip(onClick = { sizeKey(word) }, label = { Text(name) }, leadingIcon = { Icon(groupIcon(name), contentDescription = null, modifier = Modifier.size(18.dp)) })
         }
         items(sizes.people) { (name, word) -> AssistChip(onClick = { sizeKey(word) }, label = { Text(name) }) }
         items(sizes.systems) { (name, code) -> AssistChip(onClick = { sizeKey(code) }, label = { Text(name) }) }
+        items(sizes.letters) { (name, letter) -> AssistChip(onClick = { sizeKey(letter) }, label = { Text(name) }) }
     }
 }
 
 /** The Sizes class's name, in the Measures. */
 private const val SIZES = "Sizes"
 
-/** The Sizes: the groups (Shoes), which write their word, then the system keys, which write their
- *  code (`eu`), as buttons. */
+/** The Sizes: the groups (Shoes, Clothes), which write their word, the people, then the system and
+ *  letter keys, which write their code (`eu`, `M`), as buttons. */
 @Composable
 private fun SizesPanel(write: (String) -> Unit) {
     val sizes = loaded { Core.sizes() } ?: return
     Column {
-        sizes.groups.forEach { (name, word) -> Line(name, "men, women, kids: 42 eu men shoes us", icon = ShoesIcon) { write(word) } }
+        sizes.groups.forEach { (name, word) -> Line(name, groupSample(name), icon = groupIcon(name)) { write(word) } }
         HorizontalDivider()
         Row(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             sizes.people.forEach { (name, word) -> OutlinedButton(onClick = { write(word) }, modifier = Modifier.weight(1f)) { Text(name, maxLines = 1) } }
         }
         LazyVerticalGrid(GridCells.Adaptive(72.dp), Modifier.padding(8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            items(sizes.systems) { (name, code) -> OutlinedButton(onClick = { write(code) }) { Text(name, style = MaterialTheme.typography.titleMedium, maxLines = 1) } }
+            items(sizes.systems + sizes.letters) { (name, code) -> OutlinedButton(onClick = { write(code) }) { Text(name, style = MaterialTheme.typography.titleMedium, maxLines = 1) } }
         }
     }
+}
+
+/** What a Sizes group answers, under its name. */
+private fun groupSample(name: String) = when (name) {
+    "Clothes" -> "women, men: 44 it dress us, M top it"
+    else -> "men, women, kids: 42 eu men shoes us"
 }
 
 /** A class's units, as buttons that write them, on a tab per system. */

@@ -491,7 +491,8 @@ pub fn measures() -> String {
     let key = |(name, write): &(&str, &str)| Object::new().str("name", name).str("write", write).finish();
     let systems: Vec<String> = crate::sizes::SYSTEM_KEYS.iter().map(key).collect();
     let people: Vec<String> = crate::sizes::PEOPLE_KEYS.iter().map(key).collect();
-    let sizes = Object::new().str("name", "Sizes").list("groups", &groups).list("people", &people).list("systems", &systems).finish();
+    let letters: Vec<String> = crate::sizes::LETTER_KEYS.iter().map(key).collect();
+    let sizes = Object::new().str("name", "Sizes").list("groups", &groups).list("people", &people).list("systems", &systems).list("letters", &letters).finish();
     Object::new().list("classes", &classes).raw("sizes", &sizes).finish()
 }
 
@@ -729,9 +730,13 @@ mod tests {
         let classes = measures.get("classes").unwrap().array();
         assert_eq!(classes[0].get("name").and_then(|v| v.str()), Some(crate::config::TIME));
         assert!(classes.iter().any(|c| c.get("name").and_then(|v| v.str()) == Some("Temperature")));
-        // The sizes: a class of their own, its groups and system keys writing words.
+        // The sizes: a class of their own, its groups, people, system and letter keys writing words.
         let text = super::measures();
-        assert!(text.contains(r#""sizes":{"name":"Sizes","groups":[{"name":"Shoes","write":"shoes"}],"people":[{"name":"Men","write":"men"},"#), "{text}");
+        assert!(
+            text.contains(r#""sizes":{"name":"Sizes","groups":[{"name":"Shoes","write":"shoes"},{"name":"Clothes","write":"clothes"}],"people":[{"name":"Men","write":"men"},"#),
+            "{text}"
+        );
+        assert!(text.contains(r#"{"name":"INT","write":"int"}],"letters":[{"name":"XS","write":"XS"},"#), "{text}");
         assert!(currencies().contains(r#"{"code":"EUR","name":"euro","symbols":["€"],"countries":["#));
     }
 

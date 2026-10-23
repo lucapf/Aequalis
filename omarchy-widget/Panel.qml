@@ -139,15 +139,20 @@ Panel {
   // The other results under the result or the hint, a line each (`aequalis` reply's `extra`): beside a
   // currency `shoes: US 8.5 men, US 10 women`; beside a size (`US 8.5 men`) the other people's. A table
   // (a result of several lines, `42 eu shoes`) says them already: none.
+  // The request's other readings come with what they convert (`from`): `clothes: 42 eu = US 12 women`;
+  // the other clothes charts of a clothes answer by their name (`IT 48 men's suit`).
   function extras() {
     if (!root.reply || !root.reply.extra) return ""
     var result = root.reply.result || ""
-    if (result.indexOf("\n") !== -1) return ""
+    var table = result.indexOf("\n") !== -1
     var size = ["US", "UK", "EU", "JP", "CN"].indexOf(result.split(" ")[0]) !== -1
     return root.reply.extra.map(function (e) {
       var line = e.results.join(", ")
+      if (e.from) return e.type + ": " + e.from + " = " + line
+      if (table) return ""
+      if (e.type.indexOf("clothes ") === 0) return line + " " + e.type.substring(8)
       return size ? line : e.type + ": " + line
-    }).join("\n")
+    }).filter(function (l) { return l !== "" }).join("\n")
   }
 
   // A result of several lines: a table, its columns lined up.

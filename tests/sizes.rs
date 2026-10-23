@@ -187,7 +187,7 @@ fn the_shoes_line_beside_a_currency() {
     let json = rome("json", "--json 42 eu us");
     assert!(
         json.starts_with(
-            r#"{"ok":true,"result":"46.95 USD","extra":[{"type":"shoes","results":["US 8.5 men","US 10 women"]},{"type":"clothes","results":["US 12 women","US 26 men's trousers","US 16.5 men's shirt"]}],"#
+            r#"{"ok":true,"result":"46.95 USD","extra":[{"type":"shoes","results":["US 8.5 men","US 10 women"],"from":"42 eu"},{"type":"clothes","results":["US 12 women","US 26 men's trousers","US 16.5 men's shirt"],"from":"42 eu"}],"#
         ),
         "{json}"
     );
@@ -208,7 +208,7 @@ fn no_target_the_local_currency_and_the_regions_sizes() {
     let o = money("dublin", "Europe/Dublin", "42 eu");
     assert_eq!(out(&o), "- shoes: 42 eu = UK 7.5 men, UK 7.5 women\n- clothes: 42 eu = UK 16 women, UK 26 men's trousers, UK 16.5 men's shirt");
     let json = out(&money("dublin-json", "Europe/Dublin", "--json 42 eu"));
-    assert!(json.contains(r#""incomplete":true,"extra":[{"type":"shoes","results":["UK 7.5 men","UK 7.5 women"]},{"type":"clothes""#), "{json}");
+    assert!(json.contains(r#""incomplete":true,"extra":[{"type":"shoes","results":["UK 7.5 men","UK 7.5 women"],"from":"42 eu"},{"type":"clothes""#), "{json}");
 }
 
 #[test]

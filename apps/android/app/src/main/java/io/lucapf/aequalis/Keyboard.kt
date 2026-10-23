@@ -308,18 +308,19 @@ fun SizesPad(sizeKey: (String) -> Unit, onKey: (Key) -> Unit, modifier: Modifier
 }
 
 /** The Sizes' keys in four rows, as many as the letters (`row`: the layout's, portrait or
- *  landscape): Shoes and the people, then the systems, written by the core (`sizeKey`, `shoes`
- *  brought along, a person in place of another); ABC back to the letters, space, ⌫ and ⏎. */
+ *  landscape): Shoes, Clothes and the people; the systems; the letter sizes; ABC back to the letters,
+ *  space, ⌫ and ⏎. Written by the core (`sizeKey`: a system or a letter alone, a group in place of
+ *  the other, a person in place of another). */
 @Composable
 private fun SizeKeys(sizeKey: (String) -> Unit, onKey: (Key) -> Unit, row: @Composable (@Composable RowScope.() -> Unit) -> Unit) {
     val sizes = produceState<Sizes?>(null) { value = withContext(Dispatchers.Default) { Core.sizes() } }.value
     val systems = sizes?.systems.orEmpty()
     row {
-        sizes?.groups.orEmpty().forEach { (name, word) -> KeyButton(name, weight = 1.4f, tone = Tone.Operator) { sizeKey(word) } }
+        sizes?.groups.orEmpty().forEach { (name, word) -> KeyButton(name, weight = 1.4f, tone = Tone.Operator, small = true) { sizeKey(word) } }
         sizes?.people.orEmpty().forEach { (name, word) -> KeyButton(name, tone = Tone.Operator, small = true) { sizeKey(word) } }
     }
-    row { systems.take(4).forEach { (name, code) -> KeyButton(name, tone = Tone.Operator) { sizeKey(code) } } }
-    row { systems.drop(4).forEach { (name, code) -> KeyButton(name, tone = Tone.Operator) { sizeKey(code) } } }
+    row { systems.forEach { (name, code) -> KeyButton(name, tone = Tone.Operator, small = true) { sizeKey(code) } } }
+    row { sizes?.letters.orEmpty().forEach { (name, letter) -> KeyButton(name, tone = Tone.Operator) { sizeKey(letter) } } }
     row {
         KeyButton("ABC", weight = 1.2f, tone = Tone.Action, small = true) { onKey(Key.Open(Panel.Sizes)) }
         KeyButton("space", weight = 2.6f, small = true) { onKey(Key.Write(" ")) }

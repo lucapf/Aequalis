@@ -13,20 +13,6 @@ done, move it to DONE and note the commit.
 
 By priority, most urgent first.
 
-- [ ] **size-13** Clothes, core (`docs/SPEC_CLOTHES.md` §11.1): the four
-      charts with their body measures and the words (items, body, countries,
-      adjectives, fillers) in `sizes.json`; labels, ranges, CN and waist
-      labels, attached systems; every reading by priority, the clothes line,
-      sizes as the result when nothing else answers; the §9 cases in every
-      phrasing (§8.1).
-- [ ] **size-24** Clothes, fuzz (§11.2): shoe and clothes requests; same
-      answer in any phrasing, round trip, extra lines, partial typing.
-- [ ] **size-14** Clothes, TUI (§11.3): Shoes and Clothes keys, INT and the
-      letter keys in the Sizes window and board, every line drawn, Trivia's
-      Clothes section; a system key writes only its code.
-- [ ] **size-25** Clothes, Android (§11.4): the same in the Sizes keys, strip
-      and panel; the lines; Trivia.
-- [ ] **size-26** Clothes, widget (§11.5): the extra lines.
 - [ ] **size-15** Clothes: tried on the phone, released as a `minor` (§11.6).
 - [ ] **size-16** Phase 3, core: kids' clothing (height, age), bras (band and
       cup), hats (fractions: `7⅛`); the §9 phase 3 tests.
@@ -54,6 +40,18 @@ By priority, most urgent first.
 
 ## DONE
 
+- [x] **size-26** Clothes, widget (§11.5): the other readings with what they
+      convert, the clothes charts by name.
+- [x] **size-25** Clothes, Android (§11.4): the Sizes keys, strip and panel
+      (Clothes, INT, the letters), the clothes charts' lines, the other readings
+      with what they convert.
+- [x] **size-14** Clothes, TUI (§11.3): the Sizes window and board (Shoes,
+      Clothes, INT, the letters), Trivia's Clothes section. Commit 3d7619b.
+- [x] **size-24** Clothes, fuzz (§11.2): shoe and clothes requests and the
+      size oracles; what they found fixed. Commit fb7ef76.
+- [x] **size-13** Clothes, core (`docs/SPEC_CLOTHES.md` §11.1): the four
+      charts, the words, every reading by priority, the clothes line; the §9
+      cases in every phrasing. Commit 96ab460.
 - [x] **size-3** Nike's women's and kids' foot lengths checked on nike.com (23
       Oct 2026, §6.1 ¹ ²): the kids' match; the women's page is a step longer
       than Nike's men's page, Clarks and Brannock, and the data stays as it is.

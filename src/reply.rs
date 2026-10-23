@@ -166,9 +166,16 @@ fn shown(request: &str, submitted: bool, result: &Result<Output, CliError>) -> S
     format!(",{}", &o[1..o.len() - 1])
 }
 
-/// The extra results as JSON objects: `{"type":"shoes","results":["US 8.5 men","US 10 women"]}`.
+/// The extra results as JSON objects: `{"type":"shoes","results":["US 8.5 men","US 10 women"]}`; a
+/// line of another reading (beside a currency, after a size) with what it converts:
+/// `{"type":"clothes","results":["US 12 women"],"from":"42 eu"}`.
 fn extra(all: &[crate::Extra]) -> Vec<String> {
-    all.iter().map(|e| Object::new().str("type", &e.kind).strs("results", &e.results).finish()).collect()
+    all.iter()
+        .map(|e| {
+            let o = Object::new().str("type", &e.kind).strs("results", &e.results);
+            if e.from.is_empty() { o } else { o.str("from", &e.from) }.finish()
+        })
+        .collect()
 }
 
 /// The question an ambiguous request asks, over its choices.
