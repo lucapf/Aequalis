@@ -346,7 +346,11 @@ class Worker:
                 if isinstance(choice, dict) and isinstance(choice.get("request"), str):
                     d, _ = self.eval(choice["request"])
                     a2 = d.get("ambiguous") if isinstance(d, dict) else None
-                    if isinstance(a2, dict) and a2.get("text") == amb.get("text") and a2.get("kind") == amb.get("kind"):
+                    # The same name written twice (`10:00 Kiribati to Kiribati`): a choice settles one,
+                    # the next question is about the other. A loop only when none is settled.
+                    name = str(amb.get("text") or "").lower()
+                    settled = name and choice["request"].lower().count(name) < text.lower().count(name)
+                    if isinstance(a2, dict) and a2.get("text") == amb.get("text") and a2.get("kind") == amb.get("kind") and not settled:
                         self.report("choices", f"asks-again:{amb.get('kind')}", f"{choice['request']!r} asks again about {amb.get('text')!r}", "eval", text)
 
     def calculation(self):
