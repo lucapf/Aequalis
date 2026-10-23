@@ -116,8 +116,8 @@ pub fn device_zone() -> Option<&'static str> {
 /// same answer for `02:30` in a DST gap either way). `None`: no zone was set, and the C library's
 /// local time is used (UTC where there is none).
 pub(super) fn local_tz() -> Option<&'static tz::Tz> {
-    if let Some(m) = crate::machine::mocked() {
-        return tz::load(m.zone).ok();
+    if let Some(zone) = crate::machine::mocked().and_then(|m| m.zone) {
+        return tz::load(zone).ok();
     }
     *DEVICE_ZONE.read().unwrap_or_else(|e| e.into_inner())
 }

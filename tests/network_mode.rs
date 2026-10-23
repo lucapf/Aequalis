@@ -50,7 +50,7 @@ fn aequalis(settings: &[(&str, &str)], dir: &PathBuf, args: &[&str]) -> Output {
     let body: Vec<String> = all.iter().map(|(k, v)| format!("\"{k}\": \"{v}\"")).collect();
     std::fs::write(dir.join("aequalis/settings.json"), format!("{{{}}}", body.join(", "))).unwrap();
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_aequalis"));
-    cmd.args(args).env("LC_ALL", "C").env("XDG_CONFIG_HOME", dir).stdin(Stdio::null());
+    cmd.args(args).env("LC_ALL", "C").env("AEQUALIS_MACHINE", "plain").env("XDG_CONFIG_HOME", dir).stdin(Stdio::null());
     cmd.output().expect("run aequalis")
 }
 
@@ -91,6 +91,9 @@ fn forced_offline() {
     assert_eq!(String::from_utf8_lossy(&aequalis(OFFLINE, &dir, &["--sync"]).stderr).trim_end(), "aequalis: the offline setting is on: no sync");
 }
 
+// The device's region: the C locale's on every machine (`AEQUALIS_MACHINE=plain`, debug builds
+// only; a Mac reads its own setting, not `LC_ALL`).
+#[cfg(debug_assertions)]
 #[test]
 fn fresh_data_is_used_offline() {
     // Online, but the data is fresh (and the live values are manual): nothing is synced.

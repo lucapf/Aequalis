@@ -20,8 +20,8 @@ pub fn set_dir(base: &Path) {
 /// `~/.config/aequalis` (`$XDG_CONFIG_HOME/aequalis`; on Windows `%APPDATA%\aequalis`), or the app's
 /// (`set_dir`).
 pub fn dir() -> Option<PathBuf> {
-    if let Some(m) = crate::machine::mocked() {
-        return Some(m.dir().to_path_buf());
+    if let Some(dir) = crate::machine::mocked().and_then(|m| m.dir().map(Path::to_path_buf)) {
+        return Some(dir);
     }
     if let Some(dir) = APP_DIR.get() {
         return Some(dir.clone());

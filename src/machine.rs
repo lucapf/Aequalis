@@ -7,7 +7,9 @@
 //!
 //! For the tests, so that they give the same results on every laptop and CI runner: a library or TUI
 //! test installs a preset (`let _m = Mock::italy().install();`); the binary's tests name one in
-//! `AEQUALIS_MACHINE` (`us`, `italy`, `switzerland`, `japan`), read in debug builds only.
+//! `AEQUALIS_MACHINE` (`us`, `italy`, `switzerland`, `japan`, `plain`), read in debug builds only.
+//! `plain` is the C locale's region alone: the zone and the folder stay the real machine's (`TZ`,
+//! `XDG_CONFIG_HOME`), for the tests that set their own.
 
 use crate::config::System;
 use crate::numbers::NumberFormat;
@@ -23,9 +25,10 @@ pub struct Mock {
     /// Kept for the whole run: the formatting functions hand out `&'static` formats.
     pub format: &'static NumberFormat,
     pub order: Order,
-    /// `Europe/Rome`: the device's zone, and through it the local currency.
-    pub zone: &'static str,
-    dir: PathBuf,
+    /// `Europe/Rome`: the device's zone, and through it the local currency; `None`: the real one.
+    pub zone: Option<&'static str>,
+    /// Its folder, fresh and removed with it; `None`: the real one.
+    dir: Option<PathBuf>,
 }
 
 thread_local! {
@@ -53,7 +56,9 @@ impl Drop for Guard {
 
 impl Drop for Mock {
     fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.dir);
+        if let Some(dir) = &self.dir {
+            let _ = std::fs::remove_dir_all(dir);
+        }
     }
 }
 
@@ -73,7 +78,12 @@ fn fresh_dir(name: &str) -> PathBuf {
 
 impl Mock {
     fn new(name: &str, system: System, format: &'static NumberFormat, order: Order, zone: &'static str) -> Mock {
-        Mock { system, format, order, zone, dir: fresh_dir(name) }
+        Mock { system, format, order, zone: Some(zone), dir: Some(fresh_dir(name)) }
+    }
+
+    /// The C locale's region: metric, `1234.5`, month/day; the real zone and folder.
+    pub fn plain() -> Mock {
+        Mock { system: System::Metric, format: format(".", ""), order: Order::MonthFirst, zone: None, dir: None }
     }
 
     /// Imperial, `1,234.5`, month/day, New York (USD).
@@ -103,6 +113,7 @@ impl Mock {
             "italy" => Some(Mock::italy()),
             "switzerland" => Some(Mock::switzerland()),
             "japan" => Some(Mock::japan()),
+            "plain" => Some(Mock::plain()),
             _ => None,
         }
     }
@@ -123,13 +134,14 @@ impl Mock {
     }
 
     pub fn with_zone(mut self, zone: &'static str) -> Mock {
-        self.zone = zone;
+        self.zone = Some(zone);
         self
     }
 
-    /// The machine's folder (`files::dir`): fresh and empty, removed with the mock.
-    pub fn dir(&self) -> &Path {
-        &self.dir
+    /// The machine's folder (`files::dir`): fresh and empty, removed with the mock; `None`: the
+    /// real one.
+    pub fn dir(&self) -> Option<&Path> {
+        self.dir.as_deref()
     }
 
     /// Simulates this machine on the current thread for the rest of its life: a test's helper, whose
@@ -191,6 +203,16 @@ mod tests {
         let _m = Mock::japan().install();
         assert_eq!(crate::time::Order::of_locale(), Order::YearFirst);
         assert_eq!(crate::currency::local().unwrap().map(|l| l.code), Some("JPY"));
+    }
+
+    #[test]
+    fn plain_is_the_region_alone() {
+        let (zone, dir) = (crate::time::device_zone(), crate::files::dir());
+        let _m = Mock::plain().install();
+        assert_eq!(crate::locale::device_system(), System::Metric);
+        assert_eq!(crate::numbers::device().apply("1234567.5"), "1234567.5");
+        assert_eq!(crate::time::Order::of_locale(), Order::MonthFirst);
+        assert_eq!((crate::time::device_zone(), crate::files::dir()), (zone, dir), "the real zone and folder");
     }
 
     #[test]

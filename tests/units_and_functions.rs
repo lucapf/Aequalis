@@ -7,7 +7,7 @@ use std::process::{Command, Output, Stdio};
 
 fn aequalis(args: &[&str]) -> Output {
     // The plain number format, whatever the machine's locale.
-    Command::new(env!("CARGO_BIN_EXE_aequalis")).args(args).env("LC_ALL", "C").stdin(Stdio::null()).output().expect("run aequalis")
+    Command::new(env!("CARGO_BIN_EXE_aequalis")).args(args).env("LC_ALL", "C").env("AEQUALIS_MACHINE", "plain").stdin(Stdio::null()).output().expect("run aequalis")
 }
 
 fn out(args: &[&str]) -> String {
@@ -132,6 +132,9 @@ fn function_errors() {
     assert_eq!(err(&["log(0)"]), (1, "aequalis: error: `log` of a number that is not positive (0)".into()));
 }
 
+// The device's region: the C locale's on every machine (`AEQUALIS_MACHINE=plain`, debug builds
+// only; a Mac reads its own setting, not `LC_ALL`).
+#[cfg(debug_assertions)]
 #[test]
 fn places_without_a_time_are_a_distance() {
     // Two places and nothing else: the distance along the Earth's surface.

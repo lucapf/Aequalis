@@ -6,11 +6,14 @@ use std::process::{Command, Stdio};
 const BIN: &str = env!("CARGO_BIN_EXE_aequalis");
 
 fn view(args: &[&str]) -> String {
-    let out = Command::new(BIN).arg("--json").arg("--as-typed").args(args).env("TZ", "Europe/Rome").env("LC_ALL", "C").stdin(Stdio::null()).output().unwrap();
+    let out = Command::new(BIN).arg("--json").arg("--as-typed").args(args).env("TZ", "Europe/Rome").env("LC_ALL", "C").env("AEQUALIS_MACHINE", "plain").stdin(Stdio::null()).output().unwrap();
     assert_eq!(String::from_utf8(out.stderr).unwrap(), "");
     String::from_utf8(out.stdout).unwrap()
 }
 
+// The device's region: the C locale's on every machine (`AEQUALIS_MACHINE=plain`, debug builds
+// only; a Mac reads its own setting, not `LC_ALL`).
+#[cfg(debug_assertions)]
 #[test]
 fn a_word_being_typed_shows_nothing_but_a_result() {
     assert!(view(&["10 km"]).contains(r#""show":"none""#));

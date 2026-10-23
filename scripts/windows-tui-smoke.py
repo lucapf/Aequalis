@@ -78,7 +78,7 @@ def main():
     time.sleep(0.5)
     print("a mouse click opens the Currencies")
     s.send("\x1by")  # Alt+Y
-    s.expect("copied")
+    s.expect("copied", seconds=30)  # through PowerShell, slow to start on a cold runner
     print("Alt+Y copies")
     s.send("\x11")  # Ctrl+Q
     s.quit()
