@@ -556,10 +556,15 @@ UK 6 twice is Nike's own (§4.4: `uk 6` → `US 6.5–7`).
 | 11.5 | 9   | 44   | 28.5    | 10 11/16    |
 | 12   | 9.5 | 44.5 | 29      | 10 13/16    |
 
-¹ **To check on nike.com before release.** The page's text loses the table, and
-its foot column is shorter than the size columns. These values line up with the
-men's chart on the same EU size (women's US 10 and men's US 8.5 are both EU 42,
-both 10 3/16 in), which is Brannock's women's = men's + 1.5.
+¹ **Checked on nike.com** (23 Oct 2026; the table's last row, Foot Length, in
+the page's HTML, not its text). These are the foot lengths of Nike's
+[men's](https://www.nike.com/size-fit/mens-footwear) chart, whose `US - Women`
+row puts women's US 5 at men's 3.5: women's US 10 and men's US 8.5 are both EU
+42, both 10 3/16 in, Brannock's women's = men's + 1.5. Nike's
+[women's](https://www.nike.com/size-fit/womens-footwear) page gives every row a
+step longer (US 5: 8 11/16 in), but it has US 3.5 and 4 on the same UK 1.5 and
+21 cm, and a foot longer than the box's cm at US 4; Clarks's women's chart (US
+5: 216 mm, 8 1/2 in) agrees with these (decided: kept).
 
 ##### Clarks
 
@@ -620,9 +625,10 @@ unless a toddler or youth word says which (§2.4) (decided 2026-10-22).
 | 6.5Y  | 6    | 39   | 24.5    | 9 9/16    |
 | 7Y    | 6    | 40   | 25      | 9 11/16   |
 
-² **To check on nike.com before release**, as the women's: the page's text loses
-the table. The UK column is half a size above the one this spec had before (4C
-was UK 3, now 3.5, as Nike writes it).
+² **Checked on nike.com** (23 Oct 2026): every row matches Nike's
+[kids'](https://www.nike.com/size-fit/kids-footwear) tables (US, UK, EU, JP and
+foot length). The UK column is half a size above the one this spec had before
+(4C was UK 3, now 3.5, as Nike writes it).
 
 ##### Clarks ³
 
@@ -882,7 +888,8 @@ Each phase is released as a `minor`.
 1. **Shoes:**
    - men, women and kids, in all systems, from the foot too;
    - Nike's and Clarks's charts, named in the result where they differ (§6.1);
-   - the women's and kids' Nike foot lengths checked on nike.com (§6.1 ¹ ²);
+   - the women's and kids' Nike foot lengths checked on nike.com (§6.1 ¹ ², done
+     23 Oct 2026);
    - currency as the default, with the shoes line beside it (§4.1);
    - the words of every item in the 10 languages (later items are recognised,
      not misread, and answered with the error `only shoes for now`);

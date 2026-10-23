@@ -8,8 +8,6 @@ done, move it to DONE and note the commit.
 
 ## WORKING / planned
 
-- [ ] **size-3** Check Nike's women's and kids' foot lengths on nike.com, by eye
-      (§6.1 ¹ ²).
 
 ## TODO
 
@@ -45,6 +43,9 @@ By priority, most urgent first.
 
 ## DONE
 
+- [x] **size-3** Nike's women's and kids' foot lengths checked on nike.com (23
+      Oct 2026, §6.1 ¹ ²): the kids' match; the women's page is a step longer
+      than Nike's men's page, Clarks and Brannock, and the data stays as it is.
 - [x] **size-12** Phase 1: tried on the phone, released with 1.0.0 (a `major`).
 - [x] **size-23** Phase 1, after trying it: the TUI's toolbar with a Nerd Font
       symbol per entry (the symbols alone when narrow), the size's digits typed
