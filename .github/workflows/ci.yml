@@ -29,7 +29,10 @@ jobs:
       - name: Toolchain
         run: rustup toolchain install stable --profile minimal && rustup default stable
       - name: Test
-        run: cargo test --release
+        run: cargo test --no-fail-fast
+      - name: Test the release build
+        if: always()
+        run: cargo test --release --no-fail-fast
 
   # Clippy wherever the code compiles. A Linux build compiles neither the Windows code nor the
   # Android bridge (`src/jni.rs`): their warnings and errors went unseen. Checking another target
