@@ -38,7 +38,7 @@ fn download_then_any_city() {
     assert_ne!(o.status.code(), Some(0), "{}", common::out(&o));
     // Everything: the archive (a local copy), the rates and live values (no network: none).
     let o = common::aequalis(&dir, &["--sync"]);
-    assert_eq!(common::out(&o), "9 cities\n0 exchange rates\n0 live values", "{}", common::err(&o));
+    assert_eq!(common::out(&o), "0 exchange rates\n0 live values\n9 cities", "{}", common::err(&o));
     assert!(dir.join("aequalis/cities.json").exists());
     // One place so far (an archive city, alone or before `to`): what comes next, not "not a number".
     for typed in [&["Springfield,", "Illinois"][..], &["Springfield,", "Illinois", "to"], &["distance", "Springfield,", "Illinois"]] {

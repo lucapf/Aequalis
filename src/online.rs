@@ -147,7 +147,8 @@ pub enum Group {
 }
 
 impl Group {
-    pub const ALL: [Group; 3] = [Group::Cities, Group::Rates, Group::Live];
+    /// In the order they are synced: the exchange rates first, the city archive (the big one) last.
+    pub const ALL: [Group; 3] = [Group::Rates, Group::Live, Group::Cities];
 
     /// Its name in the settings (`rates.refresh`).
     pub fn name(self) -> &'static str {
@@ -459,6 +460,9 @@ pub fn read_progress() -> Option<Syncing> {
     })
 }
 
+/// A sync by hand skips a city archive younger than this: a month.
+const FRESH_CITIES: i64 = 30 * 86_400;
+
 /// The city archive: under `notify` (in the background) only its version is checked, and a newer
 /// one noted (with a desktop notification, once); otherwise downloaded when newer (by hand:
 /// always).
@@ -466,6 +470,10 @@ pub fn read_progress() -> Option<Syncing> {
 fn sync_cities(base: &Path, settings: &crate::settings::Settings, auto: bool, now: i64, notify: &dyn Fn(&str)) -> Result<String, String> {
     if !settings.cities_enabled() {
         return Ok("cities: off (the cities.enabled setting)".into());
+    }
+    // By hand, an archive downloaded less than a month ago is kept: it is rebuilt monthly.
+    if let Some(m) = crate::cities::meta_in(base).filter(|m| !auto && now - m.downloaded_at < FRESH_CITIES) {
+        return Ok(format!("cities: up to date (downloaded {} ago)", crate::network::ago(now - m.downloaded_at)));
     }
     let url = settings.get("cities.url");
     let state_path = base.join("state.json");
@@ -604,7 +612,7 @@ mod tests {
         assert!(due_when(&Settings::default(), &none_stale).is_empty());
         // Silent: when out of date; notify: only the archive's check; manual: never.
         let s = with(&[("cities.refresh", "silent"), ("live.refresh", "silent")]);
-        assert_eq!(due_when(&s, &all_stale), [Group::Cities, Group::Rates, Group::Live]);
+        assert_eq!(due_when(&s, &all_stale), [Group::Rates, Group::Live, Group::Cities], "the rates first, the archive last");
         let s = with(&[("cities.refresh", "notify"), ("rates.refresh", "notify"), ("live.refresh", "notify")]);
         assert_eq!(due_when(&s, &all_stale), [Group::Cities], "rates and live values out of date are only said");
         assert_eq!(due_when(&s, &|g| g != Group::Cities), Vec::<Group>::new());
@@ -646,8 +654,9 @@ mod tests {
         settings.set("cities.refresh", Some("silent")).unwrap();
         assert_eq!(sync_cities(&home, &settings, true, 3_000, &notify).unwrap(), "9 cities");
         assert_eq!(sync_cities(&home, &settings, true, 4_000, &notify).unwrap(), "cities: up to date");
-        // By hand: always.
-        assert_eq!(sync_cities(&home, &settings, false, 5_000, &notify).unwrap(), "9 cities");
+        // By hand: kept while less than a month old, then downloaded again.
+        assert_eq!(sync_cities(&home, &settings, false, 5_000, &notify).unwrap(), "cities: up to date (downloaded 33m ago)");
+        assert_eq!(sync_cities(&home, &settings, false, 3_000 + 30 * 86_400, &notify).unwrap(), "9 cities");
         // Off: nothing.
         settings.set("cities.enabled", Some("false")).unwrap();
         assert_eq!(sync_cities(&home, &settings, false, 6_000, &notify).unwrap(), "cities: off (the cities.enabled setting)");

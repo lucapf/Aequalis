@@ -51,7 +51,7 @@ fn installing_the_city_archive_stays_below_10_mb() {
         &[("offline", "false"), ("cities.refresh", "manual"), ("rates.refresh", "manual"), ("live.refresh", "manual"), ("cities.url", &url)],
     );
     let reply = common::out(&common::aequalis(&dir, &["--json", "--sync"]));
-    assert!(reply.starts_with(r#"{"ok":true,"result":"9 cities\n"#), "{reply}");
+    assert!(reply.starts_with(r#"{"ok":true,"result":"0 exchange rates\n0 live values\n9 cities""#), "{reply}");
     let kb = peak_kb(&reply);
     assert!(kb > 0 && kb < LIMIT_KB, "{kb} KB");
 }
