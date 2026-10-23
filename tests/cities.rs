@@ -178,17 +178,24 @@ fn misspelt_city_asked_at_a_terminal() {
             let _ = sent.send(String::from_utf8_lossy(&buf[..n]).into_owned());
         }
     });
-    // Enter once the question is shown, however slow the machine.
+    // Waits, however slow the machine, for `text` in what the terminal shows.
     let mut out = String::new();
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-    while !out.contains("Which city?") {
-        let left = deadline.saturating_duration_since(std::time::Instant::now());
-        match received.recv_timeout(left) {
-            Ok(chunk) => out.push_str(&chunk),
-            Err(_) => panic!("no question: {out}"),
+    let wait = |out: &mut String, text: &str| {
+        while !out.contains(text) {
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            match received.recv_timeout(left) {
+                Ok(chunk) => out.push_str(&chunk),
+                Err(_) => panic!("no `{text}`: {out}"),
+            }
         }
-    }
-    stdin.write_all(b"\r").unwrap();
+    };
+    // Enter once the question is shown: `\n`, a line's end whether or not the terminal turns `\r`
+    // into one (macOS's `script` leaves its terminal raw when its input is no terminal). The input
+    // stays open until the answer: its end would be the answer (`^D`) if it came first.
+    wait(&mut out, "Which city?");
+    stdin.write_all(b"\n").unwrap();
+    wait(&mut out, "GMT+9 Tokyo");
     drop(stdin);
     child.wait().unwrap();
     reader.join().unwrap();
