@@ -150,28 +150,50 @@ fn misspelt_cities_are_suggested() {
 #[test]
 fn misspelt_city_asked_at_a_terminal() {
     use std::io::{Read, Write};
-    if !installed() || Command::new("script").arg("--version").output().is_err() {
+    if !installed() {
         return;
     }
-    let mut child = Command::new("script")
-        .args(["-qec", &format!("'{BIN}' 2026-12-04T10:00 New York to Tokio"), "/dev/null"])
+    // A terminal for the binary: util-linux's `script` (`-qec <command> <file>`), or the BSD one
+    // on macOS (`-q <file> <command>…`). No `script` (Windows): nothing to check.
+    let request = ["2026-12-04T10:00", "New", "York", "to", "Tokio"];
+    let args: Vec<String> = match cfg!(target_os = "linux") {
+        true => vec!["-qec".into(), format!("'{BIN}' {}", request.join(" ")), "/dev/null".into()],
+        false => ["-q", "/dev/null", BIN].into_iter().chain(request).map(String::from).collect(),
+    };
+    let Ok(mut child) = Command::new("script")
+        .args(&args)
         .env("TZ", "America/New_York")
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .spawn()
-        .unwrap();
+    else {
+        return;
+    };
     let mut stdin = child.stdin.take().unwrap();
     let mut stdout = child.stdout.take().unwrap();
+    let (sent, received) = std::sync::mpsc::channel();
     let reader = std::thread::spawn(move || {
-        let mut out = String::new();
-        stdout.read_to_string(&mut out).map(|_| out)
+        let mut buf = [0; 4096];
+        while let Ok(n @ 1..) = stdout.read(&mut buf) {
+            let _ = sent.send(String::from_utf8_lossy(&buf[..n]).into_owned());
+        }
     });
-    std::thread::sleep(std::time::Duration::from_millis(400));
+    // Enter once the question is shown, however slow the machine.
+    let mut out = String::new();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while !out.contains("Which city?") {
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        match received.recv_timeout(left) {
+            Ok(chunk) => out.push_str(&chunk),
+            Err(_) => panic!("no question: {out}"),
+        }
+    }
     stdin.write_all(b"\r").unwrap();
-    std::thread::sleep(std::time::Duration::from_millis(400));
     drop(stdin);
     child.wait().unwrap();
-    let out = reader.join().unwrap().unwrap().replace('\r', "");
+    reader.join().unwrap();
+    out.extend(received.try_iter());
+    let out = out.replace('\r', "");
     assert!(out.contains("`Tokio` is not a city. Did you mean:\n  1) Tokyo        Asia/Tokyo\n"), "{out}");
     assert!(out.contains("Which city? [1-1, Enter = 1]: "), "{out}");
     assert!(out.contains("05 Dec 26 12:00 AM GMT+9 Tokyo"), "Enter: Tokyo: {out}");

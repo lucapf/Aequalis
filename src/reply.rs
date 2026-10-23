@@ -356,6 +356,8 @@ mod tests {
     /// An ambiguous request: the question, each choice's label and detail, and Enter's choice.
     #[test]
     fn view_of_a_question() {
+        // Month first, the US's order, whatever the laptop's.
+        crate::machine::Mock::us().keep();
         let date = parse(&view("12/04/2026 unix", true)).unwrap();
         assert_eq!(date.get("message").and_then(Value::str), Some("Which date is 12/04/2026?"));
         assert_eq!(date.get("default").and_then(Value::str), Some("12/04/2026 MM/DD/YYYY unix"));
