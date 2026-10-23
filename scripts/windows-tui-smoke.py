@@ -62,7 +62,7 @@ class Session:
 
 def main():
     s = Session()
-    s.expect("F2 Measures")
+    s.expect("Measures  F3")  # the toolbar: `F2 󰑭 Measures  F3 …` (a symbol, or none when narrow)
     print("toolbar drawn")
     s.send("10 km mi\r")
     s.expect("6.2137 mi")
@@ -72,7 +72,7 @@ def main():
     s.send("\x1b")
     time.sleep(0.5)
     print("F2 opens the Measures")
-    s.send("\x1b[<0;16;1M\x1b[<0;16;1m")  # a left click (SGR) on the toolbar's F3 Currencies
+    s.send("\x1b[<0;16;1M\x1b[<0;16;1m")  # a left click (SGR) on the toolbar's F3 (column 16: ` F2 󰑭 Measures ` before it)
     s.expect("\u250c\u2500 Currencies")
     s.send("\x1b")
     time.sleep(0.5)
