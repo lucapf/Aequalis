@@ -140,7 +140,7 @@ pub unsafe extern "system" fn Java_io_lucapf_aequalis_Core_eval(env: Env, _class
         return unsafe { to_java(env, &crate::ffi::too_long()) };
     }
     let reply = match unsafe { text(env, request) } {
-        Some(request) => crate::reply::view(&request, submitted != 0),
+        Some(request) => crate::profile::timed(crate::profile::Kind::Answer, &request, || crate::reply::view(&request, submitted != 0)),
         None => error("no request"),
     };
     unsafe { to_java(env, &reply) }
@@ -157,10 +157,33 @@ pub unsafe extern "system" fn Java_io_lucapf_aequalis_Core_suggest(env: Env, _cl
         return unsafe { to_java(env, crate::ffi::NO_SUGGESTIONS) };
     }
     let reply = match unsafe { text(env, before) } {
-        Some(before) => crate::ffi::suggest(&before, 3),
+        Some(before) => crate::profile::timed(crate::profile::Kind::Suggestions, &before, || crate::ffi::suggest(&before, 3)),
         None => error("no text"),
     };
     unsafe { to_java(env, &reply) }
+}
+
+/// `Core.profile(kind, request, roundTripUs)`: the app's round trip of its call of `kind` (`answer`,
+/// `suggestions`) for `request`, in µs (`profile::app`). `round_trip_us` is a `jlong`.
+///
+/// # Safety
+/// Called by the JVM only: `env` is its `JNIEnv *`, `kind` and `request` its references, valid in
+/// this call.
+#[no_mangle]
+pub unsafe extern "system" fn Java_io_lucapf_aequalis_Core_profile(env: Env, _class: Class, kind: ByteArray, request: ByteArray, round_trip_us: i64) {
+    let (kind, request) = unsafe { (text(env, kind), text(env, request)) };
+    if let (Some(kind), Some(request)) = (kind.as_deref().and_then(crate::profile::Kind::of), request) {
+        crate::profile::app(kind, &request, u64::try_from(round_trip_us).unwrap_or(0));
+    }
+}
+
+/// `Core.profileReset()`: everything profiling recorded forgotten (About's Reset).
+///
+/// # Safety
+/// Called by the JVM only.
+#[no_mangle]
+pub unsafe extern "system" fn Java_io_lucapf_aequalis_Core_profileReset(_env: Env, _class: Class) {
+    crate::profile::reset();
 }
 
 /// `Core.sizeKey(line, key)`: the request after a key of the Sizes strip or panel, `shoes` added when it

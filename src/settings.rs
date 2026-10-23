@@ -144,6 +144,7 @@ pub const KEYS: &[Key] = &[
     Key { key: "precision", advanced: false, default: "4", kind: Kind::Precision, about: "decimal places of numbers, 0-15 (--precision for one request)" },
     Key { key: "format.date", advanced: true, default: crate::time::HUMAN_DATE, kind: Kind::Format, about: "how dates are shown" },
     Key { key: "format.datetime", advanced: true, default: crate::time::HUMAN_DATETIME, kind: Kind::Format, about: "how dates with a time are shown" },
+    Key { key: "profiling", advanced: true, default: "false", kind: Kind::Bool, about: "time each keystroke's answer and suggestions, shown in About" },
     // Only the interactive mode's: the app (`ffi::settings`) doesn't list the `tui.` keys.
     Key {
         key: "tui.keyboard",

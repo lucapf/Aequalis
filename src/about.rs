@@ -63,6 +63,9 @@ pub fn facts(memory: &str) -> Vec<(&'static str, String)> {
         ("Cities", cities),
         ("Mode", mode.to_string()),
     ]
+    .into_iter()
+    .chain(crate::profile::facts())
+    .collect()
 }
 
 /// This process's memory (now, where known, and peak) and the binary's size:

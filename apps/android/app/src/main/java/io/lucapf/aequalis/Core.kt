@@ -144,6 +144,8 @@ object Core {
     private external fun reset(): ByteArray
     private external fun sync(auto: Boolean): ByteArray
     private external fun sizeKey(line: ByteArray, key: ByteArray): ByteArray
+    private external fun profile(kind: ByteArray, request: ByteArray, roundTripUs: Long)
+    private external fun profileReset()
 
     private val launched = java.util.concurrent.atomic.AtomicBoolean(false)
 
@@ -223,6 +225,21 @@ object Core {
     fun evaluate(request: String, submitted: Boolean): Reply {
         started.await()
         return reply(JSONObject(eval(request.encodeToByteArray(), submitted).decodeToString()))
+    }
+
+    /** Profiling (the `profiling` setting): the round trip of a call of `kind` (`answer`,
+     *  `suggestions`) for `request`, started at `since` (`System.nanoTime()`), from the main thread
+     *  to the core and back: the thread hops, JNI, the JSON. The core keeps it beside its own time
+     *  (About); off, it ignores it. */
+    fun roundTrip(kind: String, request: String, since: Long) {
+        started.await()
+        profile(kind.encodeToByteArray(), request.encodeToByteArray(), (System.nanoTime() - since) / 1000)
+    }
+
+    /** Profiling: everything recorded forgotten (About's Reset). */
+    fun resetProfile() {
+        started.await()
+        profileReset()
     }
 
     /** The reply's fields, as the core sends them. */

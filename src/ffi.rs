@@ -206,7 +206,7 @@ pub unsafe extern "C" fn aequalis_eval(request: *const c_char) -> *mut c_char {
     match unsafe { request_text(request) } {
         Err(()) => give(too_long()),
         Ok(None) => error("no request"),
-        Ok(Some(request)) => give(eval(request)),
+        Ok(Some(request)) => give(crate::profile::timed(crate::profile::Kind::Answer, request, || eval(request))),
     }
 }
 
@@ -226,7 +226,7 @@ pub unsafe extern "C" fn aequalis_view(request: *const c_char, submitted: bool) 
     match unsafe { request_text(request) } {
         Err(()) => give(too_long()),
         Ok(None) => error("no request"),
-        Ok(Some(request)) => give(reply::view(request, submitted)),
+        Ok(Some(request)) => give(crate::profile::timed(crate::profile::Kind::Answer, request, || reply::view(request, submitted))),
     }
 }
 
@@ -539,8 +539,28 @@ pub unsafe extern "C" fn aequalis_suggest(before: *const c_char, min: u32) -> *m
     match unsafe { request_text(before) } {
         Err(()) => give(NO_SUGGESTIONS.to_string()),
         Ok(None) => error("no text"),
-        Ok(Some(before)) => give(suggest(before, min as usize)),
+        Ok(Some(before)) => give(crate::profile::timed(crate::profile::Kind::Suggestions, before, || suggest(before, min as usize))),
     }
+}
+
+/// Profiling: the app's round trip of its call of `kind` (`answer`, `suggestions`) for `request`,
+/// in µs, from before the call to its reply read (`profile::app`).
+///
+/// # Safety
+/// `kind` and `request` are NUL-terminated strings.
+#[no_mangle]
+pub unsafe extern "C" fn aequalis_profile(kind: *const c_char, request: *const c_char, round_trip_us: u64) {
+    if let (Ok(Some(kind)), Ok(Some(request))) = unsafe { (request_text(kind), request_text(request)) } {
+        if let Some(kind) = crate::profile::Kind::of(kind) {
+            crate::profile::app(kind, request, round_trip_us);
+        }
+    }
+}
+
+/// Profiling: everything recorded forgotten (About's Reset).
+#[no_mangle]
+pub extern "C" fn aequalis_profile_reset() {
+    crate::profile::reset();
 }
 
 /// Every currency, the most used first: `{"currencies":[{"code","name","symbols":[…],"countries":[…],
@@ -738,6 +758,23 @@ mod tests {
         );
         assert!(text.contains(r#"{"name":"INT","write":"int"}],"letters":[{"name":"XS","write":"XS"},"#), "{text}");
         assert!(currencies().contains(r#"{"code":"EUR","name":"euro","symbols":["€"],"countries":["#));
+    }
+
+    #[test]
+    fn profiling_times_each_keystroke() {
+        let _m = crate::machine::Mock::italy().install();
+        let request = CString::new("10 km mi").unwrap();
+        assert!(!call(|| unsafe { aequalis_eval(request.as_ptr()) }).contains("core_us"), "off: nothing timed");
+        crate::settings::change("profiling", Some("true")).unwrap();
+        let reply = call(|| unsafe { aequalis_view(request.as_ptr(), false) });
+        assert!(reply.contains(",\"core_us\":") && reply.ends_with('}'), "{reply}");
+        // The app's round trip, beside the core's time in About.
+        let kind = CString::new("answer").unwrap();
+        unsafe { aequalis_profile(kind.as_ptr(), request.as_ptr(), 84_000) };
+        let about = about();
+        assert!(about.contains(r#"["Slowest answer","84 ms in the app, "#) && about.contains("(`10 km mi`)"), "{about}");
+        aequalis_profile_reset();
+        assert!(super::about().contains(r#"["Profiling","on: nothing typed yet"]"#));
     }
 
     #[test]

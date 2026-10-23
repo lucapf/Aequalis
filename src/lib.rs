@@ -28,6 +28,7 @@ pub mod notify;
 pub mod numbers;
 pub mod online;
 pub mod planets;
+pub mod profile;
 pub mod reply;
 pub mod settings;
 pub mod sizes;

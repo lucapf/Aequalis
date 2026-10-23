@@ -17,10 +17,16 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.produceState
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -29,6 +35,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** Where Aequalis is installed from, for each system: (system, address). Android: the Play Store's
@@ -55,7 +62,11 @@ internal fun installText(tagline: String, descriptor: String): String {
 fun AboutScreen(close: () -> Unit, modifier: Modifier = Modifier) {
     BackHandler(onBack = close)
     val context = LocalContext.current
-    val about by produceState<About?>(null) { value = withContext(Dispatchers.Default) { Core.about() } }
+    // Read again after a profiling Reset.
+    var reads by remember { mutableIntStateOf(0) }
+    var about by remember { mutableStateOf<About?>(null) }
+    LaunchedEffect(reads) { about = withContext(Dispatchers.Default) { Core.about() } }
+    val scope = rememberCoroutineScope()
     val open = { link: String -> context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(link))) }
     val appVersion = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull()
     Column(modifier.fillMaxSize()) {
@@ -72,6 +83,10 @@ fun AboutScreen(close: () -> Unit, modifier: Modifier = Modifier) {
                 Text("App ${appVersion ?: "?"} · core ${a.version}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             items(a.facts) { (label, text) -> Fact(label, text) }
+            // Profiling on (Settings, Advanced): its times start over.
+            if (a.facts.any { it.first in PROFILING }) {
+                item { OutlinedButton(onClick = { scope.launch { withContext(Dispatchers.Default) { Core.resetProfile() }; reads++ } }) { Text("Reset the times") } }
+            }
             item { HorizontalDivider() }
             item { Text("Install Aequalis", style = MaterialTheme.typography.titleMedium) }
             items(INSTALL) { (system, link) -> Fact(system, link, onClick = { open(link) }) }
@@ -92,6 +107,9 @@ fun AboutScreen(close: () -> Unit, modifier: Modifier = Modifier) {
         }
     }
 }
+
+/** The facts profiling adds (`profile::facts`). */
+private val PROFILING = listOf("Profiling", "Slowest answer", "Answers", "Slowest suggestions", "Suggestions")
 
 /** A label and its text; with `onClick`, a link (the text in the accent colour). */
 @Composable

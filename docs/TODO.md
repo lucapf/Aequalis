@@ -19,6 +19,11 @@ By priority, most urgent first.
 - [ ] **size-17** Phase 3, UIs: the Kids, Bras and Hats groups in Measures, in
       the TUI, the Omarchy widget and Android.
 - [ ] **size-18** Phase 3: tried on the phone, released as a `minor`.
+- [ ] **prof-1** Profiling, phase 1, tried on the phone: Settings › Advanced ›
+      profiling on, type, About shows the slowest answer and suggestions (in
+      the app and in the core) and the medians; Reset the times.
+- [ ] **prof-2** Profiling, phase 2: stage timers in the core, a capped
+      `profile.jsonl` log, Share log in About (plan in the session of 23 Oct).
 - [ ] **nl-1** Natural phrasing for every request, in the 10 languages
       (`tell me how many km are 10 mi`, `quanti km sono 10 mi`): a spec of its
       own, after clothes (`docs/SPEC_CLOTHES.md` §1).

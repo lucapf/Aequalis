@@ -117,7 +117,9 @@ private fun QuickInput(initial: String, open: (String) -> Unit, close: () -> Uni
     var submitted by rememberSaveable { mutableStateOf(false) }
     val request = field.text
     val reply by produceState<Reply?>(null, request, submitted) {
+        val since = System.nanoTime()
         value = if (request.isBlank()) null else withContext(Dispatchers.Default) { Core.evaluate(request, submitted) }
+        if (!request.isBlank()) withContext(Dispatchers.Default) { Core.roundTrip("answer", request, since) }
     }
     // The keyboard at once, but only once the window has the focus: focused earlier (the window
     // not shown yet, the screen off or locked), Compose fails bringing the field into view.

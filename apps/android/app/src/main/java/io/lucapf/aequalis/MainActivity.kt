@@ -221,14 +221,18 @@ fun AequalisApp(initial: String = "") {
     // screen; a key pressed meanwhile cancels the wait, and only the latest request's answer shows.
     // What it shows (nothing but a result while a word is being typed) the core decides.
     val answer by produceState<Answer?>(null, input, submitted) {
+        val since = System.nanoTime()
         value = if (input.isBlank()) null else Answer(input, withContext(Dispatchers.Default) { Core.evaluate(input, submitted) })
+        if (!input.isBlank()) withContext(Dispatchers.Default) { Core.roundTrip("answer", input, since) }
     }
     val reply = answer?.reply
     // The request on screen and its result, kept when the app is left.
     SideEffect { History.shown = answer?.let { a -> a.reply.result?.let { HistoryEntry(a.request, it, 0, a.reply.value ?: it) } } }
     val before = input.take(edit.cursor)
     val offered by produceState(Suggestions(0, emptyList()), before) {
+        val since = System.nanoTime()
         value = withContext(Dispatchers.Default) { Core.suggestions(before) }
+        withContext(Dispatchers.Default) { Core.roundTrip("suggestions", before, since) }
     }
     val change = { e: Edit -> edit = e; submitted = false }
     val scope = rememberCoroutineScope()
