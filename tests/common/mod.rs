@@ -33,6 +33,16 @@ pub fn config(name: &str, settings: &[(&str, &str)]) -> PathBuf {
     dir
 }
 
+/// A copy of the tests' shared configuration (`tests/config`: offline, distances in km) in a
+/// directory of its own, for a run that saves settings (the interactive mode keeps the favourite
+/// units' hits): the shared file, in the repository, stays as it is.
+pub fn shared_config(name: &str) -> PathBuf {
+    let dir = config(name, &[]);
+    let shared = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/config/aequalis/settings.json");
+    std::fs::copy(shared, dir.join("aequalis/settings.json")).unwrap();
+    dir
+}
+
 /// The binary with that config directory, the C locale, no input; and a proxy nothing answers,
 /// so that a sync online (`--sync` downloads everything) fails at once for the network sources
 /// (`file://` archives still work).
