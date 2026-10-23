@@ -52,7 +52,7 @@ Findings are in `fuzz/findings/<kind>/<key>/` (not in git):
 | `length` | the 512-character limit not respected | fix |
 | `choices` | a question's choice asks the same question again: a loop in the app | fix |
 | `differential` | the calculator disagrees with Python on the same expression | check: a bug, or a rule Python doesn't model |
-| `inconsistency` | two spellings of the same request answer differently (spaces, brackets, case, `to`/`in`/`->`, round trips) | check |
+| `inconsistency` | two spellings of the same request answer differently (spaces, brackets, case, `to`/`in`/`->`, round trips). For sizes (`size-*` keys, `docs/SPEC_CLOTHES.md` §8.2): a shoe or clothes row written every way (orders, connectors, the attached system, translations, fillers, countries and adjectives), converted and back, its lines beside a currency against the explicit request, and every prefix a hint or an answer | check |
 | `semantics` | a design question, not a bug (a huge intermediate value turned into an answer) | decide |
 | `slow` | a call over 50 ms, timed three times (a phone is 5–10× slower) | look |
 | `memory` | a worker over 300 MB | look |

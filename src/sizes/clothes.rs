@@ -2,7 +2,7 @@
 //! suit, men's trousers, men's shirt); a clothes request read from the request's tokens; every chart
 //! that answers it, the first as the result.
 
-use super::{Answer, Error, Label, Person, System, Token, BRAND_NOTE};
+use super::{Answer, Error, Label, Person, System, Token, Written, BRAND_NOTE};
 
 /// A clothes chart, in priority order: the technical ones (waist, collar) last.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -286,6 +286,7 @@ fn candidates(items: &[&str], measure: Option<Measure>, person: Option<Person>, 
 fn own_system(size: &Size, s: System) -> bool {
     match size {
         Size::Letter(l) => s == System::Int || (s == System::Jp && (l == "LL" || l == "3L")),
+        Size::Range(a, ..) => matches!(**a, Size::Letter(_)) && s == System::Int,
         Size::Cn(_) => s == System::Cn,
         Size::Waist(..) => matches!(s, System::Us | System::Uk),
         _ => false,
@@ -658,7 +659,7 @@ pub(super) fn beside(tokens: &[Token]) -> Option<crate::Extra> {
         match t {
             Token::Number(n) if n.age.is_none() && label.is_none() => label = Some(Label::Number(n.clone())),
             Token::Letter(l) if label.is_none() => label = Some(Label::Letter(l.clone())),
-            Token::System(s, typed, false) => systems.push((*s, typed.clone())),
+            Token::System(s, typed, Written::Code | Written::Attached) => systems.push((*s, typed.clone())),
             Token::Connector | Token::In => {}
             _ => return None,
         }

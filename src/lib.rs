@@ -518,7 +518,8 @@ pub fn convert_request(config: &Config, opts: &Options, tokens: &[&str]) -> Resu
     let lines = sizes::beside(&input);
     match others(config, opts, &input) {
         Ok(out) => Ok(beside(out, lines)),
-        Err(e) if lines.is_empty() => Err(e),
+        // A size with nothing to convert it to yet (`42 de`, `XXL`): what comes next.
+        Err(e) if lines.is_empty() => Err(sizes::hint(&input).map_or(e, |h| CliError::Incomplete(h, Vec::new()))),
         Err(_) => Ok(only_sizes(lines)),
     }
 }

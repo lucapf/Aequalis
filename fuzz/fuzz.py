@@ -68,6 +68,28 @@ def config(cid):
 # ---------------------------------------------------------------- build
 
 
+def size_vocab(doc):
+    """The shoe and clothes charts and the words of a size request, by meaning: each word under the
+    first meaning it has (as the engine reads it: `abito` is a dress, not a suit)."""
+    words = doc["words"]
+    seen = set()
+
+    def first(ws):
+        out = [w for w in ws if w.lower() not in seen]
+        seen.update(w.lower() for w in ws)
+        return out
+    return {
+        "items": {e["item"]: first(e["words"]) for e in words["items"]},
+        "body": {e["measure"]: first(e["words"]) for e in words["body"]},
+        "persons": {e["person"]: first(e["words"]) for e in words["persons"]},
+        "size_words": first(words["size"]),
+        "systems": {e["system"]: first(e["words"]) for e in words["systems"]},
+        "fillers": first(words["fillers"]),
+        "shoes": doc["charts"],
+        "clothes": doc["clothes"],
+    }
+
+
 def build():
     cargo = ["cargo", "--quiet"]
     subprocess.check_call(cargo + ["rustc", "--profile", "fuzz", "--lib", "--no-default-features", "--features", "ffi", "--crate-type", "cdylib"], cwd=ROOT)
@@ -104,6 +126,7 @@ def build():
         },
         "seeds": seeds(),
         "sizes": [w for group in data("sizes.json")["words"].values() if isinstance(group, list) for e in group if isinstance(e, dict) for w in e["words"]],
+        **size_vocab(data("sizes.json")),
     }
     vocab["samples"] = {k: v for k, v in vocab["samples"].items() if os.path.exists(v)}
     with open(os.path.join(WORK, "vocab.json"), "w") as f:

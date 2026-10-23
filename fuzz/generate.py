@@ -165,6 +165,94 @@ class Generator:
         return self.pick([f"{size} {system()} {self.pick(words)} {self.pick(words)} {system()}", f"{self.pick(words)} {size}", f"{size} {system()} {system()}",
                           f"{size} {self.pick(['cm', 'in'])} {self.pick(words)} foot", f"{system()} {size} {self.pick(words)}", f"{size} {system()}"])
 
+    def clothes(self):
+        """Clothing sizes in many phrasings (`44 it dress us`, `M women top it`, `W32 L34 trousers eu`,
+        `92 cm bust`, `size 42 eu us`), and sizes with no size word (`44 it us`, `M it`)."""
+        items = self.v.get("items") or {}
+        item = lambda: self.pick(items.get(self.pick(["clothes", "dress", "top", "trousers", "shirt", "suit"])) or ["clothes"])
+        adjectives = [w for ws in (self.v.get("systems") or {}).values() for w in ws]
+        system = lambda: self.pick(["eu", "uk", "us", "it", "fr", "de", "jp", "cn", "int", "IT", "Eu"] + adjectives[:1] + [self.pick(adjectives or ["eu"])])
+        label = self.pick(["44", "8", "38", "40", "M", "xl", "2XL", "XXS", "LL", "3L", "S/M", "8-10", "S-M", "8/10", "160/84A", "165/92", "W32", "32W", "32x34",
+                           "W32 L34", "32/34", "15.5", "15½", "39", "IT44", "44it", "us8", "0", "-3", self.number()])
+        body = lambda: self.pick((self.v.get("body") or {}).get(self.pick(["bust", "chest", "waist", "hip", "collar", "torso"])) or ["bust"])
+        person = self.pick(["", "", "women ", "men ", "donna ", "uomo ", "kids ", "toddler "])
+        filler = self.pick(["", "", "size ", "my size is ", "what is ", "taglia ", "talla de "])
+        conn = self.pick(["", "to ", "in ", "-> ", "→ ", "= ", "a "])
+        size_word = self.pick(self.v.get("size_words") or ["size"])
+        text = self.pick([
+            f"{filler}{label} {system()} {person}{item()} {conn}{system()}",
+            f"{item()} {label} {system()} {conn}{system()}",
+            f"{person}{item()} {label} {conn}{system()}",
+            f"{label} {system()} {conn}{system()}",
+            f"{label} {system()}",
+            f"{self.number()} {self.pick(['cm', 'in', '"'])} {body()}",
+            f"{body()} {label} {self.pick(['cm', 'in', ''])} {system()}",
+            f"{label} {person}{item()}",
+            f"{size_word} {label} {system()} {conn}{system()}",
+            f"{label} {system()} {person}{conn}{system()}",
+        ])
+        return " ".join(text.split())
+
+    def size_case(self):
+        """A size read from a chart (a shoe or clothes row, a system it has and another): the request
+        and the words to write it otherwise, for the oracles (SPEC_CLOTHES §8.2)."""
+        items, persons = self.v.get("items") or {}, self.v.get("persons") or {}
+        if self.r.random() < 0.3 and self.v.get("shoes"):
+            chart = self.pick(self.v["shoes"])
+            columns = [c for c in chart["columns"] if c in ("us", "uk", "eu", "jp")]
+            item, words = f"{chart['person']} shoes", items.get("shoes", ["shoes"])
+            kind = f"shoes {chart['person']}"
+        elif self.v.get("clothes"):
+            chart = self.pick(self.v["clothes"])
+            columns = [c for c in chart["columns"] if c not in ("bust", "waist", "hip")]
+            name = chart["chart"]
+            # The words that reach that chart alone: a dress is women's; men's trousers and shirts need `men`.
+            item = {"women": "dress", "suit": "suit", "trousers": "men trousers", "shirt": "men shirt"}[name]
+            words = items.get({"women": "dress", "suit": "suit", "trousers": "trousers", "shirt": "shirt"}[name], [item])
+            if name == "suit":
+                columns = [c for c in columns if c != "jp"]
+            if name == "shirt":
+                columns = [c for c in columns if c != "int"]
+            kind = f"clothes {name}"
+        else:
+            return None
+        if len(columns) < 2:
+            return None
+        row = self.pick(chart["rows"])
+        source, target = self.r.sample(columns, 2)
+        label = row[chart["columns"].index(source)]
+        if not label or not row[chart["columns"].index(target)]:
+            return None
+        person = item.split(" ")[0] if " " in item else None
+        men = [w for w in persons.get("men", []) if " " not in w] if person == "men" else []
+        return {"kind": kind, "label": label, "system": source, "target": target, "item": item, "words": words, "person": person, "men": men}
+
+    def size_phrasings(self, case):
+        """Ways to write a size request that must give its answer: connectors, orders, case, the
+        attached system, translations of the item, fillers and punctuation, countries and adjectives."""
+        label, system, target, item = case["label"], case["system"], case["target"], case["item"]
+        person = f"{case['person']} " if case["person"] else ""
+        noun = item.split(" ")[-1]
+        out = []
+        for c in ["", "to ", "in ", "-> ", "→ ", "= "]:
+            out += [f"{label} {system} {item} {c}{target}", f"{item} {label} {system} {c}{target}", f"{system} {label} {item} {c}{target}"]
+        out.append(f"{label} {system.upper()} {item.upper()} {target.upper()}")
+        if any(ch.isdigit() for ch in label) and "/" not in label and len(system) == 2:
+            out += [f"{item} {system}{label} {target}", f"{label}{system} {item} {target}"]
+        for w in self.r.sample(case["words"], min(3, len(case["words"]))):
+            if " " not in w:
+                out.append(f"{label} {system} {person}{w} {target}")
+        if case["men"]:
+            out.append(f"{label} {system} {self.pick(case['men'])} {noun} {target}")
+        out += [f"size {label} {system} {item} in {target}", f"my {item} size is {label} {system}, what is it in {target}?"]
+        names = self.v.get("systems") or {}
+        for s, at in ((system, "source"), (target, "target")):
+            ws = [w for w in names.get(s, []) if " " not in w]
+            if ws:
+                w = self.pick(ws)
+                out.append(f"{item} {label} {w} to {target}" if at == "source" else f"{label} {system} {item} to {w}")
+        return out
+
     def percent(self):
         a, b = self.number(), self.number()
         return self.pick([f"{a} + {b}%", f"{a} - {b}%", f"{b}% of {a}", f"{a} * {b}%", f"{b}%", f"{a} + {b}% + {b}%"])
@@ -222,7 +310,7 @@ class Generator:
 
     def request(self, simple=False):
         """A request and the name of the strategy that made it."""
-        features = [self.conversion, self.compound, self.money, self.dates, self.times, self.distance, self.percent, self.sizes]
+        features = [self.conversion, self.compound, self.money, self.dates, self.times, self.distance, self.percent, self.sizes, self.clothes]
         r = self.r.random()
         if simple or r < 0.45:
             text = self.pick(features)()

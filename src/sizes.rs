@@ -416,11 +416,20 @@ enum Token {
     Waist(f64, Option<f64>, String),
     /// An inseam alone, `L34`: beside a waist.
     Inseam(f64),
-    /// A system, as typed (`eu`, `italian`); and whether a word named it (a country, an adjective).
-    System(System, String, bool),
+    /// A system, as typed (`eu`, `italian`), and how.
+    System(System, String, Written),
     Cm,
     In,
     Connector,
+}
+
+/// How a system is written: its code (`it`), its code on the size (`IT44`), a country or an adjective
+/// (`italian`: only beside a size word).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Written {
+    Code,
+    Attached,
+    Name,
 }
 
 /// A word as a size label, or a pair of them: `44`, `M`, `8-10`, `S/M`, `160/84A`, `W32`, `32x34`.
@@ -468,12 +477,12 @@ fn attached(w: &str) -> Option<(System, String, Number, bool)> {
     let lower = w.to_ascii_lowercase();
     let cut = lower.len().checked_sub(2)?;
     if lower.len() > 2 && lower.is_char_boundary(2) {
-        if let (Some(s), Some(n)) = (system(&lower[..2]), plain(&lower[2..])) {
+        if let (Some(s), Some(n)) = (system(&lower[..2]), number(&w[2..])) {
             return Some((s, lower[..2].to_string(), n, true));
         }
     }
     if cut > 0 && lower.is_char_boundary(cut) {
-        if let (Some(s), Some(n)) = (system(&lower[cut..]), plain(&lower[..cut])) {
+        if let (Some(s), Some(n)) = (system(&lower[cut..]), number(&w[..cut])) {
             return Some((s, lower[cut..].to_string(), n, false));
         }
     }
@@ -503,7 +512,7 @@ fn tokens(input: &str) -> Option<Vec<Token>> {
             let plain = phrase.strip_suffix("'s").or_else(|| phrase.strip_suffix("’s")).unwrap_or(&phrase);
             if let Some((w, weak)) = word(&phrase).or_else(|| word(plain)) {
                 out.push(match w {
-                    Word::System(s) => Token::System(s, phrase, true),
+                    Word::System(s) => Token::System(s, phrase, Written::Name),
                     Word::Body(_) if !measured && crate::time::tz::key(&phrase) == "taille" => Token::Word(Word::Size, false),
                     w => Token::Word(w, weak),
                 });
@@ -513,7 +522,7 @@ fn tokens(input: &str) -> Option<Vec<Token>> {
             // A country (`Italy`, `United States`) as its system; not a code (`us` is the system).
             if phrase.chars().count() > 3 {
                 if let Some(s) = crate::time::tz::country(&phrase).and_then(|c| country_system(c.code)) {
-                    out.push(Token::System(s, phrase, true));
+                    out.push(Token::System(s, phrase, Written::Name));
                     i += n;
                     continue 'next;
                 }
@@ -530,14 +539,14 @@ fn tokens(input: &str) -> Option<Vec<Token>> {
         } else if let Some((n, unit)) = unit {
             out.extend([Token::Number(n), unit]);
         } else if let Some((s, typed, n, before)) = attached(w) {
-            let s = Token::System(s, typed, false);
+            let s = Token::System(s, typed, Written::Attached);
             if before {
                 out.extend([s, Token::Number(n)]);
             } else {
                 out.extend([Token::Number(n), s]);
             }
         } else if let Some(s) = system(w) {
-            out.push(Token::System(s, w.to_string(), false));
+            out.push(Token::System(s, w.to_string(), Written::Code));
         } else if lower == "cm" {
             out.push(Token::Cm);
         } else if lower == "in" {
@@ -562,10 +571,10 @@ fn pronouns(tokens: Vec<Token>) -> Vec<Token> {
         .filter(|&i| {
             let (before, after) = (i.checked_sub(1).and_then(|j| tokens.get(j)), tokens.get(i + 1));
             match &tokens[i] {
-                Token::System(System::It, typed, false) if typed.len() == 2 => {
+                Token::System(System::It, _, Written::Code) => {
                     label(before) || label(after) || !(matches!(before, Some(Token::Word(Word::Filler, _))) || matches!(after, Some(Token::In | Token::Connector)))
                 }
-                Token::System(System::De, typed, false) if typed.len() == 2 => !(word(before) && label(after)),
+                Token::System(System::De, _, Written::Code) => !(word(before) && label(after)),
                 _ => true,
             }
         })
@@ -1122,6 +1131,20 @@ pub fn beside(input: &str) -> Vec<crate::Extra> {
     [shoes_beside(&tokens), clothes::beside(&tokens)].into_iter().flatten().collect()
 }
 
+/// What comes next after a size with nothing to convert it to (`42 de` where DE sizes are the
+/// region's, a letter alone, `XXL`): every prefix of a size request is a hint or an answer
+/// (SPEC_CLOTHES §3.7). `None`: no size typed that way.
+pub fn hint(input: &str) -> Option<String> {
+    let tokens = tokens(input)?;
+    let label = |t: &Token| matches!(t, Token::Number(_) | Token::Letter(_) | Token::Range(..) | Token::Cn(..) | Token::Waist(..));
+    let code = |t: &Token| matches!(t, Token::System(_, _, Written::Code | Written::Attached));
+    let fits = tokens.iter().all(|t| label(t) || code(t) || matches!(t, Token::Inseam(_) | Token::Connector));
+    let (labels, systems) = (tokens.iter().filter(|t| label(t)).count(), tokens.iter().filter(|t| code(t)).count());
+    // A plain number alone is a calculation.
+    let number = matches!(tokens[..], [Token::Number(Number { age: None, .. })]);
+    (fits && labels == 1 && systems <= 1 && !number).then(|| "now the system to convert to: eu, uk, us, it, fr, de, jp, cn, int".to_string())
+}
+
 /// The shoe sizes beside a currency that could also be one (`42 eu us`, SPEC_SIZES §4.1): every
 /// person's, no notes; in the region's system without a target, none when that is the typed one.
 fn shoes_beside(tokens: &[Token]) -> Option<crate::Extra> {
@@ -1130,7 +1153,7 @@ fn shoes_beside(tokens: &[Token]) -> Option<crate::Extra> {
     for t in tokens {
         match t {
             Token::Number(n) if n.age.is_none() && amount.is_none() => amount = Some(n),
-            Token::System(s, typed, false) => systems.push((s.for_shoes()?.0, typed.clone())),
+            Token::System(s, typed, Written::Code | Written::Attached) => systems.push((s.for_shoes()?.0, typed.clone())),
             Token::Connector | Token::In => {}
             _ => return None,
         }
@@ -1376,7 +1399,7 @@ mod tests {
     #[test]
     fn attached_systems_countries_and_fillers() {
         let systems = |input: &str| {
-            tokens(input).unwrap().into_iter().filter_map(|t| if let Token::System(s, _, named) = t { Some((s, named)) } else { None }).collect::<Vec<_>>()
+            tokens(input).unwrap().into_iter().filter_map(|t| if let Token::System(s, _, w) = t { Some((s, w == Written::Name)) } else { None }).collect::<Vec<_>>()
         };
         assert_eq!(systems("IT44 dress US"), [(System::It, false), (System::Us, false)]);
         assert_eq!(systems("44it dress"), [(System::It, false)]);

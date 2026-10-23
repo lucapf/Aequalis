@@ -395,6 +395,67 @@ class Worker:
             if not (isinstance(d3, dict) and d3.get("result") == result):
                 self.report("inconsistency", f"case:{cat['name']}", f"`{x} {a['symbol']} {b['symbol']}` → {result}; upper case → {(d3 or {}).get('result') or (d3 or {}).get('error')}", "eval", f"{x} {a['symbol'].upper()} {b['symbol'].upper()}")
 
+    def sizes(self):
+        """Shoes and clothes (SPEC_CLOTHES §8.2): the same answer in any phrasing; a size converted and
+        back reads its row again; the lines beside a currency say what the explicit request says;
+        every prefix that ends a word gives an answer or a hint, never a usage error."""
+        case = self.gen.size_case()
+        if case is None:
+            return
+        base = f"{case['label']} {case['system']} {case['item']} {case['target']}"
+        doc, _ = self.eval(base)
+        if not (isinstance(doc, dict) and doc.get("ok")):
+            return
+        result = doc.get("result")
+        for variant in self.gen.size_phrasings(case):
+            d2, _ = self.eval(variant)
+            if not (isinstance(d2, dict) and d2.get("result") == result):
+                got = (d2 or {}).get("result") or (d2 or {}).get("error")
+                self.report("inconsistency", f"size-phrasing:{case['kind']}", f"`{base}` → {result}; `{variant}` → {got}", "eval", variant)
+        # Round trip: the value back in the source system, when the answer is one plain size.
+        value = result.split(" ")[-1] if isinstance(result, str) else ""
+        if value and not any(ch in result for ch in "(–\n,"):
+            back = f"{value} {case['target']} {case['item']} {case['system']}"
+            db, _ = self.eval(back)
+            shown = case["label"] if case["system"] == "int" else f"{case['system'].upper()} {case['label']}"
+            if case["kind"].startswith("shoes") and case["system"] == "jp":
+                shown += " cm"
+            # Two shoe charts, half sizes, kids' ages: a way back that names them is not one size.
+            plain = isinstance(db, dict) and db.get("ok") and not any(ch in (db.get("result") or "") for ch in "(–\n,")
+            if plain and db.get("result") != shown:
+                self.report("inconsistency", f"size-round-trip:{case['kind']}", f"`{base}` → {result}; `{back}` → {db.get('result')}", "eval", base)
+        self.size_lines(case)
+        # Every prefix that ends a word: an answer or a hint.
+        words = base.split(" ")
+        for i in range(1, len(words)):
+            prefix = " ".join(words[:i])
+            dp, _ = self.eval(prefix)
+            if isinstance(dp, dict) and not dp.get("ok") and dp.get("exit") == 2 and not dp.get("incomplete"):
+                self.report("inconsistency", f"size-prefix:{case['kind']}", f"`{prefix}` (of `{base}`) → {dp.get('error')}", "eval", prefix)
+
+    def size_lines(self, case):
+        """A size with no size word (`42 eu us`): its shoes and clothes lines are the answers of the
+        explicit requests (`shoes 42 eu us`, `clothes 42 eu us`)."""
+        label, system, target = case["label"], case["system"], case["target"]
+        if not label.replace(".", "", 1).isdigit():
+            return
+        plain, _ = self.eval(f"{label} {system} {target}")
+        lines = {e.get("type"): e.get("results") for e in (plain or {}).get("extra") or [] if isinstance(e, dict) and e.get("type") in ("shoes", "clothes")}
+        for kind, results in lines.items():
+            explicit, _ = self.eval(f"{kind} {label} {system} {target}")
+            if not (isinstance(explicit, dict) and explicit.get("ok")):
+                self.report("inconsistency", f"size-line:{kind}", f"`{label} {system} {target}` has {results}; `{kind} …` → {(explicit or {}).get('error')}", "eval", f"{label} {system} {target}")
+                continue
+            said = [explicit.get("result")]
+            for e in explicit.get("extra") or []:
+                rest = e.get("type", "")[len(kind) + 1:]
+                said += [f"{r} {rest}".strip() if rest else r for r in e.get("results") or []]
+            # One answer names no chart or person (`EU 46`); its line does (`EU 46 men's shirt`). The
+            # line leaves out what changes nothing (a shirt's UK 15 is its US 15): a part of the answer.
+            one = not explicit.get("extra") and len(results or []) == 1 and (results[0] + " ").startswith(f"{said[0]} ")
+            if not one and not set(results or []) <= set(r for r in said if r):
+                self.report("inconsistency", f"size-line:{kind}", f"`{label} {system} {target}` → {results}; `{kind} {label} {system} {target}` → {said}", "eval", f"{label} {system} {target}")
+
     def settings(self):
         """A burst of settings changes, then requests, then the configuration's settings back."""
         reply, _ = self.engine.list("settings")
@@ -435,12 +496,14 @@ class Worker:
         last = time.time()
         while True:
             r = self.r.random()
-            if r < 0.80:
+            if r < 0.78:
                 self.request()
-            elif r < 0.90:
+            elif r < 0.88:
                 self.calculation()
-            elif r < 0.96:
+            elif r < 0.94:
                 self.units()
+            elif r < 0.96:
+                self.sizes()
             elif r < 0.975:
                 self.settings()
             elif r < 0.99:
