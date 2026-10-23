@@ -395,7 +395,10 @@ object Core {
             } else {
                 val file = File(to.decodeToString())
                 file.parentFile?.mkdirs()
-                (if (code >= 400) connection.errorStream else connection.inputStream)?.use { input -> file.outputStream().use { input.copyTo(it) } }
+                // Counted, for a sync by hand's progress and speed (Settings).
+                (if (code >= 400) connection.errorStream else connection.inputStream)?.use { input ->
+                    file.outputStream().use { SyncProgress.copy(input, it, connection.contentLengthLong) }
+                }
                 true
             }
         } finally {

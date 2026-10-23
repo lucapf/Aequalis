@@ -7,6 +7,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -69,7 +70,8 @@ fun AboutScreen(close: () -> Unit, modifier: Modifier = Modifier) {
     val scope = rememberCoroutineScope()
     val open = { link: String -> context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(link))) }
     val appVersion = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull()
-    Column(modifier.fillMaxSize()) {
+    // Above the navigation bar (the app draws edge to edge).
+    Column(modifier.fillMaxSize().navigationBarsPadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = close) { Icon(BackIcon, contentDescription = "Back") }
             Text("About", style = MaterialTheme.typography.titleLarge)

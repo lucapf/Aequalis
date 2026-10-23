@@ -29,6 +29,9 @@ pub struct View {
     pub confirm_reset: bool,
     /// The list of a choice or of the currencies, open under its row.
     pub list: Option<List>,
+    /// A sync by hand running (since then), and its progress as last read (`online::read_progress`).
+    pub syncing: Option<std::time::Instant>,
+    pub progress: Option<aequalis::online::Syncing>,
 }
 
 /// The values to pick from, filtered by what is typed.
@@ -54,7 +57,10 @@ impl View {
     /// The window on the settings file at `file`.
     pub fn on(file: PathBuf) -> View {
         let settings = settings::load_from(&file).unwrap_or_default();
-        View { selected: 0, edit: None, message: None, file, settings, advanced: false, confirm_reset: false, list: None }
+        // A sync by hand still running (the window closed and opened again): its progress shown.
+        let running = aequalis::online::read_progress().is_some_and(|p| p.done.is_none() && p.age < 5);
+        let syncing = running.then(std::time::Instant::now);
+        View { selected: 0, edit: None, message: None, file, settings, advanced: false, confirm_reset: false, list: None, syncing, progress: None }
     }
 
     /// The window on the setting `key` (the advanced ones listed when it is one).
@@ -284,15 +290,79 @@ fn download(view: &mut View) {
             .spawn()
             .ok()
     });
-    view.message = Some(match started {
-        Some(_) => "syncing in the background".to_string(),
-        None => "could not start the download".into(),
-    });
+    view.message = match started {
+        Some(_) => None,
+        None => Some("could not start the download".into()),
+    };
+    view.syncing = started.is_some().then(std::time::Instant::now);
+    view.progress = None;
+}
+
+/// A sync by hand from this window: its progress read again (the bar, the speed); at its end, its
+/// report as the message. `true` while it runs: the frame is drawn again (the bar moves).
+pub fn poll_sync(view: &mut View) -> bool {
+    let Some(started) = view.syncing else { return false };
+    match aequalis::online::read_progress() {
+        Some(aequalis::online::Syncing { done: Some((done, failed)), .. }) => {
+            let all: Vec<String> = done.into_iter().chain(failed).collect();
+            view.message = Some(if all.is_empty() { "synced".to_string() } else { all.join(", ") });
+            (view.syncing, view.progress) = (None, None);
+            if let Some(path) = aequalis::online::progress_path() {
+                let _ = std::fs::remove_file(path);
+            }
+        }
+        // It stopped writing, or never started: it died.
+        Some(p) if p.age > 30 => {
+            (view.syncing, view.progress, view.message) = (None, None, Some("sync stopped".into()));
+        }
+        None if started.elapsed().as_secs() > 10 => {
+            (view.syncing, view.progress, view.message) = (None, None, Some("sync stopped".into()));
+        }
+        p => view.progress = p,
+    }
+    true
+}
+
+/// The Download row while a sync runs: `Syncing ████░░░░░░ 40%`, or a block moving across while
+/// there is no percentage yet.
+pub fn sync_bar(view: &View) -> Option<String> {
+    const CELLS: usize = 10;
+    let started = view.syncing?;
+    let bar = match view.progress.as_ref().and_then(|p| p.fraction) {
+        Some(f) => {
+            let filled = ((f * CELLS as f64).round() as usize).min(CELLS);
+            format!("{}{} {:.0}%", "█".repeat(filled), "░".repeat(CELLS - filled), f * 100.0)
+        }
+        None => {
+            let at = (started.elapsed().as_millis() / 150) as usize % (CELLS + 2);
+            (0..CELLS).map(|i| if i + 2 >= at && i < at { '█' } else { '░' }).collect()
+        }
+    };
+    Some(format!("Syncing {bar}"))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_sync_row_while_it_runs() {
+        let mut v = View::default();
+        assert_eq!(sync_bar(&v), None, "Sync, when none runs");
+        v.syncing = Some(std::time::Instant::now());
+        assert_eq!(sync_bar(&v).unwrap(), "Syncing ░░░░░░░░░░", "no percentage yet: the block not in yet");
+        v.progress = Some(aequalis::online::Syncing { fraction: Some(0.0), ..Default::default() });
+        assert_eq!(sync_bar(&v).unwrap(), "Syncing ░░░░░░░░░░ 0%");
+        v.progress = Some(aequalis::online::Syncing { fraction: Some(0.4), speed: 400_000, ..Default::default() });
+        assert_eq!(sync_bar(&v).unwrap(), "Syncing ████░░░░░░ 40%");
+        // Its end: the report as the message.
+        let _m = aequalis::machine::Mock::italy().install();
+        let path = aequalis::online::progress_path().unwrap();
+        std::fs::write(&path, r#"{"speed":0,"done":["9 cities","166 exchange rates"],"failed":[]}"#).unwrap();
+        assert!(poll_sync(&mut v));
+        assert_eq!((v.syncing, v.message.as_deref()), (None, Some("9 cities, 166 exchange rates")));
+        assert!(!path.exists(), "read once");
+    }
     use crate::tui::keys::Key;
 
     /// The window on a settings file of its own (`offline` on: no download starts).

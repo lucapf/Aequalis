@@ -1765,7 +1765,9 @@ fn settings_window(canvas: &mut Canvas, rows: usize, view: &super::settings::Vie
         _ => "download rates, cities and live values now".to_string(),
     };
     canvas.put_within(sep + 1, left + 2, right, &about, Style::Dim);
-    if let Some(msg) = &view.message {
+    // While syncing, the download speed; then the report.
+    let speed = view.syncing.map(|_| aequalis::online::speed_text(view.progress.as_ref().map_or(0, |p| p.speed)));
+    if let Some(msg) = speed.as_ref().or(view.message.as_ref()) {
         canvas.put_within(sep + 2, left + 2, right, msg, Style::Green);
     }
     if let Some(list) = &view.list {
@@ -1794,7 +1796,7 @@ fn settings_row(view: &super::settings::View, row: super::settings::Row, chosen:
             n => format!(" Advanced ({n} changed)"),
         },
         Row::Reset => format!(" {}", super::settings::RESET),
-        Row::Download => format!(" {}", super::settings::DOWNLOAD),
+        Row::Download => format!(" {}", super::settings::sync_bar(view).unwrap_or_else(|| super::settings::DOWNLOAD.to_string())),
     }
 }
 

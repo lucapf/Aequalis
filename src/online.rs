@@ -273,7 +273,7 @@ pub type Fetch = Box<dyn Fn() -> Option<Vec<(String, f64)>>>;
 /// What a sync did: a line for each group that managed (`12 exchange rates`) and for each that did
 /// not (`cities: could not download the city archive (…)`). Each group is synced on its own: one
 /// that fails does not keep the others from their turn.
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Report {
     pub done: Vec<String>,
     pub failed: Vec<String>,
@@ -312,6 +312,95 @@ pub fn sync(auto: bool) -> Result<Report, String> {
         }
     }
     Ok(report)
+}
+
+// ---------------------------------------------------------------- a sync by hand's progress
+
+/// A sync by hand's progress, as the interactive mode shows it (`aequalis --sync` writes it to
+/// `sync-progress.json`): how far the big download is, the speed, and at the end the report.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Syncing {
+    /// How far the big download is, 0 to 1; `None`: no percentage (nothing big downloading yet).
+    pub fraction: Option<f64>,
+    /// The current download speed, bytes a second.
+    pub speed: u64,
+    /// Ended: what was synced, and what failed.
+    pub done: Option<(Vec<String>, Vec<String>)>,
+    /// Seconds since it was last written: a sync that died stops writing.
+    pub age: u64,
+}
+
+/// A download from this size shows its percentage; the smaller ones (the rates, the live values)
+/// finish too fast to show and leave it as it is.
+const BIG: u64 = 200_000;
+
+/// A download speed for people, as browsers write it (1000-based): `800 B/s`, `400 kB/s`, `1.2 MB/s`.
+pub fn speed_text(bytes_per_second: u64) -> String {
+    match bytes_per_second {
+        b if b < 1_000 => format!("{b} B/s"),
+        b if b < 1_000_000 => format!("{} kB/s", b / 1_000),
+        b => format!("{:.1} MB/s", b as f64 / 1_000_000.0),
+    }
+}
+
+/// The progress file of a sync by hand.
+pub fn progress_path() -> Option<PathBuf> {
+    crate::files::dir().map(|d| d.join("sync-progress.json"))
+}
+
+fn write_progress(fraction: Option<f64>, speed: u64, done: Option<&Report>) {
+    let Some(path) = progress_path() else { return };
+    let mut text = format!("{{\"speed\":{speed}");
+    if let Some(f) = fraction {
+        text += &format!(",\"fraction\":{f:.4}");
+    }
+    if let Some(r) = done {
+        let list = |l: &[String]| l.iter().map(|s| json::string(s)).collect::<Vec<_>>().join(",");
+        text += &format!(",\"done\":[{}],\"failed\":[{}]", list(&r.done), list(&r.failed));
+    }
+    text += "}";
+    let _ = crate::files::write_atomic(&path, text.as_bytes());
+}
+
+/// A sync by hand starts: its downloads' progress written to the progress file from now on, at
+/// most every 200 ms, the big download's percentage kept while small ones run.
+pub fn track() {
+    write_progress(None, 0, None);
+    let state = std::sync::Mutex::new((None::<f64>, Instant::now()));
+    crate::http::observe(Some(Box::new(move |p: crate::http::Progress| {
+        let mut s = state.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(total) = p.total.filter(|&t| t >= BIG) {
+            s.0 = Some((p.received as f64 / total as f64).min(1.0));
+        }
+        if s.1.elapsed().as_millis() >= 200 || s.0 == Some(1.0) {
+            s.1 = Instant::now();
+            write_progress(s.0, p.speed, None);
+        }
+    })));
+}
+
+/// The sync by hand ended: its report written, for the interactive mode to show.
+pub fn tracked(result: &Result<Report, String>) {
+    crate::http::observe(None);
+    let report = match result {
+        Ok(r) => r.clone(),
+        Err(e) => Report { done: Vec::new(), failed: vec![e.clone()] },
+    };
+    write_progress(None, 0, Some(&report));
+}
+
+/// The progress of a sync by hand, if one wrote it.
+pub fn read_progress() -> Option<Syncing> {
+    let path = progress_path()?;
+    let age = std::fs::metadata(&path).ok()?.modified().ok()?.elapsed().map_or(0, |d| d.as_secs());
+    let doc = json::parse(&std::fs::read_to_string(&path).ok()?).ok()?;
+    let list = |key: &str| doc.get(key).map(|v| v.array().iter().filter_map(|s| s.str().map(String::from)).collect::<Vec<_>>());
+    Some(Syncing {
+        fraction: doc.get("fraction").and_then(Value::number),
+        speed: doc.get("speed").and_then(Value::number).unwrap_or(0.0) as u64,
+        done: list("done").map(|done| (done, list("failed").unwrap_or_default())),
+        age,
+    })
 }
 
 /// The city archive: under `notify` (in the background) only its version is checked, and a newer
@@ -393,6 +482,29 @@ pub fn sync_into(path: &Path, sources: Vec<Source>, interval: i64, clock: &dyn F
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn speeds_as_browsers_write_them() {
+        assert_eq!((speed_text(800), speed_text(400_123), speed_text(1_234_567)), ("800 B/s".to_string(), "400 kB/s".to_string(), "1.2 MB/s".to_string()));
+    }
+
+    #[test]
+    fn a_sync_by_hand_writes_its_progress() {
+        let _m = crate::machine::Mock::italy().install();
+        track();
+        let start = read_progress().unwrap();
+        assert_eq!((start.fraction, start.speed, start.done), (None, 0, None));
+        // A small download leaves no percentage; a big one says how far it is.
+        let observe = |p| crate::http::OBSERVER.lock().unwrap().as_ref().map(|o| o(p));
+        observe(crate::http::Progress { received: 50_000, total: Some(100_000), speed: 400_000 });
+        std::thread::sleep(std::time::Duration::from_millis(210));
+        observe(crate::http::Progress { received: 8_000_000, total: Some(20_000_000), speed: 1_200_000 });
+        let p = read_progress().unwrap();
+        assert_eq!((p.fraction, p.speed), (Some(0.4), 1_200_000));
+        tracked(&Ok(Report { done: vec!["9 cities".into()], failed: vec!["rates: offline".into()] }));
+        assert_eq!(read_progress().unwrap().done, Some((vec!["9 cities".to_string()], vec!["rates: offline".to_string()])));
+        assert!(crate::http::OBSERVER.lock().unwrap().is_none(), "no more observed");
+    }
     use std::cell::Cell;
     use std::rc::Rc;
 

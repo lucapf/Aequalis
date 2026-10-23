@@ -135,7 +135,16 @@ fn sync(args: &[String], json: bool) -> Option<ExitCode> {
         return Some(fail(format!("`--sync` downloads everything: no `{extra}` after it")));
     }
     let code = |report: &online::Report| if report.failed.is_empty() { ExitCode::SUCCESS } else { ExitCode::from(1) };
-    Some(match (online::sync(auto), json) {
+    // By hand (the interactive mode's Download row starts one): its progress written as it goes,
+    // and its report at the end, for the interactive mode to show.
+    if !auto {
+        online::track();
+    }
+    let result = online::sync(auto);
+    if !auto {
+        online::tracked(&result);
+    }
+    Some(match (result, json) {
         // `--json`: the usual reply, the lines as the result (with the peak memory).
         (Ok(report), true) => {
             let output = Output { stdout: report.done.join("\n"), warnings: report.failed.clone(), ..Output::default() };

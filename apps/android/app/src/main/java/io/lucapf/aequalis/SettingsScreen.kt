@@ -11,13 +11,17 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -31,6 +35,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -41,6 +51,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
@@ -107,9 +120,11 @@ fun SettingsScreen(close: () -> Unit, openAbout: () -> Unit, modifier: Modifier 
     val sync = {
         if (!syncing) {
             syncing = true
-            message = "Syncing…"
+            message = null
+            SyncProgress.start()
             scope.launch {
                 message = withContext(Dispatchers.IO) { Core.download(auto = false) }.ifBlank { null }
+                SyncProgress.stop()
                 syncing = false
                 refreshOnline()
             }
@@ -118,7 +133,8 @@ fun SettingsScreen(close: () -> Unit, openAbout: () -> Unit, modifier: Modifier 
     }
     val shown = settings.filter { advanced || !it.advanced }
     val hiddenChanged = settings.count { it.advanced && it.value != it.default }
-    Column(modifier.fillMaxSize().imePadding()) {
+    // Above the keyboard and the navigation bar, whichever is taller (the app draws edge to edge).
+    Column(modifier.fillMaxSize().windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars))) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = close) { Icon(BackIcon, contentDescription = "Back") }
             Column(Modifier.weight(1f)) {
@@ -147,14 +163,43 @@ fun SettingsScreen(close: () -> Unit, openAbout: () -> Unit, modifier: Modifier 
                         Text(if (advanced) "Fewer" else if (hiddenChanged > 0) "Advanced ($hiddenChanged changed)" else "Advanced")
                     }
                     OutlinedButton(onClick = reset) { Text(if (confirmReset) "Reset: sure?" else "Reset") }
-                    OutlinedButton(onClick = sync, enabled = !syncing) { Text("Sync") }
+                    SyncButton(syncing, sync)
                 }
-                message?.let {
+                // While syncing, the download speed; then what was synced and what failed.
+                (if (syncing) speedText(SyncProgress.speed) else message)?.let {
                     Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 16.dp))
                 }
             }
         }
     }
+}
+
+/** Sync; while syncing, **Syncing**, filled in the accent colour as far as the big download is
+ *  (`SyncProgress.fraction`), or a band sweeping across while there is no percentage. A tap while
+ *  syncing does nothing (`sync` says so), the label stays readable. */
+@Composable
+private fun SyncButton(syncing: Boolean, sync: () -> Unit) {
+    val accent = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
+    val fraction = SyncProgress.fraction
+    // The sweep runs only while a sync has no percentage to show.
+    val sweep = if (syncing && fraction == null) {
+        rememberInfiniteTransition(label = "sync").animateFloat(
+            initialValue = -0.3f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(tween(1200, easing = LinearEasing)),
+            label = "sweep",
+        ).value
+    } else {
+        0f
+    }
+    val fill = Modifier.clip(ButtonDefaults.outlinedShape).drawBehind {
+        if (!syncing) return@drawBehind
+        when (fraction) {
+            null -> drawRect(accent, topLeft = Offset(size.width * sweep, 0f), size = Size(size.width * 0.3f, size.height))
+            else -> drawRect(accent, size = Size(size.width * fraction, size.height))
+        }
+    }
+    OutlinedButton(onClick = sync, modifier = fill) { Text(if (syncing) "Syncing" else "Sync") }
 }
 
 /** `online (2h old)`, `offline (forced, 2d old)`, `online (just synced)`, `never synced`. */

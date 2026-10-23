@@ -1204,6 +1204,9 @@ impl Screen {
     fn update(&mut self, app: &mut App, stdout: &mut std::io::Stdout) {
         app.keep_online_fresh();
         self.dirty |= app.refresh_online();
+        if let Some(Overlay::Settings(view)) = &mut app.overlay {
+            self.dirty |= settings::poll_sync(view);
+        }
         let synced = app.synced_ago();
         if synced != self.synced {
             (self.dirty, self.synced) = (true, synced);
