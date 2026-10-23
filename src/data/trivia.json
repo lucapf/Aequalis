@@ -68,6 +68,15 @@
         {"name": "Women's shoes", "symbol": "👟", "short": "US · UK · EU · JP · foot (Nike)", "table": "women", "description": "Nike's women's chart, each row one size in every system and the foot it fits. Other brands cut differently: check the brand's chart. A row writes its request (38 eu women shoes)."},
         {"name": "Kids' shoes", "symbol": "👟", "short": "US · UK · EU · JP · foot (Nike)", "table": "kids", "description": "Nike's kids' chart: toddler sizes (US C) then youth sizes (US Y), each row one size in every system and the foot it fits. Other brands cut differently: check the brand's chart. A row writes its request (30 eu kids shoes)."}
       ]
+    },
+    {
+      "name": "Clothes",
+      "entries": [
+        {"name": "Women's clothes", "symbol": "👗", "short": "US · UK · DE · FR · IT · JP · bust", "table": "clothes women", "description": "Dresses, tops and trousers: one chart, each row one size in every system and the bust, waist and hip it fits (ASOS's body measures). EU sizes are DE's. Brands cut differently: check the brand's chart. A row writes its request (44 it dress)."},
+        {"name": "Men's suits", "symbol": "🧥", "short": "Chest · EU/IT/FR · JP · letters", "table": "clothes suit", "description": "Suits and jackets by the chest in inches (US and UK alike), the continental number (EU, IT, FR: the chest + 10) and the letters, from ASOS's chest ranges; these letters are the men's letters. A row writes its request (50 eu suit)."},
+        {"name": "Men's trousers", "symbol": "👖", "short": "Waist · EU/IT · letters", "table": "clothes trousers", "description": "Trousers by the waist in inches (W32), the continental number and the letters, with the waist in cm (ASOS). The inseam (L34) has no other system. A row writes its request (W32 trousers)."},
+        {"name": "Men's shirts", "symbol": "👔", "short": "Collar · cm · in · letters", "table": "clothes shirt", "description": "Shirts by the collar: in cm (EU) and inches (US, UK), and the letters German shirt makers use. A row writes its request (39 eu men shirt)."}
+      ]
     }
   ]
 }

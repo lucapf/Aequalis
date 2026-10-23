@@ -30,9 +30,9 @@ pub enum Source {
     },
     /// A tip: an example request, written into the expression (`London to Paris km`).
     Tip(String),
-    /// A shoe size table (`men`, `women`, `kids`): Nike's chart (`sizes.rs`), a row per size, each
-    /// writing its request (`42 eu men shoes`).
-    Table(crate::sizes::Person),
+    /// A size table: a person's shoes (Nike's chart) or a clothes chart (`sizes.rs`), a row per
+    /// size, each writing its request (`42 eu men shoes`, `44 it dress`).
+    Table(Table),
     /// A count of active satellites (`all`, `starlink`, `leo`, `meo`, `geo`, `heo`, `beyond`),
     /// from CelesTrak when online, else `count` as of `as_of`.
     Satellites {
@@ -40,6 +40,13 @@ pub enum Source {
         as_of: String,
         count: f64,
     },
+}
+
+/// A size table of Trivia: a person's shoes or a clothes chart.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Table {
+    Shoes(crate::sizes::Person),
+    Clothes(crate::sizes::Chart),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -152,14 +159,18 @@ fn source(name: &str, e: &Value) -> Result<Source, String> {
         return Ok(Source::Tip(example.to_string()));
     }
     if let Some(table) = e.get("table").and_then(Value::str) {
-        use crate::sizes::Person;
-        let person = match table {
-            "men" => Person::Men,
-            "women" => Person::Women,
-            "kids" => Person::Kids,
-            other => return Err(format!("{name}: no shoe table `{other}`")),
+        use crate::sizes::{Chart, Person};
+        let table = match table {
+            "men" => Table::Shoes(Person::Men),
+            "women" => Table::Shoes(Person::Women),
+            "kids" => Table::Shoes(Person::Kids),
+            "clothes women" => Table::Clothes(Chart::Women),
+            "clothes suit" => Table::Clothes(Chart::Suit),
+            "clothes trousers" => Table::Clothes(Chart::Trousers),
+            "clothes shirt" => Table::Clothes(Chart::Shirt),
+            other => return Err(format!("{name}: no size table `{other}`")),
         };
-        return Ok(Source::Table(person));
+        return Ok(Source::Table(table));
     }
     if let [a, b] = e.get("between").map(Value::array).unwrap_or_default() {
         return Ok(Source::Between(a.str().unwrap_or_default().to_string(), b.str().unwrap_or_default().to_string()));
@@ -187,9 +198,13 @@ pub struct TableRow {
     pub request: String,
 }
 
-/// The rows of a person's shoe table, Nike's chart.
-pub fn table_rows(person: crate::sizes::Person) -> Vec<TableRow> {
+/// The rows of a size table: a person's shoes (Nike's chart), a clothes chart with its body measures.
+pub fn table_rows(table: Table) -> Vec<TableRow> {
     use crate::sizes::{shoe_charts, Person};
+    let person = match table {
+        Table::Shoes(p) => p,
+        Table::Clothes(chart) => return clothes_rows(chart),
+    };
     let who = match person {
         Person::Men => "men",
         Person::Women => "women",
@@ -206,6 +221,35 @@ pub fn table_rows(person: crate::sizes::Person) -> Vec<TableRow> {
                 text: format!("UK {} · EU {} · JP {} · foot {foot} cm", r.uk, r.eu, r.jp),
                 request: format!("{} eu {who} shoes", r.eu),
             }
+        })
+        .collect()
+}
+
+/// The rows of a clothes chart: its first system (`US 8`), the others and the body measures in cm,
+/// and the request a row writes (`44 it dress`).
+fn clothes_rows(chart: crate::sizes::Chart) -> Vec<TableRow> {
+    use crate::sizes::Chart;
+    let cm = |v: f64| crate::convert::format_value((v * 10.0).round() / 10.0, 1);
+    chart
+        .rows()
+        .iter()
+        .map(|r| match chart {
+            Chart::Women => TableRow {
+                label: format!("US {}", r.us),
+                text: format!("UK {} · DE {} · FR {} · IT {} · JP {} · {} · CN {} · bust {} · waist {} · hip {} cm", r.uk, r.de, r.fr, r.it, r.jp, r.int, r.cn, cm(r.bust), cm(r.waist), cm(r.hip)),
+                request: format!("{} it dress", r.it),
+            },
+            Chart::Suit => TableRow {
+                label: format!("US {}", r.us),
+                text: [format!("EU {}", r.eu), format!("JP {}", r.jp), r.int.to_string(), format!("chest {} cm", cm(r.chest))].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" · "),
+                request: format!("{} eu suit", r.eu),
+            },
+            Chart::Trousers => TableRow {
+                label: format!("W{}", r.us),
+                text: format!("EU {} · {} · waist {} cm", r.eu, r.int, cm(r.waist)),
+                request: format!("W{} trousers", r.us),
+            },
+            Chart::Shirt => TableRow { label: format!("EU {}", r.eu), text: format!("US {} · {}", r.us, r.int), request: format!("{} eu men shirt", r.eu) },
         })
         .collect()
 }
@@ -440,7 +484,7 @@ pub fn popup(config: &Config, entry: &Entry, facts: &Facts, precision: usize, nu
     }
     match &entry.source {
         Source::Tip(example) => lines.push(("Example".to_string(), example.clone())),
-        Source::Table(person) => lines.extend(table_rows(*person).into_iter().map(|r| (r.label, r.text))),
+        Source::Table(table) => lines.extend(table_rows(*table).into_iter().map(|r| (r.label, r.text))),
         _ => {
             if let Ok((v, origin)) = facts.value {
                 let how = origin_text(entry, origin).map(|t| format!(" ({t})")).unwrap_or_default();
@@ -667,7 +711,7 @@ pub fn list(config: &Config, precision: usize) -> String {
         let number = |n: String| crate::numbers::device().apply(&n);
         let facts = facts(config, e, live, now);
         let value = match (&e.source, &facts.value) {
-            (Source::Table(person), _) => format!("{} sizes", table_rows(*person).len()),
+            (Source::Table(table), _) => format!("{} sizes", table_rows(*table).len()),
             (_, Ok((v, origin))) => {
                 let how = origin_text(e, *origin).map(|t| format!(" ({t})")).unwrap_or_default();
                 format!("{}{how}", shown(config, e, *v, precision, &number))
@@ -711,7 +755,7 @@ mod tests {
     fn the_file_is_valid() {
         let all = entries();
         assert!(all.len() > 30);
-        assert_eq!(sections(), ["Earth", "Space", "Satellites", "Math", "Physics", "Shoes"]);
+        assert_eq!(sections(), ["Earth", "Space", "Satellites", "Math", "Physics", "Shoes", "Clothes"]);
         let config = Config::default();
         for e in all {
             assert!(!e.description.is_empty() && !e.short.is_empty(), "{}", e.name);
@@ -726,14 +770,33 @@ mod tests {
     }
 
     #[test]
+    fn clothes_tables() {
+        use crate::sizes::Chart;
+        let women = table_rows(Table::Clothes(Chart::Women));
+        let row = women.iter().find(|r| r.label == "US 8").unwrap();
+        assert_eq!(
+            (row.text.as_str(), row.request.as_str()),
+            ("UK 12 · DE 38 · FR 40 · IT 44 · JP 11 · M · CN 165/92A · bust 93 · waist 75 · hip 98.5 cm", "44 it dress")
+        );
+        assert_eq!(table_rows(Table::Clothes(Chart::Suit))[7].text, "EU 58 · JP 3L · chest 121.9 cm", "no letter past XXXL");
+        // Every row's request answers.
+        let _m = crate::machine::Mock::italy().install();
+        for chart in [Chart::Women, Chart::Suit, Chart::Trousers, Chart::Shirt] {
+            for r in table_rows(Table::Clothes(chart)) {
+                assert!(matches!(crate::sizes::request(&r.request), Some(Ok(_))), "{}", r.request);
+            }
+        }
+    }
+
+    #[test]
     fn shoe_tables() {
         use crate::sizes::Person;
-        let men = table_rows(Person::Men);
+        let men = table_rows(Table::Shoes(Person::Men));
         let row = men.iter().find(|r| r.label == "US 8.5").unwrap();
         assert_eq!((row.text.as_str(), row.request.as_str()), ("UK 7.5 · EU 42 · JP 26.5 · foot 25.9 cm", "42 eu men shoes"));
-        assert_eq!(table_rows(Person::Kids)[0].request, "19.5 eu kids shoes");
+        assert_eq!(table_rows(Table::Shoes(Person::Kids))[0].request, "19.5 eu kids shoes");
         let entry = entries().iter().find(|e| e.name == "Women's shoes").unwrap();
-        assert_eq!(entry.source, Source::Table(Person::Women));
+        assert_eq!(entry.source, Source::Table(Table::Shoes(Person::Women)));
         let lines = popup(&Config::default(), entry, &facts(&Config::default(), entry, None, 0), 4, &|n| n);
         assert_eq!(lines.len(), 15, "a line per size");
     }

@@ -1349,7 +1349,7 @@ fn trivia_entries(app: &App, v: &super::trivia::View, canvas: &mut Canvas, area:
         .iter()
         .map(|e| match &e.source {
             aequalis::trivia::Source::Tip(example) => example.clone(),
-            aequalis::trivia::Source::Table(person) => format!("{} sizes", aequalis::trivia::table_rows(*person).len()),
+            aequalis::trivia::Source::Table(table) => format!("{} sizes", aequalis::trivia::table_rows(*table).len()),
             _ => aequalis::trivia::value(app.config, e, trivia_live(app, e, now).0, now)
                 .map(|(x, _)| aequalis::trivia::shown(app.config, e, x, app.opts.precision, &|n| app.numbers.apply(&n)))
                 .unwrap_or_else(|err| err),
@@ -1413,8 +1413,8 @@ fn trivia_about(app: &App, e: &aequalis::trivia::Entry, canvas: &mut Canvas, are
 /// Scrolled down by `scroll` lines.
 fn trivia_popup(app: &App, v: &super::trivia::View, canvas: &mut Canvas, rows: usize, scroll: usize) {
     let Some(entry) = v.entry() else { return };
-    if let aequalis::trivia::Source::Table(person) = entry.source {
-        return trivia_table(canvas, rows, entry, person, scroll);
+    if let aequalis::trivia::Source::Table(table) = entry.source {
+        return trivia_table(canvas, rows, entry, table, scroll);
     }
     let now = aequalis::time::unix_now();
     let live = app.online.get(&entry.name);
@@ -1460,8 +1460,8 @@ fn trivia_popup(app: &App, v: &super::trivia::View, canvas: &mut Canvas, rows: u
 
 /// A shoe table's popup: its description, then a row per size, the chosen one (`selected`) lit and
 /// in view; Enter writes its request.
-fn trivia_table(canvas: &mut Canvas, rows: usize, entry: &aequalis::trivia::Entry, person: aequalis::sizes::Person, selected: usize) {
-    let table = aequalis::trivia::table_rows(person);
+fn trivia_table(canvas: &mut Canvas, rows: usize, entry: &aequalis::trivia::Entry, table: aequalis::trivia::Table, selected: usize) {
+    let table = aequalis::trivia::table_rows(table);
     let width = 76.min(canvas.cols - 4);
     let about = wrap(&entry.description, width - 4);
     let height = (about.len() + 1 + table.len() + 2).min(rows - 2);

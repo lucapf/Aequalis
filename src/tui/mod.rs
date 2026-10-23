@@ -620,8 +620,8 @@ impl<'a> App<'a> {
         let Some(Overlay::Trivia(v)) = &self.overlay else { return };
         let Some(entry) = v.entry() else { return };
         // A shoe table: the chosen row's request.
-        if let aequalis::trivia::Source::Table(person) = entry.source {
-            let rows = aequalis::trivia::table_rows(person);
+        if let aequalis::trivia::Source::Table(table) = entry.source {
+            let rows = aequalis::trivia::table_rows(table);
             let chosen = v.popup.unwrap_or(0).min(rows.len().saturating_sub(1));
             if let Some(row) = rows.get(chosen) {
                 self.line.set(&format!("{} ", row.request));
@@ -1825,8 +1825,9 @@ mod tests {
         let config = Config::default();
         let opts = options(&config);
         let mut app = App::new(&config, &opts);
-        // The last section, Shoes: Men's shoes, its table; down to its 6th row (US 8.5), Enter.
+        // The section before the last, Shoes: Men's shoes, its table; down to its 6th row (US 8.5), Enter.
         app.handle(Key::F(6));
+        app.handle(Key::BackTab);
         app.handle(Key::BackTab);
         app.handle(Key::Enter);
         for _ in 0..5 {
@@ -1835,6 +1836,16 @@ mod tests {
         app.handle(Key::Enter);
         assert_eq!(app.line.text(), "42 eu men shoes ");
         assert!(app.overlay.is_none());
+        // The last, Clothes: Women's clothes; its 5th row (US 8).
+        app.line.set("");
+        app.handle(Key::F(6));
+        app.handle(Key::BackTab);
+        app.handle(Key::Enter);
+        for _ in 0..4 {
+            app.handle(Key::Down);
+        }
+        app.handle(Key::Enter);
+        assert_eq!(app.line.text(), "44 it dress ");
     }
 
     #[test]

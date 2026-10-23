@@ -394,7 +394,7 @@ pub fn trivia() -> String {
                     let facts = trivia::facts(config, e, online.get(&e.name), now);
                     let (value, written) = match (&e.source, &facts.value) {
                         (Source::Tip(example), _) => (example.clone(), example.clone()),
-                        (Source::Table(person), _) => (format!("{} sizes", trivia::table_rows(*person).len()), String::new()),
+                        (Source::Table(table), _) => (format!("{} sizes", trivia::table_rows(*table).len()), String::new()),
                         (_, Ok((v, origin))) => {
                             let how = trivia::origin_text(e, *origin).map(|t| format!(" ({t})")).unwrap_or_default();
                             (format!("{}{how}", trivia::shown(config, e, *v, precision, &number)), format!("{} ", trivia::written(config, e, *v)))
@@ -410,7 +410,7 @@ pub fn trivia() -> String {
                     };
                     let popup: Vec<String> = match e.source {
                         // A shoe table: a line per size, its EU size a chip writing its request.
-                        Source::Table(person) => trivia::table_rows(person)
+                        Source::Table(table) => trivia::table_rows(table)
                             .iter()
                             .map(|r| {
                                 let eu = r.text.split(" · ").find(|p| p.starts_with("EU ")).unwrap_or_default().to_string();
