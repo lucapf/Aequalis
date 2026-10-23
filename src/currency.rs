@@ -152,8 +152,9 @@ pub fn exact(text: &str) -> Option<Vec<&'static str>> {
     let index = index();
     let key = tz::key(raw);
     let squeezed = key.replace(' ', "");
-    // An ISO code: only that one.
-    if squeezed.len() == 3 && squeezed.chars().all(|c| c.is_ascii_alphabetic()) {
+    // An ISO code: only that one; written as one word (`U.S.D.`), not split by spaces (`1 us d`
+    // is microseconds to days).
+    if squeezed.len() == 3 && !raw.contains(char::is_whitespace) && squeezed.chars().all(|c| c.is_ascii_alphabetic()) {
         if let Some(i) = lookup(index.codes, &squeezed.to_ascii_uppercase()) {
             return Some(vec![all()[usize::from(i)].code]);
         }
@@ -217,7 +218,7 @@ pub(crate) fn near(text: &str) -> (Vec<(&'static str, String)>, bool) {
 /// The country (or Europe) `text` names, when it names a currency that way: `USA` → United States.
 fn place(text: &str) -> Option<String> {
     let squeezed = tz::key(text).replace(' ', "");
-    if squeezed.len() == 3 && get(&squeezed).is_some() {
+    if squeezed.len() == 3 && !text.trim().contains(char::is_whitespace) && get(&squeezed).is_some() {
         return None;
     }
     if index().euro_area.contains(&tz::key(text).as_str()) {
