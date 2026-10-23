@@ -15,7 +15,6 @@ done, move it to DONE and note the commit.
 
 By priority, most urgent first.
 
-- [ ] **size-12** Phase 1: tried on the phone, released as a `minor`.
 - [ ] **size-13** Phase 2, core: women's and men's clothing charts (dresses,
       tops and trousers, suits, collar shirts, letters, the CN `160/84A` labels)
       in `sizes.json`; a person word alone means clothing (`12 US woman EU`;
@@ -46,6 +45,7 @@ By priority, most urgent first.
 
 ## DONE
 
+- [x] **size-12** Phase 1: tried on the phone, released with 1.0.0 (a `major`).
 - [x] **size-23** Phase 1, after trying it: the TUI's toolbar with a Nerd Font
       symbol per entry (the symbols alone when narrow), the size's digits typed
       with the Sizes window open; on Android the Sizes keys in the letters'
