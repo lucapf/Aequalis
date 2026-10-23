@@ -619,8 +619,12 @@ pub fn download(base: &Path, url: &str, now: i64) -> Result<u64, String> {
     let tmp = base.join(format!("cities.{}.download", std::process::id()));
     std::fs::create_dir_all(base).map_err(|e| e.to_string())?;
     let json = tmp.with_extension("json");
+    crate::online::phase("downloading the city archive");
     let result = match crate::http::save(url, &json, 600) {
-        true => install(base, &json, &version, now),
+        true => {
+            crate::online::phase("installing the city archive");
+            install(base, &json, &version, now)
+        }
         false => Err(format!("could not download the city archive ({url})")),
     };
     let _ = std::fs::remove_file(&json);

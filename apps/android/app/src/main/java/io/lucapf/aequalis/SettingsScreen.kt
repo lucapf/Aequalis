@@ -56,6 +56,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -69,6 +70,7 @@ import io.lucapf.aequalis.ui.theme.backdrop
 import io.lucapf.aequalis.ui.theme.colorScheme
 import io.lucapf.aequalis.ui.theme.isDark
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -95,6 +97,9 @@ fun SettingsScreen(close: () -> Unit, openAbout: () -> Unit, modifier: Modifier 
     var picking by remember { mutableStateOf<String?>(null) }
     var confirmReset by remember { mutableStateOf(false) }
     var syncing by remember { mutableStateOf(false) }
+    // The running sync's step, and how the last one ended (true: everything synced).
+    var step by remember { mutableStateOf("") }
+    var outcome by remember { mutableStateOf<Boolean?>(null) }
     val refreshOnline = { scope.launch { online = withContext(Dispatchers.Default) { Core.online() } } }
     LaunchedEffect(Unit) { refreshOnline() }
     val change = { key: String, value: String ->
@@ -121,9 +126,21 @@ fun SettingsScreen(close: () -> Unit, openAbout: () -> Unit, modifier: Modifier 
         if (!syncing) {
             syncing = true
             message = null
+            outcome = null
             SyncProgress.start()
             scope.launch {
-                message = withContext(Dispatchers.IO) { Core.download(auto = false) }.ifBlank { null }
+                // What it is doing, asked as it goes: downloading, checking, installing.
+                val steps = launch {
+                    while (true) {
+                        step = withContext(Dispatchers.IO) { Core.syncStep() }
+                        delay(200)
+                    }
+                }
+                val synced = withContext(Dispatchers.IO) { Core.download(auto = false) }
+                steps.cancel()
+                step = ""
+                message = synced.text.ifBlank { null }
+                outcome = !synced.failed
                 SyncProgress.stop()
                 syncing = false
                 refreshOnline()
@@ -163,10 +180,11 @@ fun SettingsScreen(close: () -> Unit, openAbout: () -> Unit, modifier: Modifier 
                         Text(if (advanced) "Fewer" else if (hiddenChanged > 0) "Advanced ($hiddenChanged changed)" else "Advanced")
                     }
                     OutlinedButton(onClick = reset) { Text(if (confirmReset) "Reset: sure?" else "Reset") }
-                    SyncButton(syncing, sync)
+                    SyncButton(syncing, outcome, sync)
                 }
-                // While syncing, the download speed; then what was synced and what failed.
-                (if (syncing) speedText(SyncProgress.speed) else message)?.let {
+                // While syncing, what it is doing (and the speed while downloading); then what was
+                // synced and what failed.
+                (if (syncing) syncStatus(step) else message)?.let {
                     Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 16.dp))
                 }
             }
@@ -174,11 +192,24 @@ fun SettingsScreen(close: () -> Unit, openAbout: () -> Unit, modifier: Modifier 
     }
 }
 
+/** What a running sync says under the buttons: its step, and the speed while downloading
+ *  (`downloading the city archive · 400 kB/s`). */
+private fun syncStatus(step: String): String = when {
+    step.isEmpty() -> "starting"
+    step.startsWith("downloading") -> "$step · ${speedText(SyncProgress.speed)}"
+    else -> step
+}
+
+/** A sync that ended well (green) or with an error (orange). */
+private val SYNCED = Color(0xFF2E7D32)
+private val SYNC_FAILED = Color(0xFFE65100)
+
 /** Sync; while syncing, **Syncing**, filled in the accent colour as far as the big download is
- *  (`SyncProgress.fraction`), or a band sweeping across while there is no percentage. A tap while
- *  syncing does nothing (`sync` says so), the label stays readable. */
+ *  (`SyncProgress.fraction`), or a band sweeping across while there is no percentage (checking,
+ *  installing). At its end green, **Synced**, or orange, **Sync failed**, until the next one. A tap
+ *  while syncing does nothing (`sync` says so), the label stays readable. */
 @Composable
-private fun SyncButton(syncing: Boolean, sync: () -> Unit) {
+private fun SyncButton(syncing: Boolean, outcome: Boolean?, sync: () -> Unit) {
     val accent = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
     val fraction = SyncProgress.fraction
     // The sweep runs only while a sync has no percentage to show.
@@ -199,7 +230,19 @@ private fun SyncButton(syncing: Boolean, sync: () -> Unit) {
             else -> drawRect(accent, size = Size(size.width * fraction, size.height))
         }
     }
-    OutlinedButton(onClick = sync, modifier = fill) { Text(if (syncing) "Syncing" else "Sync") }
+    val ended = if (syncing) null else outcome
+    val colors = when (ended) {
+        true -> ButtonDefaults.outlinedButtonColors(containerColor = SYNCED, contentColor = Color.White)
+        false -> ButtonDefaults.outlinedButtonColors(containerColor = SYNC_FAILED, contentColor = Color.White)
+        null -> ButtonDefaults.outlinedButtonColors()
+    }
+    val label = when {
+        syncing -> "Syncing"
+        ended == true -> "Synced"
+        ended == false -> "Sync failed"
+        else -> "Sync"
+    }
+    OutlinedButton(onClick = sync, modifier = fill, colors = colors) { Text(label) }
 }
 
 /** `online (2h old)`, `offline (forced, 2d old)`, `online (just synced)`, `never synced`. */

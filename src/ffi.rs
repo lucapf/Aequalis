@@ -352,6 +352,12 @@ pub fn sync(auto: bool) -> String {
     reply::result(&result, &crate::notify::current())
 }
 
+/// What the running sync is doing, for a UI to say it while it waits for `sync`:
+/// `{"phase":"installing the city archive"}` (empty: none runs).
+pub fn sync_phase() -> String {
+    Object::new().str("phase", &crate::online::current_phase()).finish()
+}
+
 /// Online or offline, and how long ago the online data was last synced (`aequalis --online
 /// --json`): `{"status":"online","synced":"2h"}`, `synced` left out when it never was.
 pub fn online() -> String {

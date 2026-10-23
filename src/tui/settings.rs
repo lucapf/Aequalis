@@ -32,6 +32,8 @@ pub struct View {
     /// A sync by hand running (since then), and its progress as last read (`online::read_progress`).
     pub syncing: Option<std::time::Instant>,
     pub progress: Option<aequalis::online::Syncing>,
+    /// How the last sync by hand ended: everything synced (`true`), or something failed.
+    pub outcome: Option<bool>,
 }
 
 /// The values to pick from, filtered by what is typed.
@@ -60,7 +62,7 @@ impl View {
         // A sync by hand still running (the window closed and opened again): its progress shown.
         let running = aequalis::online::read_progress().is_some_and(|p| p.done.is_none() && p.age < 5);
         let syncing = running.then(std::time::Instant::now);
-        View { selected: 0, edit: None, message: None, file, settings, advanced: false, confirm_reset: false, list: None, syncing, progress: None }
+        View { selected: 0, edit: None, message: None, file, settings, advanced: false, confirm_reset: false, list: None, syncing, progress: None, outcome: None }
     }
 
     /// The window on the setting `key` (the advanced ones listed when it is one).
@@ -295,7 +297,7 @@ fn download(view: &mut View) {
         None => Some("could not start the download".into()),
     };
     view.syncing = started.is_some().then(std::time::Instant::now);
-    view.progress = None;
+    (view.progress, view.outcome) = (None, None);
 }
 
 /// A sync by hand from this window: its progress read again (the bar, the speed); at its end, its
@@ -304,6 +306,7 @@ pub fn poll_sync(view: &mut View) -> bool {
     let Some(started) = view.syncing else { return false };
     match aequalis::online::read_progress() {
         Some(aequalis::online::Syncing { done: Some((done, failed)), .. }) => {
+            view.outcome = Some(failed.is_empty());
             let all: Vec<String> = done.into_iter().chain(failed).collect();
             view.message = Some(if all.is_empty() { "synced".to_string() } else { all.join(", ") });
             (view.syncing, view.progress) = (None, None);
@@ -313,17 +316,40 @@ pub fn poll_sync(view: &mut View) -> bool {
         }
         // It stopped writing, or never started: it died.
         Some(p) if p.age > 30 => {
-            (view.syncing, view.progress, view.message) = (None, None, Some("sync stopped".into()));
+            (view.syncing, view.progress, view.message, view.outcome) = (None, None, Some("sync stopped".into()), Some(false));
         }
         None if started.elapsed().as_secs() > 10 => {
-            (view.syncing, view.progress, view.message) = (None, None, Some("sync stopped".into()));
+            (view.syncing, view.progress, view.message, view.outcome) = (None, None, Some("sync stopped".into()), Some(false));
         }
         p => view.progress = p,
     }
     true
 }
 
-/// The Download row while a sync runs: `Syncing ████░░░░░░ 40%`, or a block moving across while
+/// The Sync row's label: `Sync`; while a sync runs `Syncing ████░░░░░░ 40%`, or a block moving
+/// across while there is no percentage (installing); at its end `Synced`, or `Sync failed`.
+pub fn sync_label(view: &View) -> String {
+    match (sync_bar(view), view.outcome) {
+        (Some(bar), _) => bar,
+        (None, Some(true)) => "Synced".to_string(),
+        (None, Some(false)) => "Sync failed".to_string(),
+        (None, None) => DOWNLOAD.to_string(),
+    }
+}
+
+/// What a running sync says under the window: its step, and the speed while downloading
+/// (`downloading the city archive · 400 kB/s`).
+pub fn sync_status(view: &View) -> Option<String> {
+    view.syncing?;
+    let p = view.progress.clone().unwrap_or_default();
+    let step = if p.phase.is_empty() { "starting".to_string() } else { p.phase };
+    Some(match step.starts_with("downloading") {
+        true => format!("{step} · {}", aequalis::online::speed_text(p.speed)),
+        false => step,
+    })
+}
+
+/// The Sync row while a sync runs: `Syncing ████░░░░░░ 40%`, or a block moving across while
 /// there is no percentage yet.
 pub fn sync_bar(view: &View) -> Option<String> {
     const CELLS: usize = 10;
@@ -355,13 +381,22 @@ mod tests {
         assert_eq!(sync_bar(&v).unwrap(), "Syncing ░░░░░░░░░░ 0%");
         v.progress = Some(aequalis::online::Syncing { fraction: Some(0.4), speed: 400_000, ..Default::default() });
         assert_eq!(sync_bar(&v).unwrap(), "Syncing ████░░░░░░ 40%");
-        // Its end: the report as the message.
+        // What it is doing, and the speed while downloading.
+        v.progress = Some(aequalis::online::Syncing { fraction: Some(0.4), speed: 400_000, phase: "downloading the city archive".into(), ..Default::default() });
+        assert_eq!(sync_status(&v).as_deref(), Some("downloading the city archive · 400 kB/s"));
+        v.progress = Some(aequalis::online::Syncing { phase: "installing the city archive".into(), ..Default::default() });
+        assert_eq!(sync_status(&v).as_deref(), Some("installing the city archive"));
+        // Its end: the report as the message, the row green (everything synced) or orange.
         let _m = aequalis::machine::Mock::italy().install();
         let path = aequalis::online::progress_path().unwrap();
-        std::fs::write(&path, r#"{"speed":0,"done":["9 cities","166 exchange rates"],"failed":[]}"#).unwrap();
+        std::fs::write(&path, r#"{"speed":0,"phase":"","done":["9 cities","166 exchange rates"],"failed":[]}"#).unwrap();
         assert!(poll_sync(&mut v));
-        assert_eq!((v.syncing, v.message.as_deref()), (None, Some("9 cities, 166 exchange rates")));
+        assert_eq!((v.syncing, v.message.as_deref(), sync_label(&v).as_str()), (None, Some("9 cities, 166 exchange rates"), "Synced"));
         assert!(!path.exists(), "read once");
+        v.syncing = Some(std::time::Instant::now());
+        std::fs::write(&path, r#"{"speed":0,"phase":"","done":["9 cities"],"failed":["rates: offline"]}"#).unwrap();
+        poll_sync(&mut v);
+        assert_eq!((v.outcome, sync_label(&v).as_str()), (Some(false), "Sync failed"));
     }
     use crate::tui::keys::Key;
 

@@ -177,6 +177,16 @@ pub unsafe extern "system" fn Java_io_lucapf_aequalis_Core_profile(env: Env, _cl
     }
 }
 
+/// `Core.syncPhase()`: what the running sync is doing (`ffi::sync_phase`), asked by Settings while
+/// `Core.sync` runs in another thread.
+///
+/// # Safety
+/// Called by the JVM only: `env` is its `JNIEnv *`.
+#[no_mangle]
+pub unsafe extern "system" fn Java_io_lucapf_aequalis_Core_syncPhase(env: Env, _class: Class) -> ByteArray {
+    unsafe { to_java(env, &crate::ffi::sync_phase()) }
+}
+
 /// `Core.profileReset()`: everything profiling recorded forgotten (About's Reset).
 ///
 /// # Safety

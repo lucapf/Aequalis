@@ -105,6 +105,10 @@ data class Reply(
     val extra: List<Extra> = emptyList(),
 )
 
+/** How a sync ended: what was synced and what failed, a line each (or the error), and whether
+ *  anything failed. */
+data class Synced(val text: String, val failed: Boolean)
+
 /** Results beside the result: their kind (`shoes`, `clothes men's suit`) and the results; for a line
  *  of another reading (beside a currency, after a size), what it converts (`42 eu`). */
 data class Extra(val type: String, val results: List<String>, val from: String = "")
@@ -146,6 +150,7 @@ object Core {
     private external fun sizeKey(line: ByteArray, key: ByteArray): ByteArray
     private external fun profile(kind: ByteArray, request: ByteArray, roundTripUs: Long)
     private external fun profileReset()
+    private external fun syncPhase(): ByteArray
 
     private val launched = java.util.concurrent.atomic.AtomicBoolean(false)
 
@@ -370,13 +375,21 @@ object Core {
     }
 
     /** Downloads the online data, in this thread (seconds: off the main thread): everything, or with
-     *  `auto` what is due. What was synced, then what failed, a line each; or the error. */
-    fun download(auto: Boolean): String {
+     *  `auto` what is due. What was synced, then what failed, a line each, or the error; and whether
+     *  anything failed. */
+    fun download(auto: Boolean): Synced {
         started.await()
         val reply = JSONObject(sync(auto).decodeToString())
-        if (!reply.optBoolean("ok")) return reply.optString("error")
+        if (!reply.optBoolean("ok")) return Synced(reply.optString("error"), failed = true)
         val failed = reply.optJSONArray("warnings")?.strings().orEmpty()
-        return (listOf(reply.optString("result")) + failed).filter { it.isNotBlank() }.joinToString("\n")
+        return Synced((listOf(reply.optString("result")) + failed).filter { it.isNotBlank() }.joinToString("\n"), failed.isNotEmpty())
+    }
+
+    /** What the running sync is doing (`downloading the city archive`, `installing the city
+     *  archive`), asked while `download` runs in another thread; empty when none runs. */
+    fun syncStep(): String {
+        started.await()
+        return JSONObject(syncPhase().decodeToString()).optString("phase")
     }
 
     /**

@@ -44,15 +44,19 @@ pub struct Data {
     /// When the last sync started, and whether every source answered.
     pub attempted_at: Option<i64>,
     pub ok: bool,
+    /// When the last sync run (by hand or in the background) ended having synced something, even
+    /// if a source did not answer: the data's age for people.
+    pub run_at: Option<i64>,
     /// By Trivia entry name.
     pub values: Vec<(String, Stored)>,
 }
 
 impl Data {
-    /// When the data was last synced, for people: the last complete sync, else the newest value
-    /// (a sync that did not reach every source).
+    /// When the data was last synced, for people: the last sync run that synced something, or the
+    /// last complete sync, whichever is later; else the newest value (a sync that did not reach
+    /// every source, before runs were recorded).
     pub fn last_sync(&self) -> Option<i64> {
-        self.synced_at.or_else(|| self.values.iter().map(|(_, s)| s.at).max())
+        self.synced_at.max(self.run_at).or_else(|| self.values.iter().map(|(_, s)| s.at).max())
     }
 
     pub fn get(&self, name: &str) -> Option<Stored> {
@@ -73,6 +77,7 @@ impl Data {
             .opt("synced_at", self.synced_at)
             .opt("attempted_at", self.attempted_at)
             .num("ok", self.ok)
+            .opt("run_at", self.run_at)
             .raw("values", &values.finish())
             .finish()
             + "\n"
@@ -85,6 +90,7 @@ impl Data {
             synced_at: time("synced_at"),
             attempted_at: time("attempted_at"),
             ok: doc.get("ok") == Some(&Value::Bool(true)),
+            run_at: time("run_at"),
             values: doc
                 .get("values")
                 .map(Value::members)
@@ -292,6 +298,11 @@ pub fn sync(auto: bool) -> Result<Report, String> {
     let no_home = || "no home directory".to_string();
     let mut report = Report::default();
     for group in groups {
+        phase(match group {
+            Group::Live => "downloading the live values",
+            Group::Rates => "downloading the exchange rates",
+            Group::Cities => "checking the city archive",
+        });
         let interval = if auto { settings.interval(group.name()) } else { 0 };
         let line = match group {
             Group::Live => path().ok_or_else(no_home).map(|path| {
@@ -311,6 +322,16 @@ pub fn sync(auto: bool) -> Result<Report, String> {
             Err(e) => report.failed.push(format!("{}: {e}", group.name())),
         }
     }
+    phase("");
+    // Something synced: the data's age for people starts again (`Data::last_sync`), even when a
+    // source did not answer.
+    if !report.done.is_empty() {
+        if let Some(path) = path() {
+            let mut data = load_from(&path);
+            data.run_at = Some(crate::time::unix_now());
+            let _ = save_to(&path, &data);
+        }
+    }
     Ok(report)
 }
 
@@ -324,6 +345,8 @@ pub struct Syncing {
     pub fraction: Option<f64>,
     /// The current download speed, bytes a second.
     pub speed: u64,
+    /// What the sync is doing: `downloading the city archive`, `installing the city archive`.
+    pub phase: String,
     /// Ended: what was synced, and what failed.
     pub done: Option<(Vec<String>, Vec<String>)>,
     /// Seconds since it was last written: a sync that died stops writing.
@@ -348,9 +371,34 @@ pub fn progress_path() -> Option<PathBuf> {
     crate::files::dir().map(|d| d.join("sync-progress.json"))
 }
 
-fn write_progress(fraction: Option<f64>, speed: u64, done: Option<&Report>) {
+/// What the running sync is doing, for the apps (`ffi::sync_phase`); empty: nothing.
+static PHASE: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+
+/// The sync's next step: `downloading the exchange rates`, `installing the city archive` (empty:
+/// done). Written to the progress file too while a sync by hand is tracked.
+pub fn phase(text: &str) {
+    *PHASE.lock().unwrap_or_else(|e| e.into_inner()) = text.to_string();
+    // A new step has no percentage yet (installing shows none at all).
+    let tracked = TRACKED.with(|t| t.borrow_mut().as_mut().map(|s| s.0 = None).is_some());
+    if tracked {
+        write_progress(text, None, 0, None);
+    }
+}
+
+/// What the running sync is doing (`phase`); empty when none runs.
+pub fn current_phase() -> String {
+    PHASE.lock().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
+thread_local! {
+    /// A sync by hand tracked on this thread (a sync runs on one, curl's meter read there too): the
+    /// big download's percentage so far, and when the file was last written.
+    static TRACKED: std::cell::RefCell<Option<(Option<f64>, Instant)>> = const { std::cell::RefCell::new(None) };
+}
+
+fn write_progress(phase: &str, fraction: Option<f64>, speed: u64, done: Option<&Report>) {
     let Some(path) = progress_path() else { return };
-    let mut text = format!("{{\"speed\":{speed}");
+    let mut text = format!("{{\"speed\":{speed},\"phase\":{}", json::string(phase));
     if let Some(f) = fraction {
         text += &format!(",\"fraction\":{f:.4}");
     }
@@ -365,16 +413,22 @@ fn write_progress(fraction: Option<f64>, speed: u64, done: Option<&Report>) {
 /// A sync by hand starts: its downloads' progress written to the progress file from now on, at
 /// most every 200 ms, the big download's percentage kept while small ones run.
 pub fn track() {
-    write_progress(None, 0, None);
-    let state = std::sync::Mutex::new((None::<f64>, Instant::now()));
-    crate::http::observe(Some(Box::new(move |p: crate::http::Progress| {
-        let mut s = state.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(total) = p.total.filter(|&t| t >= BIG) {
-            s.0 = Some((p.received as f64 / total as f64).min(1.0));
-        }
-        if s.1.elapsed().as_millis() >= 200 || s.0 == Some(1.0) {
-            s.1 = Instant::now();
-            write_progress(s.0, p.speed, None);
+    TRACKED.with(|t| *t.borrow_mut() = Some((None, Instant::now())));
+    write_progress(&current_phase(), None, 0, None);
+    crate::http::observe(Some(Box::new(|p: crate::http::Progress| {
+        let due = TRACKED.with(|t| {
+            let mut tracked = t.borrow_mut();
+            let s = tracked.as_mut()?;
+            if let Some(total) = p.total.filter(|&t| t >= BIG) {
+                s.0 = Some((p.received as f64 / total as f64).min(1.0));
+            }
+            (s.1.elapsed().as_millis() >= 200 || s.0 == Some(1.0)).then(|| {
+                s.1 = Instant::now();
+                s.0
+            })
+        });
+        if let Some(fraction) = due {
+            write_progress(&current_phase(), fraction, p.speed, None);
         }
     })));
 }
@@ -382,11 +436,12 @@ pub fn track() {
 /// The sync by hand ended: its report written, for the interactive mode to show.
 pub fn tracked(result: &Result<Report, String>) {
     crate::http::observe(None);
+    TRACKED.with(|t| *t.borrow_mut() = None);
     let report = match result {
         Ok(r) => r.clone(),
         Err(e) => Report { done: Vec::new(), failed: vec![e.clone()] },
     };
-    write_progress(None, 0, Some(&report));
+    write_progress("", None, 0, Some(&report));
 }
 
 /// The progress of a sync by hand, if one wrote it.
@@ -398,6 +453,7 @@ pub fn read_progress() -> Option<Syncing> {
     Some(Syncing {
         fraction: doc.get("fraction").and_then(Value::number),
         speed: doc.get("speed").and_then(Value::number).unwrap_or(0.0) as u64,
+        phase: doc.get("phase").and_then(Value::str).unwrap_or_default().to_string(),
         done: list("done").map(|done| (done, list("failed").unwrap_or_default())),
         age,
     })
@@ -484,6 +540,17 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_age_starts_again_with_a_partial_sync() {
+        // A complete sync at 1000; a later run at 5000 where a source did not answer: 5000.
+        let data = Data { synced_at: Some(1_000), run_at: Some(5_000), ..Data::default() };
+        assert_eq!(data.last_sync(), Some(5_000));
+        let data = Data { synced_at: Some(6_000), run_at: Some(5_000), ..Data::default() };
+        assert_eq!(data.last_sync(), Some(6_000));
+        let back = Data::from_json(&Data { run_at: Some(5_000), ..Data::default() }.to_json()).unwrap();
+        assert_eq!(back.run_at, Some(5_000));
+    }
+
+    #[test]
     fn speeds_as_browsers_write_them() {
         assert_eq!((speed_text(800), speed_text(400_123), speed_text(1_234_567)), ("800 B/s".to_string(), "400 kB/s".to_string(), "1.2 MB/s".to_string()));
     }
@@ -501,6 +568,11 @@ mod tests {
         observe(crate::http::Progress { received: 8_000_000, total: Some(20_000_000), speed: 1_200_000 });
         let p = read_progress().unwrap();
         assert_eq!((p.fraction, p.speed), (Some(0.4), 1_200_000));
+        // A new step: no percentage yet, what it is doing said.
+        phase("installing the city archive");
+        let p = read_progress().unwrap();
+        assert_eq!((p.fraction, p.phase.as_str()), (None, "installing the city archive"));
+        phase("");
         tracked(&Ok(Report { done: vec!["9 cities".into()], failed: vec!["rates: offline".into()] }));
         assert_eq!(read_progress().unwrap().done, Some((vec!["9 cities".to_string()], vec!["rates: offline".to_string()])));
         assert!(crate::http::OBSERVER.lock().unwrap().is_none(), "no more observed");
@@ -586,11 +658,11 @@ mod tests {
     fn expiry_and_retry() {
         let day = 86_400;
         assert!(expired(&Data::default(), 1_000, day), "never synced");
-        let fresh = Data { synced_at: Some(1_000), attempted_at: Some(1_000), ok: true, values: Vec::new() };
+        let fresh = Data { synced_at: Some(1_000), attempted_at: Some(1_000), ok: true, run_at: None, values: Vec::new() };
         assert!(!expired(&fresh, 1_000 + day - 1, day));
         assert!(expired(&fresh, 1_000 + day, day));
         // A failed try: not again for an hour.
-        let failed = Data { synced_at: Some(0), attempted_at: Some(1_000_000), ok: false, values: Vec::new() };
+        let failed = Data { synced_at: Some(0), attempted_at: Some(1_000_000), ok: false, run_at: None, values: Vec::new() };
         assert!(!expired(&failed, 1_000_000 + 60, day));
         assert!(expired(&failed, 1_000_000 + 3_600, day));
     }
@@ -598,7 +670,7 @@ mod tests {
     #[test]
     fn the_file_round_trips() {
         let path = scratch("round");
-        let mut data = Data { synced_at: Some(5), attempted_at: Some(4), ok: true, values: Vec::new() };
+        let mut data = Data { synced_at: Some(5), attempted_at: Some(4), ok: true, run_at: None, values: Vec::new() };
         data.set("Voyager 1", 172.4223, 3);
         data.set("Starlink", 11129.0, 4);
         save_to(&path, &data).unwrap();

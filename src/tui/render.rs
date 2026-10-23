@@ -32,6 +32,8 @@ enum Style {
     Red,
     Green,
     Yellow,
+    /// A sync by hand that failed (256 colours: every terminal of today).
+    Orange,
     /// The badge of a window.
     Badge,
     /// A lit key: the one typed last, or the selected unit.
@@ -48,6 +50,7 @@ impl Style {
             Style::Red => "\x1b[31m",
             Style::Green => "\x1b[32m",
             Style::Yellow => "\x1b[33m",
+            Style::Orange => "\x1b[38;5;208m",
             Style::Badge => "\x1b[1;7m",
             Style::Lit => "\x1b[1;30;43m",
         }
@@ -1751,6 +1754,9 @@ fn settings_window(canvas: &mut Canvas, rows: usize, view: &super::settings::Vie
             (false, Row::Setting(k)) if current.get(k.key) != k.default => Style::Bold,
             (false, Row::Setting(_)) => Style::Plain,
             (false, Row::Reset) => Style::Red,
+            // How the last sync by hand ended: green, or orange (the terminal's yellow) for an error.
+            (false, Row::Download) if view.outcome == Some(true) => Style::Green,
+            (false, Row::Download) if view.outcome == Some(false) => Style::Orange,
             (false, _) => Style::Yellow,
         };
         canvas.put_within(row, left + 1, right, &settings_row(view, list[i], chosen, key_width), style);
@@ -1765,9 +1771,9 @@ fn settings_window(canvas: &mut Canvas, rows: usize, view: &super::settings::Vie
         _ => "download rates, cities and live values now".to_string(),
     };
     canvas.put_within(sep + 1, left + 2, right, &about, Style::Dim);
-    // While syncing, the download speed; then the report.
-    let speed = view.syncing.map(|_| aequalis::online::speed_text(view.progress.as_ref().map_or(0, |p| p.speed)));
-    if let Some(msg) = speed.as_ref().or(view.message.as_ref()) {
+    // While syncing, its step and speed; then the report.
+    let status = super::settings::sync_status(view);
+    if let Some(msg) = status.as_ref().or(view.message.as_ref()) {
         canvas.put_within(sep + 2, left + 2, right, msg, Style::Green);
     }
     if let Some(list) = &view.list {
@@ -1796,7 +1802,7 @@ fn settings_row(view: &super::settings::View, row: super::settings::Row, chosen:
             n => format!(" Advanced ({n} changed)"),
         },
         Row::Reset => format!(" {}", super::settings::RESET),
-        Row::Download => format!(" {}", super::settings::sync_bar(view).unwrap_or_else(|| super::settings::DOWNLOAD.to_string())),
+        Row::Download => format!(" {}", super::settings::sync_label(view)),
     }
 }
 
