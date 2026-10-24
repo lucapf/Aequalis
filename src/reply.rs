@@ -29,10 +29,6 @@ fn with(result: &Result<Output, CliError>, notices: &[String], extra: &str, disp
     format!("{}{extra}{notices},\"peak_kb\":{}}}", &object[..object.len() - 1], peak_kb())
 }
 
-fn outcome(result: &Result<Output, CliError>) -> String {
-    outcome_as(result, false)
-}
-
 /// `outcome`, with `display`: the result's number written as the device writes numbers (`1,235,567`),
 /// as the TUI shows it; not what is already formatted for people (dates, distances, sizes). The
 /// value to copy stays as it is (`shown`).
@@ -307,16 +303,16 @@ mod tests {
     #[test]
     fn results() {
         let ok = Ok(Output { stdout: "6.2137 mi".into(), notes: vec!["a note".into()], ..Output::default() });
-        assert_eq!(outcome(&ok), r#"{"ok":true,"result":"6.2137 mi","notes":["a note"],"warnings":[]}"#);
+        assert_eq!(outcome_as(&ok, false), r#"{"ok":true,"result":"6.2137 mi","notes":["a note"],"warnings":[]}"#);
         let usage = Err(CliError::Usage("bad `x`".into()));
-        assert_eq!(outcome(&usage), r#"{"ok":false,"exit":2,"error":"bad `x`"}"#);
+        assert_eq!(outcome_as(&usage, false), r#"{"ok":false,"exit":2,"error":"bad `x`"}"#);
         let a = Ambiguity {
             text: "12/04/2026".into(),
             choices: vec![Choice { pattern: "MM/DD/YYYY".into(), date: "2026-12-04".into(), request: "12/04/2026 MM/DD/YYYY unix".into() }],
             kind: crate::time::AmbiguityKind::Date,
             note: String::new(),
         };
-        let json = outcome(&Err(CliError::Ambiguous(a)));
+        let json = outcome_as(&Err(CliError::Ambiguous(a)), false);
         assert!(json.starts_with(r#"{"ok":false,"exit":2,"error":"`12/04/2026` is ambiguous"#), "{json}");
         assert!(json.ends_with(
             r#","ambiguous":{"kind":"date","text":"12/04/2026","choices":[{"pattern":"MM/DD/YYYY","date":"2026-12-04","request":"12/04/2026 MM/DD/YYYY unix"}]}}"#

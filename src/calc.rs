@@ -109,8 +109,37 @@ impl Func {
     }
 }
 
+/// `l op r`: the left side evaluated already, the right side here.
+fn bin(op: Op, l: f64, r: &Expr) -> Result<f64, CalcError> {
+    // `150 + 20%`: 20% of 150 added (or subtracted).
+    if matches!(op, Op::Add | Op::Sub) && matches!(r, Expr::Percent(_)) {
+        let change = l * r.eval()?;
+        return Ok(if op == Op::Add { snap(l + change, l.abs()) } else { snap(l - change, l.abs()) });
+    }
+    let r = r.eval()?;
+    Ok(match op {
+        Op::Add => snap(l + r, l.abs().max(r.abs())),
+        Op::Sub => snap(l - r, l.abs().max(r.abs())),
+        Op::Mul => l * r,
+        Op::Div if r == 0.0 => return Err(CalcError::DivisionByZero),
+        // `0^-1` is `1/0`.
+        Op::Pow if l == 0.0 && r < 0.0 => return Err(CalcError::DivisionByZero),
+        // A denominator too large to store (`7 / 770^563`): zero.
+        Op::Div if r.is_infinite() && l.is_finite() => 0.0,
+        Op::Div => l / r,
+        // `(-3^1000)^0.5`: the base is too large to store, so its sign says nothing about the root.
+        Op::Pow if l == f64::NEG_INFINITY && r.is_finite() && r.fract() != 0.0 => {
+            return Err(CalcError::Domain("a number too large to store, raised to a fractional power".into()))
+        }
+        // `(-2)^0.5`: no real number (not a result too large).
+        Op::Pow if l < 0.0 && r.is_finite() && r.fract() != 0.0 => {
+            return Err(CalcError::Domain(format!("a negative number to a fractional power ({l})^{r}: not a real number")))
+        }
+        Op::Pow => l.powf(r),
+    })
+}
+
 /// `x!`: a whole number from 0 to 170 (171! no longer fits in an f64).
-#[inline(never)]
 fn factorial(x: f64) -> Result<f64, CalcError> {
     if x.fract() != 0.0 || !(0.0..=170.0).contains(&x) {
         return Err(CalcError::Domain(format!("`!` of {x}: a whole number from 0 to 170 is needed")));
@@ -120,7 +149,6 @@ fn factorial(x: f64) -> Result<f64, CalcError> {
 
 /// `root(x, n)`: the `n`th root. A negative `x` has a real root for an odd whole `n` only; the
 /// root of a perfect power is exact (`root(27, 3)` = 3, not 3.0000000000000004).
-#[inline(never)]
 fn root(x: f64, n: f64) -> Result<f64, CalcError> {
     let domain = |what: &str| Err(CalcError::Domain(format!("`root` of {x} with index {n}: {what}")));
     let whole = n.fract() == 0.0 && n.abs() <= f64::from(i32::MAX);
@@ -181,58 +209,33 @@ pub enum CalcError {
 
 impl Expr {
     pub fn eval(&self) -> Result<f64, CalcError> {
+        // A chain (`1+1+…`, 1000 long at most) leans to the left: it is folded here in a loop, one call
+        // for the whole of it, not one call (and its stack) for each operation.
+        let mut rights: Vec<(Op, &Expr)> = Vec::new();
+        let mut node = self;
+        while let Expr::Bin(op, l, r) = node {
+            rights.push((*op, r));
+            node = l;
+        }
+        let mut value = node.eval_one()?;
+        for (op, r) in rights.into_iter().rev() {
+            value = bin(op, value, r)?;
+        }
+        Ok(value)
+    }
+
+    /// An expression that is no operation of two sides.
+    fn eval_one(&self) -> Result<f64, CalcError> {
         Ok(match self {
             Expr::Num(n) | Expr::Const(_, n) => *n,
             Expr::Neg(e) => -e.eval()?,
             Expr::Call(f, e) => f.apply(e.eval()?)?,
-            Expr::Factorial(_) | Expr::Root(..) => self.eval_rare()?,
+            Expr::Factorial(e) => factorial(e.eval()?)?,
+            Expr::Root(x, n) => root(x.eval()?, n.eval()?)?,
             Expr::Degrees(e) => e.eval()?.to_radians(),
             Expr::Percent(e) => e.eval()? / 100.0,
-            // `150 + 20%`: 20% of 150 added (or subtracted).
-            Expr::Bin(op @ (Op::Add | Op::Sub), l, r) if matches!(**r, Expr::Percent(_)) => {
-                let (l, share) = (l.eval()?, r.eval()?);
-                let change = l * share;
-                if *op == Op::Add {
-                    snap(l + change, l.abs())
-                } else {
-                    snap(l - change, l.abs())
-                }
-            }
-            Expr::Bin(op, l, r) => {
-                let (l, r) = (l.eval()?, r.eval()?);
-                match op {
-                    Op::Add => snap(l + r, l.abs().max(r.abs())),
-                    Op::Sub => snap(l - r, l.abs().max(r.abs())),
-                    Op::Mul => l * r,
-                    Op::Div if r == 0.0 => return Err(CalcError::DivisionByZero),
-                    // `0^-1` is `1/0`.
-                    Op::Pow if l == 0.0 && r < 0.0 => return Err(CalcError::DivisionByZero),
-                    // A denominator too large to store (`7 / 770^563`): zero.
-                    Op::Div if r.is_infinite() && l.is_finite() => 0.0,
-                    Op::Div => l / r,
-                    // `(-3^1000)^0.5`: the base is too large to store, so its sign says nothing about the root.
-                    Op::Pow if l == f64::NEG_INFINITY && r.is_finite() && r.fract() != 0.0 => {
-                        return Err(CalcError::Domain("a number too large to store, raised to a fractional power".into()))
-                    }
-                    // `(-2)^0.5`: no real number (not a result too large).
-                    Op::Pow if l < 0.0 && r.is_finite() && r.fract() != 0.0 => {
-                        return Err(CalcError::Domain(format!("a negative number to a fractional power ({l})^{r}: not a real number")))
-                    }
-                    Op::Pow => l.powf(r),
-                }
-            }
+            Expr::Bin(..) => unreachable!("`eval` folds the operations of two sides"),
         })
-    }
-
-    /// `!` and `root`, out of line: `eval`'s frame is one per level of a long chain (`1+1+…`), so
-    /// it stays small.
-    #[inline(never)]
-    fn eval_rare(&self) -> Result<f64, CalcError> {
-        match self {
-            Expr::Factorial(e) => factorial(e.eval()?),
-            Expr::Root(x, n) => root(x.eval()?, n.eval()?),
-            _ => unreachable!("only `!` and `root` come here"),
-        }
     }
 
     /// Number of operations; a negative literal (`-5`) is a number, not an operation.
