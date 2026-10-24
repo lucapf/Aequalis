@@ -23,14 +23,16 @@ Aequalis accepts a loose syntax, so the learning curve is flat (almost :P).
 
 ### Calculator
 
-Normal precedence, powers (`^` or `**`), percentages and scientific functions:
-`sqrt`, `log`, `ln`, `sin`, `cos`, `tan`, `sinh`, `cosh`, `tanh`, plus `e` and `pi`.
+Normal precedence, powers (`^` or `**`), scientific notation (`2E5` is 2 × 10^5), percentages and scientific functions:
+`sqrt`, `cbrt`, `root(27, 3)`, `log`, `ln`, `sin`, `cos`, `tan`, `sinh`, `cosh`, `tanh`, the factorial `5!`, plus `e` and `pi`.
 
 | You type | Aequalis answers |
 |---|---|
 | `12+4/2` | `14` (the TUI preview shows the grouping: `(12 + (4 / 2)) = 14`) |
 | `2^10` | `1024` |
 | `sqrt 16` | `4` |
+| `root(27, 3)` | `3` |
+| `5!` | `120` |
 | $\sin(30^\circ)$ | `0.5` |
 | `150 + 20%` | `180` |
 | `20% of 150` | `30` |
@@ -83,7 +85,8 @@ Every capital and major city, and countries too.
 | `now new york` | the time in New York now |
 | `10:00AM Paris to New York` | `11 Oct 26 4:00 AM GMT-4 New York` |
 | `Italy` | the time in Rome now |
-| `now usa japan` | asks which US time zone first |
+| `now new york tokyo` | the time now in New York and in Tokyo, a line each (with `now` every city is a target; any number) |
+| `now usa japan` | asks which US time zone first, then shows the time now in it and in Tokyo |
 
 ### Distances
 

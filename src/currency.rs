@@ -291,9 +291,21 @@ fn calculated(input: &str) -> Option<(String, &str)> {
 
 /// An amount written together with its currency: `$12`, `US$12`, `12€`, `12usd`, `12.50EUR`.
 fn split_attached(word: &str) -> Vec<String> {
-    // The number first: digits and a point.
+    // The number first: digits and a point, then an exponent (`1e3USD`; `1EUR` is one euro).
     let digits = |s: &str| s.char_indices().take_while(|(_, c)| c.is_ascii_digit() || *c == '.').last().map_or(0, |(i, c)| i + c.len_utf8());
     let head = digits(word);
+    let head = match word[head..].strip_prefix(['e', 'E']) {
+        Some(after) => {
+            let sign = usize::from(after.starts_with(['+', '-']));
+            let exponent = after[sign..].bytes().take_while(u8::is_ascii_digit).count();
+            if exponent > 0 && head > 0 {
+                head + 1 + sign + exponent
+            } else {
+                head
+            }
+        }
+        None => head,
+    };
     if head > 0 && head < word.len() && amount(&word[..head]).is_some() && exact(&word[head..]).is_some() {
         return vec![word[..head].to_string(), word[head..].to_string()];
     }
@@ -926,6 +938,10 @@ mod tests {
         assert_eq!(ok("US$12 €"), "10.73 EUR");
         assert_eq!(ok("12€ usd"), "13.42 USD");
         assert_eq!(ok("12usd eur"), "10.73 EUR");
+        // The amount in scientific notation, attached too; `1EUR` is one euro, not `1E` and a word.
+        assert_eq!(ok("1e3usd eur"), ok("1000 usd eur"));
+        assert_eq!(ok("1E+3USD eur"), ok("1000 usd eur"));
+        assert_eq!(ok("1EUR usd"), ok("1 eur usd"));
         assert_eq!(ok("12.50EUR usd"), "13.97 USD");
         assert_eq!(ok("12dhs usd"), "3.27 USD");
         assert_eq!(ok("usd 12 eur"), "10.73 EUR");

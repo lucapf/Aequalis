@@ -206,6 +206,34 @@ pub(super) fn take_cities(input: &str) -> Result<(String, Option<Cities>), TimeE
     Ok((words[..start].join(" "), Some(Cities { source, target, text })))
 }
 
+/// `now` followed by two or more cities and nothing else (`now Rome Tokyo`, `now Rome to Tokyo`):
+/// with `now` every city is a target, not a source (there is no time written in a zone to
+/// convert), so each shows the time now there, without repeating a city. `None`: any other request, one city included.
+fn now_in_cities(input: &str) -> Option<Result<Vec<tz::City>, TimeError>> {
+    let words: Vec<&str> = input.split_whitespace().collect();
+    if words.first() != Some(&"now") {
+        return None;
+    }
+    let mut cities: Vec<tz::City> = Vec::new();
+    let (mut i, mut named) = (1, 0);
+    while i < words.len() {
+        // `to` between cities is optional, and means nothing here: all of them are targets.
+        if !cities.is_empty() && ["to", "->"].contains(&words[i]) {
+            i += 1;
+            continue;
+        }
+        let longest = tz::longest_name().min(words.len() - i);
+        let (n, found) = (1..=longest).rev().find_map(|n| tz::city(&words[i..i + n].join(" ")).map(|c| (n, c)))?;
+        match found {
+            Ok(city) if !cities.iter().any(|c| c.name == city.name) => cities.push(city),
+            Ok(_) => {}
+            Err(msg) => return Some(Err(TimeError::Usage(msg))),
+        }
+        (i, named) = (i + n, named + 1);
+    }
+    (named >= 2).then_some(Ok(cities))
+}
+
 /// A time of day alone (`10:00AM`, `10 pm`, `22:00`, `9:30:15`), on `day` (year, month, day).
 pub(super) fn read_time_only(text: &str, (y, m, d): (i64, u32, u32)) -> Option<Reading> {
     // `10AM`, `10 pm`: on the hour.
@@ -587,6 +615,18 @@ pub(super) fn exact_request(config: &Config, input: &str, precision: usize, verb
         Ok(found) => found,
         Err(msg) => return Some(Err(TimeError::Usage(msg))),
     };
+    // `now Rome Tokyo`: the time now in each city, one line each.
+    if zone_word.is_none() {
+        if let Some(found) = now_in_cities(&rest) {
+            return Some(found.and_then(|cities| {
+                let lines = cities.into_iter().map(|target| {
+                    let alone = Cities { source: None, target, text: target.name.to_string() };
+                    city_result(&alone, now(), false, "", true, verbose, false)
+                });
+                lines.collect::<Result<Vec<_>, _>>().map(|lines| (lines.join("\n"), Vec::new()))
+            }));
+        }
+    }
     // Cities: `Paris` (now there), `10:00AM Paris`, `10:00AM New York to Paris`.
     let (rest, cities) = match take_cities(&rest) {
         Ok(found) => found,

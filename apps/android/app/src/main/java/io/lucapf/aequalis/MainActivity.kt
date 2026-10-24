@@ -36,10 +36,14 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -83,6 +87,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.TextLayoutResult
@@ -174,6 +179,7 @@ data class Edit(val text: String = "", val cursor: Int = 0) {
  *  stopped in the background): its text and cursor, as two values the system can store. */
 val EditSaver = listSaver<Edit, Any>(save = { listOf(it.text, it.cursor) }, restore = { Edit(it[0] as String, it[1] as Int) })
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun AequalisApp(initial: String = "") {
     // `rememberSaveable`: the user's work survives Android recreating the screen.
@@ -234,7 +240,9 @@ fun AequalisApp(initial: String = "") {
         value = withContext(Dispatchers.Default) { Core.suggestions(before) }
         withContext(Dispatchers.Default) { Core.roundTrip("suggestions", before, since) }
     }
-    val change = { e: Edit -> edit = e; submitted = false }
+    // The request just cleared, for Undo while the line stays empty.
+    var cleared by remember { mutableStateOf<Edit?>(null) }
+    val change = { e: Edit -> edit = e; submitted = false; cleared = null }
     val scope = rememberCoroutineScope()
     // A request into the history with its result (none: an error, a question, not kept).
     val add = { request: String, r: Reply? -> r?.result?.let { History.add(request, it, r.value ?: it) }; Unit }
@@ -269,7 +277,7 @@ fun AequalisApp(initial: String = "") {
         when (key) {
             is Key.Write -> change(edit.write(key.text, Core.maxInput))
             Key.Backspace -> change(edit.backspace())
-            Key.Clear -> { keepShown(); change(Edit()) }
+            Key.Clear -> { keepShown(); val old = edit; change(Edit()); if (old.text.isNotEmpty()) cleared = old }
             // On a question, the core's default choice (the capitals for `Rome Paris`).
             Key.Enter -> {
                 scope.launch {
@@ -294,7 +302,9 @@ fun AequalisApp(initial: String = "") {
         }
     }
     val suggest = { s: Suggestion -> change(edit.word(s.write, Core.maxInput, offered.start.coerceAtMost(edit.cursor))) }
-    val workspace = @Composable { landscape: Boolean, modifier: Modifier, recent: Boolean ->
+    val clear = { onKey(Key.Clear) }
+    val undo = { cleared?.let { edit = it; submitted = false; cleared = null }; Unit }
+    val workspace = @Composable { landscape: Boolean, modifier: Modifier, recent: Boolean, header: Boolean ->
         Workspace(
             edit, reply, offered, landscape, modifier,
             // In landscape the request line is drawn apart, across the whole width.
@@ -311,6 +321,10 @@ fun AequalisApp(initial: String = "") {
             copyResult = { value -> copy(value) },
             openHistory = { panel = Panel.History },
             recent = recent,
+            header = header,
+            onClear = clear,
+            undo = cleared?.text,
+            onUndo = undo,
             scroll = answerScroll,
         )
     }
@@ -335,7 +349,7 @@ fun AequalisApp(initial: String = "") {
         // Two equal panes: on a foldable they meet at the fold, nothing to tap across it.
         Row(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
             Column(Modifier.weight(1f).fillMaxHeight(), horizontalAlignment = Alignment.CenterHorizontally) {
-                workspace(false, Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp), false)
+                workspace(false, Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp), false, true)
                 AequalisKeyboard(mode, pick, Modifier.widthIn(max = 480.dp), open = docked)
             }
             VerticalDivider()
@@ -354,26 +368,28 @@ fun AequalisApp(initial: String = "") {
         // answer and the letters, and on the right the digits (Sci above them) or a panel. Keys at
         // about their portrait size; letters and digits both shown, so no 123 mode.
         Row(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
-            SideToolbar(onKey, open = panel)
+            SideToolbar(onKey, open = panel, sizes = sizes)
             Column(Modifier.weight(1f).fillMaxHeight()) {
                 // The request, and the words offered beside it: the result keeps the room under it.
                 Row(Modifier.padding(start = 8.dp, top = 6.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    RequestLine(edit, onCursor = { edit = edit.copy(cursor = it) }, onPaste = paste, compact = true, modifier = Modifier.weight(1f))
+                    RequestLine(edit, onCursor = { edit = edit.copy(cursor = it) }, onPaste = paste, onClear = clear, compact = true, modifier = Modifier.weight(1f))
                     if (offered.items.isNotEmpty()) SuggestionRow(offered, suggest, Modifier.widthIn(max = 320.dp).padding(start = 8.dp))
                 }
                 when (val open = panel) {
                     // A panel: the whole space under the request, its levels side by side.
                     null -> Row(Modifier.weight(1f)) {
                         Column(Modifier.weight(1f).fillMaxHeight()) {
-                            workspace(true, Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), true)
+                            workspace(true, Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), true, true)
                             // The Sizes in the letters' place (the digits stay); collapsed, a bar.
                             when {
                                 collapsed -> KeyboardBar { collapsed = false }
                                 sizes -> SizesPad(sizeKey, onKey, Modifier.swipe(down = true) { collapsed = true })
+                                // Scientific: no letters, the room to the answer and the functions.
+                                mode == Mode.Scientific -> {}
                                 else -> LetterPad(onKey, Modifier.swipe(down = true) { collapsed = true })
                             }
                         }
-                        if (!collapsed) NumberPad(scientific = mode == Mode.Scientific, onKey, Modifier.align(Alignment.Bottom))
+                        if (!collapsed) NumberPad(scientific = mode == Mode.Scientific, letters = sizes || mode != Mode.Scientific, onKey, Modifier.align(Alignment.Bottom))
                     }
                     else -> showPanel(open, Modifier.weight(1f).fillMaxWidth().padding(top = 6.dp), true)
                 }
@@ -382,19 +398,30 @@ fun AequalisApp(initial: String = "") {
         return
     }
     // The phone's keyboard (the Currencies' search): the panel over it, the screen above smaller.
-    Column(Modifier.fillMaxSize().imePadding()) {
-        workspace(false, Modifier.weight(1f).statusBarsPadding().padding(horizontal = 16.dp), true)
-        // The keyboard (the Sizes' strip above it, when shown), or a panel in its place.
-        when (val open = panel) {
-            // The Sizes on: their keys in the letters' place; in the calculator (no letters), a strip above it.
-            null -> {
-                if (sizes && mode != Mode.Text && !collapsed) SizesStrip(sizeKey)
-                if (collapsed) KeyboardBar { collapsed = false } else AequalisKeyboard(mode, onKey, sizes = sizes, sizeKey = sizeKey)
+    BoxWithConstraints(Modifier.fillMaxSize().imePadding()) {
+        // The phone's keyboard up: the panel gives way, so that the request keeps its room (the top
+        // row goes too).
+        val typing = WindowInsets.isImeVisible
+        val panelSize = Modifier.fillMaxWidth().height(if (typing) (maxHeight - TypingRoom).coerceIn(PanelLeast, KeyboardHeight) else KeyboardHeight)
+        Column(Modifier.fillMaxSize()) {
+            workspace(false, Modifier.weight(1f).statusBarsPadding().padding(horizontal = 16.dp), true, !typing)
+            // The keyboard (the Sizes' strip above it, when shown), or a panel in its place.
+            when (val open = panel) {
+                // The Sizes on: their keys in the letters' place; in the calculator (no letters), a strip above it.
+                null -> {
+                    if (sizes && mode != Mode.Text && !collapsed) SizesStrip(sizeKey)
+                    if (collapsed) KeyboardBar { collapsed = false } else AequalisKeyboard(mode, onKey, sizes = sizes, sizeKey = sizeKey)
+                }
+                else -> showPanel(open, panelSize, false)
             }
-            else -> showPanel(open, Modifier.fillMaxWidth().height(KeyboardHeight), false)
         }
     }
 }
+
+/** The room the request and its result keep while the phone's keyboard is up (the status bar's
+ *  included), and the least the panel gets. */
+private val TypingRoom = 190.dp
+private val PanelLeast = 160.dp
 
 /** The request, the answer and the words offered: the screen above (portrait) or beside (landscape)
  *  the keys. In portrait the app's name and ⚙ on top; in landscape (⚙ on the toolbar) all smaller,
@@ -419,11 +446,17 @@ fun Workspace(
     openHistory: () -> Unit,
     // The latest entries under an empty request: not when the History is open beside it.
     recent: Boolean = true,
+    // The app's name and ⚙ on top (portrait): not while the phone's keyboard is up.
+    header: Boolean = true,
+    // The ✕ in the request box, and the request it cleared, for Undo.
+    onClear: () -> Unit = {},
+    undo: String? = null,
+    onUndo: () -> Unit = {},
     // The answer's scroll: past its room (the main screen's), ⏎ collapses the keyboard.
     scroll: ScrollState = rememberScrollState(),
 ) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(if (landscape) 4.dp else 12.dp)) {
-        if (!landscape) {
+        if (!landscape && header) {
             // A tap on the name: the memory the app uses, under it; another tap hides it.
             var memory by rememberSaveable { mutableStateOf(false) }
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -447,7 +480,7 @@ fun Workspace(
             }
             if (memory) MemoryCard(close = { memory = false })
         }
-        if (request) RequestLine(edit, onCursor, onPaste, compact = landscape)
+        if (request) RequestLine(edit, onCursor, onPaste, onClear, compact = landscape)
         // A live region: a screen reader says the result, the hint or the error as it changes.
         Column(
             Modifier.weight(1f).verticalScroll(scroll).semantics { liveRegion = LiveRegionMode.Polite },
@@ -457,7 +490,10 @@ fun Workspace(
             reply?.grouping?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             when {
                 // Nothing written yet: the latest entries of the history, to use again.
-                edit.text.isEmpty() -> if (recent) Recent(recall, copyResult, openHistory)
+                edit.text.isEmpty() -> {
+                    undo?.let { UndoRow(it, onUndo) }
+                    if (recent) Recent(recall, copyResult, openHistory)
+                }
                 reply == null -> {}
                 // What shows, the core decides: nothing but a result while a word is being typed.
                 else -> when (reply.show) {
@@ -471,7 +507,7 @@ fun Workspace(
                             val copying = Modifier.weight(1f)
                                 .combinedClickable(onClickLabel = "Copy the value", onClick = { onCopy(value) }, onLongClickLabel = "Copy the expression", onLongClick = { onCopy(whole) })
                             // Every person's sizes (`shoes 42`, `42 eu shoes us`): a line each, all alike.
-                            val people = peopleOf(reply)
+                            val people = peopleOf(reply) ?: zonesOf(reply)
                             if (people != null) PeopleSizes(people, copying)
                             else Text(result, style = resultStyle(result, landscape), modifier = copying)
                             // With a currency, how old its rates are.
@@ -544,6 +580,16 @@ fun peopleOf(reply: Reply): List<Pair<String, String>>? {
         val person = words.firstOrNull { it in who } ?: return null
         title(person) to (words - person).joinToString(" ")
     }
+}
+
+/** The time zones of an answer with several cities (`now New York Tokyo`: a line `24 Oct 26 2:41 AM
+ *  GMT-4 New York` each), as (city, time there): the city in bold, as the people's sizes are. Null
+ *  for any other answer. */
+fun zonesOf(reply: Reply): List<Pair<String, String>>? {
+    val lines = reply.result.orEmpty().lines()
+    if (lines.size < 2) return null
+    val line = Regex("""^(.*?\bGMT(?:[+-]\d{1,2}(?::\d{2})?)?) (.+)$""")
+    return lines.map { l -> line.matchEntire(l)?.let { it.groupValues[2] to it.groupValues[1] } ?: return null }
 }
 
 /** Every person's sizes, a line each, all alike: the person in bold, then their sizes, wrapping
@@ -639,7 +685,7 @@ private fun Recent(recall: (String) -> Unit, copy: (String) -> Unit, openHistory
 /** The request, with its cursor: drawn here, not a text field, so the phone's keyboard never
  *  opens; a tap puts the cursor where it lands, a long press pastes. */
 @Composable
-fun RequestLine(edit: Edit, onCursor: (Int) -> Unit, onPaste: () -> Unit, compact: Boolean = false, modifier: Modifier = Modifier) {
+fun RequestLine(edit: Edit, onCursor: (Int) -> Unit, onPaste: () -> Unit, onClear: () -> Unit, compact: Boolean = false, modifier: Modifier = Modifier) {
     var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
     val haptic = LocalHapticFeedback.current
     val textStyle = if (compact) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineSmall
@@ -658,7 +704,10 @@ fun RequestLine(edit: Edit, onCursor: (Int) -> Unit, onPaste: () -> Unit, compac
             // What a screen reader says: the request (not the placeholder's example), and Paste.
             .clearAndSetSemantics {
                 contentDescription = if (edit.text.isEmpty()) "Request, empty" else "Request: ${edit.text}"
-                customActions = listOf(CustomAccessibilityAction("Paste") { onPaste(); true })
+                customActions = listOfNotNull(
+                    CustomAccessibilityAction("Paste") { onPaste(); true },
+                    if (edit.text.isEmpty()) null else CustomAccessibilityAction("Clear") { onClear(); true },
+                )
             },
     ) {
         if (edit.text.isEmpty()) Text("10 km mi, 12+4/2, now Tokyo…", color = colors.onSurfaceVariant, style = textStyle)
@@ -667,7 +716,7 @@ fun RequestLine(edit: Edit, onCursor: (Int) -> Unit, onPaste: () -> Unit, compac
             style = textStyle,
             onTextLayout = { layout = it },
             // The cursor: a thin bar where the text's layout puts it, blinking.
-            modifier = Modifier.fillMaxWidth().drawWithContent {
+            modifier = Modifier.fillMaxWidth().padding(end = if (edit.text.isEmpty()) 0.dp else 32.dp).drawWithContent {
                 drawContent()
                 layout?.let { l ->
                     val rect = l.getCursorRect(edit.cursor.coerceIn(0, l.layoutInput.text.length))
@@ -675,5 +724,24 @@ fun RequestLine(edit: Edit, onCursor: (Int) -> Unit, onPaste: () -> Unit, compac
                 }
             },
         )
+        // Clearing: small, at the end of the box, only with something to clear; a tap leaves a
+        // way back (Undo, under the line).
+        if (edit.text.isNotEmpty()) IconButton(onClick = onClear, modifier = Modifier.align(Alignment.CenterEnd).offset(x = 8.dp).size(32.dp)) {
+            Icon(CloseIcon, contentDescription = null, tint = colors.onSurfaceVariant, modifier = Modifier.size(18.dp))
+        }
+    }
+}
+
+/** The request just cleared, under the empty line: a tap puts it back. */
+@Composable
+private fun UndoRow(text: String, undo: () -> Unit) {
+    Row(
+        Modifier.clip(RoundedCornerShape(8.dp)).clickable(onClickLabel = "Undo the clearing", onClick = undo).padding(horizontal = 4.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Icon(UndoIcon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+        Text("Undo", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }

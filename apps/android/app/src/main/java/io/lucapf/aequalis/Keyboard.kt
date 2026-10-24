@@ -3,16 +3,20 @@ package io.lucapf.aequalis
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -57,7 +61,7 @@ sealed interface Key {
     /** Writes this text. */
     data class Write(val text: String) : Key
     data object Backspace : Key
-    /** The request cleared (the C key). */
+    /** The request cleared (the ✕ in the request box). */
     data object Clear : Key
     data object Enter : Key
     /** Opens a panel over the keyboard. */
@@ -113,12 +117,10 @@ fun AequalisKeyboard(
         ) {
             // The toolbar, in every mode: the keyboards and the panels, apart from the keys typed.
             KeyRow {
-                // Clearing has its own key: no gesture on ⌫ wipes the request by surprise.
-                KeyButton("C", weight = 0.8f, tone = Tone.Action) { onKey(Key.Clear) }
                 if (open == null) KeyButton("⌄", weight = 0.7f, tone = Tone.Action) { onKey(Key.Collapse) }
                 switches(mode).forEach { (label, to) -> KeyButton(label, weight = 1.2f, tone = Tone.Action, small = true) { onKey(Key.Switch(to)) } }
                 // Beside a docked panel its tabs choose: no keys for them here.
-                if (open == null) PanelKeys(onKey) else Spacer(Modifier.weight(4f))
+                if (open == null) PanelKeys(onKey, sizes) else Spacer(Modifier.weight(4f))
             }
             when (mode) {
                 Mode.Text -> Letters(onKey, if (sizes) sizeKey else null)
@@ -172,7 +174,10 @@ private fun ColumnScope.Letters(onKey: (Key) -> Unit, sizeKey: ((String) -> Unit
     KeyRow { OPERATORS.forEach { (shown, written) -> KeyButton(shown, tone = Tone.Operator) { write(written) } } }
     KeyRow { "1234567890".forEach { c -> CharKey(c, write) } }
     // The Sizes on: their keys where the letters are.
-    if (sizeKey != null) return SizeKeys(sizeKey, onKey) { content -> KeyRow(content) }
+    if (sizeKey != null) {
+        SizesHint()
+        return SizeKeys(sizeKey, onKey) { content -> KeyRow(content) }
+    }
     KeyRow { "qwertyuiop".forEach { c -> LetterKey(c, capitals, write) } }
     // The middle row is half a key shorter on each side, as on a phone; the last one has ⇧ and ⌫.
     KeyRow {
@@ -208,27 +213,49 @@ private val CALCULATOR = listOf(
     listOf(digit("0"), digit("."), Calc("⌫", null, Tone.Action), Calc("⏎", null, Tone.Enter)),
 )
 
-/** Scientific: two columns beside the grid. Each function writes its bracket (`sin(`), `)` closes
- *  it; ° makes the angle degrees (`sin(30°)`). */
+/** Scientific: the functions in columns of five keys beside the grid, all of them; a narrow screen
+ *  shows fewer columns and the rest scroll sideways. Each function writes its bracket (`sin(`), `)`
+ *  closes it; ° makes the angle degrees (`sin(30°)`); `x!` is written after a number, `x⁻¹` opens
+ *  `1/(`, `10ˣ` writes `10^` and `EE` the exponent of scientific notation (`2E5` is 2 × 10^5), and
+ *  `ˣ√` writes `root(` (the number, then `,` and the index: `root(27, 3)`). */
 private val SCIENCE = listOf(
-    listOf("sin" to "sin(", "cos" to "cos("),
-    listOf("tan" to "tan(", "√" to "sqrt("),
-    listOf("ln" to "ln(", "log" to "log("),
-    listOf("π" to "pi", "e" to "e"),
-    listOf("^" to "^", "°" to "°"),
+    listOf("sin" to "sin(", "cos" to "cos(", "tan" to "tan(", "√" to "sqrt(", "∛" to "cbrt("),
+    listOf("sinh" to "sinh(", "cosh" to "cosh(", "tanh" to "tanh(", "ˣ√" to "root(", "," to ", "),
+    listOf("ln" to "ln(", "log" to "log(", "x!" to "!", "x⁻¹" to "1/(", "^" to "^"),
+    listOf("π" to "pi", "e" to "e", "°" to "°", "10ˣ" to "10^", "EE" to "E"),
 )
 
-/** The calculator: digits and operators in a grid; scientific: two columns of functions on the left. */
+/** The functions' rows in a column: as many as the grid has. */
+private const val SCIENCE_ROWS = 5
+
+/** The narrowest a function key gets before the columns scroll. */
+private val FunctionKeyWidth = 44.dp
+
+/** The functions: every column of `SCIENCE` side by side as wide as fits, the rest scrolling. */
+@Composable
+private fun FunctionKeys(write: (String) -> Unit, modifier: Modifier = Modifier) {
+    BoxWithConstraints(modifier) {
+        val shown = (maxWidth / FunctionKeyWidth).toInt().coerceIn(1, SCIENCE.size)
+        val width = (maxWidth - 4.dp * (shown - 1)) / shown
+        Row(Modifier.fillMaxSize().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            SCIENCE.forEach { column ->
+                Column(Modifier.width(width).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    column.forEach { (label, written) -> ColumnKey(label, small = true) { write(written) } }
+                    repeat(SCIENCE_ROWS - column.size) { Spacer(Modifier.weight(1f)) }
+                }
+            }
+        }
+    }
+}
+
+/** The calculator: digits and operators in a grid; scientific: the functions on the left. */
 @Composable
 private fun ColumnScope.Calculator(scientific: Boolean, onKey: (Key) -> Unit) {
-    val write = { s: String -> onKey(Key.Write(s)) }
-    CALCULATOR.forEachIndexed { i, keys ->
-        KeyRow {
-            if (scientific) {
-                SCIENCE[i].forEach { (shown, written) -> KeyButton(shown, tone = Tone.Action, small = true) { write(written) } }
-                Spacer(Modifier.width(6.dp))
-            }
-            keys.forEach { k -> CalcKey(k, onKey) }
+    if (!scientific) return CALCULATOR.forEach { row -> KeyRow { row.forEach { k -> CalcKey(k, onKey) } } }
+    Row(Modifier.fillMaxWidth().weight(CALCULATOR.size.toFloat()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        FunctionKeys({ onKey(Key.Write(it)) }, Modifier.weight(3f).fillMaxHeight())
+        Column(Modifier.weight(4f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            CALCULATOR.forEach { row -> KeyRow { row.forEach { k -> CalcKey(k, onKey) } } }
         }
     }
 }
@@ -237,15 +264,14 @@ private fun ColumnScope.Calculator(scientific: Boolean, onKey: (Key) -> Unit) {
  *  rest of the screen. */
 private val LandscapeRow: Dp = 44.dp
 
-/** Landscape, on the left: the toolbar, as a column (C, the panels, Settings). */
+/** Landscape, on the left: the toolbar, as a column (the panels, Settings). */
 @Composable
-fun SideToolbar(onKey: (Key) -> Unit, open: Panel? = null, modifier: Modifier = Modifier) {
+fun SideToolbar(onKey: (Key) -> Unit, open: Panel? = null, sizes: Boolean = false, modifier: Modifier = Modifier) {
     Column(modifier.fillMaxHeight().width(100.dp).padding(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        ColumnKey("C") { onKey(Key.Clear) }
         ColumnKey("⌄") { onKey(Key.Collapse) }
         // The panel open: its key in the accent colour (the panel has no title bar here); tapped
-        // again, it closes the panel.
-        Panel.entries.forEach { p -> ColumnKey(p.name, small = true, lit = p == open) { onKey(Key.Open(p)) } }
+        // again, it closes the panel. The Sizes, on the keys, the same.
+        Panel.entries.forEach { p -> ColumnKey(p.name, small = true, lit = p == open || (p == Panel.Sizes && sizes)) { onKey(Key.Open(p)) } }
         ColumnKey("⚙") { onKey(Key.Settings) }
     }
 }
@@ -274,13 +300,14 @@ fun LetterPad(onKey: (Key) -> Unit, modifier: Modifier = Modifier) {
     }
 }
 
-/** Landscape, on the right: the digits and operators in the calculator's grid (the letters beside
- *  have ⌫ and ⏎, so its last row is `0 . : ^`), Sci above it, which shows the functions beside it. */
+/** Landscape, on the right: the digits and operators in the calculator's grid (with the letters
+ *  beside, which have ⌫ and ⏎, its last row is `0 . : ^`), Sci above it. Scientific: the letters are
+ *  hidden, the functions all beside the grid, whose last row has ⌫ and ⏎. */
 @Composable
-fun NumberPad(scientific: Boolean, onKey: (Key) -> Unit, modifier: Modifier = Modifier) {
+fun NumberPad(scientific: Boolean, letters: Boolean, onKey: (Key) -> Unit, modifier: Modifier = Modifier) {
     val write = { s: String -> onKey(Key.Write(s)) }
-    val rows = CALCULATOR.dropLast(1) + listOf(listOf(digit("0"), digit("."), op(":", ":"), op("^", "^")))
-    val columns = if (scientific) 6 else 4
+    val rows = if (letters) CALCULATOR.dropLast(1) + listOf(listOf(digit("0"), digit("."), op(":", ":"), op("^", "^"))) else CALCULATOR
+    val columns = if (scientific) 3 + 4 else 4
     Column(modifier.width(58.dp * columns).padding(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         PadRow {
             when (scientific) {
@@ -288,13 +315,18 @@ fun NumberPad(scientific: Boolean, onKey: (Key) -> Unit, modifier: Modifier = Mo
                 false -> KeyButton("Sci", tone = Tone.Action, small = true) { onKey(Key.Switch(Mode.Scientific)) }
             }
         }
-        rows.forEachIndexed { i, keys ->
-            PadRow {
-                if (scientific) {
-                    SCIENCE[i].forEach { (shown, written) -> KeyButton(shown, tone = Tone.Action, small = true) { write(written) } }
-                }
-                keys.forEach { k -> CalcKey(k, onKey) }
+        val grid = @Composable { m: Modifier ->
+            Column(m, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                rows.forEach { keys -> PadRow { keys.forEach { k -> CalcKey(k, onKey) } } }
             }
+        }
+        if (scientific) {
+            Row(Modifier.height(LandscapeRow * rows.size + 4.dp * (rows.size - 1)), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                FunctionKeys(write, Modifier.weight(3f).fillMaxHeight())
+                grid(Modifier.weight(4f))
+            }
+        } else {
+            grid(Modifier)
         }
     }
 }
@@ -303,6 +335,7 @@ fun NumberPad(scientific: Boolean, onKey: (Key) -> Unit, modifier: Modifier = Mo
 @Composable
 fun SizesPad(sizeKey: (String) -> Unit, onKey: (Key) -> Unit, modifier: Modifier = Modifier) {
     Column(modifier.fillMaxWidth().padding(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        SizesHint()
         SizeKeys(sizeKey, onKey) { content -> PadRow(content) }
     }
 }
@@ -329,6 +362,11 @@ private fun SizeKeys(sizeKey: (String) -> Unit, onKey: (Key) -> Unit, row: @Comp
     }
 }
 
+/** What the Sizes keys are, and the way back, over them: the Sizes key stays lit while they show. */
+@Composable
+fun SizesHint(modifier: Modifier = Modifier) =
+    Text("Size keys · tap Sizes again to go back", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, maxLines = 1, modifier = modifier.fillMaxWidth().padding(horizontal = 4.dp))
+
 /** A row of the landscape pads: a fixed height. */
 @Composable
 private fun PadRow(content: @Composable RowScope.() -> Unit) {
@@ -349,10 +387,10 @@ private fun ColumnScope.ColumnKey(label: String, small: Boolean = false, lit: Bo
 
 /** The panels, on the toolbar of every mode. */
 @Composable
-private fun RowScope.PanelKeys(onKey: (Key) -> Unit) {
+private fun RowScope.PanelKeys(onKey: (Key) -> Unit, sizes: Boolean) {
     KeyButton("Measures", weight = 2f, tone = Tone.Action, small = true) { onKey(Key.Open(Panel.Measures)) }
     KeyButton("Currencies", weight = 2f, tone = Tone.Action, small = true) { onKey(Key.Open(Panel.Currencies)) }
-    KeyButton("Sizes", weight = 1.4f, tone = Tone.Action, small = true) { onKey(Key.Open(Panel.Sizes)) }
+    KeyButton("Sizes", weight = 1.4f, tone = if (sizes) Tone.Enter else Tone.Action, small = true) { onKey(Key.Open(Panel.Sizes)) }
     KeyButton("Trivia", weight = 1.6f, tone = Tone.Action, small = true) { onKey(Key.Open(Panel.Trivia)) }
     KeyButton("History", weight = 1.6f, tone = Tone.Action, small = true) { onKey(Key.Open(Panel.History)) }
 }
@@ -426,17 +464,24 @@ private fun keyIcon(label: String): ImageVector? = when (label) {
     "⏎" -> EnterIcon
     "⚙" -> SettingsIcon
     "⌄" -> KeyboardHideIcon
+    "123", "Basic" -> CalculatorIcon
+    "ABC" -> KeyboardIcon
+    "Sci" -> FunctionsIcon
     "Shift" -> ShiftIcon
     "Shift on" -> ShiftOnIcon
     "Caps lock" -> ShiftLockIcon
     else -> Panel.entries.firstOrNull { it.name == label }?.icon
 }
 
+/** The keys that switch the keyboard, drawn as an icon with their name. */
+private val KEYBOARDS = setOf("123", "ABC", "Sci", "Basic")
+
 /** What a screen reader says for a key whose label is a symbol (the letters and digits say themselves). */
 private val SPOKEN = mapOf(
-    "⌫" to "Backspace", "⏎" to "Enter", "C" to "Clear", "+" to "plus", "−" to "minus", "×" to "times", "÷" to "divided by",
+    "⌫" to "Backspace", "⏎" to "Enter", "+" to "plus", "−" to "minus", "×" to "times", "÷" to "divided by",
     "^" to "to the power of", "(" to "open bracket", ")" to "close bracket", "%" to "percent", "." to "point", ":" to "colon",
-    "√" to "square root", "π" to "pi", "°" to "degrees", "123" to "Calculator keys", "ABC" to "Letter keys",
+    "√" to "square root", "∛" to "cube root", "ˣ√" to "root, with an index", "x!" to "factorial", "x⁻¹" to "inverse, one over",
+    "," to "comma", "10ˣ" to "ten to the power of", "EE" to "times ten to the power of", "sinh" to "hyperbolic sine", "cosh" to "hyperbolic cosine", "tanh" to "hyperbolic tangent", "π" to "pi", "°" to "degrees", "123" to "Calculator keys", "ABC" to "Letter keys",
     "Sci" to "Scientific calculator", "Basic" to "Basic calculator", "space" to "Space", "⚙" to "Settings",
     "⌄" to "Hide the keyboard",
 )
@@ -501,8 +546,8 @@ private fun KeyCap(label: String, size: Modifier, tone: Tone, small: Boolean, re
         Box(contentAlignment = Alignment.Center) {
             when {
                 icon == null -> Text(label, color = foreground, fontSize = if (small) 13.sp else 20.sp, maxLines = 1)
-                // A panel's key: its icon, its name under it.
-                Panel.entries.any { it.name == label } -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                // A panel's or a keyboard's key: its icon, its name under it.
+                Panel.entries.any { it.name == label } || label in KEYBOARDS -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(icon, contentDescription = null, tint = foreground, modifier = Modifier.size(18.dp))
                     Text(label, color = foreground, fontSize = 11.sp, lineHeight = 13.sp, maxLines = 1)
                 }

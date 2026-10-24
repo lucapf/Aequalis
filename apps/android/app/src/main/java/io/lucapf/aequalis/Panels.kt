@@ -203,6 +203,8 @@ private fun MeasuresPanel(opened: String?, open: (String) -> Unit, write: (Strin
 fun SizesStrip(sizeKey: (String) -> Unit) {
     val sizes = loaded { Core.sizes() } ?: return
     LazyRow(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        // What the strip is, and the way back: the Sizes key stays lit.
+        item { Text("Tap Sizes again to go back", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 4.dp, vertical = 14.dp)) }
         items(sizes.groups) { (name, word) ->
             AssistChip(onClick = { sizeKey(word) }, label = { Text(name) }, leadingIcon = { Icon(groupIcon(name), contentDescription = null, modifier = Modifier.size(18.dp)) })
         }

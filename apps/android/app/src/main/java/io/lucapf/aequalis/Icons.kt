@@ -113,6 +113,18 @@ val KeyboardIcon: ImageVector by lazy { icon(
     "M20 5H4c-1.1 0-1.99.9-1.99 2L2 17c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm-9 3h2v2h-2V8zm0 3h2v2h-2v-2zM8 8h2v2H8V8zm0 3h2v2H8v-2zm-1 2H5v-2h2v2zm0-3H5V8h2v2zm9 7H8v-2h8v2zm0-4h-2v-2h2v2zm0-3h-2V8h2v2zm3 3h-2v-2h2v2zm0-3h-2V8h2v2z",
 ) }
 
+/** Material's "calculate": the calculator's keys. */
+val CalculatorIcon: ImageVector by lazy { icon(
+    "calculate",
+    "M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM13.03 7.06L14.09 6l1.41 1.41L16.91 6l1.06 1.06-1.41 1.41 1.41 1.41-1.06 1.06-1.41-1.4-1.41 1.41-1.06-1.06 1.41-1.41-1.41-1.42zm-6.78.66h5v1.5h-5v-1.5zM11.5 16h-2v2H8v-2H6v-1.5h2v-2h1.5v2h2V16zm6.5 1.25h-5v-1.5h5v1.5zm0-2.5h-5v-1.5h5v1.5z",
+) }
+
+/** Material's "undo": the request cleared, back. */
+val UndoIcon: ImageVector by lazy { icon(
+    "undo",
+    "M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h9l-3.62-3.62c1.39-1.16 3.16-1.88 5.12-1.88 3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.15 8 12.5 8z",
+) }
+
 /** Material's "arrow back". */
 val BackIcon: ImageVector by lazy { icon(
     "arrow_back",
@@ -232,7 +244,7 @@ private val SatelliteAltIcon: ImageVector by lazy { icon(
 ) }
 
 /** Material's "functions". */
-private val FunctionsIcon: ImageVector by lazy { icon(
+val FunctionsIcon: ImageVector by lazy { icon(
     "functions",
     "M18 4H6v2l6.5 6L6 18v2h12v-3h-7l5-5-5-5h7z",
 ) }

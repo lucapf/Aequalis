@@ -7,15 +7,20 @@
 //! sum     = product (("+" | "-") product)*
 //! product = unary (("*" | "x" | "/") unary)*
 //! unary   = ("-" | "+") unary | function unary | power
-//! power   = atom ("°" | "deg")? (("**" | "^") unary)?
-//! atom    = number | constant | function group | group
+//! power   = atom "!"* ("°" | "deg")? (("**" | "^") unary)?
+//! atom    = number | constant | function group | root | group
+//! root    = "root" "(" sum "," sum ")"
 //! group   = "(" sum ")" | "[" sum "]" | "{" sum "}"
 //! ```
 //!
 //! Percentages: `20%` is 0.2; added or subtracted it is a share of the left side (`150 + 20%` =
 //! 180, `150 - 20%` = 120); `20% of 150` = 30, like `150 * 20%`.
 //!
-//! Functions: `sqrt`, `log` (`log10`), `ln` (`loge`), `sin cos tan sinh cosh tanh`, with the
+//! Factorial: `5!` = 120, a whole number from 0 to 170 (`(2+3)!` too); it binds tighter than a
+//! power (`2^3!` = 2^6). Roots: `root(27, 3)` is the cube root of 27 (a negative number has an
+//! odd root: `root(-8, 3)` = -2); `cbrt` is the cube root alone.
+//!
+//! Functions: `sqrt`, `cbrt`, `log` (`log10`), `ln` (`loge`), `sin cos tan sinh cosh tanh`, with the
 //! argument in brackets (`sqrt(16)`, then a power applies to the result: `sin(1)^2`) or without
 //! (`sqrt 16`, like a unary minus: `sqrt 16 + 9` = 13). Constants: `e`, `pi` (`π`). Angles are in
 //! radians; `°` or `deg` after a value converts degrees: `sin(30°)` = 0.5.
@@ -49,6 +54,7 @@ impl fmt::Display for Op {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Func {
     Sqrt,
+    Cbrt,
     Log,
     Ln,
     Sin,
@@ -61,8 +67,9 @@ pub enum Func {
 
 impl Func {
     /// Names and aliases, as written.
-    const NAMES: [(&'static str, Func); 11] = [
+    const NAMES: [(&'static str, Func); 12] = [
         ("sqrt", Func::Sqrt),
+        ("cbrt", Func::Cbrt),
         ("log", Func::Log),
         ("log10", Func::Log),
         ("ln", Func::Ln),
@@ -89,6 +96,7 @@ impl Func {
             Func::Sqrt if x < 0.0 => return domain("a negative number"),
             Func::Log | Func::Ln if x <= 0.0 => return domain("a number that is not positive"),
             Func::Sqrt => x.sqrt(),
+            Func::Cbrt => x.cbrt(),
             Func::Log => x.log10(),
             Func::Ln => x.ln(),
             Func::Sin => snap(x.sin(), x.abs()),
@@ -98,6 +106,35 @@ impl Func {
             Func::Cosh => x.cosh(),
             Func::Tanh => x.tanh(),
         })
+    }
+}
+
+/// `x!`: a whole number from 0 to 170 (171! no longer fits in an f64).
+#[inline(never)]
+fn factorial(x: f64) -> Result<f64, CalcError> {
+    if x.fract() != 0.0 || !(0.0..=170.0).contains(&x) {
+        return Err(CalcError::Domain(format!("`!` of {x}: a whole number from 0 to 170 is needed")));
+    }
+    Ok((2..=x as u32).fold(1.0, |product, k| product * f64::from(k)))
+}
+
+/// `root(x, n)`: the `n`th root. A negative `x` has a real root for an odd whole `n` only; the
+/// root of a perfect power is exact (`root(27, 3)` = 3, not 3.0000000000000004).
+#[inline(never)]
+fn root(x: f64, n: f64) -> Result<f64, CalcError> {
+    let domain = |what: &str| Err(CalcError::Domain(format!("`root` of {x} with index {n}: {what}")));
+    let whole = n.fract() == 0.0 && n.abs() <= f64::from(i32::MAX);
+    let odd = whole && n % 2.0 != 0.0;
+    match () {
+        _ if n == 0.0 => domain("the index can't be 0"),
+        _ if x == 0.0 && n < 0.0 => Err(CalcError::DivisionByZero),
+        _ if x < 0.0 && !odd => domain("a negative number has a real root for an odd whole index only"),
+        _ => {
+            let magnitude = x.abs().powf(1.0 / n);
+            let exact = magnitude.round();
+            let magnitude = if whole && exact.powi(n as i32) == x.abs() { exact } else { magnitude };
+            Ok(if x < 0.0 { -magnitude } else { magnitude })
+        }
     }
 }
 
@@ -123,6 +160,10 @@ pub enum Expr {
     Neg(Box<Expr>),
     Bin(Op, Box<Expr>, Box<Expr>),
     Call(Func, Box<Expr>),
+    /// `5!`: the product of the whole numbers up to it.
+    Factorial(Box<Expr>),
+    /// `root(27, 3)`: the radicand, then the index.
+    Root(Box<Expr>, Box<Expr>),
     /// A value in degrees (`30°`), as radians.
     Degrees(Box<Expr>),
     /// A percentage (`20%`): a hundredth, or a share of the left side of `+` / `-`.
@@ -144,6 +185,7 @@ impl Expr {
             Expr::Num(n) | Expr::Const(_, n) => *n,
             Expr::Neg(e) => -e.eval()?,
             Expr::Call(f, e) => f.apply(e.eval()?)?,
+            Expr::Factorial(_) | Expr::Root(..) => self.eval_rare()?,
             Expr::Degrees(e) => e.eval()?.to_radians(),
             Expr::Percent(e) => e.eval()? / 100.0,
             // `150 + 20%`: 20% of 150 added (or subtracted).
@@ -182,12 +224,24 @@ impl Expr {
         })
     }
 
+    /// `!` and `root`, out of line: `eval`'s frame is one per level of a long chain (`1+1+…`), so
+    /// it stays small.
+    #[inline(never)]
+    fn eval_rare(&self) -> Result<f64, CalcError> {
+        match self {
+            Expr::Factorial(e) => factorial(e.eval()?),
+            Expr::Root(x, n) => root(x.eval()?, n.eval()?),
+            _ => unreachable!("only `!` and `root` come here"),
+        }
+    }
+
     /// Number of operations; a negative literal (`-5`) is a number, not an operation.
     pub fn operations(&self) -> usize {
         match self {
             Expr::Num(_) | Expr::Const(..) => 0,
             Expr::Neg(e) if matches!(**e, Expr::Num(_)) => 0,
-            Expr::Neg(e) | Expr::Call(_, e) => 1 + e.operations(),
+            Expr::Neg(e) | Expr::Call(_, e) | Expr::Factorial(e) => 1 + e.operations(),
+            Expr::Root(x, n) => 1 + x.operations() + n.operations(),
             Expr::Degrees(e) | Expr::Percent(e) => e.operations(),
             Expr::Bin(_, l, r) => 1 + l.operations() + r.operations(),
         }
@@ -209,6 +263,8 @@ impl Expr {
             Expr::Const(name, _) => name.to_string(),
             Expr::Neg(e) => format!("-{}", e.group(false)),
             Expr::Call(f, e) => format!("{}({})", f.name(), e.group(true)),
+            Expr::Factorial(e) => format!("{}!", e.group(false)),
+            Expr::Root(x, n) => format!("root({}, {})", x.group(true), n.group(true)),
             Expr::Degrees(e) => format!("{}°", e.group(false)),
             Expr::Percent(e) => format!("{}%", e.group(false)),
             Expr::Bin(op, l, r) if top => format!("{} {op} {}", l.group(false), r.group(false)),
@@ -226,7 +282,8 @@ pub fn starts_expression(token: &str) -> bool {
     }
     let (word, after) = rest.split_at(word_len(rest));
     let next = after.chars().next();
-    (Func::named(word).is_some() && next.is_none_or(|c| "([{ ".contains(c))) || (constant(word).is_some() && next.is_none_or(|c| !c.is_alphanumeric()))
+    ((Func::named(word).is_some() || word == "root") && next.is_none_or(|c| "([{ ".contains(c)))
+        || (constant(word).is_some() && next.is_none_or(|c| !c.is_alphanumeric()))
 }
 
 /// The length of the name at the start of `s`: a letter, then letters and digits (`log10`), or `π`.
@@ -418,6 +475,10 @@ impl Parser<'_> {
 
     fn power(&mut self) -> Result<Expr, CalcError> {
         let mut base = self.atom()?;
+        while self.eat("!") {
+            self.operation()?;
+            base = Expr::Factorial(Box::new(base));
+        }
         if self.eat_degrees() {
             self.operation()?;
             base = Expr::Degrees(Box::new(base));
@@ -452,7 +513,44 @@ impl Parser<'_> {
         false
     }
 
+    /// Consumes the word `root` if a bracket follows it: `root(27, 3)`.
+    fn eat_root(&mut self) -> bool {
+        self.skip_ws();
+        let len = word_len(self.rest());
+        let next = self.rest()[len..].trim_start().chars().next();
+        let found = &self.rest()[..len] == "root" && next.is_some_and(|c| "([{".contains(c));
+        if found {
+            self.pos += len;
+        }
+        found
+    }
+
+    /// The brackets and the two arguments after `root`. Out of line: the recursive parser's frames
+    /// stay small (`MAX_NESTING` levels fit a phone's thread).
+    #[inline(never)]
+    fn root_arguments(&mut self) -> Result<Expr, CalcError> {
+        self.operation()?;
+        let close = [("(", ")"), ("[", "]"), ("{", "}")].into_iter().find(|(open, _)| self.eat(open)).map(|(_, close)| close).expect("a bracket is next");
+        self.calls += 1;
+        let arguments = (|| {
+            let radicand = self.sum()?;
+            if !self.eat(",") {
+                return Err(CalcError::Syntax("`root` takes two numbers: `root(27, 3)`, the number and the index".into()));
+            }
+            let index = self.sum()?;
+            if !self.eat(close) {
+                return Err(CalcError::Syntax(format!("missing `{close}` in `{}`", self.s.trim())));
+            }
+            Ok(Expr::Root(Box::new(radicand), Box::new(index)))
+        })();
+        self.calls -= 1;
+        arguments
+    }
+
     fn atom(&mut self) -> Result<Expr, CalcError> {
+        if self.eat_root() {
+            return self.root_arguments();
+        }
         if let Some(f) = self.function(true) {
             self.operation()?;
             self.calls += 1;
@@ -672,6 +770,41 @@ mod tests {
         // A function is one operation; a constant is not.
         assert_eq!(parse_prefix("sqrt(16)").unwrap().0.operations(), 1);
         assert_eq!(parse_prefix("pi").unwrap().0.operations(), 0);
+    }
+
+    #[test]
+    fn factorials_and_roots() {
+        let err = |s| parse_prefix(s).and_then(|(e, _)| e.eval()).unwrap_err();
+        assert_eq!(eval("5!"), 120.0);
+        assert_eq!(eval("0!"), 1.0);
+        assert_eq!(eval("(2+3)!"), 120.0);
+        assert_eq!(eval("3!!"), 720.0);
+        assert_eq!(eval("2^3!"), 64.0);
+        assert_eq!(eval("-3!"), -6.0);
+        assert_eq!(eval("5! / 4!"), 5.0);
+        assert!(eval("170!").is_finite());
+        for bad in ["171!", "2.5!", "(0-1)!"] {
+            assert!(matches!(err(bad), CalcError::Domain(_)), "{bad}");
+        }
+        assert_eq!(eval("cbrt(27)"), 3.0);
+        assert_eq!(eval("cbrt(-8)"), -2.0);
+        assert_eq!(eval("root(27, 3)"), 3.0);
+        assert_eq!(eval("root(-8, 3)"), -2.0);
+        assert_eq!(eval("root(16, 4)"), 2.0);
+        assert_eq!(eval("root(16, 2)"), 4.0);
+        assert_eq!(eval("root(1+7, 3)"), 2.0);
+        assert_eq!(eval("root[27,3] + 1"), 4.0);
+        assert!((eval("root(2, 2)") - std::f64::consts::SQRT_2).abs() < 1e-12);
+        assert!((eval("root(8, -3)") - 0.5).abs() < 1e-12);
+        assert!(matches!(err("root(-4, 2)"), CalcError::Domain(_)));
+        assert!(matches!(err("root(4, 0)"), CalcError::Domain(_)));
+        assert!(matches!(err("root(0, -2)"), CalcError::DivisionByZero));
+        assert!(matches!(err("root(27)"), CalcError::Syntax(_)));
+        assert!(matches!(err("root(27, 3"), CalcError::Syntax(_)));
+        assert_eq!(grouped("root(8, 3) + 5!"), "root(8, 3) + 5!");
+        assert_eq!(grouped("(2+3)!"), "(2 + 3)!");
+        assert_eq!(parse_prefix("5!").unwrap().0.operations(), 1);
+        assert_eq!(parse_prefix("root(27, 3)").unwrap().0.operations(), 1);
     }
 
     #[test]

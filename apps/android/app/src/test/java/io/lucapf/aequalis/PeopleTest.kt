@@ -57,3 +57,18 @@ class PeopleTest {
         assertNull(peopleOf(Reply(show = Show.Result, result = "6.2137 mi")))
     }
 }
+
+/** `now New York Tokyo`: a line per city, the city beside its time. */
+class ZonesTest {
+    @Test
+    fun aLinePerCity() {
+        val reply = Reply(show = Show.Result, result = "24 Oct 26 2:41 AM GMT-4 New York\n24 Oct 26 3:41 PM GMT+9 Tokyo\n24 Oct 26 7:41 AM GMT London")
+        assertEquals(listOf("New York" to "24 Oct 26 2:41 AM GMT-4", "Tokyo" to "24 Oct 26 3:41 PM GMT+9", "London" to "24 Oct 26 7:41 AM GMT"), zonesOf(reply))
+    }
+
+    @Test
+    fun anythingElseIsNone() {
+        assertNull(zonesOf(Reply(show = Show.Result, result = "24 Oct 26 2:41 AM GMT-4 New York")))
+        assertNull(zonesOf(Reply(show = Show.Result, result = "         US    UK\nmen     8.5   7.5")))
+    }
+}

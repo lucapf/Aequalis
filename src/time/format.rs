@@ -2,11 +2,36 @@
 
 use super::*;
 
+/// `mantissa` (digits, optional `.` fraction) times 10 to the `exponent`, written out; `None` for a
+/// huge exponent (the number would not fit a date anyway).
+fn shifted(mantissa: &str, exponent: i32) -> Option<String> {
+    if exponent.abs() > 60 || mantissa.is_empty() {
+        return None;
+    }
+    let (int, frac) = mantissa.split_once('.').unwrap_or((mantissa, ""));
+    let digits = format!("{int}{frac}");
+    let point = int.len() as i32 + exponent;
+    Some(match point {
+        p if p <= 0 => format!("0.{}{digits}", "0".repeat(-p as usize)),
+        p if p as usize >= digits.len() => format!("{digits}{}", "0".repeat(p as usize - digits.len())),
+        p => format!("{}.{}", &digits[..p as usize], &digits[p as usize..]),
+    })
+}
+
 /// `text` (digits, optional `.` fraction, optional leading `-`) times `scale`, rounded to an integer.
 pub(super) fn scaled(text: &str, scale: i128) -> Option<i128> {
     let (sign, digits) = match text.strip_prefix('-') {
         Some(rest) => (-1, rest),
         None => (1, text),
+    };
+    // `18E6`, `1.8e7`, `5e-3`: the decimal point moved, as `18000000`.
+    let moved;
+    let digits = match digits.split_once(['e', 'E']) {
+        Some((mantissa, exponent)) => {
+            moved = shifted(mantissa, exponent.parse::<i32>().ok()?)?;
+            moved.as_str()
+        }
+        None => digits,
     };
     let (int, frac) = digits.split_once('.').unwrap_or((digits, ""));
     if int.is_empty() && frac.is_empty() || !int.bytes().chain(frac.bytes()).all(|b| b.is_ascii_digit()) {

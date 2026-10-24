@@ -363,13 +363,17 @@ mod tests {
     /// An ambiguous request: the question, each choice's label and detail, and Enter's choice.
     #[test]
     fn view_of_a_question() {
+        // The device's date format is YYYY/MM/DD: `12/04/2026` fits none of its own, so it asks, whatever the laptop.
+        crate::machine::Mock::japan().keep();
         let date = parse(&view("12/04/2026 unix", true)).unwrap();
         assert_eq!(date.get("message").and_then(Value::str), Some("Which date is 12/04/2026?"));
-        assert_eq!(date.get("default").and_then(Value::str), Some("12/04/2026 MM/DD/YYYY unix"));
-        let first = &date.get("choices").unwrap().array()[0];
-        assert_eq!(first.get("label").and_then(Value::str), Some("MM/DD/YYYY   2026-12-04"));
+        assert_eq!(date.get("default").and_then(Value::str), Some("12/04/2026 DD/MM/YYYY unix"));
+        let choices = date.get("choices").unwrap().array();
+        let first = &choices[0];
+        assert_eq!(first.get("label").and_then(Value::str), Some("DD/MM/YYYY   2026-04-12"));
         assert_eq!(first.get("detail").and_then(Value::str), Some(""));
-        assert_eq!(first.get("request").and_then(Value::str), Some("12/04/2026 MM/DD/YYYY unix"));
+        assert_eq!(first.get("request").and_then(Value::str), Some("12/04/2026 DD/MM/YYYY unix"));
+        assert_eq!(choices[1].get("request").and_then(Value::str), Some("12/04/2026 MM/DD/YYYY unix"));
         let city = parse(&view("Tokio ", false)).unwrap();
         assert_eq!(city.get("message").and_then(Value::str), Some("`Tokio` is not a city: did you mean…"));
         assert_eq!(city.get("default").and_then(Value::str), Some("Tokyo"));

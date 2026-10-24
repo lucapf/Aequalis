@@ -495,8 +495,11 @@ mod tests {
             assert!(a.choices[0].request.starts_with("now New York "), "{}", a.choices[0].request);
             assert!(request(&config, &a.choices[0].request, 4, false).unwrap().unwrap().0.ends_with(" Tokyo"));
         }
-        // Three cities, or a city in the middle, are still errors.
-        assert!(request(&config, "now Rome Paris Tokyo", 4, false).unwrap().is_err());
+        // With `now` every city is a target: one line each, whatever their number.
+        assert_eq!(out("now Rome Paris Tokyo").lines().count(), 3);
+        assert_eq!(out("now Rome to Paris to Tokyo"), out("now Rome Paris Tokyo"));
+        // A city in the middle of other words is still an error.
+        assert!(request(&config, "now Rome 5 Tokyo", 4, false).unwrap().is_err());
     }
 
     #[test]

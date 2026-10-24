@@ -437,7 +437,7 @@ pub fn parse_options<'a>(config: &Config, args: &'a [String]) -> Result<Parsed<'
         let arg = arg.as_str();
         // Negative values (`-40`, `-40C`, `-.5`, `-(1+2)`), a lone `-` and the `->` connector are
         // values, not flags.
-        if !arg.starts_with('-') || arg.len() == 1 || arg == "->" || calc::starts_expression(arg) {
+        if !arg.starts_with('-') || arg.len() == 1 || arg.starts_with("->") || calc::starts_expression(arg) {
             positional.push(arg);
             continue;
         }
@@ -492,7 +492,7 @@ pub fn parse_options<'a>(config: &Config, args: &'a [String]) -> Result<Parsed<'
 /// The value is an expression (`100 + 20 sqft m2`, `[1+2]km mi`); a plain number is the simplest one.
 pub fn convert_request(config: &Config, opts: &Options, tokens: &[&str]) -> Result<Output, CliError> {
     check_words(tokens)?;
-    let input = tokens.join(" ");
+    let input = spaced(tokens);
     if input.trim().is_empty() {
         return usage(EXPECTED);
     }
@@ -523,6 +523,53 @@ pub fn convert_request(config: &Config, opts: &Options, tokens: &[&str]) -> Resu
         Err(e) if lines.is_empty() => Err(sizes::hint(&input).map_or(e, |h| CliError::Incomplete(h, Vec::new()))),
         Err(_) => Ok(only_sizes(lines)),
     }
+}
+
+/// The request as words: a number written against a date format at the start (`18000000unix`,
+/// `1.8e7unix`) is the number and the format, and an arrow written against its neighbours
+/// (`12USD->EUR`) stands apart: the same request as written with spaces. Units and currencies
+/// take their number attached already (`100km`, `12USD`); any other word is left as written, for
+/// it can be a label (`2XL`, `32W`, `1er`).
+fn spaced(tokens: &[&str]) -> String {
+    let mut words: Vec<String> = Vec::new();
+    for (i, token) in tokens.iter().enumerate() {
+        for piece in token.split_whitespace() {
+            match piece.split_once("->").filter(|_| piece != "->") {
+                Some((before, after)) => words.extend([before, "->", after].into_iter().filter(|w| !w.is_empty()).map(str::to_string)),
+                None => words.push(piece.to_string()),
+            }
+        }
+        if i == 0 {
+            if let Some(first) = words.first().cloned() {
+                let (number, word) = first.split_at(number_len(&first));
+                if !number.is_empty() && time::is_format(word) {
+                    words.splice(0..1, [number.to_string(), word.to_string()]);
+                }
+            }
+        }
+    }
+    words.join(" ")
+}
+
+/// The length of the number at the start of `s` (`12`, `.5`, `1.5`, `1e3`, `2.5E-3`): an `e` with no
+/// digits after it is not part of it (`1eur`). 0: no number.
+fn number_len(s: &str) -> usize {
+    let b = s.as_bytes();
+    let mut i = b.iter().take_while(|c| c.is_ascii_digit()).count();
+    if b.get(i) == Some(&b'.') {
+        i += 1 + b[i + 1..].iter().take_while(|c| c.is_ascii_digit()).count();
+    }
+    if !b[..i].iter().any(u8::is_ascii_digit) {
+        return 0;
+    }
+    if matches!(b.get(i), Some(b'e' | b'E')) {
+        let sign = usize::from(matches!(b.get(i + 1), Some(b'+' | b'-')));
+        let digits = b[(i + 1 + sign).min(b.len())..].iter().take_while(|c| c.is_ascii_digit()).count();
+        if digits > 0 {
+            i += 1 + sign + digits;
+        }
+    }
+    i
 }
 
 /// A request that is no size and no currency: a distance, a date, a calculation.

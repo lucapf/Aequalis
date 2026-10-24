@@ -24,6 +24,11 @@ Some examples of accepts syntax:
 | `1 kWh MJ`                    | `3.6 MJ`                |
 | `100 hp kW`                   | `74.57 kW`              |
 | `sqrt 16`                     | `4`                     |
+| `5!`, `(2+3)!`                | `120` (whole numbers 0 to 170) |
+| `2E5`, `1.5e-3 * 4`           | `200000`, `0.006` (x E y is x × 10^y, in any number) |
+| `18E6 unix`, `18000000unix`   | `28 Jul 70 12:00 PM GMT+4` (the number may touch its format, and be written xEy) |
+| `12USD->EUR`, `5km->mi`       | as with spaces: the arrow may touch its words |
+| `root(27, 3)`, `cbrt(27)`     | `3` (the number, then the index) |
 | `150 + 20%`                   | `180`                   |
 | `20% of 150`                  | `30`                    |
 | `30 deg rad`                  | `0.5236 rad`            |
