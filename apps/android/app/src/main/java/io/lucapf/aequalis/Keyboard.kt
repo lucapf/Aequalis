@@ -49,6 +49,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.ceil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -213,11 +214,10 @@ private val CALCULATOR = listOf(
     listOf(digit("0"), digit("."), Calc("⌫", null, Tone.Action), Calc("⏎", null, Tone.Enter)),
 )
 
-/** Scientific: the functions in columns of five keys beside the grid, all of them; a narrow screen
- *  shows fewer columns and the rest scroll sideways. Each function writes its bracket (`sin(`), `)`
- *  closes it; ° makes the angle degrees (`sin(30°)`); `x!` is written after a number, `x⁻¹` opens
- *  `1/(`, `10ˣ` writes `10^` and `EE` the exponent of scientific notation (`2E5` is 2 × 10^5), and
- *  `ˣ√` writes `root(` (the number, then `,` and the index: `root(27, 3)`). */
+/** Scientific, landscape: all the functions in columns of five keys beside the grid. Each writes its
+ *  bracket (`sin(`), `)` closes it; ° makes the angle degrees (`sin(30°)`); `x!` is written after a
+ *  number, `x⁻¹` opens `1/(`, `10ˣ` writes `10^` and `EE` the exponent of scientific notation (`2E5`
+ *  is 2 × 10^5), and `ˣ√` writes `root(`, the number, then `,` and the index: `root(27, 3)`. */
 private val SCIENCE = listOf(
     listOf("sin" to "sin(", "cos" to "cos(", "tan" to "tan(", "√" to "sqrt(", "∛" to "cbrt("),
     listOf("sinh" to "sinh(", "cosh" to "cosh(", "tanh" to "tanh(", "ˣ√" to "root(", "," to ", "),
@@ -225,20 +225,32 @@ private val SCIENCE = listOf(
     listOf("π" to "pi", "e" to "e", "°" to "°", "10ˣ" to "10^", "EE" to "E"),
 )
 
+/** Scientific, portrait: one column less, to fit the screen: no `,` (the root is `^(1/` here: the
+ *  number, `ˣ√`, the index and `)`, as `27^(1/3)`), no `°`, `EE`, `x⁻¹` or `e` (`10ˣ` writes the
+ *  powers of ten, `1/(` and `e` are typed). */
+private val SCIENCE_PORTRAIT = listOf(
+    listOf("sin" to "sin(", "cos" to "cos(", "tan" to "tan(", "√" to "sqrt(", "∛" to "cbrt("),
+    listOf("sinh" to "sinh(", "cosh" to "cosh(", "tanh" to "tanh(", "ˣ√" to "^(1/", "^" to "^"),
+    listOf("ln" to "ln(", "log" to "log(", "x!" to "!", "π" to "pi", "10ˣ" to "10^"),
+)
+
 /** The functions' rows in a column: as many as the grid has. */
 private const val SCIENCE_ROWS = 5
 
 /** The narrowest a function key gets before the columns scroll. */
-private val FunctionKeyWidth = 44.dp
+private val FunctionKeyWidth = 40.dp
 
-/** The functions: every column of `SCIENCE` side by side as wide as fits, the rest scrolling. */
+/** The functions: every column of `science` side by side as wide as fits, the rest scrolling. */
 @Composable
-private fun FunctionKeys(write: (String) -> Unit, modifier: Modifier = Modifier) {
+private fun FunctionKeys(science: List<List<Pair<String, String>>>, write: (String) -> Unit, modifier: Modifier = Modifier) {
     BoxWithConstraints(modifier) {
-        val shown = (maxWidth / FunctionKeyWidth).toInt().coerceIn(1, SCIENCE.size)
-        val width = (maxWidth - 4.dp * (shown - 1)) / shown
+        // Not all of them fit: the last column showing is cut in half, which says that the rest
+        // scrolls.
+        val fit = (maxWidth / FunctionKeyWidth).toInt().coerceAtLeast(1)
+        val shown = if (fit >= science.size) science.size.toFloat() else fit + 0.5f
+        val width = (maxWidth - 4.dp * (ceil(shown) - 1)) / shown
         Row(Modifier.fillMaxSize().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            SCIENCE.forEach { column ->
+            science.forEach { column ->
                 Column(Modifier.width(width).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     column.forEach { (label, written) -> ColumnKey(label, small = true) { write(written) } }
                     repeat(SCIENCE_ROWS - column.size) { Spacer(Modifier.weight(1f)) }
@@ -253,7 +265,7 @@ private fun FunctionKeys(write: (String) -> Unit, modifier: Modifier = Modifier)
 private fun ColumnScope.Calculator(scientific: Boolean, onKey: (Key) -> Unit) {
     if (!scientific) return CALCULATOR.forEach { row -> KeyRow { row.forEach { k -> CalcKey(k, onKey) } } }
     Row(Modifier.fillMaxWidth().weight(CALCULATOR.size.toFloat()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        FunctionKeys({ onKey(Key.Write(it)) }, Modifier.weight(3f).fillMaxHeight())
+        FunctionKeys(SCIENCE_PORTRAIT, { onKey(Key.Write(it)) }, Modifier.weight(SCIENCE_PORTRAIT.size.toFloat()).fillMaxHeight())
         Column(Modifier.weight(4f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             CALCULATOR.forEach { row -> KeyRow { row.forEach { k -> CalcKey(k, onKey) } } }
         }
@@ -307,7 +319,7 @@ fun LetterPad(onKey: (Key) -> Unit, modifier: Modifier = Modifier) {
 fun NumberPad(scientific: Boolean, letters: Boolean, onKey: (Key) -> Unit, modifier: Modifier = Modifier) {
     val write = { s: String -> onKey(Key.Write(s)) }
     val rows = if (letters) CALCULATOR.dropLast(1) + listOf(listOf(digit("0"), digit("."), op(":", ":"), op("^", "^"))) else CALCULATOR
-    val columns = if (scientific) 3 + 4 else 4
+    val columns = if (scientific) SCIENCE.size + 4 else 4
     Column(modifier.width(58.dp * columns).padding(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         PadRow {
             when (scientific) {
@@ -322,7 +334,7 @@ fun NumberPad(scientific: Boolean, letters: Boolean, onKey: (Key) -> Unit, modif
         }
         if (scientific) {
             Row(Modifier.height(LandscapeRow * rows.size + 4.dp * (rows.size - 1)), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                FunctionKeys(write, Modifier.weight(3f).fillMaxHeight())
+                FunctionKeys(SCIENCE, write, Modifier.weight(SCIENCE.size.toFloat()).fillMaxHeight())
                 grid(Modifier.weight(4f))
             }
         } else {

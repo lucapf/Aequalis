@@ -16,12 +16,12 @@ use crate::{CliError, Output};
 
 /// One request's outcome as a JSON object, on one line, with the peak memory so far.
 pub fn result(result: &Result<Output, CliError>, notices: &[String]) -> String {
-    with(result, notices, "")
+    with(result, notices, "", false)
 }
 
 /// `result`'s object with `extra` members (each starting with a comma) before the notices.
-fn with(result: &Result<Output, CliError>, notices: &[String], extra: &str) -> String {
-    let object = outcome(result);
+fn with(result: &Result<Output, CliError>, notices: &[String], extra: &str, display: bool) -> String {
+    let object = outcome_as(result, display);
     let notices = match notices.is_empty() {
         true => String::new(),
         false => format!(",\"notices\":[{}]", notices.iter().map(|n| string(n)).collect::<Vec<_>>().join(",")),
@@ -30,9 +30,21 @@ fn with(result: &Result<Output, CliError>, notices: &[String], extra: &str) -> S
 }
 
 fn outcome(result: &Result<Output, CliError>) -> String {
+    outcome_as(result, false)
+}
+
+/// `outcome`, with `display`: the result's number written as the device writes numbers (`1,235,567`),
+/// as the TUI shows it; not what is already formatted for people (dates, distances, sizes). The
+/// value to copy stays as it is (`shown`).
+fn outcome_as(result: &Result<Output, CliError>, display: bool) -> String {
     match result {
         Ok(out) => {
-            let reply = Object::new().num("ok", true).str("result", out.result.as_ref().unwrap_or(&out.stdout));
+            let raw = out.result.as_ref().unwrap_or(&out.stdout);
+            let written = match display && !out.formatted {
+                true => crate::numbers::device().apply_to_result(raw),
+                false => raw.clone(),
+            };
+            let reply = Object::new().num("ok", true).str("result", &written);
             // The other results (`42 eu us`: the shoe sizes), each with its kind.
             let reply = match out.extra.is_empty() {
                 true => reply,
@@ -113,13 +125,13 @@ pub fn view(request: &str, submitted: bool) -> String {
     if let Some(class) = unit_class(config, request) {
         extra.push_str(&format!(",\"class\":{}", string(class)));
     }
-    with(&result, &notices, &extra)
+    with(&result, &notices, &extra, true)
 }
 
 /// `view`'s reply to a request refused before it is read (too long): an error, shown at once.
 pub fn refused(err: CliError) -> String {
     let result = Err(err);
-    with(&result, &[], &shown("", true, &result))
+    with(&result, &[], &shown("", true, &result), true)
 }
 
 /// The members of `view` that say what to show, each starting with a comma.
@@ -347,6 +359,24 @@ mod tests {
         assert_eq!(member(&too_long, "show").as_deref(), Some("error"), "too long: shown even mid-word");
         assert_eq!(member(&too_long, "message").as_deref(), Some("the request is too long: at most 512 characters"));
         assert!(too_long.contains(",\"peak_kb\":"));
+    }
+
+    /// The result's number as the device writes numbers; what Copy gives stays plain.
+    #[test]
+    fn the_result_in_the_devices_format() {
+        crate::machine::Mock::us().keep();
+        let r = view("1234567+1", false);
+        assert_eq!(member(&r, "result").as_deref(), Some("1,234,568"));
+        assert_eq!(member(&r, "value").as_deref(), Some("1234568"));
+        assert_eq!(member(&r, "expression").as_deref(), Some("1234567+1 = 1234568"));
+        assert_eq!(member(&view("100000 m km", false), "result").as_deref(), Some("100 km"));
+        assert_eq!(member(&view("10000000 m km", false), "result").as_deref(), Some("10,000 km"));
+        // A date is already for people: `2026` is a year, not a number to group.
+        let stamp = member(&view("2026-12-04 unix", false), "result").unwrap();
+        assert!(stamp.ends_with(" unix") && !stamp.contains(','), "{stamp}");
+        crate::machine::Mock::italy().keep();
+        assert_eq!(member(&view("1234567.5+1", false), "result").as_deref(), Some("1.234.568,5"));
+        assert_eq!(member(&view("1234567.5+1", false), "value").as_deref(), Some("1234568.5"));
     }
 
     #[test]

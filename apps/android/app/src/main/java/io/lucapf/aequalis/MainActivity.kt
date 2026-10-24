@@ -487,7 +487,7 @@ fun Workspace(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             // A calculation's grouping (`(12 + (4 / 2))`), as the TUI shows it.
-            reply?.grouping?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            reply?.grouping?.let { Text(showNumbers(it).text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             when {
                 // Nothing written yet: the latest entries of the history, to use again.
                 edit.text.isEmpty() -> {
@@ -689,15 +689,17 @@ fun RequestLine(edit: Edit, onCursor: (Int) -> Unit, onPaste: () -> Unit, onClea
     var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
     val haptic = LocalHapticFeedback.current
     val textStyle = if (compact) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineSmall
+    // What is shown: the numbers grouped as the device writes them; the request itself stays as typed.
+    val shown = remember(edit.text) { showNumbers(edit.text) }
     val colors = MaterialTheme.colorScheme
     val blink by rememberInfiniteTransition(label = "cursor").animateFloat(
         initialValue = 1f, targetValue = 0f, animationSpec = infiniteRepeatable(tween(530), RepeatMode.Reverse), label = "blink",
     )
     Box(
         modifier.fillMaxWidth().border(1.dp, colors.outline, RoundedCornerShape(8.dp)).padding(horizontal = 16.dp, vertical = if (compact) 8.dp else 14.dp)
-            .pointerInput(edit, onPaste) {
+            .pointerInput(edit, shown, onPaste) {
                 detectTapGestures(
-                    onTap = { at -> layout?.let { onCursor(it.getOffsetForPosition(at)) } },
+                    onTap = { at -> layout?.let { onCursor(shown.offset(it.getOffsetForPosition(at))) } },
                     onLongPress = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); onPaste() },
                 )
             }
@@ -712,14 +714,14 @@ fun RequestLine(edit: Edit, onCursor: (Int) -> Unit, onPaste: () -> Unit, onClea
     ) {
         if (edit.text.isEmpty()) Text("10 km mi, 12+4/2, now Tokyo…", color = colors.onSurfaceVariant, style = textStyle)
         Text(
-            edit.text,
+            shown.text,
             style = textStyle,
             onTextLayout = { layout = it },
             // The cursor: a thin bar where the text's layout puts it, blinking.
             modifier = Modifier.fillMaxWidth().padding(end = if (edit.text.isEmpty()) 0.dp else 32.dp).drawWithContent {
                 drawContent()
                 layout?.let { l ->
-                    val rect = l.getCursorRect(edit.cursor.coerceIn(0, l.layoutInput.text.length))
+                    val rect = l.getCursorRect(shown.at(edit.cursor).coerceIn(0, l.layoutInput.text.length))
                     drawRect(colors.primary.copy(alpha = blink), topLeft = rect.topLeft, size = Size(2.dp.toPx(), rect.height))
                 }
             },
