@@ -584,7 +584,9 @@ mod tests {
         use crate::cities::tests::sample;
 
         fn run(input: &str, local: Option<&str>) -> Option<Result<(String, Vec<String>), Error>> {
-            let (_, store) = sample(&format!("geo-{}", input.len() * 31 + local.map_or(0, str::len)));
+            // A folder of its own: the tests run in parallel, and `sample` empties it first.
+            static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+            let (_, store) = sample(&format!("geo-{}", NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
             let device = || Device { format: NumberFormat::default(), unit: "km", local: local.map(str::to_string) };
             request_in(&Config::default(), input, 1, &device, Some(&store))
         }

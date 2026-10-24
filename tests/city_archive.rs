@@ -30,6 +30,9 @@ fn config(name: &str) -> PathBuf {
     )
 }
 
+// The device's region: the C locale's on every machine (`AEQUALIS_MACHINE=plain`, debug builds
+// only; a Mac reads its own setting, not `LC_ALL`).
+#[cfg(debug_assertions)]
 #[test]
 fn download_then_any_city() {
     let dir = config("download");
@@ -78,6 +81,9 @@ fn download_then_any_city() {
     assert_eq!(common::out(&common::aequalis(&dir, &["Rome", "Paris"])), "1107 km");
 }
 
+// The locale (`LC_ALL`) is the device on Linux and Windows; a Mac reads its own setting
+// (`locale::tests::macos_defaults`).
+#[cfg(not(target_os = "macos"))]
 #[test]
 fn the_default_unit_follows_the_device() {
     let dir = common::config("unit", &[]);

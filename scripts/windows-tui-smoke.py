@@ -62,8 +62,7 @@ class Session:
 
 def main():
     s = Session()
-    # The toolbar's entries have a symbol between their key and their name (`F2 󰑭 Measures`).
-    s.expect("Measures")
+    s.expect("Measures  F3")  # the toolbar: `F2 󰑭 Measures  F3 …` (a symbol, or none when narrow)
     print("toolbar drawn")
     s.send("10 km mi\r")
     s.expect("6.2137 mi")
@@ -73,13 +72,13 @@ def main():
     s.send("\x1b")
     time.sleep(0.5)
     print("F2 opens the Measures")
-    s.send("\x1b[<0;18;1M\x1b[<0;18;1m")  # a left click (SGR) on the toolbar's F3 Currencies
+    s.send("\x1b[<0;16;1M\x1b[<0;16;1m")  # a left click (SGR) on the toolbar's F3 (column 16: ` F2 󰑭 Measures ` before it)
     s.expect("\u250c\u2500 Currencies")
     s.send("\x1b")
     time.sleep(0.5)
     print("a mouse click opens the Currencies")
     s.send("\x1by")  # Alt+Y
-    s.expect("copied")
+    s.expect("copied", seconds=30)  # through PowerShell, slow to start on a cold runner
     print("Alt+Y copies")
     s.send("\x11")  # Ctrl+Q
     s.quit()

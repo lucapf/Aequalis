@@ -29,7 +29,7 @@ fn config(name: &str, rates: bool) -> PathBuf {
 fn aequalis(dir: &PathBuf, args: &[&str], env: &[(&str, &str)]) -> Output {
     let mut settings = vec!["\"offline\": true".to_string()];
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_aequalis"));
-    cmd.arg(format!("--now={NOW}")).args(args).env("XDG_CONFIG_HOME", dir).env("TZ", "Europe/Rome").env("LC_ALL", "C").stdin(Stdio::null());
+    cmd.arg(format!("--now={NOW}")).args(args).env("XDG_CONFIG_HOME", dir).env("TZ", "Europe/Rome").env("LC_ALL", "C").env("AEQUALIS_MACHINE", "plain").stdin(Stdio::null());
     for (k, v) in env {
         match *k {
             "TZ" => {
@@ -109,6 +109,9 @@ fn shared_and_misspelt_names_are_asked() {
     assert!(json.contains(r#""kind":"currency""#) && json.contains(r#""request":"12 USD euro""#), "{json}");
 }
 
+// The device's region: the C locale's on every machine (`AEQUALIS_MACHINE=plain`, debug builds
+// only; a Mac reads its own setting, not `LC_ALL`).
+#[cfg(debug_assertions)]
 #[test]
 fn other_requests_are_unchanged() {
     let dir = config("other", true);

@@ -13,6 +13,7 @@ fn json(args: &str) -> (String, String, i32) {
         .args(args.split_whitespace())
         .env("TZ", "Europe/Rome")
         .env("LC_ALL", "C")
+        .env("AEQUALIS_MACHINE", "plain")
         .stdin(Stdio::null())
         .output()
         .unwrap();
@@ -43,6 +44,9 @@ fn results_with_notes_and_warnings() {
     assert_eq!(json("1/3 --precision 2").0, "{\"ok\":true,\"result\":\"0.33\",\"notes\":[],\"warnings\":[]}\n");
 }
 
+// The device's region: the C locale's on every machine (`AEQUALIS_MACHINE=plain`, debug builds
+// only; a Mac reads its own setting, not `LC_ALL`).
+#[cfg(debug_assertions)]
 #[test]
 fn errors_keep_their_exit_codes() {
     assert_eq!(json("10 foo m"), ("{\"ok\":false,\"exit\":1,\"error\":\"unknown unit `foo`\"}\n".into(), String::new(), 1));

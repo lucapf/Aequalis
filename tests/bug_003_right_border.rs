@@ -10,6 +10,8 @@
 
 #![cfg(all(target_os = "linux", feature = "tui"))]
 
+mod common;
+
 use std::io::{Read, Write};
 use std::process::{Command, Stdio};
 use std::thread::sleep;
@@ -107,6 +109,7 @@ fn session(keys: &[&str]) -> Option<Screen> {
     let mut child = Command::new("script")
         .args(["-qec", &format!("stty rows {ROWS} cols {COLS}; exec '{BIN}'"), "/dev/null"])
         .env("LC_ALL", "C")
+        .env("XDG_CONFIG_HOME", common::shared_config("bug-003"))
         .env("TZ", "UTC")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

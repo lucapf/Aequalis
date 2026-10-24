@@ -21,6 +21,19 @@ jobs:
       - name: Test the C interface (the Android app's)
         run: cargo test --features ffi --lib ffi
 
+  # macOS on Apple Silicon, as the release builds it: the BSD tools (`script`, `sed`) are not Linux's.
+  macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v5
+      - name: Toolchain
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+      - name: Test
+        run: cargo test --no-fail-fast
+      - name: Test the release build
+        if: always()
+        run: cargo test --release --no-fail-fast
+
   # Clippy wherever the code compiles. A Linux build compiles neither the Windows code nor the
   # Android bridge (`src/jni.rs`): their warnings and errors went unseen. Checking another target
   # needs only its standard library (no linker, no NDK), so one Linux job does them all. Any

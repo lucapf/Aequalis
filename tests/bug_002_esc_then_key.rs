@@ -6,6 +6,8 @@
 
 #![cfg(all(target_os = "linux", feature = "tui"))]
 
+mod common;
+
 use std::io::{Read, Write};
 use std::process::{Command, Stdio};
 use std::thread::sleep;
@@ -24,6 +26,7 @@ fn session(writes: &[&[u8]]) -> Option<String> {
         .stderr(Stdio::null())
         // Independent of this machine's settings: C locale = metric tabs, plain number format.
         .env("LC_ALL", "C")
+        .env("XDG_CONFIG_HOME", common::shared_config("bug-002"))
         .spawn()
         .ok()?;
     let mut stdin = child.stdin.take().unwrap();
