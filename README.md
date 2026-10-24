@@ -37,6 +37,21 @@ Normal precedence, powers (`^` or `**`), scientific notation (`2E5` is 2 × 10^5
 | `150 + 20%` | `180` |
 | `20% of 150` | `30` |
 
+### A prompt
+
+`aequalis --shell` is a plain prompt: each line is a request, answered as the whole expression
+(`12 AED = 3.27 USD`), as Copy gives it in the apps. `exit`, `quit` or Ctrl-D leave. At a terminal an
+ambiguous request is asked about; with the input piped it prints the session as a transcript, which is
+how the examples of the website are made:
+
+```
+$ printf '2400 Thailand usd\n100 km/h mph\n' | aequalis --shell -s
+aequalis> 2400 Thailand usd
+2400 THB = 71.09 USD
+aequalis> 100 km/h mph
+100 km/h = 62.1371 mph
+```
+
 ### Units
 
 Metric and imperial: length, area, volume, mass, temperature, time, data, speed, pressure, fuel

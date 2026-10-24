@@ -66,6 +66,27 @@ pub fn status() -> Status {
     status_of(newest, mode() == Mode::Offline)
 }
 
+/// The online state and the age of the last sync, for people, as every UI says it: `online (2h old)`,
+/// `offline (forced, 2d old)`, `online (just synced)`, `never synced`. `status` is `Status::label`, `synced`
+/// the `synced_ago`.
+pub fn status_line(status: &str, synced: Option<&str>) -> String {
+    let age = match synced {
+        None => "never synced".to_string(),
+        Some("now") => "just synced".to_string(),
+        Some(ago) => format!("{ago} old"),
+    };
+    match status {
+        "offline (forced)" => format!("offline (forced, {age})"),
+        "not synced" => age,
+        other => format!("{other} ({age})"),
+    }
+}
+
+/// `status_line` of this machine's online data.
+pub fn line() -> String {
+    status_line(status().label(), synced_ago().as_deref())
+}
+
 /// How long ago the online data was last synced, short (`ago`); `None`: never.
 pub fn synced_ago() -> Option<String> {
     since_sync(&crate::online::load())
@@ -92,6 +113,17 @@ pub fn ago(seconds: i64) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_status_line() {
+        use super::status_line as line;
+        assert_eq!(line("online", Some("2h")), "online (2h old)");
+        assert_eq!(line("online", Some("now")), "online (just synced)");
+        assert_eq!(line("offline", Some("3d")), "offline (3d old)");
+        assert_eq!(line("offline (forced)", Some("2d")), "offline (forced, 2d old)");
+        assert_eq!(line("offline (forced)", None), "offline (forced, never synced)");
+        assert_eq!(line("not synced", None), "never synced");
+    }
+
     use super::*;
 
     #[test]

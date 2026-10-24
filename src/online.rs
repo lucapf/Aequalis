@@ -445,6 +445,94 @@ pub fn tracked(result: &Result<Report, String>) {
     write_progress("", None, 0, Some(&report));
 }
 
+/// Where a sync is, for a UI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SyncState {
+    /// None runs, none ended lately.
+    #[default]
+    Idle,
+    Running,
+    /// Ended, everything synced.
+    Done,
+    /// Ended with something that failed, or died.
+    Failed,
+}
+
+impl SyncState {
+    pub fn name(self) -> &'static str {
+        match self {
+            SyncState::Idle => "idle",
+            SyncState::Running => "running",
+            SyncState::Done => "done",
+            SyncState::Failed => "failed",
+        }
+    }
+}
+
+/// What every UI says of a sync, written here once (the step and the speed, the button's text, the
+/// bar's fraction, how it ended), from the progress a sync by hand writes (`track`).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct SyncView {
+    pub state: SyncState,
+    /// While it runs: its step, and the speed while downloading (`downloading the city archive · 400 kB/s`).
+    pub line: String,
+    /// The Sync button's text: `Sync`, `Syncing 40%`, `Syncing…`, then `Synced` or `Sync failed`.
+    pub label: String,
+    /// The big download's progress, 0 to 1; `None`: no percentage (checking, installing).
+    pub fraction: Option<f64>,
+    /// How it ended: what was synced and what failed, on one line.
+    pub message: String,
+}
+
+/// A sync that stopped writing for this long (seconds) died; one that ended this long ago is history.
+const DIED_AFTER: u64 = 30;
+const FORGOTTEN_AFTER: u64 = 120;
+
+/// The step of a running sync with its speed while it downloads (`downloading the city archive · 400 kB/s`).
+pub fn step_line(phase: &str, speed: u64) -> String {
+    let step = if phase.is_empty() { "starting" } else { phase };
+    match step.starts_with("downloading") {
+        true => format!("{step} · {}", speed_text(speed)),
+        false => step.to_string(),
+    }
+}
+
+/// How the sync whose progress was read (`read_progress`) looks to a UI.
+pub fn view_of(progress: Option<&Syncing>) -> SyncView {
+    let Some(p) = progress else { return SyncView { label: "Sync".into(), ..SyncView::default() } };
+    let ended = |state, label: &str, message: String| SyncView { state, label: label.into(), message, ..SyncView::default() };
+    match &p.done {
+        // Ended: what it says for a little while.
+        Some((done, failed)) if p.age <= FORGOTTEN_AFTER => {
+            let all: Vec<String> = done.iter().chain(failed).cloned().collect();
+            let message = if all.is_empty() { "synced".to_string() } else { all.join(", ") };
+            match failed.is_empty() {
+                true => ended(SyncState::Done, "Synced", message),
+                false => ended(SyncState::Failed, "Sync failed", message),
+            }
+        }
+        Some(_) => view_of(None),
+        // Stopped writing: it died.
+        None if p.age > FORGOTTEN_AFTER => view_of(None),
+        None if p.age > DIED_AFTER => ended(SyncState::Failed, "Sync failed", "sync stopped".into()),
+        None => SyncView {
+            state: SyncState::Running,
+            line: step_line(&p.phase, p.speed),
+            label: match p.fraction {
+                Some(f) => format!("Syncing {:.0}%", f * 100.0),
+                None => "Syncing…".to_string(),
+            },
+            fraction: p.fraction,
+            message: String::new(),
+        },
+    }
+}
+
+/// `view_of` the sync by hand now running, or that ended lately (`read_progress`).
+pub fn sync_view() -> SyncView {
+    view_of(read_progress().as_ref())
+}
+
 /// The progress of a sync by hand, if one wrote it.
 pub fn read_progress() -> Option<Syncing> {
     let path = progress_path()?;
@@ -758,5 +846,39 @@ mod tests {
         let data = Data::from_json(&text).expect("valid JSON");
         assert_eq!(data.values.len(), 10, "the first batch");
         assert_eq!((data.synced_at, data.ok), (None, false), "not complete");
+    }
+
+    #[test]
+    fn what_a_sync_looks_like() {
+        let running = |phase: &str, fraction, speed, age| Syncing { fraction, speed, phase: phase.into(), done: None, age };
+        let view = view_of(None);
+        assert_eq!((view.state, view.label.as_str()), (SyncState::Idle, "Sync"));
+        let v = view_of(Some(&running("downloading the city archive", Some(0.4), 400_000, 1)));
+        assert_eq!(
+            (v.state, v.line.as_str(), v.label.as_str(), v.fraction),
+            (SyncState::Running, "downloading the city archive · 400 kB/s", "Syncing 40%", Some(0.4))
+        );
+        let v = view_of(Some(&running("installing the city archive", None, 0, 1)));
+        assert_eq!((v.line.as_str(), v.label.as_str(), v.fraction), ("installing the city archive", "Syncing…", None));
+        assert_eq!(view_of(Some(&running("", None, 0, 0))).line, "starting");
+        // It stopped writing: it died; much later, nothing to say.
+        let v = view_of(Some(&running("downloading the exchange rates", None, 0, 40)));
+        assert_eq!((v.state, v.label.as_str(), v.message.as_str()), (SyncState::Failed, "Sync failed", "sync stopped"));
+        assert_eq!(view_of(Some(&running("x", None, 0, 500))).state, SyncState::Idle);
+        // Ended.
+        let ended = |done: &[&str], failed: &[&str], age| Syncing {
+            fraction: None,
+            speed: 0,
+            phase: String::new(),
+            done: Some((done.iter().map(|s| s.to_string()).collect(), failed.iter().map(|s| s.to_string()).collect())),
+            age,
+        };
+        let v = view_of(Some(&ended(&["rates: synced"], &[], 2)));
+        assert_eq!((v.state, v.label.as_str(), v.message.as_str()), (SyncState::Done, "Synced", "rates: synced"));
+        let v = view_of(Some(&ended(&["rates: synced"], &["cities: could not download"], 2)));
+        assert_eq!((v.state, v.label.as_str(), v.message.as_str()), (SyncState::Failed, "Sync failed", "rates: synced, cities: could not download"));
+        assert_eq!(view_of(Some(&ended(&[], &[], 2))).message, "synced");
+        assert_eq!(view_of(Some(&ended(&["x"], &[], 500))).state, SyncState::Idle, "an end long ago is history");
+        assert_eq!(step_line("checking the city archive", 5), "checking the city archive");
     }
 }

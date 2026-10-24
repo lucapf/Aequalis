@@ -73,6 +73,8 @@ sealed interface Key {
     data object Settings : Key
     /** Collapses the keyboard (its ⌄ key, a swipe down), its room to the answer; a bar brings it back. */
     data object Collapse : Key
+    /** Brings the collapsed keyboard back (the landscape toolbar's key, lit while it is collapsed). */
+    data object Expand : Key
 }
 
 enum class Panel {
@@ -108,6 +110,8 @@ fun AequalisKeyboard(
     // The Sizes on: their keys in the letters' place (the digits and operators stay).
     sizes: Boolean = false,
     sizeKey: (String) -> Unit = {},
+    // Shift's state, kept by the screen (not by this keyboard) so that a rotation or a fold keeps it.
+    capitals: Capitals = remember { Capitals() },
 ) {
     // `open`: a panel docked beside the keyboard (a large screen), whose tabs replace the panel keys.
     // A swipe down collapses it (beside a docked panel it stays).
@@ -124,7 +128,7 @@ fun AequalisKeyboard(
                 if (open == null) PanelKeys(onKey, sizes) else Spacer(Modifier.weight(4f))
             }
             when (mode) {
-                Mode.Text -> Letters(onKey, if (sizes) sizeKey else null)
+                Mode.Text -> Letters(onKey, if (sizes) sizeKey else null, capitals)
                 Mode.Basic, Mode.Scientific -> Calculator(scientific = mode == Mode.Scientific, onKey)
             }
         }
@@ -168,9 +172,8 @@ private fun switches(mode: Mode): List<Pair<String, Mode>> = when (mode) {
 private val OPERATORS = listOf("+" to "+", "−" to "-", "×" to "*", "÷" to "/", "^" to "^", "(" to "(", ")" to ")", "%" to "%", "." to ".", ":" to ":")
 
 @Composable
-private fun ColumnScope.Letters(onKey: (Key) -> Unit, sizeKey: ((String) -> Unit)?) {
+private fun ColumnScope.Letters(onKey: (Key) -> Unit, sizeKey: ((String) -> Unit)?, capitals: Capitals) {
     val write = { s: String -> onKey(Key.Write(s)) }
-    val capitals = remember { Capitals() }
     // Above the digits, next to them: the request's numbers and operators are typed together.
     KeyRow { OPERATORS.forEach { (shown, written) -> KeyButton(shown, tone = Tone.Operator) { write(written) } } }
     KeyRow { "1234567890".forEach { c -> CharKey(c, write) } }
@@ -229,9 +232,8 @@ private val SCIENCE_LANDSCAPE = listOf(
 /** The functions of the first row, in a column of their own beside the digits. */
 private val MOVED_FUNCTIONS = listOf("sin" to "sin(", "sinh" to "sinh(", "ln" to "ln(", "π" to "pi")
 
-/** The operators of the first row of the digits, in a column of their own beside them: the digits keep
- *  `× − +` on the right edge. */
-private val MOVED_OPERATORS = listOf(op("(", "("), op(")", ")"), op("%", "%"), op("÷", "/"))
+/** The operators of the first row of the digits, in a column of their own on their right. */
+private val MOVED_OPERATORS = listOf(op("÷", "/"), op("%", "%"), op("(", "("), op(")", ")"))
 
 /** Scientific, portrait: one column less, to fit the screen: no `,` (the root is `^(1/` here: the
  *  number, `ˣ√`, the index and `)`, as `27^(1/3)`), no `°`, `EE`, `x⁻¹` or `e` (`10ˣ` writes the
@@ -284,16 +286,18 @@ private fun ColumnScope.Calculator(scientific: Boolean, onKey: (Key) -> Unit) {
  *  rest of the screen. */
 private val LandscapeRow: Dp = 44.dp
 
-/** Landscape, on the left: the toolbar, as a column (the keyboard's collapse and Sci / Basic, the panels, Settings). */
+/** Landscape, on the left: the toolbar, as a column (the keyboard's collapse and Sci, the panels, Settings). */
 @Composable
-fun SideToolbar(onKey: (Key) -> Unit, mode: Mode, open: Panel? = null, sizes: Boolean = false, modifier: Modifier = Modifier) {
+fun SideToolbar(onKey: (Key) -> Unit, mode: Mode, collapsed: Boolean, open: Panel? = null, sizes: Boolean = false, modifier: Modifier = Modifier) {
     Column(modifier.fillMaxHeight().width(88.dp).padding(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        ColumnKey("⌄") { onKey(Key.Collapse) }
-        // The calculator: the scientific keys, or back to the letters (the digits are always there).
-        when (mode) {
-            Mode.Scientific -> ColumnKey("Basic", small = true) { onKey(Key.Switch(Mode.Text)) }
-            else -> ColumnKey("Sci", small = true) { onKey(Key.Switch(Mode.Scientific)) }
+        // The keyboard collapsed: its key lit, with the arrow up, and a tap brings the keys back.
+        when {
+            collapsed -> ColumnKey("⌃", lit = true) { onKey(Key.Expand) }
+            else -> ColumnKey("⌄") { onKey(Key.Collapse) }
         }
+        // The scientific keys: lit while they show, a tap again goes back to the letters (as the Sizes').
+        val scientific = mode == Mode.Scientific
+        ColumnKey("Sci", small = true, lit = scientific) { onKey(Key.Switch(if (scientific) Mode.Text else Mode.Scientific)) }
         // The panel open: its key in the accent colour (the panel has no title bar here); tapped
         // again, it closes the panel. The Sizes, on the keys, the same.
         Panel.entries.forEach { p -> ColumnKey(p.name, small = true, lit = p == open || (p == Panel.Sizes && sizes)) { onKey(Key.Open(p)) } }
@@ -303,9 +307,8 @@ fun SideToolbar(onKey: (Key) -> Unit, mode: Mode, open: Panel? = null, sizes: Bo
 
 /** Landscape, under the request: the letters, as in portrait, with ⌫, space and ⏎. */
 @Composable
-fun LetterPad(onKey: (Key) -> Unit, modifier: Modifier = Modifier) {
+fun LetterPad(onKey: (Key) -> Unit, capitals: Capitals, modifier: Modifier = Modifier) {
     val write = { s: String -> onKey(Key.Write(s)) }
-    val capitals = remember { Capitals() }
     Column(modifier.fillMaxWidth().padding(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         PadRow { "qwertyuiop".forEach { c -> LetterKey(c, capitals, write) } }
         PadRow {
@@ -358,11 +361,12 @@ private fun ColumnScope.CalcColumnKey(k: Calc, onKey: (Key) -> Unit) {
 
 /**
  * Landscape, under the result: the keys in four rows, across the width. With the letters (or the Sizes in
- * their place): `( ) % ÷` in a column, then the digits. Scientific, no letters: the functions in four
- * columns, the first row's (`sin sinh ln π`) and `( ) % ÷` in a column each, then the digits.
+ * their place): the digits, then `÷ % ( )` in a column on their right. Scientific, no letters: the
+ * functions in four columns, the first row's (`sin sinh ln π`) in a column beside them, then the digits
+ * and `÷ % ( )` on their right.
  */
 @Composable
-fun LandscapeKeys(mode: Mode, sizes: Boolean, onKey: (Key) -> Unit, sizeKey: (String) -> Unit, modifier: Modifier = Modifier) {
+fun LandscapeKeys(mode: Mode, sizes: Boolean, onKey: (Key) -> Unit, sizeKey: (String) -> Unit, capitals: Capitals, modifier: Modifier = Modifier) {
     val write = { s: String -> onKey(Key.Write(s)) }
     val scientific = mode == Mode.Scientific && !sizes
     Row(modifier.fillMaxWidth().padding(horizontal = 4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.Bottom) {
@@ -374,10 +378,10 @@ fun LandscapeKeys(mode: Mode, sizes: Boolean, onKey: (Key) -> Unit, sizeKey: (St
                 PadColumn(Modifier.weight(1f)) { MOVED_FUNCTIONS.forEach { (label, written) -> ColumnKey(label, small = true) { write(written) } } }
             }
             sizes -> SizesPad(sizeKey, onKey, Modifier.weight(1f))
-            else -> LetterPad(onKey, Modifier.weight(1f))
+            else -> LetterPad(onKey, capitals, Modifier.weight(1f))
         }
-        PadColumn(Modifier.let(column)) { MOVED_OPERATORS.forEach { CalcColumnKey(it, onKey) } }
         digitColumns(letters = !scientific).forEach { keys -> PadColumn(Modifier.let(column)) { keys.forEach { CalcColumnKey(it, onKey) } } }
+        PadColumn(Modifier.let(column)) { MOVED_OPERATORS.forEach { CalcColumnKey(it, onKey) } }
     }
 }
 
@@ -514,6 +518,7 @@ private fun keyIcon(label: String): ImageVector? = when (label) {
     "⏎" -> EnterIcon
     "⚙" -> SettingsIcon
     "⌄" -> KeyboardHideIcon
+    "⌃" -> KeyboardShowIcon
     "123", "Basic" -> CalculatorIcon
     "ABC" -> KeyboardIcon
     "Sci" -> FunctionsIcon
@@ -533,7 +538,7 @@ private val SPOKEN = mapOf(
     "√" to "square root", "∛" to "cube root", "ˣ√" to "root, with an index", "x!" to "factorial", "x⁻¹" to "inverse, one over",
     "," to "comma", "10ˣ" to "ten to the power of", "EE" to "times ten to the power of", "sinh" to "hyperbolic sine", "cosh" to "hyperbolic cosine", "tanh" to "hyperbolic tangent", "π" to "pi", "°" to "degrees", "123" to "Calculator keys", "ABC" to "Letter keys",
     "Sci" to "Scientific calculator", "Basic" to "Basic calculator", "space" to "Space", "⚙" to "Settings",
-    "⌄" to "Hide the keyboard",
+    "⌄" to "Hide the keyboard", "⌃" to "Show the keyboard",
 )
 
 /**

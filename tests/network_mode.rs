@@ -81,7 +81,9 @@ fn forced_offline() {
     assert_eq!(text(&aequalis(OFFLINE, &dir, &["--online"])), "offline (forced)");
     let json = text(&aequalis(OFFLINE, &dir, &["--json", "--online"]));
     assert!(json.starts_with(r#"{"ok":true,"result":"offline (forced)""#), "{json}");
-    assert!(!json.contains("synced"), "never synced: {json}");
+    assert!(!json.contains(r#""synced""#), "never synced: {json}");
+    // The state and the age as every UI says them.
+    assert!(json.contains(r#""line":"offline (forced, never synced)""#), "{json}");
     // The trivia: no network, estimates at once; no sync started (no lock, no file).
     let started = Instant::now();
     let out = text(&aequalis(OFFLINE, &dir, &["--trivia"]));

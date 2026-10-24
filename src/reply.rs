@@ -52,6 +52,10 @@ fn outcome_as(result: &Result<Output, CliError>, display: bool) -> String {
                 Some(age) => reply.str("rates_age", age),
                 None => reply,
             };
+            let reply = match &out.line {
+                Some(line) => reply.str("line", line),
+                None => reply,
+            };
             match &out.synced {
                 Some(ago) => reply.str("synced", ago).finish(),
                 None => reply.finish(),
@@ -117,11 +121,39 @@ pub fn view(request: &str, submitted: bool) -> String {
     // How a calculation is grouped (`(12 + (4 / 2))`), beside its result, as in the TUI.
     if let Some(g) = grouping.filter(|_| result.is_ok()) {
         extra.push_str(&format!(",\"grouping\":{}", string(&g)));
+        // The same with the device's number format (`(1,234,567 + 1,000)`), for a UI that does not group them itself.
+        extra.push_str(&format!(",\"grouping_shown\":{}", string(&crate::numbers::device().shown(&g).text)));
+    }
+    // The request as the device writes numbers (`1,000+2`), with the places that map it to what is typed:
+    // only when it differs (a number of four digits or more), for a UI that shows what is typed.
+    let shown = crate::numbers::device().shown(request);
+    if shown.text != request {
+        extra.push_str(&format!(",\"shown\":{}", shown_json(&shown)));
     }
     if let Some(class) = unit_class(config, request) {
         extra.push_str(&format!(",\"class\":{}", string(class)));
     }
     with(&result, &notices, &extra, true)
+}
+
+/// What a UI says of the sync (`aequalis --sync-status --json`, `aequalis_sync_status`), the same in every one:
+/// `{"state":"running","line":"downloading the city archive · 400 kB/s","label":"Syncing 40%","fraction":0.4,
+/// "message":"","online":"online (2h old)"}`. `state`: `idle`, `running`, `done`, `failed`; `fraction` is left
+/// out without a percentage; `message` says how it ended.
+pub fn sync_status() -> String {
+    let v = crate::online::sync_view();
+    let o = Object::new().str("state", v.state.name()).str("line", &v.line).str("label", &v.label);
+    let o = match v.fraction {
+        Some(f) => o.num("fraction", format!("{f:.4}")),
+        None => o,
+    };
+    o.str("message", &v.message).str("online", &crate::network::line()).finish()
+}
+
+/// `{"text":"1,000+2","at":[0,1,3,4,5,6,7],"back":[0,1,1,2,3,4,5,6]}`: a request shown, and its places.
+pub fn shown_json(s: &crate::numbers::Shown) -> String {
+    let places = |v: &[usize]| v.iter().map(usize::to_string).collect::<Vec<_>>().join(",");
+    format!("{{\"text\":{},\"at\":[{}],\"back\":[{}]}}", string(&s.text), places(&s.at), places(&s.back))
 }
 
 /// `view`'s reply to a request refused before it is read (too long): an error, shown at once.

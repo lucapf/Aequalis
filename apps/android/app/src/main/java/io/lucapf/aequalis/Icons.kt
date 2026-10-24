@@ -256,7 +256,20 @@ private val ScienceIcon: ImageVector by lazy { icon(
 ) }
 
 /** Material Symbols' "keyboard_hide": the keyboard collapsed, to give its room to the answer. */
-val KeyboardHideIcon: ImageVector by lazy { symbol("keyboard hide", "M480-40 320-200h320L480-40ZM160-280q-33 0-56.5-23.5T80-360v-400q0-33 23.5-56.5T160-840h640q33 0 56.5 23.5T880-760v400q0 33-23.5 56.5T800-280H160Zm0-80h640v-400H160v400Zm160-40h320v-80H320v80ZM200-520h80v-80h-80v80Zm120 0h80v-80h-80v80Zm120 0h80v-80h-80v80Zm120 0h80v-80h-80v80Zm120 0h80v-80h-80v80ZM200-640h80v-80h-80v80Zm120 0h80v-80h-80v80Zm120 0h80v-80h-80v80Zm120 0h80v-80h-80v80Zm120 0h80v-80h-80v80ZM160-360v-400 400Z") }
+/** "keyboard hide" turned over: the keyboard with an arrow up, to bring it back. */
+val KeyboardShowIcon: ImageVector by lazy {
+    ImageVector.Builder("keyboard show", 24.dp, 24.dp, 960f, 960f)
+        .addGroup(scaleY = -1f, pivotY = 480f)
+        .addGroup(translationY = 960f)
+        .addPath(addPathNodes(KEYBOARD_HIDE_PATH), fill = SolidColor(Color.Black))
+        .clearGroup()
+        .clearGroup()
+        .build()
+}
+
+private const val KEYBOARD_HIDE_PATH = "M480-40 320-200h320L480-40ZM160-280q-33 0-56.5-23.5T80-360v-400q0-33 23.5-56.5T160-840h640q33 0 56.5 23.5T880-760v400q0 33-23.5 56.5T800-280H160Zm0-80h640v-400H160v400Zm160-40h320v-80H320v80ZM200-520h80v-80h-80v80Zm120 0h80v-80h-80v80Zm120 0h80v-80h-80v80Zm120 0h80v-80h-80v80Zm120 0h80v-80h-80v80ZM200-640h80v-80h-80v80Zm120 0h80v-80h-80v80Zm120 0h80v-80h-80v80Zm120 0h80v-80h-80v80Zm120 0h80v-80h-80v80ZM160-360v-400 400Z"
+
+val KeyboardHideIcon: ImageVector by lazy { symbol("keyboard hide", KEYBOARD_HIDE_PATH) }
 
 /** Material Symbols' "keyboard_arrow_up": the keyboard back. */
 val KeyboardUpIcon: ImageVector by lazy { symbol("keyboard arrow up", "M480-528 296-344l-56-56 240-240 240 240-56 56-184-184Z") }

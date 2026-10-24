@@ -359,13 +359,28 @@ pub fn sync_phase() -> String {
 }
 
 /// Online or offline, and how long ago the online data was last synced (`aequalis --online
-/// --json`): `{"status":"online","synced":"2h"}`, `synced` left out when it never was.
+/// --json`): `{"status":"online","synced":"2h","line":"online (2h old)"}`, `synced` left out when it
+/// never was.
 pub fn online() -> String {
-    let status = Object::new().str("status", crate::network::status().label());
+    let status = Object::new().str("status", crate::network::status().label()).str("line", &crate::network::line());
     match crate::network::synced_ago() {
         Some(ago) => status.str("synced", &ago).finish(),
         None => status.finish(),
     }
+}
+
+/// What a UI says of the sync (`aequalis --sync-status --json`), the same in every one:
+/// `{"state":"running","line":"downloading the city archive · 400 kB/s","label":"Syncing 40%",
+/// "fraction":0.4,"message":"","online":"online (2h old)"}`. `state`: `idle`, `running`, `done`, `failed`;
+/// `fraction` is left out without a percentage; `message` says how it ended.
+#[no_mangle]
+pub extern "C" fn aequalis_sync_status() -> *mut c_char {
+    give(sync_status())
+}
+
+/// `aequalis_sync_status`'s reply (`reply::sync_status`).
+pub fn sync_status() -> String {
+    reply::sync_status()
 }
 
 /// Every setting back to its default (`aequalis --reset-settings`): `{"ok":true}` or the error.

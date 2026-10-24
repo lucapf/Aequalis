@@ -17,6 +17,9 @@ use std::time::Instant;
 pub const CLASS: &str = "Aequalis.Popup";
 /// The evaluation, a moment after the last key (several keys typed fast: one evaluation).
 const TIMER_EVALUATE: usize = 10;
+/// While a download runs: its progress is read again (`online::sync_view`) and the box drawn again.
+const TIMER_SYNC: usize = 11;
+const SYNC_POLL_MS: u32 = 500;
 const EVALUATE_AFTER_MS: u32 = 60;
 const RECENT: usize = 6;
 
@@ -74,7 +77,8 @@ impl Reply {
             copy: s("copy").unwrap_or_default(),
             details: v.get("details").map(Value::strings).unwrap_or_default(),
             rates: s("rates"),
-            grouping: s("grouping"),
+            // With the device's number format (`(1,234,567 + 1,000)`), as the core says it.
+            grouping: s("grouping_shown").or_else(|| s("grouping")),
             default: s("default"),
             choices,
         })
@@ -156,6 +160,10 @@ struct State {
     notices: Vec<String>,
     status: String,
     syncing: bool,
+    /// What the running download says (the step and its speed, the percentage), read by `TIMER_SYNC`.
+    sync: aequalis::online::SyncView,
+    /// How the last download ended, until the box is opened again: (everything synced, what it says).
+    sync_end: Option<(bool, String)>,
     hotkey: Option<&'static str>,
     hits: Vec<(RECT, Action)>,
     theme: Theme,
@@ -183,6 +191,8 @@ impl Default for State {
             notices: Vec::new(),
             status: String::new(),
             syncing: false,
+            sync: aequalis::online::SyncView::default(),
+            sync_end: None,
             hotkey: None,
             hits: Vec::new(),
             theme: Theme::new(false),
@@ -376,6 +386,7 @@ pub fn show(anchor: POINT) {
         s.work = work;
         s.corner = corner;
         s.about = false;
+        s.sync_end = None;
         if s.dpi != dpi {
             s.dpi = dpi;
             s.restyle(h.instance);
@@ -411,12 +422,32 @@ pub fn hide() {
 
 /// The online data changed (a download ended, or started): the status, the notices, the reply.
 pub fn data_changed(syncing: bool) {
+    let popup = handles().popup;
     STATE.with(|s| {
         let mut s = s.borrow_mut();
         s.syncing = syncing;
         s.status = aequalis::network::status().label().to_string();
         s.notices = aequalis::notify::current();
+        if syncing {
+            s.sync = aequalis::online::SyncView::default();
+            s.sync_end = None;
+        } else {
+            // It ended: how, as the core says it (nothing for a background download, which wrote none).
+            let ended = aequalis::online::sync_view();
+            use aequalis::online::SyncState::{Done, Failed};
+            if matches!(ended.state, Done | Failed) {
+                s.sync_end = Some((ended.state == Done, format!("{} · {}", ended.label, ended.message)));
+            }
+        }
     });
+    // SAFETY: a valid window.
+    unsafe {
+        if syncing {
+            SetTimer(popup, TIMER_SYNC, SYNC_POLL_MS, std::ptr::null());
+        } else {
+            KillTimer(popup, TIMER_SYNC);
+        }
+    }
     if visible() {
         evaluate();
     }
@@ -720,6 +751,28 @@ fn reply(pass: &mut Pass, s: &State, f: &Fonts, r: &Reply, mut y: i32) -> i32 {
     }
 }
 
+/// A download's bar, from `y`: filled to `fraction`, or a block moving across while there is no percentage
+/// (checking, installing). Its height.
+fn progress_bar(pass: &mut Pass, s: &State, y: i32, fraction: Option<f64>) -> i32 {
+    let (pad, height) = (s.px(16), s.px(6));
+    let track = RECT { left: pad, top: y, right: pass.width - pad, bottom: y + height };
+    pass.fill(track, s.theme.pill, height);
+    let width = track.right - track.left;
+    let (from, to) = match fraction {
+        Some(f) => (0, (f64::from(width) * f.clamp(0.0, 1.0)) as i32),
+        None => {
+            let ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis());
+            let block = width / 5;
+            let at = (ms / 15) as i32 % (width + block);
+            ((at - block).max(0), at.min(width))
+        }
+    };
+    if to > from {
+        pass.fill(RECT { left: track.left + from, right: track.left + to, ..track }, s.theme.accent, height);
+    }
+    height
+}
+
 /// Under the reply, from `y`: the notices (a new city archive, out-of-date data) with a Download
 /// button, the download running, what was copied, and the recent requests.
 fn below(pass: &mut Pass, s: &State, f: &Fonts, mut y: i32) -> i32 {
@@ -731,7 +784,13 @@ fn below(pass: &mut Pass, s: &State, f: &Fonts, mut y: i32) -> i32 {
         y += (h + s.px(4)).max(s.px(26)) + s.px(6);
     }
     if s.syncing {
-        y += pass.text(f.small, t.muted, "Downloading…", inner(pass, s, y), true) + s.px(6);
+        // What the download is doing, and its progress: the core's words, as on the other UIs.
+        let line = if s.sync.line.is_empty() { "starting" } else { s.sync.line.as_str() };
+        y += pass.text(f.small, t.muted, line, inner(pass, s, y), true) + s.px(4);
+        y += progress_bar(pass, s, y, s.sync.fraction) + s.px(8);
+    } else if let Some((ok, said)) = &s.sync_end {
+        let color = if *ok { t.accent } else { t.error };
+        y += pass.text(f.small, color, said, inner(pass, s, y), true) + s.px(6);
     }
     if let Some(copied) = &s.copied {
         y += pass.text(f.small, t.accent, &format!("Copied {copied}"), inner(pass, s, y), true) + gap;
@@ -854,6 +913,14 @@ unsafe extern "system" fn proc_(hwnd: HWND, msg: u32, w: usize, l: isize) -> isi
         WM_TIMER if w == TIMER_EVALUATE => {
             KillTimer(hwnd, TIMER_EVALUATE);
             evaluate();
+            0
+        }
+        WM_TIMER if w == TIMER_SYNC => {
+            STATE.with(|s| s.borrow_mut().sync = aequalis::online::sync_view());
+            // Closed: nothing to draw; it is drawn again when it opens.
+            if visible() {
+                relayout();
+            }
             0
         }
         WM_CTLCOLOREDIT => edit_colors(w as HDC),

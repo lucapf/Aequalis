@@ -28,6 +28,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -207,7 +208,7 @@ fun HistoryRow(entry: HistoryEntry, recall: (String) -> Unit, copy: (String) -> 
             Text(ago(entry.time), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         IconButton(onClick = { copy(entry.value) }) { Icon(CopyIcon, contentDescription = "Copy the result") }
-        var menu by remember { mutableStateOf(false) }
+        var menu by rememberSaveable { mutableStateOf(false) }
         Box {
             IconButton(onClick = { menu = true }) { Icon(MoreIcon, contentDescription = "More") }
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
@@ -231,7 +232,7 @@ fun HistoryPanel(recall: (String) -> Unit, copy: (String) -> Unit, share: (Strin
         )
         return
     }
-    var asking by remember { mutableStateOf(false) }
+    var asking by rememberSaveable { mutableStateOf(false) }
     LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         items(entries, key = { it.request }) { e -> HistoryRow(e, recall, copy, share) }
         item {

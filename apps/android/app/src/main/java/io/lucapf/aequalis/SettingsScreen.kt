@@ -46,6 +46,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -92,14 +93,14 @@ fun SettingsScreen(close: () -> Unit, openAbout: () -> Unit, modifier: Modifier 
     // Read again after each change: the core normalises the value (`ON` is `true`).
     var settings by remember { mutableStateOf(Core.settings()) }
     var online by remember { mutableStateOf<Online?>(null) }
-    var message by remember { mutableStateOf<String?>(null) }
-    var advanced by remember { mutableStateOf(false) }
-    var picking by remember { mutableStateOf<String?>(null) }
-    var confirmReset by remember { mutableStateOf(false) }
+    var message by rememberSaveable { mutableStateOf<String?>(null) }
+    var advanced by rememberSaveable { mutableStateOf(false) }
+    var picking by rememberSaveable { mutableStateOf<String?>(null) }
+    var confirmReset by rememberSaveable { mutableStateOf(false) }
     var syncing by remember { mutableStateOf(false) }
     // The running sync's step, and how the last one ended (true: everything synced).
     var step by remember { mutableStateOf("") }
-    var outcome by remember { mutableStateOf<Boolean?>(null) }
+    var outcome by rememberSaveable { mutableStateOf<Boolean?>(null) }
     val refreshOnline = { scope.launch { online = withContext(Dispatchers.Default) { Core.online() } } }
     LaunchedEffect(Unit) { refreshOnline() }
     val change = { key: String, value: String ->
@@ -311,7 +312,7 @@ private fun SettingRow(s: Setting, open: Boolean, toggle: () -> Unit, change: (S
         }
     }) {
         if (open) {
-            var filter by remember { mutableStateOf("") }
+            var filter by rememberSaveable { mutableStateOf("") }
             val choices = pickChoices(s, filter)
             val pick = { value: String -> change(s.key, value) }
             if (s.currencies.isNotEmpty()) {
@@ -330,7 +331,7 @@ private fun SettingRow(s: Setting, open: Boolean, toggle: () -> Unit, change: (S
  *  then what opens under it. */
 @Composable
 private fun KeyRow(key: String, changed: Boolean, about: String, onDefault: () -> Unit, value: @Composable RowScope.() -> Unit, below: @Composable () -> Unit) {
-    var showAbout by remember { mutableStateOf(false) }
+    var showAbout by rememberSaveable { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
         Row(Modifier.padding(start = 16.dp, end = 8.dp).heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(
@@ -361,7 +362,7 @@ private fun ValueButton(text: String, onClick: () -> Unit) {
 /** A typed value (an address, a date pattern, a duration): Done saves it. */
 @Composable
 private fun TypedValue(value: String, save: (String) -> Unit) {
-    var draft by remember(value) { mutableStateOf(value) }
+    var draft by rememberSaveable(value) { mutableStateOf(value) }
     Field(draft, { draft = it }, Modifier.fillMaxWidth()) { if (draft != value) save(draft) }
 }
 

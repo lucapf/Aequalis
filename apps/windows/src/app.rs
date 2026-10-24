@@ -190,7 +190,15 @@ pub fn download(auto: bool) {
         popup::data_changed(true);
     }
     std::thread::spawn(move || {
-        let _ = aequalis::online::sync(auto);
+        // By hand: its progress written as it goes (the step, the speed, the bar) and its end, for the
+        // popup to say them as every other UI does (`online::sync_view`).
+        if !auto {
+            aequalis::online::track();
+        }
+        let result = aequalis::online::sync(auto);
+        if !auto {
+            aequalis::online::tracked(&result);
+        }
         SYNCING.store(false, Ordering::SeqCst);
         // SAFETY: posting to the window (it may be gone: then nothing happens).
         unsafe { PostMessageW(MAIN.load(Ordering::SeqCst) as HWND, WM_SYNCED, 0, 0) };

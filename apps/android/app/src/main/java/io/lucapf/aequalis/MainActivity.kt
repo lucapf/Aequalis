@@ -67,12 +67,14 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.movableContentOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -135,6 +137,15 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // The screen changes (a fold or an unfold, a rotation, dark mode, the font size, a window resized) are
+    // handled here, not by making the activity again: nothing on screen is lost (the panel's level, what is
+    // typed in Settings, a page open, a download shown). What depends on the configuration is set again.
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        window.setBackgroundDrawableResource(R.color.background)
+        enableEdgeToEdge()
+    }
+
     // The app left (not a rotation, which comes back at once): the request on screen, with its
     // result, kept in the history.
     override fun onStop() {
@@ -175,6 +186,21 @@ data class Edit(val text: String = "", val cursor: Int = 0) {
     }
 }
 
+/** What the phone's panel needs from the screen (`AequalisApp`): what a key of it writes, how it closes, the page it opens. */
+class PanelEnv(
+    val write: (String) -> Unit,
+    val close: () -> Unit,
+    val openLink: (String) -> Unit,
+    val unitClass: String?,
+    val recall: (String) -> Unit,
+    val copy: (String) -> Unit,
+    val share: (String) -> Unit,
+    val sizeKey: (String) -> Unit,
+)
+
+/** The request just cleared (for Undo), kept like an `Edit`: none, or its text and cursor. */
+val OptionalEditSaver = listSaver<Edit?, Any>(save = { it?.let { e -> listOf(e.text, e.cursor) } ?: emptyList() }, restore = { if (it.isEmpty()) null else Edit(it[0] as String, it[1] as Int) })
+
 /** How an `Edit` is kept when Android recreates the screen (rotation, dark mode, font size, the app
  *  stopped in the background): its text and cursor, as two values the system can store. */
 val EditSaver = listSaver<Edit, Any>(save = { listOf(it.text, it.cursor) }, restore = { Edit(it[0] as String, it[1] as Int) })
@@ -203,6 +229,14 @@ fun AequalisApp(initial: String = "") {
     }
     // Letters or the calculator: kept while the app is open, and when the screen turns.
     var mode by rememberSaveable { mutableStateOf(Mode.Text) }
+    // The panel beside the keys on a large screen: History at first, the tab chosen kept. Up here, with the
+    // rest, so that a fold (the phone's layout has no such panel) and an unfold find it as it was left.
+    var docked by rememberSaveable { mutableStateOf(Panel.History) }
+    // What a part of the screen keeps while it is away (the panel's level, a search, a list's place, the memory
+    // card), put back when it returns: a fold takes the docked panel and the workspace out of one layout.
+    val saveable = rememberSaveableStateHolder()
+    // Shift's state (and the caps lock), kept through a rotation or a fold, whichever keyboard is drawn.
+    val capitals = remember { Capitals() }
     var settings by rememberSaveable { mutableStateOf(false) }
     // About (from Settings): the version, the data, the install links.
     var about by rememberSaveable { mutableStateOf(false) }
@@ -241,7 +275,7 @@ fun AequalisApp(initial: String = "") {
         withContext(Dispatchers.Default) { Core.roundTrip("suggestions", before, since) }
     }
     // The request just cleared, for Undo while the line stays empty.
-    var cleared by remember { mutableStateOf<Edit?>(null) }
+    var cleared by rememberSaveable(stateSaver = OptionalEditSaver) { mutableStateOf<Edit?>(null) }
     val change = { e: Edit -> edit = e; submitted = false; cleared = null }
     val scope = rememberCoroutineScope()
     // A request into the history with its result (none: an error, a question, not kept).
@@ -299,13 +333,14 @@ fun AequalisApp(initial: String = "") {
             is Key.Switch -> mode = key.mode
             Key.Settings -> settings = true
             Key.Collapse -> collapsed = true
+            Key.Expand -> collapsed = false
         }
     }
     val suggest = { s: Suggestion -> change(edit.word(s.write, Core.maxInput, offered.start.coerceAtMost(edit.cursor))) }
     val clear = { onKey(Key.Clear) }
     val undo = { cleared?.let { edit = it; submitted = false; cleared = null }; Unit }
-    val workspace = @Composable { landscape: Boolean, modifier: Modifier, recent: Boolean, header: Boolean ->
-        Workspace(
+    val workspace = @Composable { landscape: Boolean, modifier: Modifier, recent: Boolean, header: Boolean, large: Boolean ->
+        saveable.SaveableStateProvider("workspace") { Workspace(
             edit, reply, offered, landscape, modifier,
             // In landscape the request line is drawn apart, across the whole width.
             request = !landscape,
@@ -322,20 +357,33 @@ fun AequalisApp(initial: String = "") {
             openHistory = { panel = Panel.History },
             recent = recent,
             header = header,
+            large = large,
             onClear = clear,
             undo = cleared?.text,
             onUndo = undo,
             scroll = answerScroll,
-        )
+        ) }
     }
     // A key of the Sizes: after the request, `shoes` brought along when it has no item word (the core's).
     val sizeKey = { key: String -> Core.writeSizeKey(edit.text, key).let { change(Edit(it, it.length)) } }
+    // The panel in the phone's layouts (portrait and landscape draw it in different places). It is movable
+    // content: on a rotation it moves from one place to the other with everything it keeps (its level, its
+    // search, its lists' places); closed, it keeps nothing, and opens at its first level. What it needs from
+    // here is passed in (`PanelEnv`), as the content is made once.
+    val panelContent = remember {
+        movableContentOf { env: PanelEnv, open: Panel, size: Modifier, wide: Boolean ->
+            PanelView(
+                open, write = env.write, close = env.close, openLink = env.openLink, unitClass = env.unitClass,
+                recall = env.recall, copy = env.copy, share = env.share, size = size, wide = wide, sizeKey = env.sizeKey,
+            )
+        }
+    }
     val showPanel = @Composable { open: Panel, size: Modifier, wide: Boolean ->
-        PanelView(
-            open, write = { change(edit.word(it, Core.maxInput)); panel = null }, close = { panel = null }, openLink = { page = it }, unitClass = reply?.unitClass,
-            recall = recall, copy = { value -> copy(value) }, share = share, size = size, wide = wide,
-            sizeKey = { sizeKey(it); panel = null },
+        val env = PanelEnv(
+            write = { change(edit.word(it, Core.maxInput)); panel = null }, close = { panel = null }, openLink = { page = it }, unitClass = reply?.unitClass,
+            recall = recall, copy = { value -> copy(value) }, share = share, sizeKey = { sizeKey(it); panel = null },
         )
+        panelContent(env, open, size, wide)
     }
 
     // The window's size class (Material's: compact under 600 dp wide): a large window (a foldable
@@ -344,21 +392,22 @@ fun AequalisApp(initial: String = "") {
     if (configuration.screenWidthDp >= 600 && configuration.screenHeightDp >= 480) {
         // The panel beside the keys: History at first, the tab chosen kept (folding and unfolding
         // too). Its key on the keyboard picks it; what it writes leaves it open.
-        var docked by rememberSaveable { mutableStateOf(Panel.History) }
         val pick = { key: Key -> if (key is Key.Open) docked = key.panel else onKey(key) }
         // Two equal panes: on a foldable they meet at the fold, nothing to tap across it.
         Row(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
             Column(Modifier.weight(1f).fillMaxHeight(), horizontalAlignment = Alignment.CenterHorizontally) {
-                workspace(false, Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp), false, true)
-                AequalisKeyboard(mode, pick, Modifier.widthIn(max = 480.dp), open = docked)
+                workspace(false, Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp), false, true, true)
+                AequalisKeyboard(mode, pick, Modifier.widthIn(max = 480.dp), open = docked, capitals = capitals)
             }
             VerticalDivider()
             Box(Modifier.weight(1f).fillMaxHeight()) {
-                PanelView(
-                    docked, write = { change(edit.word(it, Core.maxInput)) }, close = {}, openLink = { page = it }, unitClass = reply?.unitClass,
-                    recall = recall, copy = { value -> copy(value) }, share = share, size = Modifier.fillMaxSize(),
-                    docked = true, select = { docked = it }, sizeKey = sizeKey,
-                )
+                saveable.SaveableStateProvider("docked-${docked.name}") {
+                    PanelView(
+                        docked, write = { change(edit.word(it, Core.maxInput)) }, close = {}, openLink = { page = it }, unitClass = reply?.unitClass,
+                        recall = recall, copy = { value -> copy(value) }, share = share, size = Modifier.fillMaxSize(),
+                        docked = true, select = { docked = it }, sizeKey = sizeKey,
+                    )
+                }
             }
         }
         return
@@ -368,7 +417,7 @@ fun AequalisApp(initial: String = "") {
         // line under it, and under that the keys, in four rows (a swipe down collapses them, as in
         // portrait) or a panel in their place. Letters and digits both shown, so no 123 mode.
         Row(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
-            SideToolbar(onKey, mode, open = panel, sizes = sizes)
+            SideToolbar(onKey, mode, collapsed, open = panel, sizes = sizes)
             Column(Modifier.weight(1f).fillMaxHeight()) {
                 // The request, and the words offered beside it.
                 Row(Modifier.padding(start = 8.dp, top = 6.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -378,10 +427,10 @@ fun AequalisApp(initial: String = "") {
                 when (val open = panel) {
                     // A panel: the whole space under the request, its levels side by side.
                     null -> {
-                        workspace(true, Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), true, true)
+                        workspace(true, Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), true, true, false)
                         when {
                             collapsed -> KeyboardBar { collapsed = false }
-                            else -> LandscapeKeys(mode, sizes, onKey, sizeKey, Modifier.swipe(down = true) { collapsed = true })
+                            else -> LandscapeKeys(mode, sizes, onKey, sizeKey, capitals, Modifier.swipe(down = true) { collapsed = true })
                         }
                     }
                     else -> showPanel(open, Modifier.weight(1f).fillMaxWidth().padding(top = 6.dp), true)
@@ -397,13 +446,13 @@ fun AequalisApp(initial: String = "") {
         val typing = WindowInsets.isImeVisible
         val panelSize = Modifier.fillMaxWidth().height(if (typing) (maxHeight - TypingRoom).coerceIn(PanelLeast, KeyboardHeight) else KeyboardHeight)
         Column(Modifier.fillMaxSize()) {
-            workspace(false, Modifier.weight(1f).statusBarsPadding().padding(horizontal = 16.dp), true, !typing)
+            workspace(false, Modifier.weight(1f).statusBarsPadding().padding(horizontal = 16.dp), true, !typing, false)
             // The keyboard (the Sizes' strip above it, when shown), or a panel in its place.
             when (val open = panel) {
                 // The Sizes on: their keys in the letters' place; in the calculator (no letters), a strip above it.
                 null -> {
                     if (sizes && mode != Mode.Text && !collapsed) SizesStrip(sizeKey)
-                    if (collapsed) KeyboardBar { collapsed = false } else AequalisKeyboard(mode, onKey, sizes = sizes, sizeKey = sizeKey)
+                    if (collapsed) KeyboardBar { collapsed = false } else AequalisKeyboard(mode, onKey, sizes = sizes, sizeKey = sizeKey, capitals = capitals)
                 }
                 else -> showPanel(open, panelSize, false)
             }
@@ -441,6 +490,8 @@ fun Workspace(
     recent: Boolean = true,
     // The app's name and ⚙ on top (portrait): not while the phone's keyboard is up.
     header: Boolean = true,
+    // A large screen (a foldable open, a tablet): the result a size larger, there is room.
+    large: Boolean = false,
     // The ✕ in the request box, and the request it cleared, for Undo.
     onClear: () -> Unit = {},
     undo: String? = null,
@@ -502,7 +553,7 @@ fun Workspace(
                             // Every person's sizes (`shoes 42`, `42 eu shoes us`): a line each, all alike.
                             val people = peopleOf(reply) ?: zonesOf(reply)
                             if (people != null) PeopleSizes(people, copying)
-                            else Text(result, style = resultStyle(result, landscape), modifier = copying)
+                            else Text(result, style = resultStyle(result, landscape, large), modifier = copying)
                             // With a currency, how old its rates are.
                             reply.rates?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                             CopyMenu(value, whole, onCopy)
@@ -540,9 +591,10 @@ fun Workspace(
 /** A result's style: large; a table (`42 eu shoes`, several lines) smaller and in a monospace
  *  font, so that its columns line up. */
 @Composable
-fun resultStyle(result: String, landscape: Boolean): TextStyle = when {
+fun resultStyle(result: String, landscape: Boolean, large: Boolean = false): TextStyle = when {
     '\n' in result -> MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily.Monospace)
     landscape -> MaterialTheme.typography.headlineSmall
+    large -> MaterialTheme.typography.headlineLarge
     else -> MaterialTheme.typography.headlineMedium
 }
 

@@ -68,6 +68,7 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -102,8 +103,8 @@ fun PanelView(
 ) {
     // The second level (a class, a section), when one is open, and in the Trivia a third, a value's
     // details: the back gesture goes up one level.
-    var opened by remember(panel) { mutableStateOf<String?>(null) }
-    var detail by remember(panel) { mutableStateOf<String?>(null) }
+    var opened by rememberSaveable(panel) { mutableStateOf<String?>(null) }
+    var detail by rememberSaveable(panel) { mutableStateOf<String?>(null) }
     val up = {
         when {
             detail != null -> detail = null
@@ -118,7 +119,7 @@ fun PanelView(
             if (docked) {
                 PrimaryTabRow(selectedTabIndex = panel.ordinal, containerColor = Color.Transparent) {
                     Panel.entries.forEach { p ->
-                        Tab(selected = p == panel, onClick = { select(p) }, text = { Text(p.name, maxLines = 1) }, icon = { Icon(p.icon, contentDescription = null) })
+                        Tab(selected = p == panel, onClick = { select(p) }, text = { TabName(p.name) }, icon = { Icon(p.icon, contentDescription = null) })
                     }
                 }
             }
@@ -155,6 +156,21 @@ fun PanelView(
             }
         }
     }
+}
+
+/** A tab's name, always whole: if it does not fit its size steps down (to 11 sp), and if that still does
+ *  not fit, its first four letters (`Meas.`, `Curr.`). */
+@Composable
+private fun TabName(name: String) {
+    var size by remember(name) { mutableStateOf(14) }
+    var short by remember(name) { mutableStateOf(false) }
+    Text(
+        if (short) name.take(4) + "." else name,
+        fontSize = size.sp,
+        maxLines = 1,
+        softWrap = false,
+        onTextLayout = { if (it.hasVisualOverflow) if (size > 11) size -= 1 else short = true },
+    )
 }
 
 /** A panel's list, loaded off the main thread once the panel opens (the Trivia computes the planets'

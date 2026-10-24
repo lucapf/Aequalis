@@ -2,7 +2,7 @@
 
 use aequalis::config::Config;
 use aequalis::{convert, convert_request, notify, online, parse_options, reply, run, settings, time, CliError, Output, Parsed};
-use std::io::{IsTerminal, Read};
+use std::io::{BufRead, IsTerminal, Read, Write};
 use std::process::ExitCode;
 
 mod device;
@@ -29,12 +29,18 @@ fn main() -> ExitCode {
     if let Some(e) = settings::error() {
         return fail(format!("{e} (fix it with aequalis --set, or edit the file)"));
     }
+    if let Some(code) = sync_status(&args, json) {
+        return code;
+    }
     if let Some(code) = sync(&args, json) {
         return code;
     }
     // Any run: when the online data has expired, refresh it in the background (a separate
     // process: nothing here waits for it).
     let _sync = online::ensure_fresh();
+    if let Some(code) = shell(config, &args, json) {
+        return code;
+    }
     #[cfg(feature = "tui")]
     if let Some(code) = interactive(config, &args, json) {
         return code;
@@ -125,6 +131,21 @@ fn set(args: &[String], i: usize) -> ExitCode {
     }
 }
 
+/// `--sync-status [--json]`: what a UI says of the sync now (`online::sync_view`): the step and speed while
+/// it runs, how it ended, and the online state with its age. With `--json`, `ffi::sync_status`.
+fn sync_status(args: &[String], json: bool) -> Option<ExitCode> {
+    if !args.iter().any(|a| a == "--sync-status") {
+        return None;
+    }
+    if json {
+        println!("{}", reply::sync_status());
+    } else {
+        let v = online::sync_view();
+        println!("{}", [v.label.as_str(), v.line.as_str(), v.message.as_str()].iter().filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join(" · "));
+    }
+    Some(ExitCode::SUCCESS)
+}
+
 /// `--sync`: download all the online data now; `--sync --auto`: the background sync, what the
 /// refresh policies say. A group that failed is reported (stderr; `--json`: its warnings) and
 /// makes the exit code 1, after the others had their turn.
@@ -169,6 +190,88 @@ fn sync(args: &[String], json: bool) -> Option<ExitCode> {
             ExitCode::from(1)
         }
     })
+}
+
+/// The shell's prompt.
+const PROMPT: &str = "aequalis> ";
+
+/// `--shell`: a prompt. Each line is a request, answered as the whole expression (`12 AED = 3.27 USD`, as
+/// Copy gives it in the apps). `exit`, `quit` or the end of the input leave. At a terminal an ambiguous
+/// request is asked about; with the input piped it prints the session as a transcript (the prompt and
+/// each line, then its answer), for real examples in a page: `printf '12+4/2\n' | aequalis --shell`.
+/// The options (`--precision 2`) hold for every request; `--json` gives each answer's reply.
+fn shell(config: &Config, args: &[String], json: bool) -> Option<ExitCode> {
+    if !args.iter().any(|a| a == "--shell") {
+        return None;
+    }
+    let rest: Vec<String> = args.iter().filter(|a| *a != "--shell").cloned().collect();
+    let opts = match parse_options(config, &rest) {
+        Ok(Parsed::Convert(opts)) => opts,
+        Ok(Parsed::Info(_)) => return Some(fail("`--shell` goes with options (--precision, -v), not with another command")),
+        Err(e) => return Some(fail(e)),
+    };
+    if !opts.positional.is_empty() {
+        return Some(fail("`--shell` takes the requests at its prompt, not as arguments"));
+    }
+    let terminal = std::io::stdin().is_terminal();
+    let can_ask = !json && terminal && std::io::stderr().is_terminal();
+    notices(json);
+    let mut code = 0;
+    let mut raw = Vec::new();
+    loop {
+        if terminal {
+            print!("{PROMPT}");
+            let _ = std::io::stdout().flush();
+        }
+        raw.clear();
+        // The lock only for this read: `ask` reads the answer from the same input.
+        if !matches!(std::io::stdin().lock().read_until(b'\n', &mut raw), Ok(n) if n > 0) {
+            // The end of the input (Ctrl-D): the prompt's line ends.
+            if terminal {
+                println!();
+            }
+            break;
+        }
+        let text = String::from_utf8_lossy(&raw);
+        let mut line = text.trim().to_string();
+        if line.is_empty() {
+            continue;
+        }
+        if line == "exit" || line == "quit" {
+            break;
+        }
+        if !terminal && !json {
+            println!("{PROMPT}{line}");
+        }
+        let mut result = convert_request(config, &opts, &line.split_whitespace().collect::<Vec<_>>());
+        if let Err(CliError::Ambiguous(a)) = result {
+            // The reading chosen is the request from then on, so that the expression says which.
+            result = match can_ask.then(|| ask(&a)).flatten() {
+                Some(choice) => {
+                    line = choice.request.clone();
+                    convert_request(config, &opts, &line.split_whitespace().collect::<Vec<_>>())
+                }
+                None => Err(CliError::Ambiguous(a)),
+            };
+        }
+        match result {
+            // The whole expression; a table or a list (several lines) as it is.
+            Ok(mut out) if !json => {
+                if !out.stdout.contains('\n') {
+                    out.stdout = reply::expression(&line, &out);
+                }
+                print(&Ok(out), false);
+            }
+            other => {
+                if let Err(e) = &other {
+                    code = code.max(e.exit_code());
+                }
+                print(&other, json);
+            }
+        }
+    }
+    // Piped, the most severe outcome is the exit code, as for requests on stdin; at a terminal, a typo is no failure.
+    Some(ExitCode::from(if terminal { 0 } else { code }))
 }
 
 /// No value and no stdin to read, at a terminal: the interactive mode.

@@ -69,6 +69,17 @@ Panel {
   property string netStatus: "checking"
   // How long ago the online data was last synced (`2h`, from the same reply; "": never).
   property string syncedAgo: ""
+  // The state and the age as the core says them (`online (2h old)`, from the same reply; "": an older aequalis).
+  property string netLine: ""
+  // A download's progress as the core says it (`aequalis --sync-status --json`), read every second while one
+  // runs: what it is doing (the step and its speed), the Sync button's text, the percentage (-1: none), and
+  // at its end `done` or `failed` with what it says.
+  property bool syncing: false
+  property string syncLine: ""
+  property string syncLabel: "Sync"
+  property real syncFraction: -1
+  property string syncOutcome: ""
+  property string syncEnd: ""
   // Notices from `aequalis --online --json` (the city archive not downloaded, out-of-date data), each
   // with a Download button; refreshed with the online state and after a download.
   property var notices: []
@@ -203,6 +214,7 @@ Panel {
   // `online (2h old)`, `offline (forced, 2d old)`: the state and the age of the last sync.
   function netStatusText() {
     if (root.netStatus === "checking") return "checking"
+    if (root.netLine !== "") return root.netLine
     var age = root.syncedAgo === "" ? "never synced" : root.syncedAgo === "now" ? "just synced" : root.syncedAgo + " old"
     return root.netStatus === "offline (forced)" ? "offline (forced, " + age + ")" : root.netStatus + " (" + age + ")"
   }
@@ -239,12 +251,20 @@ Panel {
     return s.options[(i + 1) % s.options.length]
   }
 
-  // `aequalis --sync` (everything) in the background; the notices follow when it ends.
+  // `aequalis --sync` (everything) in the background, its progress read every second (`syncPoll`); the
+  // notices follow when it ends.
   function download() {
     if (syncProc.running) return
-    root.settingsMessage = "Syncing…"
+    root.syncing = true
+    root.syncOutcome = ""
+    root.syncEnd = ""
+    root.syncLine = "starting"
+    root.syncLabel = "Syncing…"
+    root.syncFraction = -1
+    root.settingsMessage = ""
     syncProc.command = [root.command, "--sync"]
     syncProc.running = true
+    syncPoll.restart()
   }
 
   function refreshAbout() {
@@ -297,7 +317,46 @@ Panel {
       waitForEnd: true
       onStreamFinished: if (String(text || "").trim() !== "") root.settingsMessage = String(text).trim()
     }
-    onExited: { if (!netProc.running) netProc.running = true }
+    // It ended: its last progress is how it ended (done or failed, and what it says).
+    onExited: {
+      root.syncing = false
+      syncPoll.stop()
+      if (!statusProc.running) statusProc.running = true
+      if (!netProc.running) netProc.running = true
+    }
+  }
+
+  // What the core says of the download now (`aequalis --sync-status --json`).
+  Process {
+    id: statusProc
+    command: [root.command, "--sync-status", "--json"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var r = null
+        try { r = JSON.parse(String(text || "")) } catch (e) {}
+        if (!r) return
+        if (r.state === "running") {
+          // The last one's end, read before this download wrote its first: not this one.
+          if (!syncProc.running) return
+          root.syncLine = r.line
+          root.syncLabel = r.label
+          root.syncFraction = r.fraction !== undefined ? r.fraction : -1
+        } else if ((r.state === "done" || r.state === "failed") && !syncProc.running) {
+          root.syncOutcome = r.state
+          root.syncLabel = r.label
+          root.syncEnd = r.message
+          root.settingsMessage = r.message
+        }
+      }
+    }
+  }
+
+  Timer {
+    id: syncPoll
+    interval: 1000
+    repeat: true
+    onTriggered: if (!statusProc.running) statusProc.running = true
   }
 
   Process {
@@ -356,6 +415,7 @@ Panel {
         try { reply = JSON.parse(String(text || "")) } catch (e) {}
         root.netStatus = reply && reply.result ? reply.result : "offline"
         root.syncedAgo = reply && reply.synced ? reply.synced : ""
+        root.netLine = reply && reply.line ? reply.line : ""
         root.notices = reply && reply.notices ? reply.notices : []
       }
     }
@@ -749,7 +809,7 @@ Panel {
             onClicked: root.showAdvanced = !root.showAdvanced
           }
           Button { text: root.confirmReset ? "Reset: sure?" : "Reset"; fontSize: Style.font.caption; onClicked: root.resetAll() }
-          Button { text: "Sync"; fontSize: Style.font.caption; onClicked: root.download() }
+          Button { text: root.syncing || root.syncOutcome !== "" ? root.syncLabel : "Sync"; fontSize: Style.font.caption; onClicked: root.download() }
         }
 
         Text {
@@ -880,12 +940,48 @@ Panel {
         }
       }
 
-      Text {
-        visible: syncProc.running
-        text: "Syncing…"
-        color: Color.muted
-        font.family: Style.font.family
-        font.pixelSize: Style.font.caption
+      // A download: what it is doing and how far (the core's words, as on the other UIs); at its end, how it
+      // ended (green: everything synced, red: something failed).
+      Column {
+        width: parent.width
+        spacing: Style.space(3)
+        visible: root.syncing || root.syncOutcome !== ""
+
+        Text {
+          width: parent.width
+          wrapMode: Text.Wrap
+          textFormat: Text.PlainText
+          text: root.syncing ? root.syncLine : root.syncLabel + (root.syncEnd !== "" ? " · " + root.syncEnd : "")
+          color: root.syncing ? Color.muted : root.syncOutcome === "done" ? Color.accent : Color.urgent
+          font.family: Style.font.family
+          font.pixelSize: Style.font.caption
+        }
+
+        // The bar: filled to the percentage, or a block moving across while there is none (checking, installing).
+        Rectangle {
+          visible: root.syncing
+          width: parent.width
+          height: Style.space(3)
+          radius: height / 2
+          color: Qt.rgba(Color.muted.r, Color.muted.g, Color.muted.b, 0.3)
+          clip: true
+
+          Rectangle {
+            id: bar
+            height: parent.height
+            radius: height / 2
+            color: Color.accent
+            width: root.syncFraction >= 0 ? parent.width * root.syncFraction : parent.width * 0.2
+
+            SequentialAnimation on x {
+              running: root.syncing && root.syncFraction < 0
+              loops: Animation.Infinite
+              onRunningChanged: if (!running) bar.x = 0
+              NumberAnimation { from: 0; to: bar.parent.width - bar.width; duration: 900; easing.type: Easing.InOutQuad }
+              NumberAnimation { from: bar.parent.width - bar.width; to: 0; duration: 900; easing.type: Easing.InOutQuad }
+            }
+          }
+        }
       }
 
       Text {

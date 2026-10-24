@@ -51,6 +51,10 @@ Usage:
   aequalis --list          units and currencies
   aequalis --trivia        useful values (Voyagers' distance live when online)
   aequalis --online        online, offline or offline (forced): the last download of the online data
+  aequalis --shell         a prompt: each line a request, answered as an expression (12 AED = 3.27 USD);
+                           piped, it prints the session as a transcript
+  aequalis --sync-status   what the download now running says (the step, its speed, how it ended), as the
+                           apps show it; with --json for a UI
   aequalis --about         the logo, the version, memory, the online data and their sources
   aequalis --sync          download all the online data now (the city archive, the exchange
                            rates, the Trivia's live values); otherwise as the refresh
@@ -334,6 +338,8 @@ pub struct Output {
     pub rates_age: Option<String>,
     /// For `--online`: how long ago the online data was last synced (`2h`; `None`: never).
     pub synced: Option<String>,
+    /// For `--online`: the state and the age as every UI says it (`online (2h old)`).
+    pub line: Option<String>,
     /// What was converted or calculated, as shown (`12 AED`, `10 km`, `12+4/2`): the left side of
     /// the whole expression a UI copies (`12 AED = 3.27 USD`); `None`: the request as written.
     pub from: Option<String>,
@@ -458,7 +464,7 @@ pub fn parse_options<'a>(config: &Config, args: &'a [String]) -> Result<Parsed<'
             // For the widget and scripts: `online`, `offline` or `offline (forced)`; with --json,
             // how long ago the last sync was (`synced`).
             "--online" => {
-                let status = Output { synced: network::synced_ago(), ..Output::from(network::status().label().to_string()) };
+                let status = Output { synced: network::synced_ago(), line: Some(network::line()), ..Output::from(network::status().label().to_string()) };
                 return Ok(Parsed::Info(Box::new(status)));
             }
             "-s" | "--silent" => silent = true,
@@ -615,6 +621,7 @@ fn money(opts: &Options, c: currency::Converted) -> Output {
         formatted: false,
         rates_age: Some(c.age),
         synced: None,
+        line: None,
         from: Some(c.from),
         result: None,
         extra: Vec::new(),

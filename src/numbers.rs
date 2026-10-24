@@ -15,6 +15,64 @@ pub struct NumberFormat {
     pub grouping: Vec<u8>,
 }
 
+/// A request as shown (`NumberFormat::shown`), and how its places map: positions count characters.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Shown {
+    pub text: String,
+    /// For each place of the request (before its first character … after its last): the place in `text`.
+    pub at: Vec<usize>,
+    /// For each place of `text`: the place in the request (a separator inserted belongs to the digit before it).
+    pub back: Vec<usize>,
+}
+
+/// Which characters are not part of a number to group: the digits and separators of a date or a time.
+fn not_numbers(c: &[char]) -> Vec<bool> {
+    let mut kept = vec![false; c.len()];
+    let run_end = |from: usize| (from..c.len()).find(|&k| !c[k].is_ascii_digit()).unwrap_or(c.len());
+    let mut i = 0;
+    while i < c.len() {
+        if !c[i].is_ascii_digit() {
+            i += 1;
+            continue;
+        }
+        // The runs of digits joined by one separator character, from here.
+        let chain = |sep: char| {
+            let mut runs = vec![(i, run_end(i))];
+            while let Some(&(_, end)) = runs.last() {
+                if c.get(end) == Some(&sep) && c.get(end + 1).is_some_and(char::is_ascii_digit) {
+                    runs.push((end + 1, run_end(end + 1)));
+                } else {
+                    break;
+                }
+            }
+            runs
+        };
+        let fits = |runs: &[(usize, usize)], widths: [(usize, usize); 3]| {
+            runs.len() >= 3 && runs.iter().zip(widths).all(|(&(a, b), (lo, hi))| (lo..=hi).contains(&(b - a)))
+        };
+        let mut marked = None;
+        for (sep, widths) in [('-', [(4, 4), (1, 2), (1, 2)]), ('/', [(1, 4), (1, 2), (1, 4)]), ('.', [(1, 4), (1, 2), (1, 4)])] {
+            let runs = chain(sep);
+            if fits(&runs, widths) {
+                marked = Some(runs[2].1);
+                break;
+            }
+        }
+        if marked.is_none() {
+            let runs = chain(':');
+            if runs.len() >= 2 {
+                marked = runs.last().map(|r| r.1);
+            }
+        }
+        let end = marked.unwrap_or_else(|| run_end(i));
+        if marked.is_some() {
+            kept[i..end].iter_mut().for_each(|k| *k = true);
+        }
+        i = end;
+    }
+    kept
+}
+
 impl Default for NumberFormat {
     /// The plain format, as printed on the command line: `1234567.89`.
     fn default() -> Self {
@@ -47,6 +105,59 @@ impl NumberFormat {
             Some((number, unit)) => format!("{} {unit}", self.apply(number)),
             None => self.apply(result),
         }
+    }
+
+    /// A request as it is shown while it is typed: its whole numbers of four digits or more with the
+    /// thousands separator, its decimal point as this format writes it (`1000+2500.5` is shown `1,000+2,500.5`).
+    /// What is written stays as typed (the core reads `1000`); `Shown` maps the places of one to the other.
+    /// Dates (`2026-12-04`, `12/04/2026`, `12.04.2026`), times (`10:30`), fractions, exponents (`1E5000`)
+    /// and words' digits (`h1000`) are not numbers to group.
+    pub fn shown(&self, request: &str) -> Shown {
+        let c: Vec<char> = request.chars().collect();
+        let kept = not_numbers(&c);
+        let (mut text, mut len) = (String::new(), 0usize);
+        // `at[p]`: where the place before the request's character `p` is, in the text shown.
+        let mut at = vec![0usize; c.len() + 1];
+        let mut i = 0;
+        while i < c.len() {
+            let before = if i > 0 { c[i - 1] } else { ' ' };
+            if c[i].is_ascii_digit() && !kept[i] {
+                let end = (i..c.len()).find(|&k| !c[k].is_ascii_digit() || kept[k]).unwrap_or(c.len());
+                // The digits of a fraction (`.5000`), an exponent (`1E5000`, `1e-5000`), a word's stay as they are.
+                let exponent = matches!(before, '+' | '-') && i >= 3 && matches!(c[i - 2], 'e' | 'E') && c[i - 3].is_ascii_digit();
+                let whole = !(before == '.' || before.is_alphabetic() || exponent);
+                let digits: String = c[i..end].iter().collect();
+                let written = if whole && end - i >= 4 { self.group(&digits) } else { digits };
+                let mut k = i;
+                for ch in written.chars() {
+                    text.push(ch);
+                    len += 1;
+                    if ch.is_ascii_digit() {
+                        k += 1;
+                        at[k] = len;
+                    }
+                }
+                i = end;
+                continue;
+            }
+            // A decimal point of a number (not a letter's, as in `St.`, nor a date's).
+            let point = c[i] == '.' && !kept[i] && !before.is_alphabetic() && (before.is_ascii_digit() || c.get(i + 1).is_some_and(char::is_ascii_digit));
+            let written = if point { self.decimal.clone() } else { c[i].to_string() };
+            len += written.chars().count();
+            text.push_str(&written);
+            at[i + 1] = len;
+            i += 1;
+        }
+        // Back: the request's place of each place shown.
+        let mut back = vec![0usize; len + 1];
+        let mut p = 0;
+        for (s, slot) in back.iter_mut().enumerate() {
+            while p < c.len() && at[p + 1] <= s {
+                p += 1;
+            }
+            *slot = p;
+        }
+        Shown { text, at, back }
     }
 
     fn group(&self, int: &str) -> String {
@@ -248,5 +359,47 @@ mod tests {
         // Only checks that the call works and gives a sane format; the values depend on the machine.
         let f = device_format();
         assert!(!f.decimal.is_empty());
+    }
+
+    fn separators(decimal: &str, thousands: &str) -> NumberFormat {
+        NumberFormat { decimal: decimal.into(), thousands: thousands.into(), grouping: vec![3] }
+    }
+
+    #[test]
+    fn a_request_shown_with_its_numbers_grouped() {
+        let en = |s: &str| separators(".", ",").shown(s).text;
+        assert_eq!(en("1000"), "1,000");
+        assert_eq!(en("999"), "999");
+        assert_eq!(en("1234567"), "1,234,567");
+        assert_eq!(en("1000+2500"), "1,000+2,500");
+        assert_eq!(en("1000km mi"), "1,000km mi");
+        assert_eq!(en("(1000 + 20000) * 3"), "(1,000 + 20,000) * 3");
+        assert_eq!(en("1234.5678"), "1,234.5678");
+        // The device's separators.
+        let it = |s: &str| separators(",", ".").shown(s).text;
+        assert_eq!(it("1234.5678"), "1.234,5678");
+        assert_eq!(it("5."), "5,");
+        assert_eq!(it(".5"), ",5");
+        assert_eq!(it("12.04.2026"), "12.04.2026");
+        assert_eq!(it("St. Louis"), "St. Louis");
+        assert_eq!(separators(".", " ").shown("1234").text, "1 234");
+        assert_eq!(separators(".", "").shown("1234").text, "1234");
+        // Not numbers to group: fractions, exponents, dates, times, words.
+        for same in ["1.23456", "0.12345", "1E5000", "1e-5000", "2026-12-04", "12/04/2026", "10:30", "10:00:0000", "h1000", "18E6 unix"] {
+            assert_eq!(en(same), same, "{same}");
+        }
+        assert_eq!(en("1791644400 unix"), "1,791,644,400 unix");
+    }
+
+    #[test]
+    fn the_places_follow() {
+        let s = separators(".", ",").shown("1000+2");
+        assert_eq!(s.text, "1,000+2");
+        // The cursor before the `+` (4 in the request) is drawn after `1,000`.
+        assert_eq!((s.at[0], s.at[4], s.at[6]), (0, 5, 7));
+        // A tap after `1,000` is the request's 4; on the separator, the digit before it.
+        assert_eq!((s.back[5], s.back[1], s.back[2], s.back[3], s.back[7]), (4, 1, 1, 2, 6));
+        let empty = separators(".", ",").shown("");
+        assert_eq!((empty.text.as_str(), empty.at, empty.back), ("", vec![0], vec![0]));
     }
 }
