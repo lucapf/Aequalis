@@ -364,32 +364,25 @@ fun AequalisApp(initial: String = "") {
         return
     }
     if (configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
-        // Landscape: the toolbar on the left; the request across the rest of the width; under it the
-        // answer and the letters, and on the right the digits (Sci above them) or a panel. Keys at
-        // about their portrait size; letters and digits both shown, so no 123 mode.
+        // Landscape: the toolbar on the left; the request across the rest of the width, the result on the
+        // line under it, and under that the keys, in four rows (a swipe down collapses them, as in
+        // portrait) or a panel in their place. Letters and digits both shown, so no 123 mode.
         Row(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
-            SideToolbar(onKey, open = panel, sizes = sizes)
+            SideToolbar(onKey, mode, open = panel, sizes = sizes)
             Column(Modifier.weight(1f).fillMaxHeight()) {
-                // The request, and the words offered beside it: the result keeps the room under it.
+                // The request, and the words offered beside it.
                 Row(Modifier.padding(start = 8.dp, top = 6.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     RequestLine(edit, onCursor = { edit = edit.copy(cursor = it) }, onPaste = paste, onClear = clear, compact = true, modifier = Modifier.weight(1f))
                     if (offered.items.isNotEmpty()) SuggestionRow(offered, suggest, Modifier.widthIn(max = 320.dp).padding(start = 8.dp))
                 }
                 when (val open = panel) {
                     // A panel: the whole space under the request, its levels side by side.
-                    null -> Row(Modifier.weight(1f)) {
-                        Column(Modifier.weight(1f).fillMaxHeight()) {
-                            workspace(true, Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), true, true)
-                            // The Sizes in the letters' place (the digits stay); collapsed, a bar.
-                            when {
-                                collapsed -> KeyboardBar { collapsed = false }
-                                sizes -> SizesPad(sizeKey, onKey, Modifier.swipe(down = true) { collapsed = true })
-                                // Scientific: no letters, the room to the answer and the functions.
-                                mode == Mode.Scientific -> {}
-                                else -> LetterPad(onKey, Modifier.swipe(down = true) { collapsed = true })
-                            }
+                    null -> {
+                        workspace(true, Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), true, true)
+                        when {
+                            collapsed -> KeyboardBar { collapsed = false }
+                            else -> LandscapeKeys(mode, sizes, onKey, sizeKey, Modifier.swipe(down = true) { collapsed = true })
                         }
-                        if (!collapsed) NumberPad(scientific = mode == Mode.Scientific, letters = sizes || mode != Mode.Scientific, onKey, Modifier.align(Alignment.Bottom))
                     }
                     else -> showPanel(open, Modifier.weight(1f).fillMaxWidth().padding(top = 6.dp), true)
                 }

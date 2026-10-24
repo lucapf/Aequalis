@@ -214,16 +214,24 @@ private val CALCULATOR = listOf(
     listOf(digit("0"), digit("."), Calc("⌫", null, Tone.Action), Calc("⏎", null, Tone.Enter)),
 )
 
-/** Scientific, landscape: all the functions in columns of five keys beside the grid. Each writes its
- *  bracket (`sin(`), `)` closes it; ° makes the angle degrees (`sin(30°)`); `x!` is written after a
- *  number, `x⁻¹` opens `1/(`, `10ˣ` writes `10^` and `EE` the exponent of scientific notation (`2E5`
- *  is 2 × 10^5), and `ˣ√` writes `root(`, the number, then `,` and the index: `root(27, 3)`. */
-private val SCIENCE = listOf(
-    listOf("sin" to "sin(", "cos" to "cos(", "tan" to "tan(", "√" to "sqrt(", "∛" to "cbrt("),
-    listOf("sinh" to "sinh(", "cosh" to "cosh(", "tanh" to "tanh(", "ˣ√" to "root(", "," to ", "),
-    listOf("ln" to "ln(", "log" to "log(", "x!" to "!", "x⁻¹" to "1/(", "^" to "^"),
-    listOf("π" to "pi", "e" to "e", "°" to "°", "10ˣ" to "10^", "EE" to "E"),
+/** Scientific, landscape: the functions in four columns of four keys, beside the columns of the keys that
+ *  were the first two rows (`MOVED_FUNCTIONS`, `MOVED_OPERATORS`). Each writes its bracket (`sin(`),
+ *  `)` closes it; ° makes the angle degrees (`sin(30°)`); `x!` is written after a number, `x⁻¹` opens
+ *  `1/(`, `10ˣ` writes `10^` and `EE` the exponent of scientific notation (`2E5` is 2 × 10^5), and
+ *  `ˣ√` writes `root(`, the number, then `,` and the index: `root(27, 3)`. */
+private val SCIENCE_LANDSCAPE = listOf(
+    listOf("cos" to "cos(", "tan" to "tan(", "√" to "sqrt(", "∛" to "cbrt("),
+    listOf("cosh" to "cosh(", "tanh" to "tanh(", "ˣ√" to "root(", "," to ", "),
+    listOf("log" to "log(", "x!" to "!", "x⁻¹" to "1/(", "^" to "^"),
+    listOf("e" to "e", "°" to "°", "10ˣ" to "10^", "EE" to "E"),
 )
+
+/** The functions of the first row, in a column of their own beside the digits. */
+private val MOVED_FUNCTIONS = listOf("sin" to "sin(", "sinh" to "sinh(", "ln" to "ln(", "π" to "pi")
+
+/** The operators of the first row of the digits, in a column of their own beside them: the digits keep
+ *  `× − +` on the right edge. */
+private val MOVED_OPERATORS = listOf(op("(", "("), op(")", ")"), op("%", "%"), op("÷", "/"))
 
 /** Scientific, portrait: one column less, to fit the screen: no `,` (the root is `^(1/` here: the
  *  number, `ˣ√`, the index and `)`, as `27^(1/3)`), no `°`, `EE`, `x⁻¹` or `e` (`10ˣ` writes the
@@ -276,11 +284,16 @@ private fun ColumnScope.Calculator(scientific: Boolean, onKey: (Key) -> Unit) {
  *  rest of the screen. */
 private val LandscapeRow: Dp = 44.dp
 
-/** Landscape, on the left: the toolbar, as a column (the panels, Settings). */
+/** Landscape, on the left: the toolbar, as a column (the keyboard's collapse and Sci / Basic, the panels, Settings). */
 @Composable
-fun SideToolbar(onKey: (Key) -> Unit, open: Panel? = null, sizes: Boolean = false, modifier: Modifier = Modifier) {
-    Column(modifier.fillMaxHeight().width(100.dp).padding(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+fun SideToolbar(onKey: (Key) -> Unit, mode: Mode, open: Panel? = null, sizes: Boolean = false, modifier: Modifier = Modifier) {
+    Column(modifier.fillMaxHeight().width(88.dp).padding(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         ColumnKey("⌄") { onKey(Key.Collapse) }
+        // The calculator: the scientific keys, or back to the letters (the digits are always there).
+        when (mode) {
+            Mode.Scientific -> ColumnKey("Basic", small = true) { onKey(Key.Switch(Mode.Text)) }
+            else -> ColumnKey("Sci", small = true) { onKey(Key.Switch(Mode.Scientific)) }
+        }
         // The panel open: its key in the accent colour (the panel has no title bar here); tapped
         // again, it closes the panel. The Sizes, on the keys, the same.
         Panel.entries.forEach { p -> ColumnKey(p.name, small = true, lit = p == open || (p == Panel.Sizes && sizes)) { onKey(Key.Open(p)) } }
@@ -312,34 +325,59 @@ fun LetterPad(onKey: (Key) -> Unit, modifier: Modifier = Modifier) {
     }
 }
 
-/** Landscape, on the right: the digits and operators in the calculator's grid (with the letters
- *  beside, which have ⌫ and ⏎, its last row is `0 . : ^`), Sci above it. Scientific: the letters are
- *  hidden, the functions all beside the grid, whose last row has ⌫ and ⏎. */
+/** The width of a column of keys beside the letters (landscape). */
+private val KeyColumnWidth = 44.dp
+
+/** The digits in columns, as the landscape lays them out: four rows (`7 8 9 ×`, `4 5 6 −`, `1 2 3 +`, then
+ *  `0 . : ^` beside the letters, which have ⌫ and ⏎, or `0 . ⌫ ⏎` without them); `× − +` in the last column. */
+private fun digitColumns(letters: Boolean): List<List<Calc>> {
+    val rows = listOf(
+        listOf(digit("7"), digit("8"), digit("9"), op("×", "*")),
+        listOf(digit("4"), digit("5"), digit("6"), op("−", "-")),
+        listOf(digit("1"), digit("2"), digit("3"), op("+", "+")),
+        if (letters) listOf(digit("0"), digit("."), op(":", ":"), op("^", "^")) else listOf(digit("0"), digit("."), Calc("⌫", null, Tone.Action), Calc("⏎", null, Tone.Enter)),
+    )
+    return (0 until 4).map { c -> rows.map { it[c] } }
+}
+
+/** A column of the landscape keys, four rows tall (padded as the letters' rows are). */
 @Composable
-fun NumberPad(scientific: Boolean, letters: Boolean, onKey: (Key) -> Unit, modifier: Modifier = Modifier) {
+private fun PadColumn(modifier: Modifier, content: @Composable ColumnScope.() -> Unit) =
+    Column(modifier.padding(vertical = 4.dp).height(LandscapeRow * 4 + 4.dp * 3), verticalArrangement = Arrangement.spacedBy(4.dp), content = content)
+
+/** A calculator key in a column. */
+@Composable
+private fun ColumnScope.CalcColumnKey(k: Calc, onKey: (Key) -> Unit) {
+    val size = Modifier.weight(1f).fillMaxWidth()
+    when {
+        k.writes != null -> KeyCap(k.label, size, k.tone, small = false, repeat = false) { onKey(Key.Write(k.writes)) }
+        k.label == "⌫" -> KeyCap(k.label, size, Tone.Action, small = false, repeat = true) { onKey(Key.Backspace) }
+        else -> KeyCap(k.label, size, k.tone, small = false, repeat = false) { onKey(Key.Enter) }
+    }
+}
+
+/**
+ * Landscape, under the result: the keys in four rows, across the width. With the letters (or the Sizes in
+ * their place): `( ) % ÷` in a column, then the digits. Scientific, no letters: the functions in four
+ * columns, the first row's (`sin sinh ln π`) and `( ) % ÷` in a column each, then the digits.
+ */
+@Composable
+fun LandscapeKeys(mode: Mode, sizes: Boolean, onKey: (Key) -> Unit, sizeKey: (String) -> Unit, modifier: Modifier = Modifier) {
     val write = { s: String -> onKey(Key.Write(s)) }
-    val rows = if (letters) CALCULATOR.dropLast(1) + listOf(listOf(digit("0"), digit("."), op(":", ":"), op("^", "^"))) else CALCULATOR
-    val columns = if (scientific) SCIENCE.size + 4 else 4
-    Column(modifier.width(58.dp * columns).padding(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        PadRow {
-            when (scientific) {
-                true -> KeyButton("Basic", tone = Tone.Action, small = true) { onKey(Key.Switch(Mode.Text)) }
-                false -> KeyButton("Sci", tone = Tone.Action, small = true) { onKey(Key.Switch(Mode.Scientific)) }
+    val scientific = mode == Mode.Scientific && !sizes
+    Row(modifier.fillMaxWidth().padding(horizontal = 4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.Bottom) {
+        // Each group of columns shares the width in the Sci layout; beside the letters, a fixed one.
+        val column: (Modifier) -> Modifier = { m -> if (scientific) m.weight(1f) else m.width(KeyColumnWidth) }
+        when {
+            scientific -> {
+                SCIENCE_LANDSCAPE.forEach { keys -> PadColumn(Modifier.weight(1f)) { keys.forEach { (label, written) -> ColumnKey(label, small = true) { write(written) } } } }
+                PadColumn(Modifier.weight(1f)) { MOVED_FUNCTIONS.forEach { (label, written) -> ColumnKey(label, small = true) { write(written) } } }
             }
+            sizes -> SizesPad(sizeKey, onKey, Modifier.weight(1f))
+            else -> LetterPad(onKey, Modifier.weight(1f))
         }
-        val grid = @Composable { m: Modifier ->
-            Column(m, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                rows.forEach { keys -> PadRow { keys.forEach { k -> CalcKey(k, onKey) } } }
-            }
-        }
-        if (scientific) {
-            Row(Modifier.height(LandscapeRow * rows.size + 4.dp * (rows.size - 1)), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                FunctionKeys(SCIENCE, write, Modifier.weight(SCIENCE.size.toFloat()).fillMaxHeight())
-                grid(Modifier.weight(4f))
-            }
-        } else {
-            grid(Modifier)
-        }
+        PadColumn(Modifier.let(column)) { MOVED_OPERATORS.forEach { CalcColumnKey(it, onKey) } }
+        digitColumns(letters = !scientific).forEach { keys -> PadColumn(Modifier.let(column)) { keys.forEach { CalcColumnKey(it, onKey) } } }
     }
 }
 
