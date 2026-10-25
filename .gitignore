@@ -13,3 +13,6 @@ fuzz/work/
 fuzz/findings/
 __pycache__/
 dist/
+# The Android upload key and its passwords
+keystore.properties
+*.jks
