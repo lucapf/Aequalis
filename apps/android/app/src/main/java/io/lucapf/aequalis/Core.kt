@@ -179,10 +179,25 @@ object Core {
             start(app)
             android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
             seedShipped(app)
+            // The night's download as the setting says (scheduled once; a new install, a changed
+            // setting or a phone that forgot it).
+            NightlySync.apply(app, nightlySync())
             // What the refresh settings say is due (the exchange rates, after a day).
             download(auto = true)
         }.start()
     }
+
+    /** Starts the core in this thread when nothing has (the night's download runs without the
+     *  app: no activity started it); otherwise waits for the one that did. */
+    fun startNow(context: Context) {
+        if (launched.compareAndSet(false, true)) {
+            start(context.applicationContext)
+        }
+        started.await()
+    }
+
+    /** Whether the setting `android.nightly_sync` is on. */
+    fun nightlySync(): Boolean = settings().firstOrNull { it.key == NightlySync.SETTING }?.value != "false"
 
     /** Tells the core what it can't find on a phone: where to keep its files, the time zone, the
      *  zone database, the number format and the measurement system. */

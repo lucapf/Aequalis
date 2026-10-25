@@ -90,6 +90,7 @@ private val KEY_WIDTH = 140.dp
 fun SettingsScreen(close: () -> Unit, openAbout: () -> Unit, modifier: Modifier = Modifier) {
     BackHandler(onBack = close)
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     // Read again after each change: the core normalises the value (`ON` is `true`).
     var settings by remember { mutableStateOf(Core.settings()) }
     var online by remember { mutableStateOf<Online?>(null) }
@@ -106,6 +107,8 @@ fun SettingsScreen(close: () -> Unit, openAbout: () -> Unit, modifier: Modifier 
     val change = { key: String, value: String ->
         message = Core.change(key, value)
         settings = Core.settings()
+        // The night's download follows its setting at once.
+        if (key == NightlySync.SETTING) NightlySync.apply(context, Core.nightlySync())
         picking = null
         // The offline setting is the status's too.
         refreshOnline()

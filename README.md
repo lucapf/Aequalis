@@ -150,7 +150,7 @@ You can run Aequalis in several ways:
 Everything you can configure is in one place, `~/.config/aequalis/settings.json`: offline mode,
 whether and how the online data is refreshed (city archive, exchange rates, the Trivia's live
 values: in the background, with a notice, or only when you ask), your local currency, the
-distance unit, the decimal places and the date formats. Change them with the **⚙ Settings**
+distance unit, the decimal places and the date formats. On Android, the nightly download (Wi-Fi, battery not low). Change them with the **⚙ Settings**
 section: in the TUI (`F10` or `Alt+S`), in the widget (the gear button), or with
 `aequalis --set key=value`; `aequalis --settings` shows them all. Both also offer the downloads, and
 say when the city archive is not downloaded yet.

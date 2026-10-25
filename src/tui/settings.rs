@@ -87,7 +87,7 @@ impl View {
 
     /// The rows: the settings shown, then show / hide the advanced ones, Reset and the download.
     pub fn rows(&self) -> Vec<Row> {
-        let settings = KEYS.iter().filter(|k| self.advanced || !k.advanced).map(Row::Setting);
+        let settings = KEYS.iter().filter(|k| k.here() && (self.advanced || !k.advanced)).map(Row::Setting);
         settings.chain([Row::Advanced, Row::Reset, Row::Download]).collect()
     }
 
@@ -542,7 +542,7 @@ mod tests {
         assert_eq!((keys(&v), v.rows().len()), (5, 8), "5 settings, Advanced, Reset, Download");
         v.selected = v.rows().len() - 3;
         key(&mut v, Key::Enter);
-        assert_eq!((v.advanced, keys(&v)), (true, KEYS.len()));
+        assert_eq!((v.advanced, keys(&v)), (true, KEYS.iter().filter(|k| k.here()).count()));
         assert!(matches!(v.row(), Some(Row::Advanced)), "the row stays chosen");
         key(&mut v, Key::Char('a'));
         assert_eq!((v.advanced, keys(&v)), (false, 5));

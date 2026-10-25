@@ -120,6 +120,13 @@ pub const KEYS: &[Key] = &[
     Key { key: "rates.refresh", advanced: true, default: "silent", kind: Kind::Choice(REFRESH), about: "the exchange rates: silent, notify or manual" },
     Key { key: "rates.interval", advanced: true, default: "24h", kind: Kind::Duration, about: "how old the exchange rates may be" },
     Key {
+        key: "android.nightly_sync",
+        advanced: false,
+        default: "true",
+        kind: Kind::Bool,
+        about: "Android only: download the online data at night, on Wi-Fi, when the battery is not low (days missed are added by the next one)",
+    },
+    Key {
         key: "rates.history",
         advanced: false,
         default: "true",
@@ -189,6 +196,13 @@ pub const KEYS: &[Key] = &[
         about: "the currencies of the keypad's shortcuts (Alt+6…0) with their hits; kept as you use them (empty: the defaults)",
     },
 ];
+
+impl Key {
+    /// Whether the setting means something on this device: the `android.` ones only on Android.
+    pub fn here(&self) -> bool {
+        !self.key.starts_with("android.") || cfg!(target_os = "android")
+    }
+}
 
 /// The settings in effect: every key with its value (as written in the file, or the default).
 #[derive(Debug, Clone, PartialEq)]
@@ -537,7 +551,7 @@ pub fn detail(key: &str, settings: &Settings) -> Option<String> {
 /// `aequalis --settings`: every setting, its value, and what it does.
 pub fn text(settings: &Settings) -> String {
     let mut out = format!("Settings ({}; change with `aequalis --set key=value`, `aequalis --set key` for the default)\n", path_text());
-    for k in KEYS {
+    for k in KEYS.iter().filter(|k| k.here()) {
         let v = settings.get(k.key);
         let mark = if v == k.default { String::new() } else { format!("  (default: {})", k.default) };
         out.push_str(&format!("  {:<16} {v}{mark}\n  {:<16} {}\n", k.key, "", k.about));
@@ -563,9 +577,9 @@ mod tests {
     }
 
     #[test]
-    fn five_basic_settings_the_rest_advanced() {
+    fn six_basic_settings_the_rest_advanced() {
         let basic: Vec<&str> = KEYS.iter().filter(|k| !k.advanced).map(|k| k.key).collect();
-        assert_eq!(basic, ["offline", "rates.history", "currency.local", "distance.unit", "precision"]);
+        assert_eq!(basic, ["offline", "android.nightly_sync", "rates.history", "currency.local", "distance.unit", "precision"]);
     }
 
     #[test]

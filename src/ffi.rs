@@ -274,7 +274,7 @@ pub extern "C" fn aequalis_settings() -> *mut c_char {
 pub fn settings() -> String {
     let settings = crate::settings::path().map(|p| crate::settings::load_from(&p)).unwrap_or(Ok(Default::default()));
     match settings {
-        Ok(s) => crate::settings::json_where(&s, |k| !k.key.starts_with("tui.")),
+        Ok(s) => crate::settings::json_where(&s, |k| k.here() && !k.key.starts_with("tui.")),
         Err(e) => Object::new().num("ok", false).str("error", &e).finish(),
     }
 }

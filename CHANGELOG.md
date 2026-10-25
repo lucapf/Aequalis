@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.5.0
+
+- **Android: the nightly download.** Once a day, about 02:30, on Wi-Fi and with the battery not
+  low, the app downloads the online data without being opened (WorkManager; Android may delay it).
+  Days missed are added by the next download, rates of past days included. The Android-only setting
+  `android.nightly_sync` (on by default, under `offline`) switches it.
+- Android, landscape: the Sizes keys' hint ("tap Sizes again to go back") is over the Sizes button
+  on the toolbar, no longer inside the keyboard.
+
 ## 1.4.0
 
 - **Exchange rates of past days.** A date at the end or the start of a currency request gives that

@@ -300,7 +300,11 @@ fun SideToolbar(onKey: (Key) -> Unit, mode: Mode, collapsed: Boolean, open: Pane
         ColumnKey("Sci", small = true, lit = scientific) { onKey(Key.Switch(if (scientific) Mode.Text else Mode.Scientific)) }
         // The panel open: its key in the accent colour (the panel has no title bar here); tapped
         // again, it closes the panel. The Sizes, on the keys, the same.
-        Panel.entries.forEach { p -> ColumnKey(p.name, small = true, lit = p == open || (p == Panel.Sizes && sizes)) { onKey(Key.Open(p)) } }
+        Panel.entries.forEach { p ->
+            // The Sizes on: what their keys are and the way back, over their key.
+            if (p == Panel.Sizes && sizes) SizesHintTall()
+            ColumnKey(p.name, small = true, lit = p == open || (p == Panel.Sizes && sizes)) { onKey(Key.Open(p)) }
+        }
         ColumnKey("⚙") { onKey(Key.Settings) }
     }
 }
@@ -385,11 +389,11 @@ fun LandscapeKeys(mode: Mode, sizes: Boolean, onKey: (Key) -> Unit, sizeKey: (St
     }
 }
 
-/** Landscape, the Sizes on: big keys in the letters' place (the digits stay beside them). */
+/** Landscape, the Sizes on: big keys in the letters' place (the digits stay beside them); the hint
+ *  is over the Sizes key, on the toolbar (`SideToolbar`). */
 @Composable
 fun SizesPad(sizeKey: (String) -> Unit, onKey: (Key) -> Unit, modifier: Modifier = Modifier) {
     Column(modifier.fillMaxWidth().padding(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        SizesHint()
         SizeKeys(sizeKey, onKey) { content -> PadRow(content) }
     }
 }
@@ -419,7 +423,22 @@ private fun SizeKeys(sizeKey: (String) -> Unit, onKey: (Key) -> Unit, row: @Comp
 /** What the Sizes keys are, and the way back, over them: the Sizes key stays lit while they show. */
 @Composable
 fun SizesHint(modifier: Modifier = Modifier) =
-    Text("Size keys · tap Sizes again to go back", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, maxLines = 1, modifier = modifier.fillMaxWidth().padding(horizontal = 4.dp))
+    Text(SIZES_HINT, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, maxLines = 1, modifier = modifier.fillMaxWidth().padding(horizontal = 4.dp))
+
+private const val SIZES_HINT = "Size keys · tap Sizes again to go back"
+
+/** The same hint in the landscape toolbar's width: a few short lines, over the Sizes key. */
+@Composable
+private fun SizesHintTall() =
+    Text(
+        SIZES_HINT,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        fontSize = 9.sp,
+        lineHeight = 10.sp,
+        maxLines = 4,
+        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+        modifier = Modifier.fillMaxWidth(),
+    )
 
 /** A row of the landscape pads: a fixed height. */
 @Composable

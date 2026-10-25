@@ -123,7 +123,7 @@ fn currencies(q: &str, add: &mut impl FnMut(usize, Found)) {
 }
 
 fn settings(q: &str, add: &mut impl FnMut(usize, Found)) {
-    for k in crate::settings::KEYS {
+    for k in crate::settings::KEYS.iter().filter(|k| k.here()) {
         let spaced = k.key.replace(['.', '_'], " ");
         if let Some(s) = score(q, &[k.key], &[&spaced, k.about]) {
             add(s, Found { kind: Kind::Setting, written: k.key.to_string(), name: k.about.to_string(), about: String::new() });
@@ -213,7 +213,7 @@ mod tests {
         let all = found("");
         assert_eq!(all.iter().filter(|f| f.kind == Kind::Unit).count(), units);
         assert_eq!(all.iter().filter(|f| f.kind == Kind::Currency).count(), crate::currency::all().len());
-        assert_eq!(all.iter().filter(|f| f.kind == Kind::Setting).count(), crate::settings::KEYS.len());
+        assert_eq!(all.iter().filter(|f| f.kind == Kind::Setting).count(), crate::settings::KEYS.iter().filter(|k| k.here()).count());
         assert_eq!(all[0].kind, Kind::Unit, "the units first");
     }
 }
