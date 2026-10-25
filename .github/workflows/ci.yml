@@ -34,6 +34,24 @@ jobs:
         if: always()
         run: cargo test --release --no-fail-fast
 
+  # The test suite's line coverage (`scripts/coverage.py`), on each commit on master: the table in the
+  # run's summary, the figures as JSON in the run's artifacts.
+  coverage:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Toolchain
+        run: rustup toolchain install stable --profile minimal --component llvm-tools && rustup default stable
+      - name: Coverage
+        # `shell: bash` for pipefail: a failing script fails the step, not `tee`'s success.
+        shell: bash
+        run: python3 scripts/coverage.py --json coverage.json | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.json
+
   # Clippy wherever the code compiles. A Linux build compiles neither the Windows code nor the
   # Android bridge (`src/jni.rs`): their warnings and errors went unseen. Checking another target
   # needs only its standard library (no linker, no NDK), so one Linux job does them all. Any
