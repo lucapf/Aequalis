@@ -1,0 +1,25 @@
+[package]
+name = "aequalis-mac-core"
+# The release workflow sets it, as the root package's.
+version = "0.1.0"
+edition = "2021"
+description = "aequalis's C interface as a static library, for the macOS app"
+license = "MIT"
+publish = false
+
+# Its own workspace: built by apps/macos/build.sh on macOS, not by `cargo build` at the root.
+[workspace]
+
+[lib]
+name = "aequalis_core"
+crate-type = ["staticlib"]
+
+[dependencies]
+aequalis = { path = "../../..", default-features = false, features = ["ffi"] }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

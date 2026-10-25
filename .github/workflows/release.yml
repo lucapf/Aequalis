@@ -114,7 +114,7 @@ jobs:
           name: linux-${{ matrix.arch }}
           path: dist/*.tar.gz*
 
-  # macOS on Apple Silicon (macOS 11 or newer).
+  # macOS 11 or newer: the command line for Apple Silicon (tar.gz), and the app for both chips (zip).
   macos:
     needs: version
     runs-on: macos-14
@@ -142,10 +142,17 @@ jobs:
           cp target/release/aequalis LICENSE README.md docs/Accepted_Syntax.md "dist/$name/"
           tar -C dist -czf "dist/$name.tar.gz" "$name"
           (cd dist && shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256")
+      - name: App
+        # Aequalis.app (Apple Silicon and Intel): the menu bar icon and the ⌥⌘A panel, with the
+        # command line inside; checked by running both. The Homebrew cask installs this zip.
+        run: apps/macos/build.sh "$VERSION"
       - uses: actions/upload-artifact@v4
         with:
           name: macos
-          path: dist/*.tar.gz*
+          path: |
+            dist/*.tar.gz*
+            dist/*.zip
+            dist/*.zip.sha256
 
   # Windows 10 (1903) and 11, x86_64: the installer (Inno Setup: the tray app and the command line,
 
