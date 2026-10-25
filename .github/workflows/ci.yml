@@ -33,6 +33,10 @@ jobs:
       - name: Test the release build
         if: always()
         run: cargo test --release --no-fail-fast
+      - name: Build the app
+        # Aequalis.app, as the release builds it: the Swift code is compiled and run here, not on a Mac anyone debugs on.
+        if: always()
+        run: apps/macos/build.sh "$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
 
   # The test suite's line coverage (`scripts/coverage.py`), on each commit on master: the table in the
   # run's summary, the figures as JSON in the run's artifacts.
