@@ -70,8 +70,10 @@ android {
 
 // The bundle is for Play: never signed with the debug key by mistake.
 tasks.matching { it.name == "bundleRelease" }.configureEach {
+    // A local copy: the action must not hold the script itself (not storable in the configuration cache).
+    val uploadKey = hasUploadKey
     doFirst {
-        check(hasUploadKey) { "bundleRelease needs the upload key: keystore.properties or AEQUALIS_STOREFILE (docs/Android-release.md)" }
+        check(uploadKey) { "bundleRelease needs the upload key: keystore.properties or AEQUALIS_STOREFILE (docs/Android-release.md)" }
     }
 }
 
