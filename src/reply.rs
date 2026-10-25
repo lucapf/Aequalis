@@ -56,6 +56,10 @@ fn outcome_as(result: &Result<Output, CliError>, display: bool) -> String {
                 Some(line) => reply.str("line", line),
                 None => reply,
             };
+            let reply = match &out.history {
+                Some(history) => reply.str("history", history),
+                None => reply,
+            };
             match &out.synced {
                 Some(ago) => reply.str("synced", ago).finish(),
                 None => reply.finish(),

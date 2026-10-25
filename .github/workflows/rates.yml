@@ -1,0 +1,64 @@
+# The exchange rates of each day, kept for 750 days (scripts/build-rates.py: the latest rates of
+# ExchangeRate-API, the app's own source, written as currencies-YYMMDD.json), published as the assets
+# of the release `rates`. There is no history to download: the archive starts the day this first
+# runs and grows by a file a day (a missed day stays missing). Files older than 750 days are
+# deleted. That release is data, not an app version: it is never marked latest, and nothing is
+# pushed, so no app release starts.
+name: Rates
+
+on:
+  schedule:
+    - cron: "10 1 * * *"
+  workflow_dispatch:
+  # The first merge starts the archive.
+  push:
+    branches: [master]
+    paths:
+      - scripts/build-rates.py
+      - .github/workflows/rates.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: rates
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build
+        run: python3 scripts/build-rates.py dist
+      - name: Check
+        run: |
+          python3 - <<'EOF'
+          import glob, json
+          files = sorted(glob.glob("dist/currencies-*.json"))
+          assert files, "no files"
+          d = json.load(open(files[-1]))
+          assert d["result"] == "success" and d["rates"]["EUR"] > 0.3 and d["rates"]["JPY"] > 50 and len(d["rates"]) > 100, d
+          print(len(files), "files, the last", files[-1])
+          EOF
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view rates --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create rates --repo "$GITHUB_REPOSITORY" --latest=false --title "Exchange rates of past days" \
+              --notes "Daily exchange rates for Aequalis's dated conversions, from ExchangeRate-API (https://www.exchangerate-api.com). Written daily by .github/workflows/rates.yml; Aequalis downloads currencies-YYMMDD.json."
+          fi
+          gh release upload rates dist/currencies-*.json --repo "$GITHUB_REPOSITORY" --clobber
+      - name: Prune
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          oldest=$(date -u -d '750 days ago' +%y%m%d)
+          gh release view rates --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' |
+            sed -n 's/^currencies-\([0-9]\{6\}\)\.json$/\1/p' |
+            while read -r day; do
+              if [ "$day" -lt "$oldest" ]; then
+                gh release delete-asset rates "currencies-$day.json" --repo "$GITHUB_REPOSITORY" --yes
+              fi
+            done

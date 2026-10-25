@@ -304,7 +304,7 @@ private fun AppearanceRows(picking: String?, toggle: (String) -> Unit) {
 @Composable
 private fun SettingRow(s: Setting, open: Boolean, toggle: () -> Unit, change: (String, String) -> Unit) {
     val typed = s.kind == "text" && s.currencies.isEmpty()
-    KeyRow(s.key, s.value != s.default, "${s.about} (default: ${s.default})", onDefault = { change(s.key, "") }, value = {
+    KeyRow(s.key, s.value != s.default, listOfNotNull(s.about, s.detail?.let { "now: $it" }).joinToString("\n") + " (default: ${s.default})", onDefault = { change(s.key, "") }, value = {
         when {
             typed -> TypedValue(s.value) { change(s.key, it) }
             s.kind == "bool" -> ValueButton(s.value) { change(s.key, if (s.value == "true") "false" else "true") }

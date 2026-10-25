@@ -433,6 +433,16 @@ pub struct Context {
     pub rates: Arc<Data>,
     pub now: i64,
     pub local: Option<Local>,
+    /// A past day's rates were asked for (`history.rs`): `rates` are that day's.
+    pub dated: Option<Dated>,
+}
+
+/// A past day asked for.
+pub struct Dated {
+    /// The day, in Unix seconds (midnight, UTC).
+    pub day: i64,
+    /// Why its rates are not there (offline, not downloaded).
+    pub problem: Option<String>,
 }
 
 /// The request's parts, when it is a currency request: the amount, and the currency pieces in order.
@@ -485,6 +495,11 @@ fn shape(config: &Config, input: &str) -> Option<Result<(String, Vec<Piece>), Er
     Some(Ok((amount, money.into_iter().cloned().collect())))
 }
 
+/// Whether `input` is a currency request as written (right or wrong), without a date.
+pub fn is_request(config: &Config, input: &str) -> bool {
+    shape(config, input).is_some()
+}
+
 /// A currency request, if `input` is one: one amount (a plain number) and one or two currencies or
 /// countries, nothing else. `None` leaves the request to the others (a time with countries is a
 /// time request, two countries alone a distance).
@@ -534,6 +549,9 @@ fn convert(amount: &str, money: &[Piece], ctx: &Context) -> Result<Converted, Er
         }
     };
     let value: f64 = amount.parse().ok().or_else(|| crate::calc::parse_prefix(amount).ok().and_then(|(e, _)| e.eval().ok())).unwrap_or(0.0);
+    if let Some(problem) = ctx.dated.as_ref().and_then(|d| d.problem.as_ref()) {
+        return Err(Error::NoRates(problem.clone()));
+    }
     let Some(day) = ctx.rates.get(RATES_DATE) else {
         return Err(Error::NoRates(match crate::network::allowed() {
             true => "no exchange rates yet: they are being downloaded in the background, try again in a minute".to_string(),
@@ -542,21 +560,37 @@ fn convert(amount: &str, money: &[Piece], ctx: &Context) -> Result<Converted, Er
     };
     let (a, b) = match (per_dollar(&ctx.rates, from), per_dollar(&ctx.rates, to)) {
         (Some(a), Some(b)) => (a, b),
-        (None, _) => return Err(Error::NoRates(format!("no exchange rate for the {} ({from})", name(from)))),
-        (_, None) => return Err(Error::NoRates(format!("no exchange rate for the {} ({to})", name(to)))),
+        (None, _) => return Err(Error::NoRates(missing(from, ctx))),
+        (_, None) => return Err(Error::NoRates(missing(to, ctx))),
     };
     let result = value / a * b;
     let day = day.value as i64;
     let shown = crate::time::human_day(day);
     notes.push(format!("1 {from} = {} {to}, rates of {shown} from {PROVIDER}", crate::convert::format_value(b / a, 6)));
     let mut warnings = Vec::new();
-    if ctx.now - day >= STALE_DAYS * 86_400 {
+    // A past day's rates are old on purpose, and have no age to show.
+    if ctx.dated.is_none() && ctx.now - day >= STALE_DAYS * 86_400 {
         warnings.push(format!("exchange rates of {shown}: not updated since"));
     }
     // Countries written for currencies: which ones were used, to check.
     let check = sides(money, Some(to));
     let result = format!("{} {to}", crate::convert::fixed(result, 2));
-    Ok(Converted { result, from: format!("{amount} {from}"), age: age(ctx.now - day), check, notes, warnings })
+    Ok(Converted {
+        result,
+        from: format!("{amount} {from}"),
+        age: if ctx.dated.is_some() { String::new() } else { age(ctx.now - day) },
+        check,
+        notes,
+        warnings,
+    })
+}
+
+/// Why `code` has no rate.
+fn missing(code: &str, ctx: &Context) -> String {
+    match &ctx.dated {
+        Some(d) => format!("no exchange rate for the {} ({code}) on {}", name(code), crate::time::human_day(d.day)),
+        None => format!("no exchange rate for the {} ({code})", name(code)),
+    }
 }
 
 /// An age for people, in its largest whole unit: `less than 1h`, `5h`, `2d`, `3w`, `4m`, `1y`.
@@ -830,7 +864,7 @@ mod tests {
     fn with(input: &str, local: Option<&str>) -> Option<Result<Converted, Error>> {
         let rates = rates();
         let local = local.map(|code| Local { code: get(code).map(|c| c.code).unwrap(), from: "Italy's time zone, Europe/Rome".into() });
-        request(&Config::default(), input, || Context { rates: Arc::new(rates), now: NOW, local })
+        request(&Config::default(), input, || Context { rates: Arc::new(rates), now: NOW, local, dated: None })
     }
 
     fn ok(input: &str) -> String {
@@ -1090,7 +1124,7 @@ mod tests {
 
     #[test]
     fn rates_missing_or_stale() {
-        let ctx = |rates: Data, now: i64| move || Context { rates: Arc::new(rates), now, local: None };
+        let ctx = |rates: Data, now: i64| move || Context { rates: Arc::new(rates), now, local: None, dated: None };
         assert!(matches!(request(&Config::default(), "1 usd eur", ctx(Data::default(), NOW)), Some(Err(Error::NoRates(_)))));
         let c = request(&Config::default(), "1 usd eur", ctx(rates(), NOW + 4 * 86_400)).unwrap().unwrap();
         assert_eq!(c.warnings, ["exchange rates of 12 Oct 26: not updated since"]);

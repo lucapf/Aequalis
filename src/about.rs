@@ -60,6 +60,7 @@ pub fn facts(memory: &str) -> Vec<(&'static str, String)> {
         ("Memory", memory.to_string()),
         ("Last online sync", sync),
         ("Exchange rates", rates),
+        ("Rates of past days", crate::history::summary(settings.history_enabled())),
         ("Cities", cities),
         ("Mode", mode.to_string()),
     ]

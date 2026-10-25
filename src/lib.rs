@@ -16,6 +16,7 @@ pub mod ffi;
 pub mod files;
 pub mod find;
 pub mod geo;
+pub mod history;
 pub mod http;
 #[cfg(all(feature = "ffi", target_os = "android"))]
 pub mod jni;
@@ -340,6 +341,8 @@ pub struct Output {
     pub synced: Option<String>,
     /// For `--online`: the state and the age as every UI says it (`online (2h old)`).
     pub line: Option<String>,
+    /// For `--online`: the days of past rates kept (`42 days, since 14 Sep 26`; `off`).
+    pub history: Option<String>,
     /// What was converted or calculated, as shown (`12 AED`, `10 km`, `12+4/2`): the left side of
     /// the whole expression a UI copies (`12 AED = 3.27 USD`); `None`: the request as written.
     pub from: Option<String>,
@@ -464,7 +467,13 @@ pub fn parse_options<'a>(config: &Config, args: &'a [String]) -> Result<Parsed<'
             // For the widget and scripts: `online`, `offline` or `offline (forced)`; with --json,
             // how long ago the last sync was (`synced`).
             "--online" => {
-                let status = Output { synced: network::synced_ago(), line: Some(network::line()), ..Output::from(network::status().label().to_string()) };
+                let history = history::summary(settings::current().history_enabled());
+                let status = Output {
+                    synced: network::synced_ago(),
+                    line: Some(network::line()),
+                    history: Some(history),
+                    ..Output::from(network::status().label().to_string())
+                };
                 return Ok(Parsed::Info(Box::new(status)));
             }
             "-s" | "--silent" => silent = true,
@@ -547,7 +556,29 @@ fn convert_one(config: &Config, opts: &Options, tokens: &[&str]) -> Result<Outpu
     // Currencies: `12 usd euro`, `12 USA Europe`; one amount (a plain number) and currencies or
     // countries, nothing else (a time with countries is a time request, countries alone a distance).
     // The rates and the local currency are read only for a currency request.
-    let context = || currency::Context { rates: currency::load(), now: time::unix_now(), local: currency::local().ok().flatten() };
+    // A past day's rates when the request ends or starts with a date (`12 usd eur 2025-01-30`,
+    // `yesterday`, `3 months ago`); today, or no date: the latest.
+    let (input, day) = match history::split(config, &input, time::unix_now().div_euclid(86_400)) {
+        Some(Ok((_, Some(_)))) if !crate::settings::current().history_enabled() => {
+            return Err(currency::Error::NoRates("exchange rates of past days are off: turn on the rates.history setting".to_string()).into())
+        }
+        Some(Ok(split)) => split,
+        Some(Err(e)) => return Err(e.into()),
+        None => (input, None),
+    };
+    let context = || {
+        let (now, local) = (time::unix_now(), currency::local().ok().flatten());
+        match day {
+            None => currency::Context { rates: currency::load(), now, local, dated: None },
+            Some(day) => {
+                let (rates, problem) = match history::load(day, now) {
+                    Ok(rates) => (rates, None),
+                    Err(problem) => (Default::default(), Some(problem)),
+                };
+                currency::Context { rates: std::sync::Arc::new(rates), now, local, dated: Some(currency::Dated { day: day * 86_400, problem }) }
+            }
+        }
+    };
     // Beside a currency that could be a size (`42 eu us`), the shoes and the clothes too: a list.
     if let Some(result) = currency::request(config, &input, context) {
         let lines = || sizes::beside(&input);
@@ -671,9 +702,10 @@ fn money(opts: &Options, c: currency::Converted) -> Output {
         },
         check: c.check.filter(|_| !opts.silent),
         formatted: false,
-        rates_age: Some(c.age),
+        rates_age: Some(c.age).filter(|age| !age.is_empty()),
         synced: None,
         line: None,
+        history: None,
         from: Some(c.from),
         result: None,
         extra: Vec::new(),

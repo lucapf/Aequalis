@@ -76,7 +76,8 @@ the singular or plural (`euro`, `US dollars`, `yen`), a symbol (`€`, `£`, `¥
 abbreviation (`Dhs`, `RMB`, `kr`), a country (`USA`, `UAE`, `China`) or `Europe` / `EU`. Case
 and accents don't matter, and the amount may be attached (`12usd`, `12€`, `US$12`, `12€gbp`); `to`, `in` or `->`
 may stand between the currencies (`12 usd -> eur`). Rates:
-ExchangeRate-API, synced once a day in the background (`aequalis --list` lists the currencies).
+ExchangeRate-API, synced once a day in the background (`aequalis --list` lists the currencies); a date
+gives the rates of a past day (below).
 The amounts below change with the rates.
 
 | Type                       | Result |
@@ -92,6 +93,36 @@ The amounts below change with the rates.
 | `10:00AM Italy Japan`      | a time: the time in Tokyo (a number is money, a time is time zones) |
 | `Italy Japan`              | no value: the distance |
 | `12 pounds kg`             | `5.4431 kg`: with a unit, `pounds` is the unit |
+
+### Rates of a past day
+
+A date at the end of the request (or at its start) gives the rates of that day, up to 750 days
+back: `100 usd eur 2025-01-30`, `100 usd to eur on 30 Jan 2025`, `100 usd eur yesterday`,
+`100 usd eur 3 months ago`. Without a date it is always the latest rates, and nothing is asked.
+Rates of past days are ExchangeRate-API's, the same as the latest ones, saved once a day. The
+history starts the day it was set up and grows from then on (there are no rates of earlier days),
+and the note says which day they are of. A day is downloaded the first time it is asked for and
+kept on the device, so it works offline afterwards.
+
+| Type                                     | Result |
+|------------------------------------------|--------|
+| `100 usd eur 2025-01-30`                 | `96.13 EUR`, noting `rates of 30 Jan 25` |
+| `100 usd to eur on 30 Jan 2025`          | the same |
+| `on 2025-01-30 100 usd eur`              | the same: the date may come first |
+| `100 usd eur yesterday`                  | the rates of the day before |
+| `100 usd eur 3 months ago`, `a week ago`, `2 days ago`, `1 year ago` | the rates of that day |
+| `100 usd eur today`, `100 usd eur`       | the latest rates |
+| `100 usd eur 03/04/25`                   | asks: 4 March or 3 April 2025 (a written month, `3 Apr 2025`, is not asked) |
+| `100 usd eur 2025-01-30`, before the history began | error: no rates of that day |
+| `100 usd eur 2020-01-01`                 | error: older than 750 days |
+| `100 usd eur tomorrow`                   | error: that day has not come yet |
+
+The `rates.history` setting (on by default; the first of the Settings window) turns it on and
+off, and shows how many days are held (`on · 42 days, since 14 Sep 26`; also in `aequalis
+--online`, About and the apps' settings). On, each rates sync (once a day, in the background)
+downloads the days not held yet, up to 750; off, nothing is downloaded and a dated request says
+the history is off (the days already held stay). Offline (the `offline` setting), only the days
+already held are available. The files come from `rates.history_url`, a setting for mirrors.
 
 ## Distances
 

@@ -312,7 +312,16 @@ pub fn sync(auto: bool) -> Result<Report, String> {
             }),
             Group::Rates => crate::currency::path().ok_or_else(no_home).map(|path| {
                 let n = sync_into(&path, vec![crate::currency::source()], interval, &crate::time::unix_now);
-                format!("{n} exchange rate{}", if n == 1 { "" } else { "s" })
+                let today = crate::time::unix_now().div_euclid(86_400);
+                crate::history::prune(today);
+                let past = if settings.history_enabled() {
+                    phase("downloading the exchange rates of past days");
+                    crate::history::sync(today)
+                } else {
+                    0
+                };
+                let days = if past > 0 { format!(", {past} past day{}", if past == 1 { "" } else { "s" }) } else { String::new() };
+                format!("{n} exchange rate{}{days}", if n == 1 { "" } else { "s" })
             }),
             Group::Cities => crate::files::dir()
                 .ok_or_else(no_home)

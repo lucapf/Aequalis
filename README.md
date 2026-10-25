@@ -71,7 +71,9 @@ Currencies by code, name, symbol or country, in any case: `12 usd euro`, `12 USA
 `12€ gbp`; the amount can be a calculation (`12+3 Italy UAE` is `15 Italy UAE`). With one
 currency, to your local one. Shared names (`dollar`) and misspellings are
 asked about. Rates from [ExchangeRate-API](https://www.exchangerate-api.com), synced once a day
-in the background.
+in the background. A date at the end gives a past day's rates (saved daily, up
+to 750 days back, from when the history began): `100 usd eur 2025-01-30`, `100 usd eur yesterday`, `100 usd eur 3 months ago`.
+The `rates.history` setting (on by default) turns the history off and shows how many days are held.
 
 | You type | Aequalis answers |
 |---|---|

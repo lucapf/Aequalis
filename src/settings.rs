@@ -120,6 +120,20 @@ pub const KEYS: &[Key] = &[
     Key { key: "rates.refresh", advanced: true, default: "silent", kind: Kind::Choice(REFRESH), about: "the exchange rates: silent, notify or manual" },
     Key { key: "rates.interval", advanced: true, default: "24h", kind: Kind::Duration, about: "how old the exchange rates may be" },
     Key {
+        key: "rates.history",
+        advanced: false,
+        default: "true",
+        kind: Kind::Bool,
+        about: "exchange rates of past days (`100 usd eur 2025-01-30`): one file a day is downloaded and kept, 750 days",
+    },
+    Key {
+        key: "rates.history_url",
+        advanced: true,
+        default: crate::history::URL,
+        kind: Kind::Url,
+        about: "where the exchange rates of past days are downloaded from (a mirror, a file://)",
+    },
+    Key {
         key: "live.refresh",
         advanced: true,
         default: "manual",
@@ -209,6 +223,10 @@ impl Settings {
 
     pub fn offline(&self) -> bool {
         self.get("offline") == "true"
+    }
+
+    pub fn history_enabled(&self) -> bool {
+        self.get("rates.history") == "true"
     }
 
     pub fn cities_enabled(&self) -> bool {
@@ -490,6 +508,11 @@ pub fn json_where(settings: &Settings, keep: impl Fn(&Key) -> bool) -> String {
                 Some(meant) => item.str("auto", meant),
                 None => item,
             };
+            // What the setting holds now, for people (`42 days, since 14 Sep 26`).
+            let item = match detail(k.key, settings) {
+                Some(text) => item.str("detail", &text),
+                None => item,
+            };
             // A currency is picked from all of them (code and name), the most used first.
             let item = match k.kind {
                 Kind::Currency => {
@@ -503,6 +526,12 @@ pub fn json_where(settings: &Settings, keep: impl Fn(&Key) -> bool) -> String {
         })
         .collect();
     crate::json::Object::new().str("file", &path_text()).list("settings", &items).finish()
+}
+
+/// What a setting holds now, for people, where that is more than its value: the days of past
+/// rates kept.
+pub fn detail(key: &str, settings: &Settings) -> Option<String> {
+    (key == "rates.history").then(|| crate::history::summary(settings.history_enabled()))
 }
 
 /// `aequalis --settings`: every setting, its value, and what it does.
@@ -534,9 +563,9 @@ mod tests {
     }
 
     #[test]
-    fn four_basic_settings_the_rest_advanced() {
+    fn five_basic_settings_the_rest_advanced() {
         let basic: Vec<&str> = KEYS.iter().filter(|k| !k.advanced).map(|k| k.key).collect();
-        assert_eq!(basic, ["offline", "currency.local", "distance.unit", "precision"]);
+        assert_eq!(basic, ["offline", "rates.history", "currency.local", "distance.unit", "precision"]);
     }
 
     #[test]

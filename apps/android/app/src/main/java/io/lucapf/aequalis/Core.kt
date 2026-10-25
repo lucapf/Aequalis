@@ -70,6 +70,8 @@ data class Setting(
     val advanced: Boolean = false,
     val auto: String? = null,
     val currencies: List<Pair<String, String>> = emptyList(),
+    /** What the setting holds now, for people, when that is more than its value (`42 days, since 14 Sep 26`). */
+    val detail: String? = null,
 )
 
 /** Online or offline (`online`, `offline`, `offline (forced)`, `not synced`), and how long ago the
@@ -360,6 +362,7 @@ object Core {
             s.getString("key"), s.getString("value"), s.getString("default"), s.getString("kind"), s.getJSONArray("options").strings(), s.getString("about"),
             advanced = s.optBoolean("advanced"),
             auto = s.optString("auto").ifEmpty { null },
+            detail = s.optString("detail").ifEmpty { null },
             currencies = s.optJSONArray("currencies")?.objects { it.getString("code") to it.getString("name") }.orEmpty(),
         )
     }

@@ -113,7 +113,8 @@ the singular or plural (<code>euro</code>, <code>US dollars</code>, <code>yen</c
 abbreviation (<code>Dhs</code>, <code>RMB</code>, <code>kr</code>), a country (<code>USA</code>, <code>UAE</code>, <code>China</code>) or <code>Europe</code> / <code>EU</code>. Case
 and accents don't matter, and the amount may be attached (<code>12usd</code>, <code>12€</code>, <code>US$12</code>, <code>12€gbp</code>); <code>to</code>, <code>in</code> or <code>-&gt;</code>
 may stand between the currencies (<code>12 usd -&gt; eur</code>). Rates:
-ExchangeRate-API, synced once a day in the background (<code>aequalis --list</code> lists the currencies).
+ExchangeRate-API, synced once a day in the background (<code>aequalis --list</code> lists the currencies); a date
+gives the rates of a past day (below).
 The amounts below change with the rates.</p>
 <div class="tw"><table>
 <thead><tr><th>Type</th><th>Result</th></tr></thead>
@@ -130,6 +131,36 @@ The amounts below change with the rates.</p>
 <tr><td><code>Italy Japan</code></td><td>no value: the distance</td></tr>
 <tr><td><code>12 pounds kg</code></td><td><code>5.4431 kg</code>: with a unit, <code>pounds</code> is the unit</td></tr>
 </tbody></table></div>
+<section class="level3">
+<h3 id="rates-of-a-past-day">Rates of a past day</h3>
+<p>A date at the end of the request (or at its start) gives the rates of that day, up to 750 days
+back: <code>100 usd eur 2025-01-30</code>, <code>100 usd to eur on 30 Jan 2025</code>, <code>100 usd eur yesterday</code>,
+<code>100 usd eur 3 months ago</code>. Without a date it is always the latest rates, and nothing is asked.
+Rates of past days are ExchangeRate-API's, the same as the latest ones, saved once a day. The
+history starts the day it was set up and grows from then on (there are no rates of earlier days),
+and the note says which day they are of. A day is downloaded the first time it is asked for and
+kept on the device, so it works offline afterwards.</p>
+<div class="tw"><table>
+<thead><tr><th>Type</th><th>Result</th></tr></thead>
+<tbody>
+<tr><td><code>100 usd eur 2025-01-30</code></td><td><code>96.13 EUR</code>, noting <code>rates of 30 Jan 25</code></td></tr>
+<tr><td><code>100 usd to eur on 30 Jan 2025</code></td><td>the same</td></tr>
+<tr><td><code>on 2025-01-30 100 usd eur</code></td><td>the same: the date may come first</td></tr>
+<tr><td><code>100 usd eur yesterday</code></td><td>the rates of the day before</td></tr>
+<tr><td><code>100 usd eur 3 months ago</code>, <code>a week ago</code>, <code>2 days ago</code>, <code>1 year ago</code></td><td>the rates of that day</td></tr>
+<tr><td><code>100 usd eur today</code>, <code>100 usd eur</code></td><td>the latest rates</td></tr>
+<tr><td><code>100 usd eur 03/04/25</code></td><td>asks: 4 March or 3 April 2025 (a written month, <code>3 Apr 2025</code>, is not asked)</td></tr>
+<tr><td><code>100 usd eur 2025-01-30</code>, before the history began</td><td>error: no rates of that day</td></tr>
+<tr><td><code>100 usd eur 2020-01-01</code></td><td>error: older than 750 days</td></tr>
+<tr><td><code>100 usd eur tomorrow</code></td><td>error: that day has not come yet</td></tr>
+</tbody></table></div>
+<p>The <code>rates.history</code> setting (on by default; the first of the Settings window) turns it on and
+off, and shows how many days are held (<code>on · 42 days, since 14 Sep 26</code>; also in <code>aequalis
+--online</code>, About and the apps' settings). On, each rates sync (once a day, in the background)
+downloads the days not held yet, up to 750; off, nothing is downloaded and a dated request says
+the history is off (the days already held stay). Offline (the <code>offline</code> setting), only the days
+already held are available. The files come from <code>rates.history_url</code>, a setting for mirrors.</p>
+</section>
 </section>
 <section class="level2">
 <h2 id="distances">Distances</h2>
@@ -161,6 +192,7 @@ is a unit, a currency or a date keyword keeps that meaning (<code>Bar</code> is 
 </article>
 <aside class="toc"><b>On this page</b>
 <a href="#currencies">Currencies</a>
+<a class="l3" href="#rates-of-a-past-day">Rates of a past day</a>
 <a href="#distances">Distances</a>
 </aside>
 </div></main>

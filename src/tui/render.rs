@@ -1796,7 +1796,11 @@ fn settings_row(view: &super::settings::View, row: super::settings::Row, chosen:
                 _ if k.kind == aequalis::settings::Kind::Favourites && current.is_empty() => "(none yet: the defaults)".to_string(),
                 _ => aequalis::settings::shown(k.key, current),
             };
-            format!(" {:<key_width$}  {value}", k.key)
+            // What it holds now beside its value (`true · 42 days, since 14 Sep 26`).
+            match aequalis::settings::detail(k.key, &view.settings) {
+                Some(detail) if view.edit.is_none() => format!(" {:<key_width$}  {value} · {detail}", k.key),
+                _ => format!(" {:<key_width$}  {value}", k.key),
+            }
         }
         Row::Advanced if view.advanced => " Fewer".to_string(),
         Row::Advanced => match view.hidden_changes() {
@@ -2627,14 +2631,14 @@ mod tests {
     #[test]
     fn settings_value_list_under_its_row() {
         // Enter on the local currency: its list under the row, `auto` first; typing filters it.
-        let (lines, cursor) = screen("<F10><Down>\n", 24, 100);
+        let (lines, cursor) = screen("<F10><Down><Down>\n", 24, 100);
         let text = lines.join("\n");
         assert!(text.contains("│ auto") && text.contains("│ USD  US dollar") && cursor.is_none(), "{text}");
-        let text = screen("<F10><Down>\ndir", 24, 100).0.join("\n");
+        let text = screen("<F10><Down><Down>\ndir", 24, 100).0.join("\n");
         assert!(text.contains("│ dir▏") && text.contains("AED  UAE dirham") && !text.contains("USD  US dollar"), "{text}");
-        assert!(screen("<F10><Down>\nzzz", 24, 100).0.join("\n").contains("no match"));
+        assert!(screen("<F10><Down><Down>\nzzz", 24, 100).0.join("\n").contains("no match"));
         // A choice's list: its values, `auto` as it stands on this device.
-        let text = screen("<F10><Down><Down>\n", 24, 100).0.join("\n");
+        let text = screen("<F10><Down><Down><Down>\n", 24, 100).0.join("\n");
         assert!(text.contains("│ auto (") && text.contains("│ km ") && text.contains("│ mi "), "{text}");
     }
 

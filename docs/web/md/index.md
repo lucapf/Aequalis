@@ -64,7 +64,7 @@ aequalis> 8 l/100km mpg
 
 ### Currencies {.card}
 
-`12 usd euro` by code, name, symbol or country. Rates are synced once a day.
+`12 usd euro` by code, name, symbol or country. Rates are synced once a day; add a date for a past day's rates: `100 usd eur 2025-01-30`, `yesterday`, `3 months ago` (750 days back).
 
 ### Dates and time {.card}
 
