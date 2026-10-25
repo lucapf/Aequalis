@@ -189,7 +189,7 @@ fn misspelt_city_asked_at_a_terminal() {
     // Enter once the question is shown: `\n`, a line's end whether or not the terminal turns `\r`
     // into one (macOS's `script` leaves its terminal raw when its input is no terminal). The input
     // stays open until the answer: its end would be the answer (`^D`) if it came first.
-    wait(&mut out, "Which city?");
+    wait(&mut out, "Enter = 1]: ");
     stdin.write_all(b"\n").unwrap();
     wait(&mut out, "GMT+9 Tokyo");
     drop(stdin);
