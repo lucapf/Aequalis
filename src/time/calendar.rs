@@ -155,8 +155,11 @@ pub fn fixed_now() -> Option<i64> {
     FIXED_NOW.get().copied()
 }
 
-/// Now: the clock, or the frozen time (`set_now`). Every date of aequalis comes from here.
+/// Now: the clock, or the frozen time (the thread's mock clock, `set_now`). Every date of aequalis comes from here.
 pub fn now() -> Instant {
+    if let Some(seconds) = crate::machine::mocked().and_then(|m| m.now) {
+        return Instant { ns: i128::from(seconds) * NS, zone: Zone::Local };
+    }
     if let Some(&seconds) = FIXED_NOW.get() {
         return Instant { ns: i128::from(seconds) * NS, zone: Zone::Local };
     }

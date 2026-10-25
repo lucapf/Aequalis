@@ -164,6 +164,11 @@ pub use written::*;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::machine::Mock;
+
+    /// The mock clock for the tests whose answer depends on the date (daylight saving): 12 Oct 2026,
+    /// 12:00 UTC (summer time in Europe).
+    const NOW: i64 = 1_791_806_400;
 
     fn utc(s: &str) -> Instant {
         let iso = parse_iso(s).unwrap_or_else(|| panic!("{s}"));
@@ -487,6 +492,7 @@ mod tests {
 
     #[test]
     fn to_is_optional_between_cities() {
+        let _m = Mock::italy().with_now(NOW).install();
         let config = Config::default();
         let out = |s: &str| request(&config, s, 4, false).unwrap().unwrap().0;
         assert_eq!(out("10:00 Rome Doha"), out("10:00 Rome to Doha"));
@@ -543,6 +549,7 @@ mod tests {
 
     #[test]
     fn end_of_day_with_a_city() {
+        let _m = Mock::italy().with_now(NOW).install();
         let config = Config::default();
         let at = |s: &str| request(&config, s, 4, false).unwrap();
         // 24:00 is the next day's 00:00, as in ISO; not 24:30, not 24:00 PM. The time is the

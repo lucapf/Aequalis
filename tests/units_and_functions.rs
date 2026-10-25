@@ -149,7 +149,9 @@ fn places_without_a_time_are_a_distance() {
     assert_eq!(out(&["Rome", "to", "Doha", "mi"]), "2497 mi");
     assert_eq!(out(&["Rome", "to", "Doha", "in", "mi"]), "2497 mi");
     assert_eq!(out(&["distance", "Rome", "to", "Doha"]), "4019 km");
-    // With a time (or now): the time in Doha when it is that time in Rome, with AM / PM.
+    // With a time (or now): the time in Doha when it is that time in Rome, with AM / PM. On a day
+    // of the summer time (`--now`): the offset between them depends on the date.
+    let out = |args: &[&str]| out(&[&["--now", "1791800000"], args].concat());
     assert!(out(&["10:00", "Rome", "to", "Doha"]).ends_with(" 11:00 AM GMT+3 Doha"));
     assert!(out(&["10:00PM", "Rome", "to", "Doha"]).ends_with(" 11:00 PM GMT+3 Doha"));
     assert!(out(&["now", "Rome", "to", "Doha"]).ends_with(" GMT+3 Doha"));

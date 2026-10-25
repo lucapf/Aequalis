@@ -27,6 +27,9 @@ pub struct Mock {
     pub order: Order,
     /// `Europe/Rome`: the device's zone, and through it the local currency; `None`: the real one.
     pub zone: Option<&'static str>,
+    /// "Now" frozen at these Unix seconds (`time::now`), so that a test does not depend on the date it
+    /// runs on (a daylight saving change, a month's length); `None`: the real clock.
+    pub now: Option<i64>,
     /// Its folder, fresh and removed with it; `None`: the real one.
     dir: Option<PathBuf>,
 }
@@ -78,12 +81,12 @@ fn fresh_dir(name: &str) -> PathBuf {
 
 impl Mock {
     fn new(name: &str, system: System, format: &'static NumberFormat, order: Order, zone: &'static str) -> Mock {
-        Mock { system, format, order, zone: Some(zone), dir: Some(fresh_dir(name)) }
+        Mock { system, format, order, zone: Some(zone), now: None, dir: Some(fresh_dir(name)) }
     }
 
     /// The C locale's region: metric, `1234.5`, month/day; the real zone and folder.
     pub fn plain() -> Mock {
-        Mock { system: System::Metric, format: format(".", ""), order: Order::MonthFirst, zone: None, dir: None }
+        Mock { system: System::Metric, format: format(".", ""), order: Order::MonthFirst, zone: None, now: None, dir: None }
     }
 
     /// Imperial, `1,234.5`, month/day, New York (USD).
@@ -135,6 +138,12 @@ impl Mock {
 
     pub fn with_zone(mut self, zone: &'static str) -> Mock {
         self.zone = Some(zone);
+        self
+    }
+
+    /// The mock clock: "now" is `unix_seconds` for as long as this mock is installed on the thread.
+    pub fn with_now(mut self, unix_seconds: i64) -> Mock {
+        self.now = Some(unix_seconds);
         self
     }
 
