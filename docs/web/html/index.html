@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Type it. Get it</title><link rel="icon" href="logo.svg">
+<link rel="stylesheet" href="style.css"></head>
+<body class="home">
+<input type="checkbox" id="mt" class="mt" aria-hidden="true">
+<header class="bar"><div class="bar-in">
+<a class="brand" href="index.html"><img src="logo.svg" alt=""><span>Aequalis</span></a>
+<label for="mt" class="burger" aria-label="Menu">&#9776;</label>
+<nav class="dtm" aria-label="Main">
+<ul class="menu">
+<li class="has-sub"><span tabindex="0" role="button" aria-haspopup="true">Docs</span>
+<ul class="sub">
+<li><a href="Accepted_Syntax.html">Accepted syntax</a></li>
+<li><a href="tech.html">Tech</a></li>
+</ul>
+</li>
+<li class="has-sub"><span tabindex="0" role="button" aria-haspopup="true">Install</span>
+<ul class="sub">
+<li><a href="install_mac.html">macOS</a></li>
+<li><a href="install_linux.html">Linux (Omarchy)</a></li>
+<li><a href="install_windows.html">Windows</a></li>
+<li><a href="install_android.html">Android</a></li>
+</ul>
+</li>
+<li class="has-sub"><span tabindex="0" role="button" aria-haspopup="true">Source</span>
+<ul class="sub">
+<li><a href="https://github.com/lucapf/aequalis" target="_blank" rel="noopener">GitHub repo</a></li>
+</ul>
+</li>
+</ul>
+</nav>
+</div></header>
+<main class="page"><div class="cols">
+<article>
+<section class="level1">
+<h1 id="type-it-get-it">Type it. Get it</h1>
+<p>Aequalis answers maths, units, currencies and time as you type.</p>
+<p>Write your request the way you would say it.
+If it can be read in more than one way, Aequalis asks which one you mean: no guessing.</p>
+<p>Aequalis is available for Mac, Linux, Windows and Android (currently in the close testing phase)
+Installation instructions are available here:</p>
+<p><a href="install_mac.html">Mac</a>
+| <a href="install_windows.html">Windows</a>
+| <a href="install_linux.html">Linux- Omarchy</a>
+| <a href="https://github.com/lucapf/aequalis/releases/latest">latest release repo</a></p>
+<p><a href="Accepted_Syntax.html" class="button secondary">Read the docs</a></p>
+<section class="level2">
+<h2 id="examples">Examples</h2>
+<style>
+.shell{position:relative;background:#000;color:#fff;font:.95rem/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono","DejaVu Sans Mono","Noto Sans Mono","Courier New",monospace;border-radius:10px;padding:1.1rem 1.3rem;margin:1.4rem 0;overflow:hidden}
+.shell p,.shell span{font:inherit;color:inherit;letter-spacing:normal;text-transform:none;background:none;padding:0;border:0}
+.shell p{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
+.shell .scene+.scene{margin-top:1.1rem;padding-top:1.1rem;border-top:1px solid #333}
+.shell.live .shell-static{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.shell.live .screen{display:grid}
+.shell.live .scene{grid-area:1/1;visibility:hidden;margin:0;padding:0;border:0}
+.shell.live .scene.on{visibility:visible}
+.shell.live .l{visibility:hidden}
+.shell.live .l.on{visibility:visible}
+.shell.live .r{visibility:hidden}
+.shell.live .l.cursor .t::after{content:"";position:absolute;width:.6em;height:1.15em;margin-top:.2em;background:#fff;animation:shell-blink 1.06s steps(1) infinite}
+.shell .shell-ctl{display:none}
+.shell.live .shell-ctl{display:flex;align-items:center;gap:.5rem;margin-top:.9rem;padding-top:.7rem;border-top:1px solid #333;font-size:.8rem}
+.shell-ctl .cnt{margin-right:auto;color:#888}
+.shell-ctl button{font:inherit;color:#bbb;background:none;border:1px solid #444;border-radius:6px;padding:.2rem .65rem;cursor:pointer}
+.shell-ctl button:hover,.shell-ctl button:focus-visible{color:#fff;border-color:#fff;outline:none}
+@keyframes shell-blink{50%{opacity:0}}
+</style>
+<script>
+(function(){
+var reduce=window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches;
+function sleep(ms){return new Promise(function(r){setTimeout(r,ms)})}
+function init(box){
+  var src=box.querySelector('.shell-static');
+  if(!src||reduce)return;
+  var speed=+box.dataset.speed||45,hold=+box.dataset.hold||3000,loop=box.dataset.loop!=='0';
+  var screen=document.createElement('div'),scenes=[];
+  screen.className='screen';
+  screen.setAttribute('aria-hidden','true');
+  src.querySelectorAll('.scene').forEach(function(s){
+    var sc=s.cloneNode(true),lines=[];
+    sc.querySelectorAll('.l').forEach(function(l){
+      var t=l.classList.contains('cmd')?l.querySelector('.tx'):l;
+      var chars=Array.from(t.textContent);
+      var typed=document.createElement('span'),rest=document.createElement('span');
+      typed.className='t';rest.className='r';
+      rest.textContent=chars.join('');
+      t.textContent='';
+      t.append(typed,rest);
+      lines.push({el:l,typed:typed,rest:rest,chars:chars,fast:l.classList.contains('out')});
+    });
+    screen.appendChild(sc);
+    scenes.push({el:sc,lines:lines});
+  });
+  box.appendChild(screen);
+  box.classList.add('live');
+  var inView=true,paused=false,resume=null,gen=0,cur=0,last=null,SKIP={};
+  function ok(){return inView&&!document.hidden&&!paused}
+  function wake(){if(ok()&&resume){var r=resume;resume=null;r()}}
+  function gate(){return ok()?Promise.resolve():new Promise(function(r){resume=r})}
+  async function wait(ms,my){
+    do{
+      await gate();
+      if(my!==gen)throw SKIP;
+      var t=Math.min(ms,100);
+      await sleep(t);
+      if(my!==gen)throw SKIP;
+      ms-=t;
+    }while(ms>0);
+  }
+  document.addEventListener('visibilitychange',wake);
+  if('IntersectionObserver' in window)new IntersectionObserver(function(e){inView=e[0].isIntersecting;wake()},{threshold:.2}).observe(box);
+  var cnt=document.createElement('span');
+  cnt.className='cnt';
+  function label(){cnt.textContent=(cur+1)+' / '+scenes.length}
+  function clear(){
+    scenes.forEach(function(sc){
+      sc.el.classList.remove('on');
+      sc.lines.forEach(function(l){l.typed.textContent='';l.rest.textContent=l.chars.join('');l.el.classList.remove('on','cursor')});
+    });
+    last=null;
+  }
+  function show(s,full){
+    clear();
+    cur=s;
+    var sc=scenes[s];
+    sc.el.classList.add('on');
+    label();
+    if(!full)return;
+    sc.lines.forEach(function(l){l.el.classList.add('on');l.typed.textContent=l.chars.join('');l.rest.textContent=''});
+    last=sc.lines[sc.lines.length-1];
+    last.el.classList.add('cursor');
+  }
+  async function type(line,my){
+    if(last)last.el.classList.remove('cursor');
+    last=line;
+    line.el.classList.add('on','cursor');
+    var ms=line.fast?speed/2:speed;
+    for(var i=1;i<=line.chars.length;i++){
+      await wait(ms*(.6+Math.random()*.8),my);
+      line.typed.textContent=line.chars.slice(0,i).join('');
+      line.rest.textContent=line.chars.slice(i).join('');
+    }
+  }
+  async function run(my,s,full){
+    try{
+      if(!full)await wait(600,my);
+      for(;;){
+        show(s,full);
+        if(!full){
+          var sc=scenes[s];
+          for(var k=0;k<sc.lines.length;k++){
+            await type(sc.lines[k],my);
+            if(k<sc.lines.length-1)await wait(400,my);
+          }
+        }
+        full=false;
+        await wait(hold,my);
+        if(!loop&&s===scenes.length-1)return;
+        clear();
+        s=(s+1)%scenes.length;
+        await wait(300,my);
+      }
+    }catch(e){if(e!==SKIP)throw e}
+  }
+  function go(d){
+    var n=scenes.length,s=cur+d;
+    s=loop?(s+n)%n:Math.max(0,Math.min(n-1,s));
+    gen++;
+    run(gen,s,true);
+    wake();
+  }
+  function btn(text,name,fn){
+    var b=document.createElement('button');
+    b.type='button';
+    b.textContent=text;
+    b.setAttribute('aria-label',name);
+    b.addEventListener('click',fn);
+    return b;
+  }
+  var bp=btn('\u2039 prev','Previous example',function(){go(-1)});
+  var bn=btn('next \u203a','Next example',function(){go(1)});
+  var bm=btn('pause','Pause the animation',function(){
+    paused=!paused;
+    bm.textContent=paused?'play':'pause';
+    bm.setAttribute('aria-label',paused?'Play the animation':'Pause the animation');
+    wake();
+  });
+  var ctl=document.createElement('div');
+  ctl.className='shell-ctl';
+  ctl.append(cnt,bp,bm,bn);
+  box.appendChild(ctl);
+  label();
+  run(gen,0,false);
+}
+function ready(){document.querySelectorAll('.shell').forEach(init)}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',ready);else ready();
+})();
+</script>
+<div class="shell" data-speed="45" data-hold="3000" data-loop="1">
+<div class="shell-static">
+<div class="scene">
+<p class="l q">2400 Thai currency: how much is it worth in dollars?</p>
+<p class="l cmd"><span class="pr">aequalis&gt;</span> <span class="tx">2400 Thailand usd</span></p>
+<p class="l out">2400 THB = 71.09 USD</p>
+</div>
+<div class="scene">
+<p class="l q">My shoe size is 44 in Italy: what is the corresponding US size?</p>
+<p class="l cmd"><span class="pr">aequalis&gt;</span> <span class="tx">44 it us</span></p>
+<p class="l out">- shoes: 44 it = US 10 men, US 11.5 women</p>
+<p class="l out">- clothes: 44 it = US 8 women, US 34 men's suit, US 28 men's trousers</p>
+</div>
+<div class="scene">
+<p class="l q">It is 10:00 in Paris: what time is it in New York?</p>
+<p class="l cmd"><span class="pr">aequalis&gt;</span> <span class="tx">10:00AM Paris New York</span></p>
+<p class="l out">10:00AM Paris to New York = 24 Oct 26 4:00 AM GMT-4 New York</p>
+</div>
+<div class="scene">
+<p class="l q">Distance between Paris and New York?</p>
+<p class="l cmd"><span class="pr">aequalis&gt;</span> <span class="tx">Paris New York</span></p>
+<p class="l out">5,853 km</p>
+</div>
+<div class="scene">
+<p class="l q">And the time now, in two cities?</p>
+<p class="l cmd"><span class="pr">aequalis&gt;</span> <span class="tx">now Rome Tokyo</span></p>
+<p class="l out">24 Oct 26 8:17 PM GMT+2 Rome</p>
+<p class="l out">25 Oct 26 3:17 AM GMT+9 Tokyo</p>
+</div>
+<div class="scene">
+<p class="l q">How fast is 100 km/h in miles per hour?</p>
+<p class="l cmd"><span class="pr">aequalis&gt;</span> <span class="tx">100 km/h mph</span></p>
+<p class="l out">100 km/h = 62.1371 mph</p>
+</div>
+<div class="scene">
+<p class="l q">What is 20% of 150?</p>
+<p class="l cmd"><span class="pr">aequalis&gt;</span> <span class="tx">20% of 150</span></p>
+<p class="l out">20% of 150 = 30</p>
+</div>
+<div class="scene">
+<p class="l q">How much fuel does 8 litres per 100 km burn, in miles per gallon?</p>
+<p class="l cmd"><span class="pr">aequalis&gt;</span> <span class="tx">8 l/100km mpg</span></p>
+<p class="l out">8 l/100km = 29.4018 mpg</p>
+</div>
+</div>
+</div>
+</section>
+<section class="level2 grid">
+<h2 id="what-you-can-type">What you can type</h2>
+<section class="level3 card">
+<h3 id="maths">Maths</h3>
+<p><code>12+4/2</code> gives <code>14</code>, <code>2^10</code> gives <code>1024</code>, <code>20% of 150</code> gives <code>30</code>, and <code>sqrt</code>, <code>log</code>, <code>sin</code>, <code>5!</code> are there too.</p>
+</section>
+<section class="level3 card">
+<h3 id="units">Units</h3>
+<p><code>100 km/h mph</code> gives <code>62.1371 mph</code>. Length, area, volume, mass, temperature, speed, pressure, energy and more.</p>
+</section>
+<section class="level3 card">
+<h3 id="currencies">Currencies</h3>
+<p><code>12 usd euro</code> by code, name, symbol or country. Rates are synced once a day.</p>
+</section>
+<section class="level3 card">
+<h3 id="dates-and-time">Dates and time</h3>
+<p><code>12 Sept 2026 + 5wd</code> gives <code>18/09/2026</code>. <code>10:00AM Paris to New York</code> gives the time over there.</p>
+</section>
+<section class="level3 card">
+<h3 id="fuel-consumption">Fuel consumption</h3>
+<p><code>8 l/100km mpg</code> gives <code>29.4018 mpg</code>. Litres per 100 km, miles per gallon, km per litre.</p>
+</section>
+<section class="level3 card">
+<h3 id="clothes-and-shoes">Clothes and shoes</h3>
+<p><code>44 it us</code> gives the shoes and the clothes, men and women. Sizes change with the brand: Aequalis says so. In the app, the Sizes key shows the shoe and clothes keys.</p>
+</section>
+<section class="level3 card">
+<h3 id="distances">Distances</h3>
+<p><code>Rome to Paris</code> gives <code>1,107 km</code>. Cities, countries or coordinates.</p>
+</section>
+<section class="level3 card">
+<h3 id="trivia">Trivia</h3>
+<p>For the curious: the live distance of the Voyager probes, the distance between the planets, how many satellites are in orbit right now. Open Trivia in the app and look.</p>
+</section>
+</section>
+<section class="level2 grid">
+<h2 id="runs-everywhere">Runs everywhere</h2>
+<p>Aequalis runs on Mac, Windows, Linux and Android. iOS is coming. One core, the same answers on every one of them.</p>
+</section>
+<section class="level2 grid">
+<h2 id="how-it-works-on-android">How it works on Android</h2>
+<section class="level3 card">
+<h3 id="1-type">1. Type</h3>
+<p>Letters, digits and operators share one keyboard. The answer updates after every key.</p>
+</section>
+<section class="level3 card">
+<h3 id="2-pick">2. Pick</h3>
+<p>Suggestions sit above the keys. When a request is ambiguous, you get one button per reading.</p>
+</section>
+<section class="level3 card">
+<h3 id="3-keep">3. Keep</h3>
+<p>Press enter to keep it in the history. Copy or share the result with one tap.</p>
+</section>
+</section>
+</section>
+</article>
+<aside class="toc"><b>On this page</b>
+<a href="#examples">Examples</a>
+<a href="#what-you-can-type">What you can type</a>
+<a class="l3" href="#maths">Maths</a>
+<a class="l3" href="#units">Units</a>
+<a class="l3" href="#currencies">Currencies</a>
+<a class="l3" href="#dates-and-time">Dates and time</a>
+<a class="l3" href="#fuel-consumption">Fuel consumption</a>
+<a class="l3" href="#clothes-and-shoes">Clothes and shoes</a>
+<a class="l3" href="#distances">Distances</a>
+<a class="l3" href="#trivia">Trivia</a>
+<a href="#runs-everywhere">Runs everywhere</a>
+<a href="#how-it-works-on-android">How it works on Android</a>
+<a class="l3" href="#1-type">1. Type</a>
+<a class="l3" href="#2-pick">2. Pick</a>
+<a class="l3" href="#3-keep">3. Keep</a>
+</aside>
+</div></main>
+<footer>Aequalis</footer>
+</body></html>

@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Accepted Syntax &middot; Aequalis</title><link rel="icon" href="logo.svg">
+<link rel="stylesheet" href="style.css"></head>
+<body class="doc">
+<input type="checkbox" id="mt" class="mt" aria-hidden="true">
+<header class="bar"><div class="bar-in">
+<a class="brand" href="index.html"><img src="logo.svg" alt=""><span>Aequalis</span></a>
+<label for="mt" class="burger" aria-label="Menu">&#9776;</label>
+<nav class="dtm" aria-label="Main">
+<ul class="menu">
+<li class="has-sub"><span tabindex="0" role="button" aria-haspopup="true">Docs</span>
+<ul class="sub">
+<li><a href="Accepted_Syntax.html" class="cur">Accepted syntax</a></li>
+<li><a href="tech.html">Tech</a></li>
+</ul>
+</li>
+<li class="has-sub"><span tabindex="0" role="button" aria-haspopup="true">Install</span>
+<ul class="sub">
+<li><a href="install_mac.html">macOS</a></li>
+<li><a href="install_linux.html">Linux (Omarchy)</a></li>
+<li><a href="install_windows.html">Windows</a></li>
+<li><a href="install_android.html">Android</a></li>
+</ul>
+</li>
+<li class="has-sub"><span tabindex="0" role="button" aria-haspopup="true">Source</span>
+<ul class="sub">
+<li><a href="https://github.com/lucapf/aequalis" target="_blank" rel="noopener">GitHub repo</a></li>
+</ul>
+</li>
+</ul>
+</nav>
+</div></header>
+<main class="page"><div class="cols">
+<article>
+<section class="level1">
+<h1 id="accepted-syntax">Accepted Syntax</h1>
+<p>One of the values <code>Aequalis</code> aims to bring is understanding what you write the way you would write it.
+That is evident in the command line, the TUI, the widget and the apps.</p>
+<p>Aequalis parses the input as you write it and shows the result.</p>
+<p>For example:
+typing: <code>2026/12/04</code> shows: <code>42.2083</code>
+Adding <code>+3d</code>  (<code>2026/12/04 +3d</code>) Aequalis 'understands' you want to add 3 days to the date and shows  <code>2026/12/07</code></p>
+<p>There are no strict rules:</p>
+<ul>
+<li><strong>Case does not matter</strong>: <code>usd</code>, <code>USD</code> and <code>Usd</code> are the same, so are <code>new york</code> and <code>NEW YORK</code>, <code>sqrt</code> and <code>SQRT</code>,
+<code>to</code> and <code>TO</code>. The one exception is where the case tells two things apart: the data units (<code>MB</code> is megabytes,
+<code>Mb</code> megabits). Written in a case that fits both (<code>mb</code>), Aequalis asks which one you mean.
+</li>
+<li><strong>The unit may touch the number</strong>: <code>12usd</code>, <code>5KM</code>, <code>100km/h</code>, <code>1e3km</code>, <code>(2+3)km</code>, <code>18E6unix</code>. The arrow too: <code>12USD-&gt;EUR</code>.
+</li>
+<li><strong><code>to</code>, <code>in</code> and <code>-&gt;</code></strong> may stand between the two units, places or currencies, or be left out.
+</li>
+<li><strong>Numbers as the device writes them</strong> are read back: where the thousands separator is <code>,</code>, <code>1,000km mi</code> is <code>1000 km</code>.
+</li>
+</ul>
+<p>Some examples of accepted syntax (each row: the same request written in other ways gives the same result):</p>
+<div class="tw"><table>
+<thead><tr><th>Type</th><th>Result</th></tr></thead>
+<tbody>
+<tr><td><code>44 it us</code>, <code>44 IT US</code></td><td>the shoes and the clothes of that size: <code>shoes: 44 it = US 10 men, US 11.5 women</code>, <code>clothes: 44 it = US 8 women, …</code></td></tr>
+<tr><td><code>shoe 42 eu us</code>, <code>SHOES 42 EU US</code></td><td><code>EU 42 = US 8.5 men</code> (sizes vary by brand: check the brand's chart)</td></tr>
+<tr><td><code>women shoes 38 eu us</code>, <code>38 eu women shoes us</code></td><td><code>EU 38 = US 7 (Nike), 7.5 (Clarks)</code></td></tr>
+<tr><td><code>dress 44 it us</code>, <code>DRESS 44 IT US</code></td><td><code>IT 44 = US 8</code></td></tr>
+<tr><td><code>size 42 eu us</code></td><td>the shoes, then the clothes: <code>EU 42 = US 8.5 men, US 10 women</code> …</td></tr>
+<tr><td><code>10 km mi</code>, <code>10 KM MI</code>, <code>10km mi</code></td><td><code>6.2137 mi</code></td></tr>
+<tr><td><code>1000 ly -&gt; yd</code>, <code>1000 ly in yd</code>, <code>1000 ly to yd</code>, <code>1000 LY TO YD</code></td><td><code>1.0346e19 yd</code> (<code>-&gt;</code>, <code>in</code> or <code>to</code> between the units)</td></tr>
+<tr><td><code>12+12/3</code></td><td><code>12 + (12 / 3) = 16</code> (the order the operations are done in)</td></tr>
+<tr><td><code>100sqft mq</code>, <code>100 SQFT MQ</code></td><td><code>9.2903 m2</code></td></tr>
+<tr><td><code>100 km/h mph</code>, <code>100km/h MPH</code></td><td><code>62.1371 mph</code></td></tr>
+<tr><td><code>9.81 m/s^2 ft/s2</code></td><td><code>32.185 ft/s2</code> (compound units)</td></tr>
+<tr><td><code>1 bar psi</code>, <code>1 BAR PSI</code></td><td><code>14.5038 psi</code></td></tr>
+<tr><td><code>1 kWh MJ</code>, <code>1 KWH MJ</code></td><td><code>3.6 MJ</code></td></tr>
+<tr><td><code>100 hp kW</code>, <code>100hp KW</code></td><td><code>74.57 kW</code></td></tr>
+<tr><td><code>sqrt 16</code>, <code>SQRT 16</code>, <code>sqrt(16)</code></td><td><code>4</code></td></tr>
+<tr><td><code>5!</code>, <code>(2+3)!</code></td><td><code>120</code> (whole numbers 0 to 170)</td></tr>
+<tr><td><code>2E5</code>, <code>1.5e-3 * 4</code></td><td><code>200000</code>, <code>0.006</code> (x E y is x × 10^y, in any number)</td></tr>
+<tr><td><code>18E6 unix</code>, <code>18000000unix</code>, <code>18E6UNIX</code></td><td><code>28 Jul 70 12:00 PM GMT+4</code> (the number may touch its format, and be written xEy)</td></tr>
+<tr><td><code>12USD-&gt;EUR</code>, <code>5km-&gt;mi</code>, <code>5KM-&gt;MI</code></td><td>as with spaces: the arrow may touch its words</td></tr>
+<tr><td><code>root(27, 3)</code>, <code>ROOT(27, 3)</code>, <code>cbrt(27)</code></td><td><code>3</code> (the number, then the index)</td></tr>
+<tr><td><code>150 + 20%</code></td><td><code>180</code></td></tr>
+<tr><td><code>20% of 150</code>, <code>20% OF 150</code></td><td><code>30</code></td></tr>
+<tr><td><code>30 deg rad</code>, <code>30DEG RAD</code></td><td><code>0.5236 rad</code></td></tr>
+<tr><td><code>1 ly km</code>, <code>1 LY KM</code></td><td><code>9460730472580.8 km</code></td></tr>
+<tr><td><code>Rome to Paris</code>, <code>ROME PARIS</code>, <code>Rome -&gt; Paris</code></td><td><code>1,107 km</code> (capitals need no city archive)</td></tr>
+<tr><td><code>Italy</code>, <code>ITALY</code></td><td>the current time in Rome</td></tr>
+<tr><td><code>10:00 USA to Japan</code>, <code>10:00 usa TO japan</code></td><td>asks which US time zone (New York, Chicago, …)</td></tr>
+<tr><td><code>sin(30°)</code>, <code>SIN(30°)</code></td><td><code>0.5</code></td></tr>
+<tr><td><code>log(1000) + ln(e)</code>, <code>LOG(1000) + LN(e)</code></td><td><code>4</code></td></tr>
+<tr><td><code>pi * 2</code>, <code>PI * 2</code></td><td><code>6.2832</code></td></tr>
+<tr><td><code>2026/12/04 - 12d</code>, <code>2026/12/04 - 12D</code></td><td><code>2026/11/22 YYYY/MM/DD</code></td></tr>
+<tr><td><code>Rome </code>, <code>ROME</code></td><td><code>current time in Rome</code></td></tr>
+<tr><td><code>now Rome Tokyo</code>, <code>NOW ROME TOKYO</code></td><td>one line for each city: <code>24 Oct 26 8:17 PM GMT+2 Rome</code>, <code>25 Oct 26 3:17 AM GMT+9 Tokyo</code></td></tr>
+<tr><td><code>10:00AM paris to new york</code>, <code>10:00AM PARIS TO NEW YORK</code>, <code>10am Paris -&gt; New York</code></td><td><code>time in New York when in Paris is 10:00AM</code></td></tr>
+<tr><td><code>12 Sept 2026 + 5wd</code>, <code>12 SEPT 2026 + 5WD</code></td><td><code>18/09/2026 DD/MM/YYYY</code></td></tr>
+<tr><td><code>12 Sept 2026 10:00 PM + 5wd</code></td><td><code>18/09/2026 10:00:00 PM DD/MM/YYYY-12h</code></td></tr>
+<tr><td><code>now unix</code>, <code>NOW UNIX</code></td><td>the current Unix time</td></tr>
+<tr><td><code>12/04/2026 unix</code></td><td>ambiguous: one button per reading (DD/MM/YYYY, MM/DD/YYYY)</td></tr>
+<tr><td><code>100F C</code>, <code>100 f c</code>, <code>100 °F °C</code></td><td><code>37.7778 C</code> (temperature)</td></tr>
+<tr><td><code>300 K C</code>, <code>0 c f</code></td><td><code>26.85 C</code>, <code>32 F</code></td></tr>
+<tr><td><code>8 l/100km mpg</code>, <code>8 L/100KM MPG</code>, <code>8l/100km mpg</code></td><td><code>29.4018 mpg</code> (fuel consumption: litres per 100 km, miles per gallon, km per litre)</td></tr>
+<tr><td><code>12.5 km/l l/100km</code></td><td><code>8 l/100km</code></td></tr>
+<tr><td><code>1 MB kB</code>, <code>1 Mb kb</code></td><td><code>1000 kB</code>, <code>1000 kb</code> (the case tells megabytes from megabits)</td></tr>
+<tr><td><code>1 GiB MB</code></td><td><code>1073.7418 MB</code>, noting that decimal and binary units are mixed</td></tr>
+<tr><td><code>8 bit B</code></td><td><code>1 B</code>, noting that bits and bytes are mixed</td></tr>
+<tr><td><code>1 mb kb</code></td><td>asks: megabyte or megabit? (<code>mb</code>, <code>kib</code>, <code>gb</code> fit both)</td></tr>
+</tbody></table></div>
+<section class="level2">
+<h2 id="currencies">Currencies</h2>
+<p>One amount and one or two currencies. A currency can be written as its code (<code>usd</code>), its name in
+the singular or plural (<code>euro</code>, <code>US dollars</code>, <code>yen</code>), a symbol (<code>€</code>, <code>£</code>, <code>¥</code>), a common
+abbreviation (<code>Dhs</code>, <code>RMB</code>, <code>kr</code>), a country (<code>USA</code>, <code>UAE</code>, <code>China</code>) or <code>Europe</code> / <code>EU</code>. Case
+and accents don't matter, and the amount may be attached (<code>12usd</code>, <code>12€</code>, <code>US$12</code>, <code>12€gbp</code>); <code>to</code>, <code>in</code> or <code>-&gt;</code>
+may stand between the currencies (<code>12 usd -&gt; eur</code>). Rates:
+ExchangeRate-API, synced once a day in the background (<code>aequalis --list</code> lists the currencies).
+The amounts below change with the rates.</p>
+<div class="tw"><table>
+<thead><tr><th>Type</th><th>Result</th></tr></thead>
+<tbody>
+<tr><td><code>12 usd euro</code>, <code>12 USD EUR</code>, <code>12usd EUR</code></td><td><code>10.71 EUR</code></td></tr>
+<tr><td><code>12 USA Europe</code></td><td><code>10.71 EUR</code>, noting the currencies used: <code>United States: US dollar (USD, US$) → Europe: euro (EUR, €)</code></td></tr>
+<tr><td><code>12 USD UAE</code></td><td><code>44.07 AED</code></td></tr>
+<tr><td><code>12 China Euro</code></td><td><code>1.60 EUR</code></td></tr>
+<tr><td><code>12€ gbp</code>, <code>12€gbp</code></td><td><code>10.05 GBP</code></td></tr>
+<tr><td><code>12 usd</code></td><td><code>44.07 AED</code>: to the local currency (the time zone's country, or the <code>currency.local</code> setting)</td></tr>
+<tr><td><code>12 dollar euro</code></td><td>asks which dollar: US, Canadian, Australian, New Zealand, Hong Kong, Singapore, New Taiwan, Barbadian</td></tr>
+<tr><td><code>12 dolar eur</code></td><td>&quot;<code>dolar</code> is not a currency&quot;, asks which one: US dollar, Canadian dollar, Australian dollar, New Zealand dollar, Hong Kong dollar, Singapore dollar, New Taiwan dollar, Barbadian dollar</td></tr>
+<tr><td><code>10:00AM Italy Japan</code></td><td>a time: the time in Tokyo (a number is money, a time is time zones)</td></tr>
+<tr><td><code>Italy Japan</code></td><td>no value: the distance</td></tr>
+<tr><td><code>12 pounds kg</code></td><td><code>5.4431 kg</code>: with a unit, <code>pounds</code> is the unit</td></tr>
+</tbody></table></div>
+</section>
+<section class="level2">
+<h2 id="distances">Distances</h2>
+<p>Two places, then optionally the unit: <code>[distance] &lt;place&gt; [to] &lt;place&gt; [&lt;unit&gt;]</code>. A place is a
+city, a country or coordinates (<code>41.9,12.5</code>). With two places the unit is the <code>distance.unit</code>
+setting (auto: miles where the device is imperial, km elsewhere). <code>to</code>, <code>-&gt;</code> or nothing between
+the places, in any case.</p>
+<p>The world's capitals and the countries are built in: <code>Rome to Paris</code>, <code>ROME PARIS</code> and <code>Rome -&gt; Paris</code> give <code>1,107 km</code>
+with no download. With the city archive (<code>aequalis --sync</code>, from GeoNames) every city of 5,000 inhabitants or
+more is known, by any of its names in any language (<code>Roma</code>, <code>Рим</code>); <code>Springfield, Illinois</code> or
+<code>Springfield, US</code> picks one. Several cities with that name: Aequalis asks, the country's capital
+first and selected by default, wherever the device is (<code>Rome</code>: Rome, Italy), then those named
+exactly so in the device's country, the others there, then the rest, by population. A word that
+is a unit, a currency or a date keyword keeps that meaning (<code>Bar</code> is a unit: write
+<code>Bar, Montenegro</code>).</p>
+<div class="tw"><table>
+<thead><tr><th>Type</th><th>Result</th></tr></thead>
+<tbody>
+<tr><td><code>Rome Paris</code>, <code>ROME PARIS</code>, <code>rome -&gt; paris</code></td><td><code>1,107 km</code>, or with the archive a choice of Romes and Parises, Rome, Italy and Paris, France selected</td></tr>
+<tr><td><code>Rome to Paris mi</code></td><td><code>688 mi</code></td></tr>
+<tr><td><code>Springfield, Illinois Chicago mi</code></td><td><code>176 mi</code></td></tr>
+<tr><td><code>Chicago Paris</code></td><td>asks: Paris, France first (the capital), then Paris, Texas…</td></tr>
+<tr><td><code>distance Sprngfield to Chicago</code></td><td>&quot;<code>Sprngfield</code> is not a known place: did you mean Springfield, …?&quot;</td></tr>
+<tr><td><code>Italy Japan</code>, <code>ITALY -&gt; JAPAN</code></td><td>countries: their capitals: <code>9,875 km</code></td></tr>
+<tr><td><code>10:00 Rome Paris</code></td><td>a time: the time in Paris</td></tr>
+</tbody></table></div>
+</section>
+</section>
+</article>
+<aside class="toc"><b>On this page</b>
+<a href="#currencies">Currencies</a>
+<a href="#distances">Distances</a>
+</aside>
+</div></main>
+<footer>Aequalis</footer>
+</body></html>

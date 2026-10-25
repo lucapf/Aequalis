@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Install Aequalis on macOS &middot; Aequalis</title><link rel="icon" href="logo.svg">
+<link rel="stylesheet" href="style.css"></head>
+<body class="doc">
+<input type="checkbox" id="mt" class="mt" aria-hidden="true">
+<header class="bar"><div class="bar-in">
+<a class="brand" href="index.html"><img src="logo.svg" alt=""><span>Aequalis</span></a>
+<label for="mt" class="burger" aria-label="Menu">&#9776;</label>
+<nav class="dtm" aria-label="Main">
+<ul class="menu">
+<li class="has-sub"><span tabindex="0" role="button" aria-haspopup="true">Docs</span>
+<ul class="sub">
+<li><a href="Accepted_Syntax.html">Accepted syntax</a></li>
+<li><a href="tech.html">Tech</a></li>
+</ul>
+</li>
+<li class="has-sub"><span tabindex="0" role="button" aria-haspopup="true">Install</span>
+<ul class="sub">
+<li><a href="install_mac.html" class="cur">macOS</a></li>
+<li><a href="install_linux.html">Linux (Omarchy)</a></li>
+<li><a href="install_windows.html">Windows</a></li>
+<li><a href="install_android.html">Android</a></li>
+</ul>
+</li>
+<li class="has-sub"><span tabindex="0" role="button" aria-haspopup="true">Source</span>
+<ul class="sub">
+<li><a href="https://github.com/lucapf/aequalis" target="_blank" rel="noopener">GitHub repo</a></li>
+</ul>
+</li>
+</ul>
+</nav>
+</div></header>
+<main class="page"><div class="cols">
+<article>
+<section class="level1">
+<h1 id="install-aequalis-on-macos">Install Aequalis on macOS</h1>
+<p>macOS 11 or later, Apple Silicon or Intel.</p>
+<section class="level2">
+<h2 id="install-with-homebrew">Install with Homebrew</h2>
+<pre><code>brew install --cask lucapf/tap/aequalis
+</code></pre>
+<p>It installs <strong>Aequalis.app</strong> (in Applications) and the <code>aequalis</code> command. Open Aequalis once: its icon
+appears in the menu bar.</p>
+</section>
+<section class="level2">
+<h2 id="install-without-homebrew">Install without Homebrew</h2>
+<ol>
+<li><p>Download <code>aequalis-&lt;version&gt;-macos.zip</code> from the
+<a href="https://github.com/lucapf/aequalis/releases/latest">latest release</a>, unzip it and drag
+<strong>Aequalis.app</strong> to Applications.</p>
+</li>
+<li><p>The app is not signed with an Apple developer account yet, so macOS refuses it the first time.
+Either right-click it › <strong>Open</strong> › <strong>Open</strong>, or in the terminal:</p>
+<pre><code>xattr -dr com.apple.quarantine /Applications/Aequalis.app
+</code></pre>
+</li>
+<li><p>For the <code>aequalis</code> command:</p>
+<pre><code>ln -s /Applications/Aequalis.app/Contents/Resources/aequalis /usr/local/bin/aequalis
+</code></pre>
+</li>
+</ol>
+</section>
+<section class="level2">
+<h2 id="use-it">Use it</h2>
+<ul>
+<li>Press <strong>⌥⌘A</strong> anywhere, or <strong>click the icon</strong> in the menu bar. The input box opens; type a request
+and the answer appears as you type.
+</li>
+<li><strong>Enter</strong> copies the result and closes the box. <strong>Esc</strong>, or a click anywhere else, closes it.
+</li>
+<li>When a request can be read in more than one way (<code>12/04/2026 unix</code>), a button appears for each
+reading; <strong>Enter</strong> takes the first one.
+</li>
+<li><strong>Right-click the icon</strong> for its menu: Download data, Settings, Open at login, About, Log, Quit.
+</li>
+</ul>
+<section class="level3">
+<h3 id="select-text-anywhere">Select text anywhere</h3>
+<p>Select <code>12 usd eur</code> in any app, then <strong>Services</strong> (the app's menu, or right-click) ›
+<strong>Aequalis: replace with the answer</strong> or <strong>Aequalis: copy the answer</strong>. To give them a key, go to
+<strong>System Settings › Keyboard › Keyboard Shortcuts › Services › Text</strong>.</p>
+</section>
+</section>
+<section class="level2">
+<h2 id="the-command-line">The command line</h2>
+<pre><code class="language-console">$ aequalis 10 km mi
+6.2137 mi
+$ aequalis
+</code></pre>
+<p><code>aequalis</code> with no arguments opens the interactive mode in the terminal.</p>
+</section>
+<section class="level2">
+<h2 id="settings-and-data">Settings and data</h2>
+<p>In <code>~/.config/aequalis</code>, shared by the app and the command line. <strong>Settings</strong> in the icon's menu opens
+the file; <code>aequalis --settings</code> lists them all, and <code>aequalis --set key=value</code> changes one.</p>
+</section>
+<section class="level2">
+<h2 id="if-something-doesn-t-work">If something doesn't work</h2>
+<p>The app writes what it does to <code>~/Library/Logs/Aequalis.log</code> (<strong>Log</strong> in the icon's menu). If ⌥⌘A does
+nothing, the log says whether another app has that key; the icon still works.</p>
+</section>
+<section class="level2">
+<h2 id="uninstall">Uninstall</h2>
+<p><code>brew uninstall --cask aequalis</code>, or drag Aequalis.app to the Bin. Your settings and data stay in
+<code>~/.config/aequalis</code>.</p>
+</section>
+<section class="level2">
+<h2 id="build-it-yourself">Build it yourself</h2>
+<p>With <a href="https://rustup.rs">Rust</a> and the Xcode command line tools:</p>
+<pre><code>apps/macos/build.sh 0.1.0
+</code></pre>
+<p>The app and its zip are written to <code>dist/</code>.</p>
+</section>
+</section>
+</article>
+<aside class="toc"><b>On this page</b>
+<a href="#install-with-homebrew">Install with Homebrew</a>
+<a href="#install-without-homebrew">Install without Homebrew</a>
+<a href="#use-it">Use it</a>
+<a class="l3" href="#select-text-anywhere">Select text anywhere</a>
+<a href="#the-command-line">The command line</a>
+<a href="#settings-and-data">Settings and data</a>
+<a href="#if-something-doesn-t-work">If something doesn't work</a>
+<a href="#uninstall">Uninstall</a>
+<a href="#build-it-yourself">Build it yourself</a>
+</aside>
+</div></main>
+<footer>Aequalis</footer>
+</body></html>

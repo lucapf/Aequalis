@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 950 600" role="img" aria-labelledby="t d" font-family="system-ui,-apple-system,Segoe UI,sans-serif">
+<title id="t">Aequalis architecture</title>
+<desc id="d">One Rust core library below, three kinds of front end above (command line, TUI, widget or app) on macOS, Linux, Windows and Android, joined by three bindings: the Rust crate, the JSON command line, and the C interface with JNI.</desc>
+<style>
+text{fill:#1F5B45;font-size:14px}
+.h{font-weight:700;font-size:15px}.m{fill:#6b8a7c;font-size:12px}.s{font-size:12px;font-weight:600}
+.cell{fill:#fff;stroke:#b9d3c4;stroke-width:1.5}
+.na{fill:none;stroke:#b9d3c4;stroke-width:1.5;stroke-dasharray:4 4}
+.soon{fill:#fff;stroke:#6b8a7c;stroke-width:1.5;stroke-dasharray:6 4}
+.crate{fill:#1F5B45}.json{fill:#BF7510}.ffi{fill:#4a6fa5}
+.bind{fill:#fff;stroke-width:2}
+.bg{fill:#f4f9f5}.bc{stroke:#1F5B45}.bj{stroke:#BF7510}.bf{stroke:#4a6fa5}.ar{stroke:#6b8a7c;stroke-width:2;fill:none}.af{fill:#6b8a7c}
+.core{fill:#1F5B45}.chip{fill:none;stroke:#F7F0E6;stroke-opacity:.55;stroke-width:1.2}
+.oc{fill:#F7F0E6}
+@media (prefers-color-scheme:dark){
+text{fill:#dcebe2;font-size:14px}.m{fill:#8fae9f;font-size:12px}
+.cell{fill:#1d2d25;stroke:#33503f;stroke-width:1.5}
+.na{fill:none;stroke:#33503f;stroke-width:1.5;stroke-dasharray:4 4}
+.soon{fill:#1d2d25;stroke:#8fae9f;stroke-width:1.5;stroke-dasharray:6 4}
+.crate{fill:#6fcf9f}.json{fill:#F2B84B}.ffi{fill:#8fb4ee}
+.bind{fill:#1d2d25;stroke-width:2}
+.bg{fill:#14201a}.bc{stroke:#6fcf9f}.bj{stroke:#F2B84B}.bf{stroke:#8fb4ee}.ar{stroke:#8fae9f;stroke-width:2;fill:none}.af{fill:#8fae9f}
+.core{fill:#2b6f55}.chip{fill:none;stroke:#F7F0E6;stroke-opacity:.55;stroke-width:1.2}
+.oc{fill:#F7F0E6}
+}
+</style>
+<rect class="bg" width="950" height="600" rx="14"/>
+
+<!-- column heads -->
+<g class="h" text-anchor="middle">
+<text x="257" y="42">macOS</text><text x="452" y="42">Linux</text><text x="647" y="42">Windows</text><text x="842" y="42">Android</text></g>
+
+<!-- row labels -->
+<g><text class="h" x="24" y="105">Command line</text><text class="m" x="24" y="124">aequalis 10 km mi</text>
+<text class="h" x="24" y="185">TUI</text><text class="m" x="24" y="204">interactive terminal</text>
+<text class="h" x="24" y="265">Widget / app</text><text class="m" x="24" y="284">type, see, copy</text></g>
+
+<!-- command line row -->
+<g><rect class="cell" x="170" y="70" width="175" height="64" rx="10"/><text x="257" y="98" text-anchor="middle">aequalis</text><text class="m" x="257" y="118" text-anchor="middle">binary</text><circle class="crate" cx="330" cy="85" r="5"/>
+<rect class="cell" x="365" y="70" width="175" height="64" rx="10"/><text x="452" y="98" text-anchor="middle">aequalis</text><text class="m" x="452" y="118" text-anchor="middle">binary</text><circle class="crate" cx="525" cy="85" r="5"/>
+<rect class="cell" x="560" y="70" width="175" height="64" rx="10"/><text x="647" y="98" text-anchor="middle">aequalis.exe</text><text class="m" x="647" y="118" text-anchor="middle">binary</text><circle class="crate" cx="720" cy="85" r="5"/>
+<rect class="na" x="755" y="70" width="175" height="64" rx="10"/><text class="m" x="842" y="107" text-anchor="middle">not applicable</text></g>
+
+<!-- TUI row -->
+<g><rect class="cell" x="170" y="150" width="175" height="64" rx="10"/><text x="257" y="178" text-anchor="middle">TUI</text><text class="m" x="257" y="198" text-anchor="middle">same binary</text><circle class="crate" cx="330" cy="165" r="5"/>
+<rect class="cell" x="365" y="150" width="175" height="64" rx="10"/><text x="452" y="178" text-anchor="middle">TUI</text><text class="m" x="452" y="198" text-anchor="middle">same binary</text><circle class="crate" cx="525" cy="165" r="5"/>
+<rect class="cell" x="560" y="150" width="175" height="64" rx="10"/><text x="647" y="178" text-anchor="middle">TUI</text><text class="m" x="647" y="198" text-anchor="middle">same binary</text><circle class="crate" cx="720" cy="165" r="5"/>
+<rect class="na" x="755" y="150" width="175" height="64" rx="10"/><text class="m" x="842" y="187" text-anchor="middle">not applicable</text></g>
+
+<!-- widget / app row -->
+<g><rect class="soon" x="170" y="230" width="175" height="64" rx="10"/><text x="257" y="258" text-anchor="middle">Menu bar widget</text><text class="m" x="257" y="278" text-anchor="middle">underway</text><circle class="json" cx="330" cy="245" r="5" opacity=".6"/>
+<rect class="cell" x="365" y="230" width="175" height="64" rx="10"/><text x="452" y="258" text-anchor="middle">Omarchy bar widget</text><text class="m" x="452" y="278" text-anchor="middle">QML</text><circle class="json" cx="525" cy="245" r="5"/>
+<rect class="cell" x="560" y="230" width="175" height="64" rx="10"/><text x="647" y="258" text-anchor="middle">Tray app</text><text class="m" x="647" y="278" text-anchor="middle">Rust, Win32</text><circle class="crate" cx="720" cy="245" r="5"/>
+<rect class="cell" x="755" y="230" width="175" height="64" rx="10"/><text x="842" y="258" text-anchor="middle">App and quick tile</text><text class="m" x="842" y="278" text-anchor="middle">Kotlin</text><circle class="ffi" cx="915" cy="245" r="5"/></g>
+
+<!-- bindings -->
+<text class="m" x="24" y="338">HOW A FRONT END REACHES THE CORE</text>
+<g>
+<rect class="bind bc" x="170" y="350" width="240" height="62" rx="10"/><circle class="crate" cx="190" cy="372" r="5"/><text class="s" x="204" y="376">Linked in · Rust crate</text><text class="m" x="190" y="397">command line, TUI, Windows tray app</text>
+<rect class="bind bj" x="430" y="350" width="240" height="62" rx="10"/><circle class="json" cx="450" cy="372" r="5"/><text class="s" x="464" y="376">Spawned · aequalis --json</text><text class="m" x="450" y="397">Omarchy widget, macOS widget</text>
+<rect class="bind bf" x="690" y="350" width="240" height="62" rx="10"/><circle class="ffi" cx="710" cy="372" r="5"/><text class="s" x="724" y="376">Embedded · C interface + JNI</text><text class="m" x="710" y="397">ffi.rs, aequalis.h, Android app</text></g>
+
+<!-- arrows to core -->
+<g class="ar"><path d="M290 412v28M550 412v28M810 412v28"/></g>
+<g class="af"><path d="M284 438l6 8 6-8zM544 438l6 8 6-8zM804 438l6 8 6-8z"/></g>
+
+<!-- core -->
+<rect class="core" x="20" y="448" width="910" height="136" rx="14"/>
+<text class="oc h" x="44" y="478" style="font-size:17px">Core library · Rust, no dependencies</text>
+<text class="oc" x="44" y="498" style="font-size:12px;opacity:.8">One answer engine; a front end only asks and shows. Every reply is the same JSON: results, errors, choices.</text>
+<g class="oc" font-size="12" text-anchor="middle">
+<rect class="chip" x="44" y="516" width="120" height="30" rx="15"/><text x="104" y="536" class="oc">calculator</text>
+<rect class="chip" x="174" y="516" width="120" height="30" rx="15"/><text x="234" y="536" class="oc">units</text>
+<rect class="chip" x="304" y="516" width="120" height="30" rx="15"/><text x="364" y="536" class="oc">currencies</text>
+<rect class="chip" x="434" y="516" width="120" height="30" rx="15"/><text x="494" y="536" class="oc">dates, time zones</text>
+<rect class="chip" x="564" y="516" width="120" height="30" rx="15"/><text x="624" y="536" class="oc">distances</text>
+<rect class="chip" x="694" y="516" width="120" height="30" rx="15"/><text x="754" y="536" class="oc">sizes</text>
+<rect class="chip" x="824" y="516" width="86" height="30" rx="15"/><text x="867" y="536" class="oc">sync</text></g>
+</svg>

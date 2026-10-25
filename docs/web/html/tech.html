@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Architecture &middot; Aequalis</title><link rel="icon" href="logo.svg">
+<link rel="stylesheet" href="style.css"></head>
+<body class="doc">
+<input type="checkbox" id="mt" class="mt" aria-hidden="true">
+<header class="bar"><div class="bar-in">
+<a class="brand" href="index.html"><img src="logo.svg" alt=""><span>Aequalis</span></a>
+<label for="mt" class="burger" aria-label="Menu">&#9776;</label>
+<nav class="dtm" aria-label="Main">
+<ul class="menu">
+<li class="has-sub"><span tabindex="0" role="button" aria-haspopup="true">Docs</span>
+<ul class="sub">
+<li><a href="Accepted_Syntax.html">Accepted syntax</a></li>
+<li><a href="tech.html" class="cur">Tech</a></li>
+</ul>
+</li>
+<li class="has-sub"><span tabindex="0" role="button" aria-haspopup="true">Install</span>
+<ul class="sub">
+<li><a href="install_mac.html">macOS</a></li>
+<li><a href="install_linux.html">Linux (Omarchy)</a></li>
+<li><a href="install_windows.html">Windows</a></li>
+<li><a href="install_android.html">Android</a></li>
+</ul>
+</li>
+<li class="has-sub"><span tabindex="0" role="button" aria-haspopup="true">Source</span>
+<ul class="sub">
+<li><a href="https://github.com/lucapf/aequalis" target="_blank" rel="noopener">GitHub repo</a></li>
+</ul>
+</li>
+</ul>
+</nav>
+</div></header>
+<main class="page"><div class="cols">
+<article>
+<section class="level1">
+<h1 id="architecture">Architecture</h1>
+<p>Aequalis is one core library in Rust and a thin front end for each place you use it. The core answers; a front end only asks and shows. So a unit, a date or a time zone is worked out the same way on a Mac, a Linux bar, Windows and a phone.</p>
+<p><img src="architecture.svg" alt="Aequalis architecture: one Rust core, three kinds of front end on four platforms"></p>
+<section class="level2">
+<h2 id="the-core-library">The core library</h2>
+<p>Plain Rust with no dependencies, which keeps the binary small. It holds everything that makes up an answer: the calculator, units, currencies, dates and time zones, distances, shoe and clothes sizes, and the data sync. A request goes in as text; a reply comes out as JSON holding the results, the errors, or the choices to ask the user when a request can be read in more than one way.</p>
+</section>
+<section class="level2">
+<h2 id="three-kinds-of-front-end">Three kinds of front end</h2>
+<div class="tw"><table>
+<thead><tr><th>Kind</th><th>What it is</th><th>Where</th></tr></thead>
+<tbody>
+<tr><td>Command line</td><td><code>aequalis 10 km mi</code>, <code>--shell</code> for a prompt, <code>--json</code> for programs</td><td>macOS, Linux, Windows</td></tr>
+<tr><td>TUI</td><td>the interactive terminal mode, the same binary with no arguments</td><td>macOS, Linux, Windows</td></tr>
+<tr><td>Widget or app</td><td>a small window you type in, then copy the answer</td><td>Linux (Omarchy bar widget), Windows (tray app), Android (app and quick tile); macOS is underway</td></tr>
+</tbody></table></div>
+</section>
+<section class="level2">
+<h2 id="how-a-front-end-reaches-the-core">How a front end reaches the core</h2>
+<div class="callout note"><p class="title">Three bindings, one core</p>
+<p>Which one a front end uses depends on what its platform can do.</p>
+</div>
+<ul>
+<li><strong>Linked in.</strong> The command line, the TUI and the Windows tray app use the library as a Rust crate.
+</li>
+<li><strong>Spawned.</strong> The Omarchy widget is QML: it runs <code>aequalis --json</code> on each keystroke and shows the reply. The macOS widget will do the same.
+</li>
+<li><strong>Embedded.</strong> The Android app is Kotlin. It loads the core as a shared library through a C interface (<code>ffi.rs</code>, <code>aequalis.h</code>) with a small JNI bridge, and has the downloader of the app plugged in, since an app cannot start <code>curl</code>.
+</li>
+</ul>
+</section>
+<section class="level2">
+<h2 id="speed-and-memory">Speed and memory</h2>
+<p>Small and quick, because the core does everything in memory with no runtime to start. Measured on a laptop with an 11th Gen Intel Core i7-1185G7 (Linux, release build, the binary is 1.8 MB). Each request is a new process, which is how the widget uses it; it includes starting the program, reading the settings and the answer.</p>
+<div class="tw"><table>
+<thead><tr><th>Request</th><th>Time to reply (median of 60)</th><th>Memory (peak)</th></tr></thead>
+<tbody>
+<tr><td><code>12+12/3</code></td><td>3.4 ms</td><td>13.5 MB</td></tr>
+<tr><td><code>10 km mi</code></td><td>4.0 ms</td><td>13.5 MB</td></tr>
+<tr><td><code>12 usd eur</code></td><td>2.8 ms</td><td>13.5 MB</td></tr>
+<tr><td><code>44 it us</code> (shoes and clothes)</td><td>3.3 ms</td><td>13.5 MB</td></tr>
+<tr><td><code>18E6 unix</code></td><td>3.1 ms</td><td>13.5 MB</td></tr>
+<tr><td><code>10:00AM Paris to New York</code></td><td>3.7 ms</td><td>13.5 MB</td></tr>
+<tr><td><code>now Rome Tokyo</code></td><td>3.5 ms</td><td>13.6 MB</td></tr>
+<tr><td><code>Italy Japan</code> (distance)</td><td>3.3 ms</td><td>13.6 MB</td></tr>
+</tbody></table></div>
+<p>In a prompt (<code>aequalis --shell</code>) or in an app, the program is already running, so a request is only the work itself: 1,000 mixed requests took 112 ms in total, about <strong>0.1 ms each</strong>, with the memory staying at 13.6 MB.</p>
+</section>
+</section>
+</article>
+<aside class="toc"><b>On this page</b>
+<a href="#the-core-library">The core library</a>
+<a href="#three-kinds-of-front-end">Three kinds of front end</a>
+<a href="#how-a-front-end-reaches-the-core">How a front end reaches the core</a>
+<a href="#speed-and-memory">Speed and memory</a>
+</aside>
+</div></main>
+<footer>Aequalis</footer>
+</body></html>

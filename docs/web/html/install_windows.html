@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Install Aequalis on Windows &middot; Aequalis</title><link rel="icon" href="logo.svg">
+<link rel="stylesheet" href="style.css"></head>
+<body class="doc">
+<input type="checkbox" id="mt" class="mt" aria-hidden="true">
+<header class="bar"><div class="bar-in">
+<a class="brand" href="index.html"><img src="logo.svg" alt=""><span>Aequalis</span></a>
+<label for="mt" class="burger" aria-label="Menu">&#9776;</label>
+<nav class="dtm" aria-label="Main">
+<ul class="menu">
+<li class="has-sub"><span tabindex="0" role="button" aria-haspopup="true">Docs</span>
+<ul class="sub">
+<li><a href="Accepted_Syntax.html">Accepted syntax</a></li>
+<li><a href="tech.html">Tech</a></li>
+</ul>
+</li>
+<li class="has-sub"><span tabindex="0" role="button" aria-haspopup="true">Install</span>
+<ul class="sub">
+<li><a href="install_mac.html">macOS</a></li>
+<li><a href="install_linux.html">Linux (Omarchy)</a></li>
+<li><a href="install_windows.html" class="cur">Windows</a></li>
+<li><a href="install_android.html">Android</a></li>
+</ul>
+</li>
+<li class="has-sub"><span tabindex="0" role="button" aria-haspopup="true">Source</span>
+<ul class="sub">
+<li><a href="https://github.com/lucapf/aequalis" target="_blank" rel="noopener">GitHub repo</a></li>
+</ul>
+</li>
+</ul>
+</nav>
+</div></header>
+<main class="page"><div class="cols">
+<article>
+<section class="level1">
+<h1 id="install-aequalis-on-windows">Install Aequalis on Windows</h1>
+<p>Windows 10 (version 1903 or later) or Windows 11, 64-bit.</p>
+<section class="level2">
+<h2 id="install">Install</h2>
+<ol>
+<li>Download <code>aequalis-&lt;version&gt;-x86_64-windows-setup.exe</code> from the
+<a href="https://github.com/lucapf/aequalis/releases/latest">latest release</a>.
+</li>
+<li>Run it. It installs for your user only, so it asks for no administrator password.
+</li>
+<li>Keep both options ticked, or untick what you don't want:
+<ul>
+<li><strong>Start Aequalis when I sign in</strong>: its icon stays in the notification area.
+</li>
+<li><strong>Add the aequalis command to the PATH</strong>: <code>aequalis 10 km mi</code> works in any terminal.
+</li>
+</ul>
+</li>
+</ol>
+<blockquote>
+<p><strong>&quot;Windows protected your PC&quot;</strong>: the installer is not signed yet, so SmartScreen warns about it.
+Click <strong>More info</strong>, then <strong>Run anyway</strong>.</p>
+</blockquote>
+</section>
+<section class="level2">
+<h2 id="use-it">Use it</h2>
+<ul>
+<li><strong>Click the Aequalis icon</strong> in the notification area (by the clock), or press <strong>Win+Alt+A</strong>
+anywhere. The input box opens; type a request and the answer appears as you type.
+</li>
+<li><strong>Enter</strong> copies the result. <strong>Esc</strong>, or a click anywhere else, closes the box.
+</li>
+<li>When a request can be read in more than one way (<code>12/04/2026 unix</code>), a button appears for each
+reading; <strong>Enter</strong> takes the first one.
+</li>
+<li><strong>Right-click the icon</strong> for its menu: download the online data now, the settings, start with
+Windows (on or off), About, Quit.
+</li>
+<li>Click <strong>Aequalis</strong>, at the top of the box, for About: the version, memory, the online data.
+</li>
+</ul>
+<p>Windows 11 may put a new icon under the <strong>^</strong> arrow by the clock. To keep it always visible: right-click
+the taskbar › <strong>Taskbar settings</strong> › <strong>Other system tray icons</strong>, and turn <strong>Aequalis</strong> on.</p>
+<p>The time zone is always the computer's (read again every hour, and at once when it changes), and the
+zones' rules are those of Windows itself, kept up to date by Windows Update.</p>
+</section>
+<section class="level2">
+<h2 id="the-command-line">The command line</h2>
+<p><code>aequalis</code> works in PowerShell, Windows Terminal and the Command Prompt, as on Linux and macOS:</p>
+<pre><code class="language-console">&gt; aequalis 10 km mi
+6.2137 mi
+&gt; aequalis 10:00AM Paris to New York
+18 Oct 26 4:00 AM GMT-4 New York
+</code></pre>
+</section>
+<section class="level2">
+<h2 id="the-interactive-mode">The interactive mode</h2>
+<p><code>aequalis</code> with no arguments opens the interactive mode in the console, as on Linux and macOS: type
+a request and the answer shows as you type. <strong>F2</strong> Measures, <strong>F3</strong> Currencies, <strong>F4</strong> Sizes,
+<strong>F5</strong> the history, <strong>F6</strong> Trivia, <strong>F9</strong> the keypad (Basic, Sci, hidden), <strong>F10</strong> Settings, <strong>F1</strong> all the keys, <strong>Ctrl+K</strong> searches units and
+currencies, <strong>Ctrl+Q</strong> quits. It needs Windows 10 version 1903 or later, in <strong>Windows Terminal</strong>,
+PowerShell or the Command Prompt. If a key is taken by your terminal, <strong>Alt+M</strong>, <strong>Alt+C</strong>,
+<strong>Alt+T</strong>, <strong>Alt+H</strong> and <strong>Alt+S</strong> open the same windows. <strong>Alt+Y</strong> copies the result to the
+clipboard (through PowerShell, so it takes a moment the first time).</p>
+</section>
+<section class="level2">
+<h2 id="settings-and-data">Settings and data</h2>
+<p>The settings and the downloaded data (exchange rates, the city archive) are in <code>%APPDATA%\aequalis</code>,
+shared by the input box and the command line. <strong>Settings…</strong> in the icon's menu opens the settings file;
+<code>aequalis --settings</code> lists them all, and <code>aequalis --set key=value</code> changes one.</p>
+</section>
+<section class="level2">
+<h2 id="uninstall">Uninstall</h2>
+<p><strong>Settings › Apps › Installed apps › Aequalis › Uninstall.</strong> Your settings and data stay in
+<code>%APPDATA%\aequalis</code>; delete that folder to remove them too.</p>
+</section>
+<section class="level2">
+<h2 id="build-it-yourself">Build it yourself</h2>
+<p>With <a href="https://rustup.rs">Rust</a>, the Visual Studio Build Tools (C++) and
+<a href="https://jrsoftware.org/isinfo.php">Inno Setup 6</a>:</p>
+<pre><code class="language-powershell">cargo build --release --workspace
+&amp; &quot;$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe&quot; installer\windows\aequalis.iss
+</code></pre>
+<p>The installer is written to <code>dist\</code>.</p>
+</section>
+</section>
+</article>
+<aside class="toc"><b>On this page</b>
+<a href="#install">Install</a>
+<a href="#use-it">Use it</a>
+<a href="#the-command-line">The command line</a>
+<a href="#the-interactive-mode">The interactive mode</a>
+<a href="#settings-and-data">Settings and data</a>
+<a href="#uninstall">Uninstall</a>
+<a href="#build-it-yourself">Build it yourself</a>
+</aside>
+</div></main>
+<footer>Aequalis</footer>
+</body></html>
