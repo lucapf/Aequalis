@@ -3,6 +3,8 @@
 //! directory, or downloaded from a `file://` archive (`rates.history_url`); no date is the latest
 //! rates, without a question.
 
+mod common;
+
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
@@ -46,7 +48,7 @@ fn archive(name: &str, files: &[(&str, String)]) -> PathBuf {
 }
 
 fn settings(dir: &Path, offline: bool, url: Option<&Path>) {
-    let url = url.map_or(String::new(), |u| format!(r#","rates.history_url":"file://{}""#, u.display()));
+    let url = url.map_or(String::new(), |u| format!(r#","rates.history_url":"{}""#, common::file_url(u)));
     let text = format!(r#"{{"offline":{offline},"rates.refresh":"manual","cities.refresh":"manual"{url}}}"#);
     std::fs::write(dir.join("aequalis/settings.json"), text).unwrap();
 }
@@ -266,7 +268,7 @@ fn requests_that_only_look_like_they_have_a_date_are_not_touched() {
 
 /// The settings with `rates.history` set.
 fn history_setting(dir: &Path, on: bool, url: Option<&Path>) {
-    let url = url.map_or(String::new(), |u| format!(r#","rates.history_url":"file://{}""#, u.display()));
+    let url = url.map_or(String::new(), |u| format!(r#","rates.history_url":"{}""#, common::file_url(u)));
     let text = format!(r#"{{"offline":false,"rates.history":{on},"rates.refresh":"manual","cities.refresh":"manual"{url}}}"#);
     std::fs::write(dir.join("aequalis/settings.json"), text).unwrap();
 }
