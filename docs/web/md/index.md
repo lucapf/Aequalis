@@ -15,8 +15,6 @@ Installation instructions are available here:
 
 [Read the docs](Accepted_Syntax.md){.button .secondary}
 
-## Examples
-
 <layout layout="shell-prompt">
 2400 Thai currency: how much is it worth in dollars?
 aequalis> 2400 Thailand usd
