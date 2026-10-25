@@ -298,7 +298,7 @@ fn side(config: &Config, text: &str, store: Option<&crate::cities::Store>, missp
 /// (`London Paris`, `New York Los Angeles`). `None`: not two places; `Some(Err)`: written with `to`
 /// (or after `distance`) but a side is not a place (the error says which).
 fn two_places(config: &Config, words: &[&str], store: Option<&crate::cities::Store>, asked: bool) -> Option<Result<(Side, Side), String>> {
-    if let Some(to) = words.iter().position(|w| w.eq_ignore_ascii_case("to")) {
+    if let Some(to) = words.iter().position(|w| w.eq_ignore_ascii_case("to") || *w == "->") {
         let (from, target) = (words[..to].join(" "), words[to + 1..].join(" "));
         if from.is_empty() || target.is_empty() {
             return None;

@@ -7,7 +7,13 @@ use std::process::{Command, Output, Stdio};
 
 fn aequalis(args: &[&str]) -> Output {
     // The plain number format, whatever the machine's locale.
-    Command::new(env!("CARGO_BIN_EXE_aequalis")).args(args).env("LC_ALL", "C").env("AEQUALIS_MACHINE", "plain").stdin(Stdio::null()).output().expect("run aequalis")
+    Command::new(env!("CARGO_BIN_EXE_aequalis"))
+        .args(args)
+        .env("LC_ALL", "C")
+        .env("AEQUALIS_MACHINE", "plain")
+        .stdin(Stdio::null())
+        .output()
+        .expect("run aequalis")
 }
 
 fn out(args: &[&str]) -> String {

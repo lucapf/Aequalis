@@ -17,7 +17,7 @@ fn unix_stamps_in_any_notation() {
     let (plain, err, code) = run("18000000 unix");
     assert_eq!(code, 0, "{err}");
     assert_eq!(plain, "28 Jul 70 12:00 PM GMT+4");
-    for form in ["18000000unix", "18E6 unix", "18E6unix", "18e6unix", "1.8e7 unix", "1.8E7unix", "180000e2 unix"] {
+    for form in ["18000000unix", "18E6 unix", "18E6unix", "18e6unix", "1.8e7 unix", "1.8E7unix", "180000e2 unix", "18E6UNIX", "18000000UNIX", "18E6 Unix"] {
         assert_eq!(run(form).0, plain, "{form}");
     }
 }

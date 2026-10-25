@@ -108,7 +108,8 @@ pub const LETTER_KEYS: [(&str, &str); 6] = [("XS", "XS"), ("S", "S"), ("M", "M")
 
 /// Where `line`'s first item word is (`scarpe`, `quần áo`): (first word, how many words).
 fn item_at(words: &[&str]) -> Option<(usize, usize)> {
-    (0..words.len()).find_map(|i| (1..=3.min(words.len() - i)).rev().find(|&n| matches!(word(&words[i..i + n].join(" ")), Some((Word::Item(_), _)))).map(|n| (i, n)))
+    (0..words.len())
+        .find_map(|i| (1..=3.min(words.len() - i)).rev().find(|&n| matches!(word(&words[i..i + n].join(" ")), Some((Word::Item(_), _)))).map(|n| (i, n)))
 }
 
 /// `line` with a Sizes key written (SPEC_CLOTHES §7): a system's code or a letter after it, nothing
@@ -175,9 +176,12 @@ pub fn suggestions(before: &str, typing: bool) -> Option<(usize, Vec<(String, St
     let end = before.chars().count();
     if !typing {
         let tokens = tokens(before)?;
-        let shoes = tokens.iter().any(|t| matches!(t, Token::Word(Word::Item(i), _) if ITEMS[*i].0 == "shoes") || matches!(t, Token::Word(Word::Body(i), _) if BODY[*i].1 == "shoes"));
+        let shoes = tokens.iter().any(|t| {
+            matches!(t, Token::Word(Word::Item(i), _) if ITEMS[*i].0 == "shoes") || matches!(t, Token::Word(Word::Body(i), _) if BODY[*i].1 == "shoes")
+        });
         let clothes = tokens.iter().any(|t| {
-            matches!(t, Token::Word(Word::Item(i), _) if !ITEMS[*i].1 && ITEMS[*i].0 != "shoes") || matches!(t, Token::Word(Word::Body(i), _) if !BODY[*i].2 && BODY[*i].1 != "shoes")
+            matches!(t, Token::Word(Word::Item(i), _) if !ITEMS[*i].1 && ITEMS[*i].0 != "shoes")
+                || matches!(t, Token::Word(Word::Body(i), _) if !BODY[*i].2 && BODY[*i].1 != "shoes")
         });
         let after_size = matches!(tokens.last(), Some(Token::Number(n)) if n.age.is_none());
         let system = tokens.iter().any(|t| matches!(t, Token::System(..)));
@@ -493,11 +497,8 @@ fn attached(w: &str) -> Option<(System, String, Number, bool)> {
 /// when a word is none of a size request's (a brand, a unit, a place). Punctuation around words is
 /// dropped (`44 it,`, `us?`).
 fn tokens(input: &str) -> Option<Vec<Token>> {
-    let words: Vec<&str> = input
-        .split_whitespace()
-        .map(|w| w.trim_matches(|c: char| matches!(c, ',' | '?' | '!' | ':' | ';' | '¿' | '¡')))
-        .filter(|w| !w.is_empty())
-        .collect();
+    let words: Vec<&str> =
+        input.split_whitespace().map(|w| w.trim_matches(|c: char| matches!(c, ',' | '?' | '!' | ':' | ';' | '¿' | '¡'))).filter(|w| !w.is_empty()).collect();
     // `taille` is French for waist beside a measure (`70 cm taille`), else for size (SPEC_CLOTHES §2.3).
     let measured = words.iter().any(|w| {
         let lower = w.to_ascii_lowercase();
@@ -572,7 +573,9 @@ fn pronouns(tokens: Vec<Token>) -> Vec<Token> {
             let (before, after) = (i.checked_sub(1).and_then(|j| tokens.get(j)), tokens.get(i + 1));
             match &tokens[i] {
                 Token::System(System::It, _, Written::Code) => {
-                    label(before) || label(after) || !(matches!(before, Some(Token::Word(Word::Filler, _))) || matches!(after, Some(Token::In | Token::Connector)))
+                    label(before)
+                        || label(after)
+                        || !(matches!(before, Some(Token::Word(Word::Filler, _))) || matches!(after, Some(Token::In | Token::Connector)))
                 }
                 Token::System(System::De, _, Written::Code) => !(word(before) && label(after)),
                 _ => true,
@@ -1399,7 +1402,11 @@ mod tests {
     #[test]
     fn attached_systems_countries_and_fillers() {
         let systems = |input: &str| {
-            tokens(input).unwrap().into_iter().filter_map(|t| if let Token::System(s, _, w) = t { Some((s, w == Written::Name)) } else { None }).collect::<Vec<_>>()
+            tokens(input)
+                .unwrap()
+                .into_iter()
+                .filter_map(|t| if let Token::System(s, _, w) = t { Some((s, w == Written::Name)) } else { None })
+                .collect::<Vec<_>>()
         };
         assert_eq!(systems("IT44 dress US"), [(System::It, false), (System::Us, false)]);
         assert_eq!(systems("44it dress"), [(System::It, false)]);
@@ -1431,7 +1438,10 @@ mod tests {
     #[test]
     fn the_four_clothes_charts() {
         let charts: Vec<(Chart, Person, usize)> = clothes_charts().iter().map(|c| (c.chart, c.person, c.rows.len())).collect();
-        assert_eq!(charts, [(Chart::Women, Person::Women, 10), (Chart::Suit, Person::Men, 9), (Chart::Trousers, Person::Men, 11), (Chart::Shirt, Person::Men, 11)]);
+        assert_eq!(
+            charts,
+            [(Chart::Women, Person::Women, 10), (Chart::Suit, Person::Men, 9), (Chart::Trousers, Person::Men, 11), (Chart::Shirt, Person::Men, 11)]
+        );
         // Women's US 8: IT 44, EU = DE 38, a 93 cm bust; a men's suit 40: EU = IT = FR 50, 101.6 cm.
         let w = &clothes_charts()[0].rows[4];
         assert_eq!((w.us, w.uk, w.eu, w.de, w.fr, w.it, w.int, w.cn, w.bust), ("8", "12", "38", "38", "40", "44", "M", "165/92A", 93.0));

@@ -174,10 +174,19 @@ fn the_shoes_line_beside_a_currency() {
         rome("list", "42 eu us"),
         "- 42 EUR = 46.95 USD\n- shoes: 42 eu = US 8.5 men, US 10 women\n- clothes: 42 eu = US 12 women, US 26 men's trousers, US 16.5 men's shirt"
     );
-    assert_eq!(rome("women-kids", "36 eu us"), "- 36 EUR = 40.25 USD\n- shoes: 36 eu = US 5.5 women, US 4Y kids\n- clothes: 36 eu = US 6 women, US 14 men's shirt");
+    assert_eq!(
+        rome("women-kids", "36 eu us"),
+        "- 36 EUR = 40.25 USD\n- shoes: 36 eu = US 5.5 women, US 4Y kids\n- clothes: 36 eu = US 6 women, US 14 men's shirt"
+    );
     assert_eq!(rome("kids", "30 eu us"), "- 30 EUR = 33.54 USD\n- shoes: 30 eu = US 12.5C kids\n- clothes: 30 eu = US 0 women");
-    assert_eq!(rome("men", "47 eu us"), "- 47 EUR = 52.54 USD\n- shoes: 47 eu = US 12.5 men\n- clothes: 47 eu = US 18 women, US 38 men's suit, US 31 men's trousers");
-    assert_eq!(rome("clarks", "50 eu us"), "- 50 EUR = 55.90 USD\n- shoes: 50 eu = US 15.5 men (Clarks)\n- clothes: 50 eu = US 40 men's suit, US 34 men's trousers");
+    assert_eq!(
+        rome("men", "47 eu us"),
+        "- 47 EUR = 52.54 USD\n- shoes: 47 eu = US 12.5 men\n- clothes: 47 eu = US 18 women, US 38 men's suit, US 31 men's trousers"
+    );
+    assert_eq!(
+        rome("clarks", "50 eu us"),
+        "- 50 EUR = 55.90 USD\n- shoes: 50 eu = US 15.5 men (Clarks)\n- clothes: 50 eu = US 40 men's suit, US 34 men's trousers"
+    );
     // No line: an amount in no chart, a code that is no size system.
     assert_eq!(rome("none", "100 eu us"), "111.79 USD");
     assert_eq!(rome("yen", "42 eu jpy"), "7446.84 JPY");
@@ -373,10 +382,7 @@ fn clothes_clashes_and_errors() {
     assert_eq!(out(&on("italy", "3 s ms")), "3000 ms");
     let o = on("italy", "clothes 128 kids");
     assert_eq!((o.status.code(), err(&o)), (Some(1), "aequalis: error: kids' clothes: not yet".to_string()));
-    assert_eq!(
-        err(&on("italy", "clothes 70 it")),
-        "aequalis: error: no IT 70 in clothes (IT 36–54 women, IT 44–60 men's suit, IT 42–56 men's trousers)"
-    );
+    assert_eq!(err(&on("italy", "clothes 70 it")), "aequalis: error: no IT 70 in clothes (IT 36–54 women, IT 44–60 men's suit, IT 42–56 men's trousers)");
     assert_eq!(err(&on("italy", "clothes")), "aequalis: error: now the size: 44 it, M, 8 us…");
     assert_eq!(err(&on("italy", "42 eu 44 shoes")), "aequalis: error: one size at a time");
     assert_eq!(err(&on("italy", "M shoes eu")), "aequalis: error: shoe sizes are numbers: 42 eu, 9.5 us, 4C");

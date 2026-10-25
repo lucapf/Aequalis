@@ -107,6 +107,47 @@ impl NumberFormat {
         }
     }
 
+    /// A request with the thousands separators of its numbers taken out (`1,000km` → `1000km`, where
+    /// the separator is `,`): what this format writes, read back. A number is groups of three digits
+    /// after a first of one to three, standing alone: not in a word, after a point, nor in a
+    /// `root(x, n)`, where the comma is an argument's.
+    pub fn ungroup(&self, request: &str) -> String {
+        let sep: Vec<char> = self.thousands.chars().collect();
+        if sep.is_empty() || request.to_ascii_lowercase().contains("root") {
+            return request.to_string();
+        }
+        let c: Vec<char> = request.chars().collect();
+        let digits = |from: usize, n: usize| from + n <= c.len() && c[from..from + n].iter().all(char::is_ascii_digit);
+        let mut out = String::new();
+        let mut i = 0;
+        while i < c.len() {
+            let alone = i == 0 || !(c[i - 1].is_alphanumeric() || c[i - 1] == '.' || c[i - 1] == '_');
+            if c[i].is_ascii_digit() && alone {
+                let first = (i..c.len()).take_while(|&k| c[k].is_ascii_digit()).count();
+                let mut end = i + first;
+                let mut groups = String::new();
+                if first <= 3 {
+                    while c[end..].starts_with(&sep) && digits(end + sep.len(), 3) && !digits(end + sep.len() + 3, 1) {
+                        groups.extend(&c[end + sep.len()..end + sep.len() + 3]);
+                        end += sep.len() + 3;
+                    }
+                }
+                out.extend(&c[i..i + first]);
+                out.push_str(&groups);
+                i = end.max(i + first);
+                // The digits of a number that goes on (`1,000.5`, `1,000,00`) are left as they are.
+                while i < c.len() && c[i].is_ascii_digit() {
+                    out.push(c[i]);
+                    i += 1;
+                }
+            } else {
+                out.push(c[i]);
+                i += 1;
+            }
+        }
+        out
+    }
+
     /// A request as it is shown while it is typed: its whole numbers of four digits or more with the
     /// thousands separator, its decimal point as this format writes it (`1000+2500.5` is shown `1,000+2,500.5`).
     /// What is written stays as typed (the core reads `1000`); `Shown` maps the places of one to the other.
@@ -308,6 +349,32 @@ mod tests {
 
     fn format(decimal: &str, thousands: &str, grouping: &[u8]) -> NumberFormat {
         NumberFormat { decimal: decimal.into(), thousands: thousands.into(), grouping: grouping.to_vec() }
+    }
+
+    #[test]
+    fn typed_separators_are_read_back() {
+        let us = format(".", ",", &[3, 3]);
+        for (typed, read) in [
+            ("1,000km mi", "1000km mi"),
+            ("1,234,567+1,000", "1234567+1000"),
+            ("12 km mi", "12 km mi"),
+            ("1,00km", "1,00km"),
+            ("1,0000", "1,0000"),
+            ("1,000.5 m", "1000.5 m"),
+            ("0.1,000", "0.1,000"),
+            ("h1,000", "h1,000"),
+            ("root(8,125)", "root(8,125)"),
+            ("ROOT(8,125)", "ROOT(8,125)"),
+        ] {
+            assert_eq!(us.ungroup(typed), read, "{typed}");
+        }
+        let it = format(",", ".", &[3, 3]);
+        assert_eq!(it.ungroup("1.000km mi"), "1000km mi");
+        assert_eq!(it.ungroup("12.04.2026 unix"), "12.04.2026 unix");
+        let fr = format(",", " ", &[3]);
+        assert_eq!(fr.ungroup("1 000km mi"), "1000km mi");
+        assert_eq!(fr.ungroup("12 000 km mi"), "12000 km mi");
+        assert_eq!(NumberFormat::default().ungroup("1,000km"), "1,000km");
     }
 
     #[test]

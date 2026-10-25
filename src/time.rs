@@ -105,6 +105,9 @@ pub enum AmbiguityKind {
     /// `pattern` is the cities (`Springfield, Illinois, United States`), `date` their population
     /// and where they are on a map.
     Place,
+    /// Data units written in a case that fits several (`mb`): `pattern` is the unit's name
+    /// (`megabyte (10⁶ bytes)`), `date` its symbol (`MB`).
+    Unit,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -125,7 +128,7 @@ impl Ambiguity {
         // Every question has choices; the message must not take the process down if one hasn't.
         let Some(first) = self.choices.first() else { return format!("`{}` is ambiguous", self.text) };
         match self.kind {
-            AmbiguityKind::City | AmbiguityKind::Currency | AmbiguityKind::Place => {
+            AmbiguityKind::City | AmbiguityKind::Currency | AmbiguityKind::Place | AmbiguityKind::Unit => {
                 return format!("{}: did you mean {}? (`{}`)", self.note, names.join(" or "), first.request);
             }
             AmbiguityKind::Country => {

@@ -101,7 +101,8 @@ fn sizes_rs(mut doc: Value) -> String {
 /// `CLOTHES_CHARTS`: each chart's rows with a size in every system (empty: none) and the body
 /// measures in cm (0: none).
 fn clothes_rs(charts: Value) -> String {
-    let mut out = String::from("/// The clothes charts of `src/data/sizes.json`, in priority order (`build.rs`).\nstatic CLOTHES_CHARTS: &[ClothesChart] = &[\n");
+    let mut out =
+        String::from("/// The clothes charts of `src/data/sizes.json`, in priority order (`build.rs`).\nstatic CLOTHES_CHARTS: &[ClothesChart] = &[\n");
     for mut chart in charts.into_array() {
         let id = chart.take("chart").into_string().expect("a chart's name");
         let kind = match id.as_str() {

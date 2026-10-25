@@ -37,7 +37,7 @@ fn a_session_is_printed_as_a_transcript() {
     let dir = common::config("shell-transcript", &[]);
     let (stdout, _, code) = shell(&dir, &[], "12+4/2\n10 km mi\n\n20% of 150\n");
     assert_eq!(code, 0);
-    assert_eq!(stdout, "aequalis> 12+4/2\n12+4/2 = 14\naequalis> 10 km mi\n10 km = 6.2137 mi\naequalis> 20% of 150\n20% of 150 = 30\n");
+    assert_eq!(stdout, "aequalis> 12+4/2\n12 + (4 / 2) = 14\naequalis> 10 km mi\n10 km = 6.2137 mi\naequalis> 20% of 150\n20% of 150 = 30\n");
 }
 
 #[test]
@@ -174,7 +174,7 @@ mod at_a_terminal {
         };
         assert!(left, "it left on Ctrl-D: {out}");
         assert!(out.starts_with("aequalis> "), "{out}");
-        assert!(out.contains("12+4/2 = 14"), "{out}");
+        assert!(out.contains("12 + (4 / 2) = 14"), "{out}");
         assert!(out.contains("Which one? [1-2, Enter = 1]:"), "{out}");
         // The reading chosen (2: day first) is in the expression.
         assert!(out.contains("12/04/2026 DD/MM/YYYY unix = "), "{out}");

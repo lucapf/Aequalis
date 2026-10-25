@@ -83,7 +83,7 @@ impl Func {
     ];
 
     fn named(name: &str) -> Option<Func> {
-        Self::NAMES.iter().find(|(n, _)| *n == name).map(|(_, f)| *f)
+        Self::NAMES.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).map(|(_, f)| *f)
     }
 
     fn name(self) -> &'static str {
@@ -285,7 +285,7 @@ pub fn starts_expression(token: &str) -> bool {
     }
     let (word, after) = rest.split_at(word_len(rest));
     let next = after.chars().next();
-    ((Func::named(word).is_some() || word == "root") && next.is_none_or(|c| "([{ ".contains(c)))
+    ((Func::named(word).is_some() || word.eq_ignore_ascii_case("root")) && next.is_none_or(|c| "([{ ".contains(c)))
         || (constant(word).is_some() && next.is_none_or(|c| !c.is_alphanumeric()))
 }
 
@@ -300,8 +300,9 @@ fn word_len(s: &str) -> usize {
     }
 }
 
+/// A constant by its name in any case (`PI`), except `e`: `E` is the exponent of `2E5`.
 fn constant(name: &str) -> Option<(&'static str, f64)> {
-    CONSTANTS.iter().find(|(n, _)| *n == name).copied()
+    CONSTANTS.iter().find(|(n, _)| if *n == "e" { name == "e" } else { n.eq_ignore_ascii_case(name) }).copied()
 }
 
 /// How many brackets, functions, signs and powers may stand inside one another (`((1))`, `--1`,
@@ -408,7 +409,9 @@ impl Parser<'_> {
     /// Consumes the word `word` (`of`) if it is next and ends there.
     fn eat_word(&mut self, word: &str) -> bool {
         self.skip_ws();
-        let found = self.rest().strip_prefix(word).is_some_and(|after| !after.starts_with(|c: char| c.is_alphanumeric()));
+        let rest = self.rest();
+        let found =
+            rest.get(..word.len()).is_some_and(|head| head.eq_ignore_ascii_case(word)) && !rest[word.len()..].starts_with(|c: char| c.is_alphanumeric());
         if found {
             self.pos += word.len();
         }
@@ -521,7 +524,7 @@ impl Parser<'_> {
         self.skip_ws();
         let len = word_len(self.rest());
         let next = self.rest()[len..].trim_start().chars().next();
-        let found = &self.rest()[..len] == "root" && next.is_some_and(|c| "([{".contains(c));
+        let found = self.rest()[..len].eq_ignore_ascii_case("root") && next.is_some_and(|c| "([{".contains(c));
         if found {
             self.pos += len;
         }

@@ -497,6 +497,43 @@ pub fn parse_options<'a>(config: &Config, args: &'a [String]) -> Result<Parsed<'
 /// `to`, `in` or `->` may stand between the units (`1000 ly to yd`).
 /// The value is an expression (`100 + 20 sqft m2`, `[1+2]km mi`); a plain number is the simplest one.
 pub fn convert_request(config: &Config, opts: &Options, tokens: &[&str]) -> Result<Output, CliError> {
+    // Numbers as the device writes them (`1,000km mi`): read without their thousands separators.
+    let joined = tokens.join(" ");
+    let ungrouped = numbers::device().ungroup(&joined);
+    let words: Vec<&str> = ungrouped.split_whitespace().collect();
+    let tokens = if ungrouped == joined { tokens } else { &words };
+    match convert_one(config, opts, tokens) {
+        Err(CliError::Convert(convert::ConvertError::UnknownUnit(word))) => match data_unit_question(config, tokens, &word) {
+            Some(question) => Err(CliError::Ambiguous(question)),
+            None => Err(CliError::Convert(convert::ConvertError::UnknownUnit(word))),
+        },
+        other => other,
+    }
+}
+
+/// A data unit written in a case that fits several (`mb`: megabyte or megabit; exactly `MB` or
+/// `Mb` is not asked about): one choice for each reading, the request written with it.
+fn data_unit_question(config: &Config, tokens: &[&str], word: &str) -> Option<time::Ambiguity> {
+    let category = config.categories.iter().find(|c| c.case_sensitive)?;
+    let readings: Vec<&config::Unit> =
+        category.units.iter().filter(|u| std::iter::once(&u.symbol).chain(u.aliases.iter()).any(|n| n.eq_ignore_ascii_case(word))).collect();
+    if readings.len() < 2 {
+        return None;
+    }
+    let request = tokens.join(" ");
+    let at = request.find(word)?;
+    let choices = readings
+        .iter()
+        .map(|u| time::Choice {
+            pattern: u.name.to_string(),
+            date: u.symbol.to_string(),
+            request: format!("{}{}{}", &request[..at], u.symbol, &request[at + word.len()..]),
+        })
+        .collect();
+    Some(time::Ambiguity { text: word.to_string(), choices, kind: time::AmbiguityKind::Unit, note: format!("`{word}` is several units") })
+}
+
+fn convert_one(config: &Config, opts: &Options, tokens: &[&str]) -> Result<Output, CliError> {
     check_words(tokens)?;
     let input = spaced(tokens);
     if input.trim().is_empty() {
@@ -540,6 +577,8 @@ fn spaced(tokens: &[&str]) -> String {
     let mut words: Vec<String> = Vec::new();
     for (i, token) in tokens.iter().enumerate() {
         for piece in token.split_whitespace() {
+            let piece = date_word(piece);
+            let piece = if piece.eq_ignore_ascii_case("to") { "to" } else { piece.as_str() };
             match piece.split_once("->").filter(|_| piece != "->") {
                 Some((before, after)) => words.extend([before, "->", after].into_iter().filter(|w| !w.is_empty()).map(str::to_string)),
                 None => words.push(piece.to_string()),
@@ -548,6 +587,7 @@ fn spaced(tokens: &[&str]) -> String {
         if i == 0 {
             if let Some(first) = words.first().cloned() {
                 let (number, word) = first.split_at(number_len(&first));
+                let word = &date_word(word);
                 if !number.is_empty() && time::is_format(word) {
                     words.splice(0..1, [number.to_string(), word.to_string()]);
                 }
@@ -555,6 +595,18 @@ fn spaced(tokens: &[&str]) -> String {
         }
     }
     words.join(" ")
+}
+
+/// A date format word in any case (`UNIX`, `Iso-Week`) as the lowercase word it is; the patterns
+/// (`YYYY/MM/DD`) keep theirs. A number may lead it (`18E6UNIX`).
+fn date_word(word: &str) -> String {
+    let (number, rest) = word.split_at(number_len(word));
+    let lower = rest.to_ascii_lowercase();
+    if !rest.is_empty() && crate::config::DATE_WORDS.contains(&lower.as_str()) {
+        format!("{number}{lower}")
+    } else {
+        word.to_string()
+    }
 }
 
 /// The length of the number at the start of `s` (`12`, `.5`, `1.5`, `1e3`, `2.5E-3`): an `e` with no
@@ -702,8 +754,13 @@ fn calculation(config: &Config, opts: &Options, input: &str) -> Result<Output, C
         true => Vec::new(),
         false => vec![format!("evaluated as {}", expr.grouped())],
     };
-    // The number or the calculation as written (`12+4/2`, `100 + 20`).
-    let written = input[..input.len() - rest.len()].trim();
+    // The number or the calculation as written (`100 + 20`); with an order of operations to follow,
+    // as the core reads it (`12+4/2`: `12 + (4 / 2)`).
+    let written = match expr.operations() < 2 {
+        true => input[..input.len() - rest.len()].trim().to_string(),
+        false => expr.grouped(),
+    };
+    let written = written.as_str();
     let words: Vec<&str> = rest.split_whitespace().collect();
     // `to`, `in` or `->` between the units (`1000 ly to yd`); a last `in` is the inch (`10 ft in`).
     let waiting = |w: &str| currency::connector(w) && !w.eq_ignore_ascii_case("in");

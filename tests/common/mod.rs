@@ -60,7 +60,15 @@ pub fn aequalis_in(zone: &str, dir: &PathBuf, args: &[&str]) -> Output {
     for var in ["http_proxy", "https_proxy", "HTTPS_PROXY", "ALL_PROXY", "all_proxy"] {
         command.env(var, "http://127.0.0.1:9");
     }
-    command.args(args).env("XDG_CONFIG_HOME", dir).env("LC_ALL", "C").env("AEQUALIS_MACHINE", "plain").env("TZ", zone).stdin(Stdio::null()).output().expect("run aequalis")
+    command
+        .args(args)
+        .env("XDG_CONFIG_HOME", dir)
+        .env("LC_ALL", "C")
+        .env("AEQUALIS_MACHINE", "plain")
+        .env("TZ", zone)
+        .stdin(Stdio::null())
+        .output()
+        .expect("run aequalis")
 }
 
 pub fn out(o: &Output) -> String {

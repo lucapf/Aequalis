@@ -309,6 +309,13 @@ fn split_attached(word: &str) -> Vec<String> {
     if head > 0 && head < word.len() && amount(&word[..head]).is_some() && exact(&word[head..]).is_some() {
         return vec![word[..head].to_string(), word[head..].to_string()];
     }
+    // A symbol and the next currency, no space between (`12€gbp`).
+    if head > 0 && head < word.len() && amount(&word[..head]).is_some() && !word[head..].starts_with(char::is_alphanumeric) {
+        let rest = &word[head..];
+        if let Some(cut) = rest.char_indices().skip(1).map(|(i, _)| i).find(|&i| exact(&rest[..i]).is_some() && exact(&rest[i..]).is_some()) {
+            return vec![word[..head].to_string(), rest[..cut].to_string(), rest[cut..].to_string()];
+        }
+    }
     // The currency first.
     if let Some(start) = word.char_indices().find(|(_, c)| c.is_ascii_digit()).map(|(i, _)| i) {
         if start > 0 && amount(&word[start..]).is_some() && exact(&word[..start]).is_some() {
@@ -769,6 +776,14 @@ pub fn search(query: &str) -> Vec<&'static Currency> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_symbol_amount_and_the_next_currency_together() {
+        assert_eq!(split_attached("12€gbp"), ["12", "€", "gbp"]);
+        assert_eq!(split_attached("12€"), ["12", "€"]);
+        assert_eq!(split_attached("12usd"), ["12", "usd"]);
+        assert_eq!(split_attached("12€xyz"), ["12€xyz"]);
+    }
 
     #[test]
     fn built_tables_match_their_data() {

@@ -6,7 +6,16 @@ use std::process::{Command, Stdio};
 const BIN: &str = env!("CARGO_BIN_EXE_aequalis");
 
 fn view(args: &[&str]) -> String {
-    let out = Command::new(BIN).arg("--json").arg("--as-typed").args(args).env("TZ", "Europe/Rome").env("LC_ALL", "C").env("AEQUALIS_MACHINE", "plain").stdin(Stdio::null()).output().unwrap();
+    let out = Command::new(BIN)
+        .arg("--json")
+        .arg("--as-typed")
+        .args(args)
+        .env("TZ", "Europe/Rome")
+        .env("LC_ALL", "C")
+        .env("AEQUALIS_MACHINE", "plain")
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
     assert_eq!(String::from_utf8(out.stderr).unwrap(), "");
     String::from_utf8(out.stdout).unwrap()
 }

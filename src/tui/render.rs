@@ -1716,7 +1716,9 @@ fn choice(canvas: &mut Canvas, rows: usize, a: &aequalis::time::Ambiguity, selec
         aequalis::time::AmbiguityKind::City => format!("{}: which one?", a.note),
         aequalis::time::AmbiguityKind::Country => format!("`{}` has several time zones: which one?", a.text),
         aequalis::time::AmbiguityKind::Date => format!("`{}` is ambiguous: which date?", a.text),
-        aequalis::time::AmbiguityKind::Currency | aequalis::time::AmbiguityKind::Place => format!("{}: which one?", a.note),
+        aequalis::time::AmbiguityKind::Currency | aequalis::time::AmbiguityKind::Place | aequalis::time::AmbiguityKind::Unit => {
+            format!("{}: which one?", a.note)
+        }
     };
     // The patterns in a column as wide as the longest (at least 12), the dates after them.
     let column = a.choices.iter().map(|c| c.pattern.chars().count()).max().unwrap_or(0).max(12);

@@ -1069,7 +1069,7 @@ impl<'a> App<'a> {
                 Err(match a.kind {
                     aequalis::time::AmbiguityKind::City => format!("did you mean {}? · Enter to choose", patterns.join(" or ")),
                     aequalis::time::AmbiguityKind::Country => format!("several time zones: {} · Enter to choose", patterns.join(", ")),
-                    aequalis::time::AmbiguityKind::Currency | aequalis::time::AmbiguityKind::Place => {
+                    aequalis::time::AmbiguityKind::Currency | aequalis::time::AmbiguityKind::Place | aequalis::time::AmbiguityKind::Unit => {
                         format!("{}: {}? · Enter to choose", a.note, patterns.join(" or "))
                     }
                     aequalis::time::AmbiguityKind::Date => format!("ambiguous: {} · Enter to choose", patterns.join(" or ")),

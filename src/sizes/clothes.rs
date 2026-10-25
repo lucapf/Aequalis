@@ -303,7 +303,8 @@ fn query(tokens: &[Token], items: &[usize], measures: &[usize], person: Option<P
         [m] => Some(m),
         _ => return Err(Error::Usage("one measure at a time".into())),
     };
-    let labels: Vec<usize> = (0..tokens.len()).filter(|&i| matches!(tokens[i], Token::Number(_) | Token::Letter(_) | Token::Range(..) | Token::Cn(..) | Token::Waist(..))).collect();
+    let labels: Vec<usize> =
+        (0..tokens.len()).filter(|&i| matches!(tokens[i], Token::Number(_) | Token::Letter(_) | Token::Range(..) | Token::Cn(..) | Token::Waist(..))).collect();
     let at = match labels[..] {
         [] => return Err(Error::Incomplete("now the size: 44 it, M, 8 us…".into())),
         [one] => one,
@@ -324,7 +325,8 @@ fn query(tokens: &[Token], items: &[usize], measures: &[usize], person: Option<P
     let items: Vec<&str> = items.iter().map(|&i| super::item(i).0).filter(|&i| i != "clothes").collect();
     let charts = candidates(&items, measure, person, &size);
     // The label's system: beside it, before (`IT 44`) or after (`44 it`).
-    let systems: Vec<(usize, System)> = tokens.iter().enumerate().filter_map(|(i, t)| if let Token::System(s, ..) = t { Some((i, *s)) } else { None }).collect();
+    let systems: Vec<(usize, System)> =
+        tokens.iter().enumerate().filter_map(|(i, t)| if let Token::System(s, ..) = t { Some((i, *s)) } else { None }).collect();
     let numeric = matches!(size, Size::Number(_)) || matches!(&size, Size::Range(a, ..) if matches!(**a, Size::Number(_)));
     let beside = systems.iter().find(|(i, _)| *i + 1 == at).or_else(|| systems.iter().find(|(i, _)| *i == at + 1)).copied();
     let source_at = beside.filter(|&(_, s)| numeric || own_system(&size, s)).map(|(i, _)| i);
@@ -369,14 +371,18 @@ fn read_size(label: &Token, unit: Option<f64>, measure: Option<Measure>, trouser
         }
         (Token::Number(_), Some(_), None) => return Err(Error::Usage("which measure: `92 cm bust`, `39 cm collar`, `81 cm waist`".into())),
         (Token::Number(n), None, Some(Measure::Waist)) => (Size::Waist(n.value, None), format!("W{}", n.text)),
-        (Token::Number(n), None, Some(m @ (Measure::Chest | Measure::Torso))) => (Size::Measure(m, n.value * 2.54, Some(n.value)), format!("{} in chest", n.text)),
+        (Token::Number(n), None, Some(m @ (Measure::Chest | Measure::Torso))) => {
+            (Size::Measure(m, n.value * 2.54, Some(n.value)), format!("{} in chest", n.text))
+        }
         (Token::Number(n), None, Some(Measure::Collar)) if n.value >= 30.0 => (Size::Measure(Measure::Collar, n.value, None), format!("{} cm collar", n.text)),
         (Token::Number(n), None, Some(Measure::Collar)) => (Size::Measure(Measure::Collar, n.value * 2.54, Some(n.value)), format!("{} in collar", n.text)),
         (Token::Number(_), None, Some(m)) => return Err(Error::Usage(format!("the {} in cm or in: `92 cm {}`", m.word(), m.word()))),
         (Token::Number(n), ..) => (Size::Number(n.value), n.text.clone()),
         (Token::Letter(l), ..) => (Size::Letter(l.clone()), l.clone()),
         // `32/34` with trousers: a waist and its inseam (§2.2).
-        (Token::Range(Label::Number(a), Label::Number(b), typed), ..) if typed.contains('/') && trousers => (Size::Waist(a.value, Some(b.value)), typed.clone()),
+        (Token::Range(Label::Number(a), Label::Number(b), typed), ..) if typed.contains('/') && trousers => {
+            (Size::Waist(a.value, Some(b.value)), typed.clone())
+        }
         (Token::Range(a, b, typed), ..) => {
             let one = |l: &Label| match l {
                 Label::Number(n) => Size::Number(n.value),
@@ -468,7 +474,9 @@ fn hit(chart: Chart, size: &Size, source: Option<System>) -> Option<Hit> {
             (from <= to).then(|| Hit { rows: rows[from..=to].iter().collect(), between: None, beyond: false })
         }
         Size::Cn(b) => nearest(&column_values(chart.column(System::Cn)?), *b, false, &|lo, hi| format!("between CN /{} and /{}", num(lo), num(hi))),
-        Size::Waist(w, _) if chart == Chart::Trousers => nearest(&column_values(System::Us), *w, false, &|lo, hi| format!("between W{} and W{}", num(lo), num(hi))),
+        Size::Waist(w, _) if chart == Chart::Trousers => {
+            nearest(&column_values(System::Us), *w, false, &|lo, hi| format!("between W{} and W{}", num(lo), num(hi)))
+        }
         Size::Waist(..) => None,
         Size::Measure(m, cm, inches) => {
             if !m.charts().contains(&chart) {
@@ -509,12 +517,8 @@ fn sizes_of(rows: &[&ClothesRow], column: System) -> Option<String> {
 /// no target and several charts, a line per chart with every system.
 pub(super) fn answer(tokens: &[Token], items: &[usize], measures: &[usize], person: Option<Person>) -> Result<Answer, Error> {
     let q = query(tokens, items, measures, person)?;
-    let hits: Vec<(Chart, Hit)> = q
-        .charts
-        .iter()
-        .filter(|c| q.target.is_none_or(|t| c.column(t).is_some()))
-        .filter_map(|&c| hit(c, &q.size, q.source).map(|h| (c, h)))
-        .collect();
+    let hits: Vec<(Chart, Hit)> =
+        q.charts.iter().filter(|c| q.target.is_none_or(|t| c.column(t).is_some())).filter_map(|&c| hit(c, &q.size, q.source).map(|h| (c, h))).collect();
     let answer = match (q.target, &hits[..]) {
         (_, []) => return Err(not_found(&q)),
         (t, [(c, h)]) => one(&q, *c, h, t.unwrap_or_else(|| c.region())),

@@ -236,12 +236,28 @@ fn clothes_rows(chart: crate::sizes::Chart) -> Vec<TableRow> {
         .map(|r| match chart {
             Chart::Women => TableRow {
                 label: format!("US {}", r.us),
-                text: format!("UK {} · DE {} · FR {} · IT {} · JP {} · {} · CN {} · bust {} · waist {} · hip {} cm", r.uk, r.de, r.fr, r.it, r.jp, r.int, r.cn, cm(r.bust), cm(r.waist), cm(r.hip)),
+                text: format!(
+                    "UK {} · DE {} · FR {} · IT {} · JP {} · {} · CN {} · bust {} · waist {} · hip {} cm",
+                    r.uk,
+                    r.de,
+                    r.fr,
+                    r.it,
+                    r.jp,
+                    r.int,
+                    r.cn,
+                    cm(r.bust),
+                    cm(r.waist),
+                    cm(r.hip)
+                ),
                 request: format!("{} it dress", r.it),
             },
             Chart::Suit => TableRow {
                 label: format!("US {}", r.us),
-                text: [format!("EU {}", r.eu), format!("JP {}", r.jp), r.int.to_string(), format!("chest {} cm", cm(r.chest))].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" · "),
+                text: [format!("EU {}", r.eu), format!("JP {}", r.jp), r.int.to_string(), format!("chest {} cm", cm(r.chest))]
+                    .into_iter()
+                    .filter(|s| !s.is_empty())
+                    .collect::<Vec<_>>()
+                    .join(" · "),
                 request: format!("{} eu suit", r.eu),
             },
             Chart::Trousers => TableRow {

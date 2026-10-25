@@ -29,7 +29,13 @@ fn config(name: &str, rates: bool) -> PathBuf {
 fn aequalis(dir: &PathBuf, args: &[&str], env: &[(&str, &str)]) -> Output {
     let mut settings = vec!["\"offline\": true".to_string()];
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_aequalis"));
-    cmd.arg(format!("--now={NOW}")).args(args).env("XDG_CONFIG_HOME", dir).env("TZ", "Europe/Rome").env("LC_ALL", "C").env("AEQUALIS_MACHINE", "plain").stdin(Stdio::null());
+    cmd.arg(format!("--now={NOW}"))
+        .args(args)
+        .env("XDG_CONFIG_HOME", dir)
+        .env("TZ", "Europe/Rome")
+        .env("LC_ALL", "C")
+        .env("AEQUALIS_MACHINE", "plain")
+        .stdin(Stdio::null());
     for (k, v) in env {
         match *k {
             "TZ" => {

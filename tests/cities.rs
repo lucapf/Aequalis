@@ -160,12 +160,8 @@ fn misspelt_city_asked_at_a_terminal() {
         true => vec!["-qec".into(), format!("'{BIN}' {}", request.join(" ")), "/dev/null".into()],
         false => ["-q", "/dev/null", BIN].into_iter().chain(request).map(String::from).collect(),
     };
-    let Ok(mut child) = Command::new("script")
-        .args(&args)
-        .env("TZ", "America/New_York")
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .spawn()
+    let Ok(mut child) =
+        Command::new("script").args(&args).env("TZ", "America/New_York").stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).spawn()
     else {
         return;
     };

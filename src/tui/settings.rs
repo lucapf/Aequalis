@@ -62,7 +62,19 @@ impl View {
         // A sync by hand still running (the window closed and opened again): its progress shown.
         let running = aequalis::online::read_progress().is_some_and(|p| p.done.is_none() && p.age < 5);
         let syncing = running.then(std::time::Instant::now);
-        View { selected: 0, edit: None, message: None, file, settings, advanced: false, confirm_reset: false, list: None, syncing, progress: None, outcome: None }
+        View {
+            selected: 0,
+            edit: None,
+            message: None,
+            file,
+            settings,
+            advanced: false,
+            confirm_reset: false,
+            list: None,
+            syncing,
+            progress: None,
+            outcome: None,
+        }
     }
 
     /// The window on the setting `key` (the advanced ones listed when it is one).
@@ -382,7 +394,8 @@ mod tests {
         v.progress = Some(aequalis::online::Syncing { fraction: Some(0.4), speed: 400_000, ..Default::default() });
         assert_eq!(sync_bar(&v).unwrap(), "Syncing ████░░░░░░ 40%");
         // What it is doing, and the speed while downloading.
-        v.progress = Some(aequalis::online::Syncing { fraction: Some(0.4), speed: 400_000, phase: "downloading the city archive".into(), ..Default::default() });
+        v.progress =
+            Some(aequalis::online::Syncing { fraction: Some(0.4), speed: 400_000, phase: "downloading the city archive".into(), ..Default::default() });
         assert_eq!(sync_status(&v).as_deref(), Some("downloading the city archive · 400 kB/s"));
         v.progress = Some(aequalis::online::Syncing { phase: "installing the city archive".into(), ..Default::default() });
         assert_eq!(sync_status(&v).as_deref(), Some("installing the city archive"));

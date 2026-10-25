@@ -72,6 +72,7 @@ fn outcome_as(result: &Result<Output, CliError>, display: bool) -> String {
                         crate::time::AmbiguityKind::Country => "country",
                         crate::time::AmbiguityKind::Currency => "currency",
                         crate::time::AmbiguityKind::Place => "place",
+                        crate::time::AmbiguityKind::Unit => "unit",
                     };
                     // Misspelt places: what was misspelt (`jappan` is not a country), for the question.
                     let note = if a.note.is_empty() { String::new() } else { format!(r#","note":{}"#, string(&a.note)) };
@@ -225,7 +226,7 @@ fn question(a: &crate::time::Ambiguity) -> String {
         AmbiguityKind::City if a.note.is_empty() => format!("`{}` is not a city: did you mean…", a.text),
         AmbiguityKind::City => format!("{}: did you mean…", a.note),
         AmbiguityKind::Country => format!("`{}` has several time zones: which one?", a.text),
-        AmbiguityKind::Currency | AmbiguityKind::Place => format!("{}: which one?", a.note),
+        AmbiguityKind::Currency | AmbiguityKind::Place | AmbiguityKind::Unit => format!("{}: which one?", a.note),
         AmbiguityKind::Date => format!("Which date is {}?", a.text),
     }
 }
@@ -362,7 +363,7 @@ mod tests {
     fn the_whole_expression_to_copy() {
         let whole = |request: &str| member(&view(request, true), "expression").unwrap();
         assert_eq!(whole("10 kilometres mi"), "10 km = 6.2137 mi");
-        assert_eq!(whole("12+4/2"), "12+4/2 = 14");
+        assert_eq!(whole("12+4/2"), "12 + (4 / 2) = 14");
         assert_eq!(whole("100 + 20 sqft m2"), "100 + 20 ft2 = 11.1484 m2");
         assert_eq!(member(&view("10 km mi", true), "value").as_deref(), Some("6.2137"));
     }

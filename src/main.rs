@@ -404,6 +404,10 @@ fn ask(a: &time::Ambiguity) -> Option<&time::Choice> {
             eprintln!("aequalis: {}. Did you mean:", a.note);
             "Which one?"
         }
+        time::AmbiguityKind::Unit => {
+            eprintln!("aequalis: {}. Did you mean:", a.note);
+            "Which unit?"
+        }
     };
     let column = a.choices.iter().map(|c| c.pattern.chars().count()).max().unwrap_or(0).max(12);
     for (i, c) in a.choices.iter().enumerate() {
