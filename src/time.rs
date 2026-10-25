@@ -287,6 +287,8 @@ mod tests {
         assert_eq!(scaled("-0.5", NS), Some(-NS / 2));
         assert_eq!(scaled("0.0000000005", NS), Some(1), "rounded to the nearest ns");
         assert_eq!(scaled("abc", NS), None);
+        assert_eq!(scaled("€6388e-6", NS), None, "a multibyte mantissa is no number (bug 021)");
+        assert_eq!(scaled("1.8e7", 1), Some(18_000_000));
         assert_eq!(scaled(".", NS), None);
         assert_eq!(decimal(1_250_000_000, 9), "1.25");
         assert_eq!(decimal(-1, 9), "-0.000000001");

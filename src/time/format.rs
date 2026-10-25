@@ -5,7 +5,7 @@ use super::*;
 /// `mantissa` (digits, optional `.` fraction) times 10 to the `exponent`, written out; `None` for a
 /// huge exponent (the number would not fit a date anyway).
 fn shifted(mantissa: &str, exponent: i32) -> Option<String> {
-    if exponent.abs() > 60 || mantissa.is_empty() {
+    if exponent.abs() > 60 || mantissa.is_empty() || !mantissa.bytes().all(|b| b.is_ascii_digit() || b == b'.') {
         return None;
     }
     let (int, frac) = mantissa.split_once('.').unwrap_or((mantissa, ""));
