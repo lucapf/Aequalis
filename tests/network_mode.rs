@@ -41,11 +41,14 @@ fn fresh(ok: bool) -> String {
     )
 }
 
-/// The binary, with `settings` written first (`offline` false unless given).
+/// The binary, with `settings` written first (`offline` false unless given, the public holidays
+/// off: never downloaded here, they would start a sync of the real archive).
 fn aequalis(settings: &[(&str, &str)], dir: &PathBuf, args: &[&str]) -> Output {
     let mut all = settings.to_vec();
-    if !all.iter().any(|(k, _)| *k == "offline") {
-        all.push(("offline", "false"));
+    for (key, value) in [("offline", "false"), ("holidays", "false")] {
+        if !all.iter().any(|(k, _)| *k == key) {
+            all.push((key, value));
+        }
     }
     let body: Vec<String> = all.iter().map(|(k, v)| format!("\"{k}\": \"{v}\"")).collect();
     std::fs::write(dir.join("aequalis/settings.json"), format!("{{{}}}", body.join(", "))).unwrap();
