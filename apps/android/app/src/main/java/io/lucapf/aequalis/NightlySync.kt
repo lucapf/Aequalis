@@ -22,12 +22,27 @@ import kotlinx.coroutines.withContext
  */
 object NightlySync {
     /** The setting that switches it (src/settings.rs). */
-    const val SETTING = "android.nightly_sync"
+    const val SETTING = "night.sync"
     private const val NAME = "nightly-sync"
     private const val HOUR = 2
     private const val MINUTE = 30
     /** Failed attempts (no network answering…) before it waits for the next night. */
     private const val ATTEMPTS = 3
+
+    /** The days of past rates the app keeps at most (the core's `history::DAYS`). */
+    const val HISTORY_DAYS = 750
+
+    /** The day the archive of past rates began: nothing is older, whatever the limit. */
+    const val ARCHIVE_SINCE = "25 Oct 2026"
+
+    /** What the setting does, for its info button; `held`: the days of rates held now (`rates.history`'s detail). */
+    fun info(held: String?): String = listOfNotNull(
+        "How it works: once a day, around $HOUR:$MINUTE, the app downloads the online data without being opened: the exchange rates, and the rates of the new days of the history.",
+        "It runs only on Wi-Fi (never on mobile data) and with the battery not low. Android chooses the exact moment, so it can come later; a phone that is off or has no Wi-Fi skips that night.",
+        "Days missed: the next download adds every day not held yet, up to the limit below, so nothing is lost.",
+        "History: the archive of daily rates began on $ARCHIVE_SINCE and grows by one day every day. The app keeps at most $HISTORY_DAYS days (about two years); older days are deleted. Days before $ARCHIVE_SINCE do not exist.",
+        held?.let { "Held now: $it." },
+    ).joinToString("\n\n")
 
     /** Schedules the download, or cancels it. Scheduling twice keeps the first, so it does not
      *  move the hour of a night already planned. */

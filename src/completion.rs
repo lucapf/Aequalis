@@ -141,7 +141,7 @@ pub fn quote_line(line: &str) -> Option<String> {
         return None;
     }
     let quoted = format!("'{expr}'");
-    let all: Vec<&str> = [*cmd].into_iter().chain(args[..start].iter().copied()).chain([quoted.as_str()]).chain(args[end..].iter().copied()).collect();
+    let all: Vec<&str> = std::iter::once(*cmd).chain(args[..start].iter().copied()).chain([quoted.as_str()]).chain(args[end..].iter().copied()).collect();
     Some(format!("{indent}{}", all.join(" ")))
 }
 

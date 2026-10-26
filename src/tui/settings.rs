@@ -539,13 +539,13 @@ mod tests {
     fn it_opens_on_the_few_and_shows_the_rest_on_request() {
         let mut v = view("advanced");
         let keys = |v: &View| v.rows().iter().filter(|r| matches!(r, Row::Setting(_))).count();
-        assert_eq!((keys(&v), v.rows().len()), (5, 8), "5 settings, Advanced, Reset, Download");
+        assert_eq!((keys(&v), v.rows().len()), (6, 9), "6 settings, Advanced, Reset, Download");
         v.selected = v.rows().len() - 3;
         key(&mut v, Key::Enter);
         assert_eq!((v.advanced, keys(&v)), (true, KEYS.iter().filter(|k| k.here()).count()));
         assert!(matches!(v.row(), Some(Row::Advanced)), "the row stays chosen");
         key(&mut v, Key::Char('a'));
-        assert_eq!((v.advanced, keys(&v)), (false, 5));
+        assert_eq!((v.advanced, keys(&v)), (false, 6));
         // Ctrl+K on an advanced setting lists them.
         assert!(View::at("rates.interval").advanced && !View::at("precision").advanced);
         assert!(matches!(View::at("rates.interval").row(), Some(Row::Setting(k)) if k.key == "rates.interval"));

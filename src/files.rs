@@ -80,7 +80,7 @@ impl<T> Cached<T> {
     /// there is no file, or `read` gives nothing (then asked again next time).
     pub fn get(&self, path: &Path, read: impl FnOnce() -> Option<T>) -> Option<Arc<T>> {
         let stamp = stamp(path)?;
-        let mut kept = self.kept.lock().unwrap_or_else(|e| e.into_inner());
+        let mut kept = self.kept.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some((p, s, value)) = &*kept {
             if p == path && *s == stamp {
                 return Some(Arc::clone(value));

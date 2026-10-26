@@ -46,6 +46,29 @@ class NumberDisplayTest {
     }
 
     @Test
+    fun yearsAreNotGrouped() {
+        // Day first, with dashes.
+        assertEquals("25-10-2025", shown("25-10-2025"))
+        assertEquals("100 usd eur 25-10-2025", shown("100 usd eur 25-10-2025"))
+        assertEquals("25-10-2025", shown("25-10-2025", decimal = ",", thousands = "."))
+        // After a month's name, in the languages the core reads, a day between or not.
+        assertEquals("100 usd eur 30 Jan 2025", shown("100 usd eur 30 Jan 2025"))
+        assertEquals("on 30 January 2025 100 usd eur", shown("on 30 January 2025 100 usd eur"))
+        assertEquals("Jan 30, 2025", shown("Jan 30, 2025"))
+        assertEquals("Jan 30th, 2025", shown("Jan 30th, 2025"))
+        assertEquals("30/Jan/2025", shown("30/Jan/2025"))
+        assertEquals("30-Jan-2025", shown("30-Jan-2025"))
+        assertEquals("3 Okt. 2025", shown("3 Okt. 2025", decimal = ",", thousands = "."))
+        assertEquals("3 févr 2025", shown("3 févr 2025"))
+        assertEquals("ottobre 2025", shown("ottobre 2025"))
+        // Not a month: a number like any other, and a number after a year is still grouped.
+        assertEquals("2,025 usd eur", shown("2025 usd eur"))
+        assertEquals("abc 2,025", shown("abc 2025"))
+        assertEquals("km 2,000", shown("km 2000"))
+        assertEquals("30 Jan 2025 + 1,000", shown("30 Jan 2025 + 1000"))
+    }
+
+    @Test
     fun theCursorAndTheTapFollow() {
         val s = showNumbers("1000+2", ".", ",")
         assertEquals("1,000+2", s.text)

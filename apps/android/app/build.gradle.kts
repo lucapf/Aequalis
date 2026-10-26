@@ -56,6 +56,10 @@ android {
             // from its parent class, and the app stopped at start (IllegalAccessError).
             optimization {
                 enable = true
+                // What is found by name at run time: WorkManager's database.
+                keepRules {
+                    files.add(file("proguard-rules.pro"))
+                }
             }
         }
     }

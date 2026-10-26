@@ -29,6 +29,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -176,7 +179,9 @@ fun SettingsScreen(close: () -> Unit, openAbout: () -> Unit, modifier: Modifier 
         LazyColumn(contentPadding = PaddingValues(vertical = 8.dp)) {
             item(key = "appearance") { AppearanceRows(picking) { picking = if (picking == it) null else it } }
             items(shown, key = { it.key }) { s ->
-                SettingRow(s, open = picking == s.key, toggle = { picking = if (picking == s.key) null else s.key }, change = change)
+                // The night's download explains itself, with the days of rates held now.
+                val info = if (s.key == NightlySync.SETTING) NightlySync.info(settings.firstOrNull { it.key == "rates.history" }?.detail) else null
+                SettingRow(s, open = picking == s.key, toggle = { picking = if (picking == s.key) null else s.key }, change = change, info = info)
             }
             item(key = "buttons") {
                 FlowRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -305,9 +310,9 @@ private fun AppearanceRows(picking: String?, toggle: (String) -> Unit) {
 }
 
 @Composable
-private fun SettingRow(s: Setting, open: Boolean, toggle: () -> Unit, change: (String, String) -> Unit) {
+private fun SettingRow(s: Setting, open: Boolean, toggle: () -> Unit, change: (String, String) -> Unit, info: String? = null) {
     val typed = s.kind == "text" && s.currencies.isEmpty()
-    KeyRow(s.key, s.value != s.default, listOfNotNull(s.about, s.detail?.let { "now: $it" }).joinToString("\n") + " (default: ${s.default})", onDefault = { change(s.key, "") }, value = {
+    KeyRow(s.key, s.value != s.default, listOfNotNull(s.about, s.detail?.let { "now: $it" }).joinToString("\n") + " (default: ${s.default})", onDefault = { change(s.key, "") }, info = info, value = {
         when {
             typed -> TypedValue(s.value) { change(s.key, it) }
             s.kind == "bool" -> ValueButton(s.value) { change(s.key, if (s.value == "true") "false" else "true") }
@@ -333,8 +338,9 @@ private fun SettingRow(s: Setting, open: Boolean, toggle: () -> Unit, change: (S
 /** A row: the key (the accent when changed; tapped, `about`), its value, `default` when changed;
  *  then what opens under it. */
 @Composable
-private fun KeyRow(key: String, changed: Boolean, about: String, onDefault: () -> Unit, value: @Composable RowScope.() -> Unit, below: @Composable () -> Unit) {
+private fun KeyRow(key: String, changed: Boolean, about: String, onDefault: () -> Unit, info: String? = null, value: @Composable RowScope.() -> Unit, below: @Composable () -> Unit) {
     var showAbout by rememberSaveable { mutableStateOf(false) }
+    var showInfo by rememberSaveable { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
         Row(Modifier.padding(start = 16.dp, end = 8.dp).heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(
@@ -346,12 +352,22 @@ private fun KeyRow(key: String, changed: Boolean, about: String, onDefault: () -
                 modifier = Modifier.width(KEY_WIDTH - 16.dp).clickable { showAbout = !showAbout },
             )
             Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, content = value)
+            // The info button, on the same line: how the setting works, in a window.
+            if (info != null) IconButton(onClick = { showInfo = true }) { Icon(InfoIcon, contentDescription = "About $key") }
             if (changed) TextButton(onClick = onDefault) { Text("default") }
         }
         if (showAbout) {
             Text(about, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 4.dp))
         }
         below()
+    }
+    if (showInfo && info != null) {
+        AlertDialog(
+            onDismissRequest = { showInfo = false },
+            title = { Text(key) },
+            text = { Column(Modifier.verticalScroll(rememberScrollState())) { Text(info, style = MaterialTheme.typography.bodyMedium) } },
+            confirmButton = { TextButton(onClick = { showInfo = false }) { Text("OK") } },
+        )
     }
 }
 

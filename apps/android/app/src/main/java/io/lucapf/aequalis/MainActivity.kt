@@ -27,7 +27,14 @@ import androidx.compose.ui.semantics.customActions
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.material3.CircularProgressIndicator
+import kotlinx.coroutines.delay
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
@@ -196,6 +203,8 @@ class PanelEnv(
     val copy: (String) -> Unit,
     val share: (String) -> Unit,
     val sizeKey: (String) -> Unit,
+    /** Date & Time's Calendar: `cal` in the request, its calendar shown. */
+    val calendar: () -> Unit,
 )
 
 /** The request just cleared (for Undo), kept like an `Edit`: none, or its text and cursor. */
@@ -266,6 +275,8 @@ fun AequalisApp(initial: String = "") {
         if (!input.isBlank()) withContext(Dispatchers.Default) { Core.roundTrip("answer", input, since) }
     }
     val reply = answer?.reply
+    // The answer to the request typed still on its way (a calendar's first holidays, a city search).
+    val busy = input.isNotBlank() && answer?.request != input
     // The request on screen and its result, kept when the app is left.
     SideEffect { History.shown = answer?.let { a -> a.reply.result?.let { HistoryEntry(a.request, it, 0, a.reply.value ?: it) } } }
     val before = input.take(edit.cursor)
@@ -341,7 +352,7 @@ fun AequalisApp(initial: String = "") {
     val undo = { cleared?.let { edit = it; submitted = false; cleared = null }; Unit }
     val workspace = @Composable { landscape: Boolean, modifier: Modifier, recent: Boolean, header: Boolean, large: Boolean ->
         saveable.SaveableStateProvider("workspace") { Workspace(
-            edit, reply, offered, landscape, modifier,
+            edit, reply, offered, landscape, modifier, busy = busy,
             // In landscape the request line is drawn apart, across the whole width.
             request = !landscape,
             onCursor = { edit = edit.copy(cursor = it) },
@@ -350,6 +361,9 @@ fun AequalisApp(initial: String = "") {
             onCopy = { value -> copy(value); keepShown() },
             onShare = { value -> share(value); keepShown() },
             choose = { request -> edit = Edit(request, request.length); submitted = true; keep(request, null) },
+            // The calendar touched: the keyboard gives it its room; a swipe, the month before or after.
+            onCalendar = { collapsed = true },
+            stepCalendar = { request -> change(Edit(request, request.length)) },
             suggest = suggest,
             openSettings = { settings = true },
             recall = recall,
@@ -374,7 +388,7 @@ fun AequalisApp(initial: String = "") {
         movableContentOf { env: PanelEnv, open: Panel, size: Modifier, wide: Boolean ->
             PanelView(
                 open, write = env.write, close = env.close, openLink = env.openLink, unitClass = env.unitClass,
-                recall = env.recall, copy = env.copy, share = env.share, size = size, wide = wide, sizeKey = env.sizeKey,
+                recall = env.recall, copy = env.copy, share = env.share, size = size, wide = wide, sizeKey = env.sizeKey, calendar = env.calendar,
             )
         }
     }
@@ -382,6 +396,7 @@ fun AequalisApp(initial: String = "") {
         val env = PanelEnv(
             write = { change(edit.word(it, Core.maxInput)); panel = null }, close = { panel = null }, openLink = { page = it }, unitClass = reply?.unitClass,
             recall = recall, copy = { value -> copy(value) }, share = share, sizeKey = { sizeKey(it); panel = null },
+            calendar = { change(Edit(CALENDAR, CALENDAR.length)); panel = null },
         )
         panelContent(env, open, size, wide)
     }
@@ -405,7 +420,7 @@ fun AequalisApp(initial: String = "") {
                     PanelView(
                         docked, write = { change(edit.word(it, Core.maxInput)) }, close = {}, openLink = { page = it }, unitClass = reply?.unitClass,
                         recall = recall, copy = { value -> copy(value) }, share = share, size = Modifier.fillMaxSize(),
-                        docked = true, select = { docked = it }, sizeKey = sizeKey,
+                        docked = true, select = { docked = it }, sizeKey = sizeKey, calendar = { change(Edit(CALENDAR, CALENDAR.length)) },
                     )
                 }
             }
@@ -460,6 +475,9 @@ fun AequalisApp(initial: String = "") {
     }
 }
 
+/** The request of Date & Time's Calendar button: this month's calendar. */
+const val CALENDAR = "cal"
+
 /** The room the request and its result keep while the phone's keyboard is up (the status bar's
  *  included), and the least the panel gets. */
 private val TypingRoom = 190.dp
@@ -476,11 +494,15 @@ fun Workspace(
     landscape: Boolean,
     modifier: Modifier,
     request: Boolean,
+    // The answer to the request on its way: the one on screen is veiled.
+    busy: Boolean = false,
     onCursor: (Int) -> Unit,
     onPaste: () -> Unit,
     onCopy: (String) -> Unit,
     onShare: (String) -> Unit,
     choose: (String) -> Unit,
+    onCalendar: () -> Unit,
+    stepCalendar: (String) -> Unit,
     suggest: (Suggestion) -> Unit,
     openSettings: () -> Unit,
     recall: (String) -> Unit,
@@ -526,65 +548,95 @@ fun Workspace(
         }
         if (request) RequestLine(edit, onCursor, onPaste, onClear, compact = landscape)
         // A live region: a screen reader says the result, the hint or the error as it changes.
-        Column(
-            Modifier.weight(1f).verticalScroll(scroll).semantics { liveRegion = LiveRegionMode.Polite },
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            // A calculation's grouping (`(12 + (4 / 2))`), as the TUI shows it.
-            reply?.grouping?.let { Text(showNumbers(it).text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            when {
-                // Nothing written yet: the latest entries of the history, to use again.
-                edit.text.isEmpty() -> {
-                    undo?.let { UndoRow(it, onUndo) }
-                    if (recent) Recent(recall, copyResult, openHistory)
-                }
-                reply == null -> {}
-                // What shows, the core decides: nothing but a result while a word is being typed.
-                else -> when (reply.show) {
-                    Show.Result -> Column {
-                        val result = reply.result.orEmpty()
-                        val value = reply.value ?: result
-                        val whole = reply.expression ?: result
-                        // Copy and Share beside the result (landscape has no room for a row under it).
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            // A tap copies the value, a long press the whole expression.
-                            val copying = Modifier.weight(1f)
-                                .combinedClickable(onClickLabel = "Copy the value", onClick = { onCopy(value) }, onLongClickLabel = "Copy the expression", onLongClick = { onCopy(whole) })
-                            // Every person's sizes (`shoes 42`, `42 eu shoes us`): a line each, all alike.
-                            val people = peopleOf(reply) ?: zonesOf(reply)
-                            if (people != null) PeopleSizes(people, copying)
-                            else Text(result, style = resultStyle(result, landscape, large), modifier = copying)
-                            // With a currency, how old its rates are.
-                            reply.rates?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                            CopyMenu(value, whole, onCopy)
-                            IconButton(onClick = { onShare(whole) }) { Icon(ShareIcon, contentDescription = "Share") }
+        Box(Modifier.weight(1f)) {
+            Column(
+                Modifier.fillMaxSize().verticalScroll(scroll).semantics { liveRegion = LiveRegionMode.Polite },
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                // A calculation's grouping (`(12 + (4 / 2))`), as the TUI shows it.
+                reply?.grouping?.let { Text(showNumbers(it).text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                when {
+                    // Nothing written yet: the latest entries of the history, to use again.
+                    edit.text.isEmpty() -> {
+                        undo?.let { UndoRow(it, onUndo) }
+                        if (recent) Recent(recall, copyResult, openHistory)
+                    }
+                    reply == null -> {}
+                    // What shows, the core decides: nothing but a result while a word is being typed.
+                    else -> when (reply.show) {
+                        // A calendar, drawn in the result's place.
+                        Show.Result if reply.calendar != null -> Column {
+                            CalendarView(reply.calendar, landscape, touched = onCalendar, step = stepCalendar)
+                            reply.details.forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                         }
-                        // The other results (the shoe sizes beside a currency), then the notes and warnings.
-                        Extras(reply)
-                        reply.details.forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                    }
-                    // What comes next (`now the length unit to convert to: in, ft, yd…`): a hint, in grey;
-                    // with the results it already has (`42 eu`: the shoe sizes).
-                    Show.Hint -> Column {
-                        Text(reply.message, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Extras(reply)
-                    }
-                    Show.Question -> {
-                        Text(reply.message, style = MaterialTheme.typography.titleMedium)
-                        // Each choice is a complete request; the default one is ⏎'s.
-                        reply.choices.forEach { choice ->
-                            OutlinedButton(onClick = { choose(choice.request) }, modifier = Modifier.fillMaxWidth()) {
-                                Text(choice.label)
+                        Show.Result -> Column {
+                            val result = reply.result.orEmpty()
+                            val value = reply.value ?: result
+                            val whole = reply.expression ?: result
+                            // Copy and Share beside the result (landscape has no room for a row under it).
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                // A tap copies the value, a long press the whole expression.
+                                val copying = Modifier.weight(1f)
+                                    .combinedClickable(onClickLabel = "Copy the value", onClick = { onCopy(value) }, onLongClickLabel = "Copy the expression", onLongClick = { onCopy(whole) })
+                                // Every person's sizes (`shoes 42`, `42 eu shoes us`): a line each, all alike.
+                                val people = peopleOf(reply) ?: zonesOf(reply)
+                                if (people != null) PeopleSizes(people, copying)
+                                else Text(result, style = resultStyle(result, landscape, large), modifier = copying)
+                                // With a currency, how old its rates are.
+                                reply.rates?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                                CopyMenu(value, whole, onCopy)
+                                IconButton(onClick = { onShare(whole) }) { Icon(ShareIcon, contentDescription = "Share") }
+                            }
+                            // The other results (the shoe sizes beside a currency), then the notes and warnings.
+                            Extras(reply)
+                            reply.details.forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                        }
+                        // What comes next (`now the length unit to convert to: in, ft, yd…`): a hint, in grey;
+                        // with the results it already has (`42 eu`: the shoe sizes).
+                        Show.Hint -> Column {
+                            Text(reply.message, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Extras(reply)
+                        }
+                        Show.Question -> {
+                            Text(reply.message, style = MaterialTheme.typography.titleMedium)
+                            // Each choice is a complete request; the default one is ⏎'s.
+                            reply.choices.forEach { choice ->
+                                OutlinedButton(onClick = { choose(choice.request) }, modifier = Modifier.fillMaxWidth()) {
+                                    Text(choice.label)
+                                }
                             }
                         }
+                        Show.Error -> Text(reply.message, color = MaterialTheme.colorScheme.error)
+                        Show.None -> {}
                     }
-                    Show.Error -> Text(reply.message, color = MaterialTheme.colorScheme.error)
-                    Show.None -> {}
                 }
             }
+            Working(busy)
         }
         // Landscape: beside the request line instead, the short room above the keys all the result's.
         if (!landscape) SuggestionRow(offered, suggest, Modifier.padding(bottom = 4.dp))
+    }
+}
+
+/** Over the answer while the next one is on its way: after a moment (a quick answer shows no
+ *  veil), the answer on screen fades behind a veil of the background and a spinner turns on it. */
+@Composable
+private fun BoxScope.Working(busy: Boolean) {
+    var late by remember { mutableStateOf(false) }
+    LaunchedEffect(busy) {
+        late = false
+        if (busy) {
+            delay(150)
+            late = true
+        }
+    }
+    AnimatedVisibility(late && busy, Modifier.matchParentSize(), enter = fadeIn(tween(200)), exit = fadeOut(tween(150))) {
+        Box(
+            Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background.copy(alpha = 0.6f)).semantics { contentDescription = "Working" },
+            contentAlignment = Alignment.Center,
+        ) {
+            CircularProgressIndicator(Modifier.size(40.dp), color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f), strokeWidth = 3.dp)
+        }
     }
 }
 

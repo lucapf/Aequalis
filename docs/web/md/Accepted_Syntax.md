@@ -58,6 +58,7 @@ Some examples of accepted syntax (each row: the same request written in other wa
 | `10:00AM paris to new york`, `10:00AM PARIS TO NEW YORK`, `10am Paris -> New York` | `time in New York when in Paris is 10:00AM`|
 | `12 Sept 2026 + 5wd`, `12 SEPT 2026 + 5WD` | `18/09/2026 DD/MM/YYYY` |
 | `12 Sept 2026 10:00 PM + 5wd` | `18/09/2026 10:00:00 PM DD/MM/YYYY-12h` |
+| `26 oct + 3wd`, `Oct 26th + 3wd` | `29/10/2026 DD/MM/YYYY`, `10/29/2026 MM/DD/YYYY` (no year: this year's) |
 | `now unix`, `NOW UNIX`        | the current Unix time |
 | `12/04/2026 unix`             | ambiguous: one button per reading (DD/MM/YYYY, MM/DD/YYYY) |
 | `100F C`, `100 f c`, `100 °F °C` | `37.7778 C` (temperature) |
@@ -98,7 +99,9 @@ The amounts below change with the rates.
 
 A date at the end of the request (or at its start) gives the rates of that day, up to 750 days
 back: `100 usd eur 2025-01-30`, `100 usd to eur on 30 Jan 2025`, `100 usd eur yesterday`,
-`100 usd eur 3 months ago`. Without a date it is always the latest rates, and nothing is asked.
+`100 usd eur 3 months ago`, or short: `12 eur -1d`, `12 eur 3 d ago` (`3d ago`, `3 dago`). The
+units are `d` days, `wd` working days (Monday to Friday), `w` weeks, `m` or `mo` months, `y`
+years. Without a date it is always the latest rates, and nothing is asked.
 Rates of past days are ExchangeRate-API's, the same as the latest ones, saved once a day. The
 history starts the day it was set up and grows from then on (there are no rates of earlier days),
 and the note says which day they are of. A day is downloaded the first time it is asked for and
@@ -111,6 +114,9 @@ kept on the device, so it works offline afterwards.
 | `on 2025-01-30 100 usd eur`              | the same: the date may come first |
 | `100 usd eur yesterday`                  | the rates of the day before |
 | `100 usd eur 3 months ago`, `a week ago`, `2 days ago`, `1 year ago` | the rates of that day |
+| `12 eur -1d`, `12 eur 1 d ago`, `12 eur 1dago` | yesterday's rates, `12 eur` in the local currency |
+| `12 eur -1wd`, `12 eur 1 wd ago`         | the last working day's: on a Monday, Friday's |
+| `12 eur -2m`, `12 eur 2 mo ago`, `12 eur -1y` | two months, a year back |
 | `100 usd eur today`, `100 usd eur`       | the latest rates |
 | `100 usd eur 03/04/25`                   | asks: 4 March or 3 April 2025 (a written month, `3 Apr 2025`, is not asked) |
 | `100 usd eur 2025-01-30`, before the history began | error: no rates of that day |
@@ -123,6 +129,45 @@ off, and shows how many days are held (`on · 42 days, since 14 Sep 26`; also in
 downloads the days not held yet, up to 750; off, nothing is downloaded and a dated request says
 the history is off (the days already held stay). Offline (the `offline` setting), only the days
 already held are available. The files come from `rates.history_url`, a setting for mirrors.
+
+## Calendar
+
+`cal` (or `calendar`) shows this month: its weeks with their ISO numbers, today marked, the weekend
+dimmed. A month's name first needs no `cal`: `oct egypt`, `march 2027` (a date stays a date:
+`jan 30 2025`). After it, a month, a year, and up to 5 countries whose public holidays it marks, each in its
+colour, separated by commas or spaces (names, codes or the usual short names: `UAE`, `USA`, `UK`).
+With no country named, the holidays of `holidays.countries` (the time zone's country by default).
+A month has its holidays listed under it, in the device's language when the archive has it (else
+in English), a holiday of several days once with its days together (`2-3 Dec  AE  National Day (2
+days)`); a year marks them only. The week starts as the device's region does (Monday in Italy,
+Sunday in the US, Saturday in the UAE), or as `calendar.week_start` says.
+
+| Type                                     | Result |
+|------------------------------------------|--------|
+| `cal`, `calendar`                        | this month |
+| `cal march`, `cal mar`, `cal marzo`, `march` | March this year |
+| `oct egypt`, `dec 2027 italy usa`        | as with `cal` before them |
+| `cal march 2027`, `cal 2027-03`, `cal 3/2027` | March 2027 |
+| `oct 2026`, `oct 26`, `OCT26`, `oct2026`, `0ct 26` | October 2026: the year in two digits or four, apart or against the month; a zero for the O is read as the O |
+| `cal next month`, `cal last month`       | the month after, the month before |
+| `cal 2027`, `cal next year`              | the year, three months a row |
+| `cal march UAE,USA,Italy`, `cal march uae usa italy` | March with the holidays of the three, a colour each (a day of several countries: underlined) |
+| `cal 2027 de fr`                         | 2027 with Germany's and France's holidays |
+| `cal blorp`                              | error: not a month, a year or a country |
+| `cal it fr de es pt nl`                  | error: at most 5 countries |
+
+In the interactive mode Enter opens the calendar in a window (← → the month or year before and
+after, ↑↓ scroll a year; Esc closes it), and
+`C` in the Date & Time keys opens this month's; on Android it takes the result's place (a swipe left or right: the month or year after or before;
+a tap on a holiday shows each country's holiday and how many days it lasts; touching it folds the
+keyboard away), and the Date & Time panel has a Calendar button. At a terminal the command line colours today and the holidays.
+
+The holidays are every country's national public holidays of last year, this year and next year,
+from [python-holidays](https://github.com/vacanza/holidays) (Islamic and other lunar holidays are its
+estimates, and say so). They are downloaded with the sync and checked once a day
+(`holidays.refresh`, `holidays.interval`), and work offline from then on; before the first sync
+there are none. The `holidays` setting (on by default) turns them off; `holidays.url` is for
+mirrors.
 
 ## Distances
 

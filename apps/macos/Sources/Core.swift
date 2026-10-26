@@ -46,7 +46,8 @@ enum Core {
     }
 
     /// Starts the core with what the Mac says: the same folder as the command line
-    /// (`~/.config/aequalis`), the time zone, the number format and the measurement system.
+    /// (`~/.config/aequalis`), the time zone, the number format, the measurement system, the
+    /// language and the first day of the week.
     static func start() {
         let locale = Locale.current
         var config: [String: Any] = [
@@ -58,6 +59,16 @@ enum Core {
         if let decimal = locale.decimalSeparator, let thousands = locale.groupingSeparator {
             config["decimal"] = decimal
             config["thousands"] = thousands
+        }
+        // The holidays' names in the Mac's language; the calendar's weeks from its first day (1 Sunday … 7 Saturday).
+        if let language = locale.languageCode {
+            config["language"] = language
+        }
+        switch Calendar.current.firstWeekday {
+        case 1: config["week_start"] = "sunday"
+        case 2: config["week_start"] = "monday"
+        case 7: config["week_start"] = "saturday"
+        default: break
         }
         guard let data = try? JSONSerialization.data(withJSONObject: config), let text = String(data: data, encoding: .utf8) else { return }
         let reply = take(aequalis_init(text))

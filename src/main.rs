@@ -103,7 +103,7 @@ fn settings_command(args: &[String], json: bool) -> Option<ExitCode> {
         return Some(done(reset.map(|_| "every setting is back to its default".to_string())));
     }
     if args.iter().any(|a| a == "--settings") {
-        let loaded = settings::path().as_deref().map(settings::load_from).unwrap_or(Ok(settings::Settings::default()));
+        let loaded = settings::path().as_deref().map_or(Ok(settings::Settings::default()), settings::load_from);
         return Some(done(loaded.map(|s| if json { settings::json(&s) } else { settings::text(&s) })));
     }
     None
@@ -340,7 +340,11 @@ fn print(result: &Result<Output, CliError>, json: bool) {
             for n in &out.notes {
                 eprintln!("aequalis: note: {n}");
             }
-            println!("{}", out.stdout);
+            // A calendar at a terminal: today and the holidays in colour.
+            match &out.calendar {
+                Some(view) if std::io::stdout().is_terminal() => println!("{}", aequalis::calendar::text(view, true)),
+                _ => println!("{}", out.stdout),
+            }
         }
         Err(err) => {
             match err.hint() {

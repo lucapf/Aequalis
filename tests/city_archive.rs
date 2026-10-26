@@ -24,6 +24,7 @@ fn config(name: &str) -> PathBuf {
             ("cities.refresh", "manual"),
             ("rates.refresh", "manual"),
             ("live.refresh", "manual"),
+            ("holidays", "false"),
             ("cities.url", &url),
             ("distance.unit", "km"),
         ],
@@ -41,7 +42,7 @@ fn download_then_any_city() {
     assert_ne!(o.status.code(), Some(0), "{}", common::out(&o));
     // Everything: the archive (a local copy), the rates and live values (no network: none).
     let o = common::aequalis(&dir, &["--sync"]);
-    assert_eq!(common::out(&o), "0 exchange rates\n0 live values\n9 cities", "{}", common::err(&o));
+    assert_eq!(common::out(&o), "0 exchange rates\n0 live values\nholidays: off (the holidays setting)\n9 cities", "{}", common::err(&o));
     assert!(dir.join("aequalis/cities.json").exists());
     // One place so far (an archive city, alone or before `to`): what comes next, not "not a number".
     for typed in [&["Springfield,", "Illinois"][..], &["Springfield,", "Illinois", "to"], &["distance", "Springfield,", "Illinois"]] {
@@ -103,14 +104,14 @@ fn a_failed_download_stops_nothing_else() {
     let url = common::file_url(&std::env::temp_dir().join("nowhere").join("cities.json"));
     let dir = common::config(
         "failed",
-        &[("offline", "false"), ("cities.refresh", "manual"), ("rates.refresh", "manual"), ("live.refresh", "manual"), ("cities.url", &url)],
+        &[("offline", "false"), ("cities.refresh", "manual"), ("rates.refresh", "manual"), ("live.refresh", "manual"), ("holidays", "false"), ("cities.url", &url)],
     );
     let o = common::aequalis(&dir, &["--sync"]);
     assert_eq!(o.status.code(), Some(1));
-    assert_eq!(common::out(&o), "0 exchange rates\n0 live values");
+    assert_eq!(common::out(&o), "0 exchange rates\n0 live values\nholidays: off (the holidays setting)");
     assert_eq!(common::err(&o), format!("aequalis: cities: could not download the city archive ({url})"));
     let json = common::out(&common::aequalis(&dir, &["--json", "--sync"]));
-    assert!(json.starts_with(r#"{"ok":true,"result":"0 exchange rates\n0 live values","notes":[],"warnings":["cities: could not download"#), "{json}");
+    assert!(json.starts_with(r#"{"ok":true,"result":"0 exchange rates\n0 live values\nholidays: off (the holidays setting)","notes":[],"warnings":["cities: could not download"#), "{json}");
 }
 
 #[test]

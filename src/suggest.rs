@@ -179,7 +179,7 @@ fn words(config: &Config, before: &str, typing: bool) -> Option<Suggestions> {
     if !earlier.is_empty() && crate::time::is_date_request(earlier) {
         let formats: Vec<String> = crate::config::DATE_WORDS[3..]
             .iter()
-            .map(|f| f.to_string())
+            .map(ToString::to_string)
             .chain(crate::time::pattern_words())
             .filter(|f| !prefix.is_empty() && starts_with_any_case(f, prefix))
             .take(MAX)

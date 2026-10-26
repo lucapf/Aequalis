@@ -391,7 +391,7 @@ static CACHE: OnceLock<Mutex<HashMap<String, &'static Tz>>> = OnceLock::new();
 
 /// A zone by its name (`Europe/Paris`), loaded once. `Err`: not a zone of the database.
 pub fn load(name: &str) -> Result<&'static Tz, String> {
-    let mut cache = CACHE.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner());
+    let mut cache = CACHE.get_or_init(Default::default).lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     if let Some(tz) = cache.get(name) {
         return Ok(tz);
     }
@@ -404,7 +404,7 @@ pub fn load(name: &str) -> Result<&'static Tz, String> {
 /// updated): the zone in use when the rules are the same, else the new one, which takes its place.
 pub fn reload(name: &str) -> Result<&'static Tz, String> {
     let fresh = read(name)?;
-    let mut cache = CACHE.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner());
+    let mut cache = CACHE.get_or_init(Default::default).lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     if let Some(tz) = cache.get(name).filter(|tz| tz.same_rules(&fresh)) {
         return Ok(tz);
     }

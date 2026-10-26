@@ -192,7 +192,7 @@ pub fn from_earth(name: &str, now: f64) -> Option<Distances> {
                 f2 = f(x2);
             }
         }
-        let t = (lo + hi) / 2.0;
+        let t = f64::midpoint(lo, hi);
         Reached { au: d(t), at: Some(t) }
     };
     let extreme = |lowest: bool| {

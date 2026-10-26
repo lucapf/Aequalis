@@ -11,6 +11,11 @@ use std::sync::{Mutex, OnceLock};
 pub trait Fetcher: Send + Sync {
     fn get(&self, url: &str, seconds: u32, strict: bool) -> Option<Vec<u8>>;
     fn save(&self, url: &str, to: &Path, seconds: u32) -> bool;
+
+    /// Whether the server of `url` answers at all, an HTTP error included.
+    fn answers(&self, url: &str, seconds: u32) -> bool {
+        self.get(url, seconds, false).is_some()
+    }
 }
 
 static FETCHER: OnceLock<Box<dyn Fetcher>> = OnceLock::new();
@@ -36,11 +41,11 @@ pub(crate) static OBSERVER: Mutex<Option<Observer>> = Mutex::new(None);
 /// Told each download's progress from now on (`None`: no more): a sync by hand writes it for the
 /// interactive mode (`online::track`). curl then runs with its progress meter.
 pub fn observe(observer: Option<Observer>) {
-    *OBSERVER.lock().unwrap_or_else(|e| e.into_inner()) = observer;
+    *OBSERVER.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = observer;
 }
 
 fn observed() -> bool {
-    OBSERVER.lock().unwrap_or_else(|e| e.into_inner()).is_some()
+    OBSERVER.lock().unwrap_or_else(std::sync::PoisonError::into_inner).is_some()
 }
 
 /// The body of `url`; with `strict`, `None` on an HTTP error too (`curl -f`).
@@ -70,6 +75,20 @@ pub fn save(url: &str, to: &Path, seconds: u32) -> bool {
     Command::new("curl").args(["-sfL", "--max-time", &time, "-o"]).arg(to).arg(url).status().is_ok_and(|s| s.success())
 }
 
+/// Whether the server of `url` answers at all, an HTTP error included: a download that failed
+/// because there is no connection, or because the server has no such file. A `file://` address
+/// always answers (its folder is here).
+pub fn answers(url: &str, seconds: u32) -> bool {
+    if let Some(f) = FETCHER.get() {
+        return f.answers(url, seconds);
+    }
+    if url.starts_with("file:") {
+        return true;
+    }
+    let time = seconds.to_string();
+    Command::new("curl").args(["-sL", "--max-time", &time, url]).stdout(Stdio::null()).status().is_ok_and(|s| s.success())
+}
+
 /// curl with its progress meter on stderr, each update told to the observer: whether it succeeded,
 /// and its stdout.
 fn with_meter(args: &[&str]) -> Option<(bool, Vec<u8>)> {
@@ -88,7 +107,7 @@ fn with_meter(args: &[&str]) -> Option<(bool, Vec<u8>)> {
                 continue;
             }
             if let Some(p) = meter(&String::from_utf8_lossy(&line)) {
-                if let Some(observer) = OBSERVER.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+                if let Some(observer) = OBSERVER.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_ref() {
                     observer(p);
                 }
             }

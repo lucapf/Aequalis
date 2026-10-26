@@ -33,6 +33,14 @@ class NightlySyncTest {
     }
 
     @Test
+    fun theInfoSaysHowDeepTheHistoryIs() {
+        val info = NightlySync.info("42 days, since 14 Sep 26")
+        assertTrue(info, "750 days" in info && "25 Oct 2026" in info && "Wi-Fi" in info && "battery" in info)
+        assertTrue(info, "every day not held yet" in info && "Held now: 42 days, since 14 Sep 26." in info)
+        assertTrue("Held now" !in NightlySync.info(null))
+    }
+
+    @Test
     fun itNeedsWifiAndABatteryNotLow() {
         val constraints = NightlySync.constraints()
         assertEquals(NetworkType.UNMETERED, constraints.requiredNetworkType)

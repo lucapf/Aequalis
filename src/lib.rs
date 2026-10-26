@@ -5,6 +5,7 @@
 pub mod about;
 pub mod alloc;
 pub mod calc;
+pub mod calendar;
 pub mod cities;
 pub mod completion;
 pub mod config;
@@ -17,6 +18,7 @@ pub mod files;
 pub mod find;
 pub mod geo;
 pub mod history;
+pub mod holidays;
 pub mod http;
 #[cfg(all(feature = "ffi", target_os = "android"))]
 pub mod jni;
@@ -354,6 +356,8 @@ pub struct Output {
     /// What Copy gives, value and expression alike, when it is neither the result's value nor the
     /// whole expression: every person's shoe size, a line each (`Men US 8.5` / `Women US 10`).
     pub copy: Option<String>,
+    /// A calendar (`cal march UAE,USA,Italy`), for a UI to draw: `stdout` is its text.
+    pub calendar: Option<calendar::View>,
 }
 
 /// Results beside the result: `shoes: 42 eu = US 8.5 men, US 10 women`.
@@ -548,6 +552,11 @@ fn convert_one(config: &Config, opts: &Options, tokens: &[&str]) -> Result<Outpu
     if input.trim().is_empty() {
         return usage(EXPECTED);
     }
+    // The calendar: `cal`, `cal march 2027`, `cal 2027 de fr`.
+    let now = time::now().civil();
+    if let Some(request) = calendar::request(&input, (now.year, now.month)) {
+        return calendar_of(opts, request, time::days_from_civil(now.year, now.month, now.day));
+    }
     // Clothing and shoe sizes: only with a size word (`42 eu men shoes us`, `dress 44 it`, `size 42
     // eu us`); `42 eu` stays euros.
     if let Some(result) = sizes::request(&input) {
@@ -573,7 +582,7 @@ fn convert_one(config: &Config, opts: &Options, tokens: &[&str]) -> Result<Outpu
             Some(day) => {
                 let (rates, problem) = match history::load(day, now) {
                     Ok(rates) => (rates, None),
-                    Err(problem) => (Default::default(), Some(problem)),
+                    Err(problem) => (crate::online::Data::default(), Some(problem)),
                 };
                 currency::Context { rates: std::sync::Arc::new(rates), now, local, dated: Some(currency::Dated { day: day * 86_400, problem }) }
             }
@@ -599,6 +608,18 @@ fn convert_one(config: &Config, opts: &Options, tokens: &[&str]) -> Result<Outpu
     }
 }
 
+/// A calendar request's answer: its text, and the view a UI draws; with `-v`, what is said of its
+/// holidays (none downloaded, a year the archive lacks).
+fn calendar_of(opts: &Options, request: Result<calendar::Request, String>, today: i64) -> Result<Output, CliError> {
+    let request = request.map_err(CliError::Usage)?;
+    let settings = crate::settings::current();
+    let (archive, language) = (holidays::load(&calendar::countries(&request, &settings)), locale::device_language());
+    let context = calendar::Context { settings: &settings, archive: archive.as_deref(), language: language.as_deref(), today };
+    let (view, notes) = calendar::view(&request, &context);
+    let notes = if opts.verbose && !opts.silent { notes } else { Vec::new() };
+    Ok(Output { stdout: calendar::text(&view, false), notes, formatted: true, calendar: Some(view), ..Output::default() })
+}
+
 /// The request as words: a number written against a date format at the start (`18000000unix`,
 /// `1.8e7unix`) is the number and the format, and an arrow written against its neighbours
 /// (`12USD->EUR`) stands apart: the same request as written with spaces. Units and currencies
@@ -620,7 +641,7 @@ fn spaced(tokens: &[&str]) -> String {
                 let (number, word) = first.split_at(number_len(&first));
                 let word = &date_word(word);
                 if !number.is_empty() && time::is_format(word) {
-                    words.splice(0..1, [number.to_string(), word.to_string()]);
+                    words.splice(0..1, [number.to_string(), word.clone()]);
                 }
             }
         }
@@ -684,8 +705,9 @@ fn others(config: &Config, opts: &Options, input: &str) -> Result<Output, CliErr
         }
     }
     // A written date with no format yet (`12/04/2026`): a date on its way, not
-    // the division it reads as (`12/04/2026 num` asks for that).
-    if !arithmetic && time::is_date_value(&input) {
+    // the division it reads as (`12/04/2026 num` asks for that). Not a date request (the time
+    // module found none just above): only a written date is left to look for.
+    if !arithmetic && time::read_date(&input, None, time::Order::of_locale()).is_some() {
         return Err(CliError::Incomplete("now the format to convert to: iso, unix, local…".into(), Vec::new()));
     }
     calculation(config, opts, &input)
@@ -710,6 +732,7 @@ fn money(opts: &Options, c: currency::Converted) -> Output {
         result: None,
         extra: Vec::new(),
         copy: None,
+        calendar: None,
     }
 }
 
@@ -856,7 +879,9 @@ pub fn grouping(input: &str) -> Option<String> {
 fn needs_value(config: &Config, args: &[&str]) -> bool {
     let target = |a: &&str| convert::resolve(config, a).is_ok() || time::is_format(a) || (currency::exact(a).is_some() && time::tz::country(a).is_none());
     let value_first = args.first().is_some_and(|t| calc::starts_expression(t) || time::starts_date(t));
-    !value_first && args.len() <= 2 && args.iter().all(target)
+    // `cal` is a calorie too: a calendar request as written is no unit waiting for its value.
+    let calendar = calendar::request(&args.join(" "), (2000, 1)).is_some_and(|r| r.is_ok());
+    !value_first && !calendar && args.len() <= 2 && args.iter().all(target)
 }
 
 /// After `10 km`, what comes next, without guessing which: `now the length unit to convert to: in,

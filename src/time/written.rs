@@ -182,7 +182,7 @@ pub(super) const MONTH_NAMES: [&[&str]; 12] = [
 /// Abbreviations that are not a prefix of a name: German `Mrz` (März).
 pub(super) const MONTH_ABBREVIATIONS: [(&str, u32); 1] = [("mrz", 3)];
 
-pub(super) const ENGLISH_MONTHS: [&str; 12] =
+pub(crate) const ENGLISH_MONTHS: [&str; 12] =
     ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
 /// Lowercase, without accents: `Févr` → `fevr`, `März` → `marz`, `Março` → `marco`.
@@ -275,15 +275,19 @@ pub(super) fn numeric_from_named(text: &str) -> Option<(String, Fields, MonthNam
     let year = |w: &str| -> Option<(u32, bool)> {
         (w.bytes().all(|b| b.is_ascii_digit()) && (w.len() == 4 || w.len() == 2)).then(|| (w.parse().ok().unwrap(), w.len() == 4))
     };
-    let [(a, _), (b, _), (z, end), ..] = words[..] else { return None };
-    let (fields, d, month, (y, long)) = if let (Some(d), Some(m), Some(y)) = (day(a), month_named(b), year(z)) {
-        (if y.1 { Fields::Dmy4 } else { Fields::Dmy2 }, d, m, y)
-    } else if let (Some(m), Some(d), Some(y)) = (month_named(a), day(b), year(z)) {
-        (if y.1 { Fields::Mdy4 } else { Fields::Mdy2 }, d, m, y)
-    } else if let (Some(y), Some(m), Some(d)) = (year(a).filter(|y| y.1), month_named(b), day(z)) {
-        (Fields::Ymd4, d, m, y)
-    } else {
-        return None;
+    // No year (`26 oct`, `Oct 26th`): this year's. Two words, or a third that is no year.
+    let this_year = || (super::now().civil().year as u32, true);
+    let no_year = match words[..] {
+        [(a, _), (b, end)] | [(a, _), (b, end), ..] if words.get(2).is_none_or(|(z, _)| year(z).is_none()) => match (day(a), month_named(b), month_named(a), day(b)) {
+            (Some(d), Some(m), ..) => Some((Fields::Dmy4, d, m, this_year(), end)),
+            (_, _, Some(m), Some(d)) => Some((Fields::Mdy4, d, m, this_year(), end)),
+            _ => None,
+        },
+        _ => None,
+    };
+    let (fields, d, month, (y, long), end) = match no_year {
+        Some(found) => found,
+        None => three_parts(&words, day, year)?,
     };
     let y = if long { format!("{y:04}") } else { format!("{y:02}") };
     let m = month.month;
@@ -296,6 +300,28 @@ pub(super) fn numeric_from_named(text: &str) -> Option<(String, Fields, MonthNam
     let rest = text[end..].trim_start_matches([' ', ',']);
     let numeric = if rest.is_empty() { date } else { format!("{date} {rest}") };
     Some((numeric, fields, month))
+}
+
+/// A date's parts as written: its fields, day, month, (year, whether in four digits), where it ends.
+type Parts = (Fields, u32, MonthName, (u32, bool), usize);
+
+/// A date of three words: day, month and year (`12 Sept 2026`), month first (`Sep 12 2026`), or
+/// year first (`2026 Sep 12`): its fields, day, month, (year, whether in four digits), and where it ends.
+fn three_parts(
+    words: &[(&str, usize)],
+    day: impl Fn(&str) -> Option<u32>,
+    year: impl Fn(&str) -> Option<(u32, bool)>,
+) -> Option<Parts> {
+    let [(a, _), (b, _), (z, end), ..] = words[..] else { return None };
+    if let (Some(d), Some(m), Some(y)) = (day(a), month_named(b), year(z)) {
+        Some((if y.1 { Fields::Dmy4 } else { Fields::Dmy2 }, d, m, y, end))
+    } else if let (Some(m), Some(d), Some(y)) = (month_named(a), day(b), year(z)) {
+        Some((if y.1 { Fields::Mdy4 } else { Fields::Mdy2 }, d, m, y, end))
+    } else if let (Some(y), Some(m), Some(d)) = (year(a).filter(|y| y.1), month_named(b), day(z)) {
+        Some((Fields::Ymd4, d, m, y, end))
+    } else {
+        None
+    }
 }
 
 /// Reads a written date: three numbers separated by `/ . -` or a space, then optionally a time

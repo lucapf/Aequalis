@@ -705,7 +705,7 @@ fn lookup(chart: &ShoeChart, from: From, age: Option<Age>) -> Found {
         }
         let Some(i) = rows.windows(2).position(|w| w[0].1 < wanted && wanted < w[1].1) else { continue };
         let (lo, hi) = (rows[i].1, rows[i + 1].1);
-        let mid = (lo + hi) / 2.0;
+        let mid = f64::midpoint(lo, hi);
         let pick = if wanted < mid { lo } else { hi };
         let between = ((wanted - mid).abs() <= (hi - lo) / 4.0 + 1e-9).then(|| note(lo, hi));
         hits.push(hit(at(pick), between, false));

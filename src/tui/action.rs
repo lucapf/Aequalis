@@ -161,6 +161,8 @@ pub enum Action {
     Cancel,
     /// Ctrl+C: Esc's steps, then clearing the line, and with nothing to clear, quitting.
     Interrupt,
+    /// The calendar (the Date & Time keys' Calendar button).
+    Calendar,
 }
 
 impl<'a> App<'a> {
@@ -523,6 +525,7 @@ impl<'a> App<'a> {
             Action::ToggleKeypad => self.toggle_keypad(),
             Action::Shortcut(index) => self.use_shortcut(index),
             Action::Now => self.write_now(),
+            Action::Calendar => self.open_calendar(),
             Action::Copy => self.copy_answer(),
             Action::Cancel => self.cancel(cycling),
             Action::Interrupt => self.interrupt(cycling),

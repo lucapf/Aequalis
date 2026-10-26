@@ -143,18 +143,20 @@ pub fn expired(data: &Data, now: i64, interval: i64) -> bool {
 pub enum Group {
     Live,
     Rates,
+    Holidays,
     Cities,
 }
 
 impl Group {
     /// In the order they are synced: the exchange rates first, the city archive (the big one) last.
-    pub const ALL: [Group; 3] = [Group::Rates, Group::Live, Group::Cities];
+    pub const ALL: [Group; 4] = [Group::Rates, Group::Live, Group::Holidays, Group::Cities];
 
     /// Its name in the settings (`rates.refresh`).
     pub fn name(self) -> &'static str {
         match self {
             Group::Live => "live",
             Group::Rates => "rates",
+            Group::Holidays => "holidays",
             Group::Cities => "cities",
         }
     }
@@ -163,6 +165,7 @@ impl Group {
         match self {
             Group::Live => "the Trivia's live values",
             Group::Rates => "the exchange rates",
+            Group::Holidays => "the public holidays",
             Group::Cities => "the city archive",
         }
     }
@@ -175,6 +178,7 @@ pub fn stale(group: Group, settings: &crate::settings::Settings, now: i64) -> bo
     match group {
         Group::Live => expired(&load(), now, interval),
         Group::Rates => expired(&crate::currency::load(), now, interval),
+        Group::Holidays => crate::holidays::downloaded_at().is_none_or(|at| now - at >= interval),
         Group::Cities => {
             let checked = crate::cities::meta().map_or(0, |m| m.downloaded_at).max(crate::notify::load().cities_checked_at);
             now - checked >= interval
@@ -194,6 +198,7 @@ fn due_when(settings: &crate::settings::Settings, stale: &dyn Fn(Group) -> bool)
     Group::ALL
         .into_iter()
         .filter(|&g| g != Group::Cities || settings.cities_enabled())
+        .filter(|&g| g != Group::Holidays || settings.holidays_enabled())
         .filter(|&g| match settings.refresh(g.name()) {
             Refresh::Silent => stale(g),
             Refresh::Notify => g == Group::Cities && stale(g),
@@ -302,6 +307,7 @@ pub fn sync(auto: bool) -> Result<Report, String> {
         phase(match group {
             Group::Live => "downloading the live values",
             Group::Rates => "downloading the exchange rates",
+            Group::Holidays => "downloading the public holidays",
             Group::Cities => "checking the city archive",
         });
         let interval = if auto { settings.interval(group.name()) } else { 0 };
@@ -323,6 +329,7 @@ pub fn sync(auto: bool) -> Result<Report, String> {
                 let days = if past > 0 { format!(", {past} past day{}", if past == 1 { "" } else { "s" }) } else { String::new() };
                 format!("{n} exchange rate{}{days}", if n == 1 { "" } else { "s" })
             }),
+            Group::Holidays => crate::holidays::sync(&settings),
             Group::Cities => crate::files::dir()
                 .ok_or_else(no_home)
                 .and_then(|base| sync_cities(&base, &settings, auto, now, &|text| crate::notify::desktop("Aequalis", text))),
@@ -387,7 +394,7 @@ static PHASE: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
 /// The sync's next step: `downloading the exchange rates`, `installing the city archive` (empty:
 /// done). Written to the progress file too while a sync by hand is tracked.
 pub fn phase(text: &str) {
-    *PHASE.lock().unwrap_or_else(|e| e.into_inner()) = text.to_string();
+    *PHASE.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = text.to_string();
     // A new step has no percentage yet (installing shows none at all).
     let tracked = TRACKED.with(|t| t.borrow_mut().as_mut().map(|s| s.0 = None).is_some());
     if tracked {
@@ -397,7 +404,7 @@ pub fn phase(text: &str) {
 
 /// What the running sync is doing (`phase`); empty when none runs.
 pub fn current_phase() -> String {
-    PHASE.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    PHASE.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
 }
 
 thread_local! {
@@ -704,19 +711,19 @@ mod tests {
         };
         let all_stale = |_: Group| true;
         let none_stale = |_: Group| false;
-        // The defaults: cities manual, rates silent, live manual.
-        assert_eq!(due_when(&Settings::default(), &all_stale), [Group::Rates]);
+        // The defaults: cities manual, rates and holidays silent, live manual.
+        assert_eq!(due_when(&Settings::default(), &all_stale), [Group::Rates, Group::Holidays]);
         assert!(due_when(&Settings::default(), &none_stale).is_empty());
         // Silent: when out of date; notify: only the archive's check; manual: never.
         let s = with(&[("cities.refresh", "silent"), ("live.refresh", "silent")]);
-        assert_eq!(due_when(&s, &all_stale), [Group::Rates, Group::Live, Group::Cities], "the rates first, the archive last");
-        let s = with(&[("cities.refresh", "notify"), ("rates.refresh", "notify"), ("live.refresh", "notify")]);
-        assert_eq!(due_when(&s, &all_stale), [Group::Cities], "rates and live values out of date are only said");
+        assert_eq!(due_when(&s, &all_stale), [Group::Rates, Group::Live, Group::Holidays, Group::Cities], "the rates first, the archive last");
+        let s = with(&[("cities.refresh", "notify"), ("rates.refresh", "notify"), ("live.refresh", "notify"), ("holidays.refresh", "notify")]);
+        assert_eq!(due_when(&s, &all_stale), [Group::Cities], "rates, live values and holidays out of date are only said");
         assert_eq!(due_when(&s, &|g| g != Group::Cities), Vec::<Group>::new());
-        let s = with(&[("rates.refresh", "manual")]);
+        let s = with(&[("rates.refresh", "manual"), ("holidays.refresh", "manual")]);
         assert!(due_when(&s, &all_stale).is_empty());
-        // The cities off: never, whatever the policy.
-        let s = with(&[("cities.refresh", "silent"), ("cities.enabled", "false")]);
+        // The cities off: never, whatever the policy; the holidays alike.
+        let s = with(&[("cities.refresh", "silent"), ("cities.enabled", "false"), ("holidays", "false")]);
         assert_eq!(due_when(&s, &all_stale), [Group::Rates]);
     }
 

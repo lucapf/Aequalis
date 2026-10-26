@@ -90,7 +90,7 @@ impl Calls {
 static RECORD: Mutex<[Calls; 2]> = Mutex::new([Calls::EMPTY, Calls::EMPTY]);
 
 fn with<T>(kind: Kind, f: impl FnOnce(&mut Calls) -> T) -> T {
-    let mut record = RECORD.lock().unwrap_or_else(|e| e.into_inner());
+    let mut record = RECORD.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     f(&mut record[kind as usize])
 }
 
@@ -126,7 +126,7 @@ pub fn app(kind: Kind, request: &str, us: u64) {
 
 /// Everything recorded forgotten: About starts over.
 pub fn reset() {
-    let mut record = RECORD.lock().unwrap_or_else(|e| e.into_inner());
+    let mut record = RECORD.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     *record = Default::default();
 }
 
@@ -159,7 +159,7 @@ pub fn facts() -> Vec<(&'static str, String)> {
     if !on() {
         return Vec::new();
     }
-    let record = RECORD.lock().unwrap_or_else(|e| e.into_inner());
+    let record = RECORD.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let mut out = Vec::new();
     for (kind, slowest, count) in [(Kind::Answer, "Slowest answer", "Answers"), (Kind::Suggestions, "Slowest suggestions", "Suggestions")] {
         let c = &record[kind as usize];

@@ -375,7 +375,7 @@ pub fn estimate_name(entry: &Entry) -> String {
 /// The value in `unit` (the entry's own when `None`).
 fn in_unit(config: &Config, entry: &Entry, value: f64, unit: &str) -> f64 {
     match &entry.unit {
-        Some(own) if own != unit => convert::convert(config, value, own, unit).map(|(v, _)| v).unwrap_or(value),
+        Some(own) if own != unit => convert::convert(config, value, own, unit).map_or(value, |(v, _)| v),
         _ => value,
     }
 }

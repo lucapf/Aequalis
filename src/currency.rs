@@ -478,7 +478,7 @@ fn shape(config: &Config, input: &str) -> Option<Result<(String, Vec<Piece>), Er
         return None;
     }
     // `<amount> <from> [to|in] [<to>]`, or the currency first: `<from> <amount> [to|in] [<to>]`.
-    let kinds: Vec<char> = parts
+    let kinds: String = parts
         .iter()
         .map(|p| match p {
             Piece::Amount(_) => 'n',
@@ -486,7 +486,6 @@ fn shape(config: &Config, input: &str) -> Option<Result<(String, Vec<Piece>), Er
             _ => 'c',
         })
         .collect();
-    let kinds: String = kinds.into_iter().collect();
     let ok = ["nc", "nctc", "ncc", "cn", "cntc", "cnc"].contains(&kinds.as_str());
     let amount = parts.iter().find_map(|p| if let Piece::Amount(a) = p { Some(a.clone()) } else { None })?;
     if !ok {

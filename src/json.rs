@@ -61,6 +61,14 @@ impl Object {
         o
     }
 
+    /// A string, when there is one (nothing written otherwise).
+    pub fn opt_str(self, key: &str, value: Option<&str>) -> Object {
+        match value {
+            Some(v) => self.str(key, v),
+            None => self,
+        }
+    }
+
     /// A number, or `null`.
     pub fn opt(self, key: &str, value: Option<i64>) -> Object {
         match value {
@@ -208,6 +216,41 @@ pub fn parse(text: &str) -> Result<Value, String> {
     }
 }
 
+/// An object's members, each value as its own text, not read: a large document read a part at a
+/// time (the public holidays: the countries asked for, not all of them). Only the object's own
+/// shape is checked; a value is checked when it is parsed.
+pub fn members_raw(text: &str) -> Result<Vec<(String, &str)>, String> {
+    let mut p = Reader { s: text.as_bytes(), pos: 0, depth: 0 };
+    let mut members = Vec::new();
+    if !p.eat(b'{') {
+        return Err(p.error("an object expected"));
+    }
+    if !p.eat(b'}') {
+        loop {
+            p.ws();
+            let key = p.string()?;
+            if !p.eat(b':') {
+                return Err(p.error("`:` expected"));
+            }
+            p.ws();
+            let start = p.pos;
+            p.skip()?;
+            members.push((key, &text[start..p.pos]));
+            if p.eat(b'}') {
+                break;
+            }
+            if !p.eat(b',') {
+                return Err(p.error("`,` or `}` expected"));
+            }
+        }
+    }
+    p.ws();
+    match p.pos == p.s.len() {
+        true => Ok(members),
+        false => Err(p.error("text after the value")),
+    }
+}
+
 /// How many arrays and objects may stand inside one another: the files and downloads read nest a
 /// few levels; a deeper document (`[[[[…`) is an error, not a crash (each level is a call deeper).
 const MAX_DEPTH: usize = 64;
@@ -345,6 +388,53 @@ impl Reader<'_> {
         Some(unit)
     }
 
+    /// Past a value, the reader at its start, nothing kept: its strings and brackets followed, its
+    /// other bytes not looked at.
+    fn skip(&mut self) -> Result<(), String> {
+        if !matches!(self.s.get(self.pos), Some(b'{' | b'[' | b'"')) {
+            return self.one_value().map(drop);
+        }
+        let mut open = 0usize;
+        loop {
+            match self.s.get(self.pos) {
+                None => return Err(self.error("unterminated value")),
+                Some(b'"') => self.skip_string()?,
+                Some(b'{' | b'[') => {
+                    open += 1;
+                    self.pos += 1;
+                }
+                Some(b'}' | b']') => {
+                    open -= 1;
+                    self.pos += 1;
+                }
+                Some(_) => {
+                    let run = self.s[self.pos..].iter().position(|b| matches!(b, b'"' | b'{' | b'}' | b'[' | b']')).unwrap_or(self.s.len() - self.pos);
+                    self.pos += run;
+                }
+            }
+            if open == 0 {
+                return Ok(());
+            }
+        }
+    }
+
+    /// Past a string, the reader at its quote.
+    fn skip_string(&mut self) -> Result<(), String> {
+        self.pos += 1;
+        loop {
+            let run = self.s[self.pos..].iter().position(|&b| b == b'"' || b == b'\\').ok_or_else(|| self.error("unterminated string"))?;
+            self.pos += run;
+            if self.s[self.pos] == b'"' {
+                self.pos += 1;
+                return Ok(());
+            }
+            self.pos += 2;
+            if self.pos > self.s.len() {
+                return Err(self.error("unterminated string"));
+            }
+        }
+    }
+
     fn string(&mut self) -> Result<String, String> {
         if self.s.get(self.pos) != Some(&b'"') {
             return Err(self.error("a string expected"));
@@ -397,6 +487,21 @@ impl Reader<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn members_left_as_text() {
+        let text = r#" {"a": {"k": ["x}", "y\"]"]}, "b" : [1, [2]], "c": "s\\", "d": -1.5e3, "e": null} "#;
+        let members = members_raw(text).unwrap();
+        let keys: Vec<&str> = members.iter().map(|(k, _)| k.as_str()).collect();
+        assert_eq!(keys, ["a", "b", "c", "d", "e"]);
+        assert_eq!(members[0].1, r#"{"k": ["x}", "y\"]"]}"#, "brackets and quotes in strings are text");
+        assert_eq!(parse(members[0].1).unwrap(), parse(r#"{"k": ["x}", "y\"]"]}"#).unwrap());
+        assert_eq!((members[1].1, members[2].1, members[3].1, members[4].1), ("[1, [2]]", r#""s\\""#, "-1.5e3", "null"));
+        assert_eq!(members_raw("{}").unwrap(), []);
+        for bad in ["", "[]", r#"{"a": [1, 2}"#, r#"{"a": "open}"#, r#"{"a" 1}"#, r#"{"a": 1} x"#, r#"{"a": tru}"#] {
+            assert!(members_raw(bad).is_err(), "{bad}");
+        }
+    }
 
     #[test]
     fn values_taken_from_a_document() {

@@ -46,24 +46,21 @@ fn outcome_as(result: &Result<Output, CliError>, display: bool) -> String {
                 true => reply,
                 false => reply.list("extra", &extra(&out.extra)),
             };
-            let reply = reply.strs("notes", &out.notes).strs("warnings", &out.warnings);
-            // A currency result: how old its rates are (`2d`); `--online`: how long ago the last sync was.
-            let reply = match &out.rates_age {
-                Some(age) => reply.str("rates_age", age),
+            // A calendar, for a UI to draw (`calendar::json`).
+            let reply = match &out.calendar {
+                Some(view) => reply.raw("calendar", &crate::calendar::json(view)),
                 None => reply,
             };
-            let reply = match &out.line {
-                Some(line) => reply.str("line", line),
-                None => reply,
-            };
-            let reply = match &out.history {
-                Some(history) => reply.str("history", history),
-                None => reply,
-            };
-            match &out.synced {
-                Some(ago) => reply.str("synced", ago).finish(),
-                None => reply.finish(),
-            }
+            // A currency result: how old its rates are (`2d`); `--online`: the status line, the
+            // days of past rates, how long ago the last sync was.
+            reply
+                .strs("notes", &out.notes)
+                .strs("warnings", &out.warnings)
+                .opt_str("rates_age", out.rates_age.as_deref())
+                .opt_str("line", out.line.as_deref())
+                .opt_str("history", out.history.as_deref())
+                .opt_str("synced", out.synced.as_deref())
+                .finish()
         }
         Err(err) => {
             let ambiguous = match err {

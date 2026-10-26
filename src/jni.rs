@@ -134,13 +134,17 @@ pub unsafe extern "system" fn Java_io_lucapf_aequalis_Core_init(env: Env, _class
 /// # Safety
 /// Called by the JVM only: `env` is its `JNIEnv *`, the arrays its references, valid in this call.
 #[no_mangle]
-pub unsafe extern "system" fn Java_io_lucapf_aequalis_Core_eval(env: Env, _class: Class, request: ByteArray, submitted: u8) -> ByteArray {
+pub unsafe extern "system" fn Java_io_lucapf_aequalis_Core_eval(env: Env, core: Class, request: ByteArray, submitted: u8) -> ByteArray {
     // Too long: refused before its bytes are even copied.
     if unsafe { too_many_bytes(env, request) } {
         return unsafe { to_java(env, &crate::ffi::too_long()) };
     }
+    // A past day's rates not kept yet are downloaded during the request (`history::load`): the app
+    // asks off the main thread.
     let reply = match unsafe { text(env, request) } {
-        Some(request) => crate::profile::timed(crate::profile::Kind::Answer, &request, || crate::reply::view(&request, submitted != 0)),
+        Some(request) => with_java(env, core, || {
+            crate::profile::timed(crate::profile::Kind::Answer, &request, || crate::reply::view(&request, submitted != 0))
+        }),
         None => error("no request"),
     };
     unsafe { to_java(env, &reply) }
@@ -273,9 +277,18 @@ pub unsafe extern "system" fn Java_io_lucapf_aequalis_Core_reset(env: Env, _clas
 }
 
 thread_local! {
-    /// The Java side of the sync running on this thread (`Core.sync`): its `JNIEnv *` and the
-    /// `Core` object, whose `fetch` downloads.
+    /// The Java side of the call running on this thread (`Core.sync`, `Core.eval`): its `JNIEnv *`
+    /// and the `Core` object, whose `fetch` downloads.
     static JAVA: Cell<Option<(Env, Class)>> = const { Cell::new(None) };
+}
+
+/// `run`, with `Core.fetch` as the downloader on this thread.
+fn with_java<T>(env: Env, core: Class, run: impl FnOnce() -> T) -> T {
+    crate::ffi::aequalis_set_fetcher(fetch);
+    JAVA.set(Some((env, core)));
+    let result = run();
+    JAVA.set(None);
+    result
 }
 
 /// `Core.sync(auto)`: downloads the online data (`ffi::sync`), in this thread: everything, or with
@@ -286,19 +299,16 @@ thread_local! {
 /// Called by the JVM only: `env` is its `JNIEnv *`, `core` the `Core` object, valid in this call.
 #[no_mangle]
 pub unsafe extern "system" fn Java_io_lucapf_aequalis_Core_sync(env: Env, core: Class, auto: u8) -> ByteArray {
-    crate::ffi::aequalis_set_fetcher(fetch);
-    JAVA.set(Some((env, core)));
-    let reply = crate::ffi::sync(auto != 0);
-    JAVA.set(None);
+    let reply = with_java(env, core, || crate::ffi::sync(auto != 0));
     unsafe { to_java(env, &reply) }
 }
 
 /// The app's downloader (`ffi::Fetch`): `Core.fetch(url, to, seconds, strict)`, through the Java
-/// side of the sync running on this thread; `false` outside one, or when Java threw.
+/// side of the call running on this thread; `false` outside one, or when Java threw.
 extern "C" fn fetch(url: *const c_char, to: *const c_char, seconds: u32, strict: bool) -> bool {
     let Some((env, core)) = JAVA.get() else { return false };
     // Safety: `url` and `to` are `AppFetcher`'s NUL-terminated strings; `env` and `core` are this
-    // thread's, from `Core.sync`, which is still running.
+    // thread's, from `Core.sync` or `Core.eval`, which is still running.
     unsafe {
         let (Ok(url), Ok(to)) = (CStr::from_ptr(url).to_str(), CStr::from_ptr(to).to_str()) else { return false };
         let class_of: extern "system" fn(Env, Class) -> Class = function(env, GET_OBJECT_CLASS);

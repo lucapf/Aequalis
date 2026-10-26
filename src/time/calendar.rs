@@ -103,7 +103,7 @@ pub(super) static DEVICE_ZONE: std::sync::RwLock<Option<&'static tz::Tz>> = std:
 /// `Err`: a zone the database does not know, and the zone in use stays.
 pub fn set_device_zone(name: &str) -> Result<(), String> {
     let zone = tz::reload(name)?;
-    *DEVICE_ZONE.write().unwrap_or_else(|e| e.into_inner()) = Some(zone);
+    *DEVICE_ZONE.write().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(zone);
     Ok(())
 }
 
@@ -119,7 +119,7 @@ pub(super) fn local_tz() -> Option<&'static tz::Tz> {
     if let Some(zone) = crate::machine::mocked().and_then(|m| m.zone) {
         return tz::load(zone).ok();
     }
-    *DEVICE_ZONE.read().unwrap_or_else(|e| e.into_inner())
+    *DEVICE_ZONE.read().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// The instant of a wall-clock time in `zone`.

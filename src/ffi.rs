@@ -94,10 +94,15 @@ pub struct Init {
     /// A frozen "now" (Unix seconds), for tests and the fuzzer (`fuzz/`): every date answer
     /// then stays the same.
     pub now: Option<i64>,
+    /// The device's language (`it`), for the holidays' names, and its first day of the week
+    /// (`monday`, `sunday`, `saturday`), for the calendar.
+    pub language: Option<String>,
+    pub week_start: Option<String>,
 }
 
 /// `{"dir": "…", "zone": "Europe/Rome", "zoneinfo": "…", "decimal": ",", "thousands": ".",
-/// "grouping": [3], "imperial": false, "now": 1792222391}` (only `dir` is required).
+/// "grouping": [3], "imperial": false, "now": 1792222391, "language": "it", "week_start": "monday"}`
+/// (only `dir` is required).
 pub fn parse_init(text: &str) -> Result<Init, String> {
     let doc = json::parse(text).map_err(|e| format!("aequalis_init: {e}"))?;
     let s = |key: &str| doc.get(key).and_then(|v| v.str()).filter(|v| !v.is_empty()).map(str::to_string);
@@ -111,7 +116,16 @@ pub fn parse_init(text: &str) -> Result<Init, String> {
         _ => None,
     };
     let now = doc.get("now").and_then(|v| v.number()).map(|n| n as i64);
-    Ok(Init { dir, zone: s("zone"), zoneinfo: s("zoneinfo"), format, imperial: doc.get("imperial").and_then(|v| v.boolean()), now })
+    Ok(Init {
+        dir,
+        zone: s("zone"),
+        zoneinfo: s("zoneinfo"),
+        format,
+        imperial: doc.get("imperial").and_then(|v| v.boolean()),
+        now,
+        language: s("language"),
+        week_start: s("week_start"),
+    })
 }
 
 /// Starts aequalis for the app: `config` as in `parse_init`. Call once, before anything else.
@@ -156,6 +170,12 @@ pub fn start(init: &Init) {
     }
     if let Some(now) = init.now {
         crate::time::set_now(now);
+    }
+    if let Some(language) = &init.language {
+        crate::locale::set_device_language(language);
+    }
+    if let Some(week) = &init.week_start {
+        crate::calendar::set_device_week_start(week);
     }
 }
 

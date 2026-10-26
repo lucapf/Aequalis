@@ -105,6 +105,8 @@ data class Reply(
     /** The other results, each with its kind: `42 eu us` gives the shoe sizes beside the currency
      *  (`shoes`: `US 8.5 men`, `US 10 women`); shown under the result or the hint. */
     val extra: List<Extra> = emptyList(),
+    /** A calendar (`cal march UAE,USA,Italy`): drawn in the result's place. */
+    val calendar: Calendar? = null,
 )
 
 /** How a sync ended: what was synced and what failed, a line each (or the error), and whether
@@ -196,11 +198,12 @@ object Core {
         started.await()
     }
 
-    /** Whether the setting `android.nightly_sync` is on. */
+    /** Whether the setting `night.sync` is on. */
     fun nightlySync(): Boolean = settings().firstOrNull { it.key == NightlySync.SETTING }?.value != "false"
 
     /** Tells the core what it can't find on a phone: where to keep its files, the time zone, the
-     *  zone database, the number format and the measurement system. */
+     *  zone database, the number format, the measurement system, the language (the holidays'
+     *  names) and the first day of the week (the calendar). */
     private fun start(context: Context) {
         try {
             val symbols = DecimalFormatSymbols.getInstance()
@@ -210,6 +213,8 @@ object Core {
                 .put("decimal", symbols.decimalSeparator.toString())
                 .put("thousands", symbols.groupingSeparator.toString())
                 .put("imperial", imperial())
+                .put("language", Locale.getDefault().language)
+                .put("week_start", java.time.temporal.WeekFields.of(Locale.getDefault()).firstDayOfWeek.name.lowercase())
             zoneDatabase()?.let { config.put("zoneinfo", it) }
             val reply = JSONObject(init(config.toString().encodeToByteArray()).decodeToString())
             check(reply.optBoolean("ok")) { "aequalis: ${reply.optString("error")}" }
@@ -286,6 +291,7 @@ object Core {
             grouping = text("grouping"),
             unitClass = text("class"),
             extra = json.optJSONArray("extra")?.objects { Extra(it.getString("type"), it.getJSONArray("results").strings(), it.optString("from")) }.orEmpty(),
+            calendar = json.optJSONObject("calendar")?.let(::calendarOf),
         )
     }
 
@@ -312,6 +318,27 @@ object Core {
     private fun org.json.JSONArray.strings(): List<String> = (0 until length()).map { getString(it) }
 
     private fun <T> org.json.JSONArray.objects(read: (JSONObject) -> T): List<T> = (0 until length()).map { read(getJSONObject(it)) }
+
+    /** A calendar as the core sends it (`calendar::json`). */
+    private fun calendarOf(c: JSONObject): Calendar {
+        val ints = { a: org.json.JSONArray -> (0 until a.length()).map { a.getInt(it) } }
+        return Calendar(
+            title = c.getString("title"),
+            year = c.optBoolean("year"),
+            today = c.getString("today"),
+            weekdays = c.getJSONArray("weekdays").strings(),
+            weekend = ints(c.getJSONArray("weekend")).toSet(),
+            countries = c.getJSONArray("countries").objects { it.getString("code") to it.getString("name") },
+            months = c.getJSONArray("months").objects { m ->
+                CalendarMonth(m.getString("title"), m.getInt("year"), m.getInt("month"), m.getJSONArray("weeks").objects { w -> CalendarWeek(w.getInt("week"), ints(w.getJSONArray("days"))) })
+            },
+            holidays = c.getJSONArray("holidays").objects {
+                CalendarHoliday(it.getString("date"), it.getInt("day"), it.getInt("month"), it.getInt("country"), it.getString("name"), it.optString("first"), it.optInt("length", 1), it.optString("days"))
+            },
+            previous = c.optString("previous"),
+            next = c.optString("next"),
+        )
+    }
 
     /** The unit classes, in the TUI's order. */
     fun measures(): List<Measure> = list("measures").getJSONArray("classes").objects { c ->
@@ -371,8 +398,8 @@ object Core {
      *  src/alloc.rs); null if they aren't counted. */
     fun memory(): Pair<Long, Long>? = list("memory").let { if (it.has("held")) it.getLong("held") to it.getLong("peak") else null }
 
-    /** Every setting, in order. */
-    fun settings(): List<Setting> = list("settings").getJSONArray("settings").objects { s ->
+    /** Every setting, in order; none when the core could not read the file (it says why in `error`). */
+    fun settings(): List<Setting> = list("settings").optJSONArray("settings")?.objects { s ->
         Setting(
             s.getString("key"), s.getString("value"), s.getString("default"), s.getString("kind"), s.getJSONArray("options").strings(), s.getString("about"),
             advanced = s.optBoolean("advanced"),
@@ -380,7 +407,7 @@ object Core {
             detail = s.optString("detail").ifEmpty { null },
             currencies = s.optJSONArray("currencies")?.objects { it.getString("code") to it.getString("name") }.orEmpty(),
         )
-    }
+    }.orEmpty()
 
     /** Online or offline, and the age of the last sync. */
     fun online(): Online = list("online").let { Online(it.optString("status"), it.optString("synced").ifEmpty { null }) }

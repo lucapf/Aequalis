@@ -120,6 +120,9 @@ fun AequalisKeyboard(
             Modifier.fillMaxWidth().navigationBarsPadding().height(KeyboardHeight).padding(4.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
+            // The Sizes on (their keys in the letters' place): what they are and the way back, over the
+            // toolbar and its Sizes key. In the calculator the strip above the keyboard says it.
+            if (sizes && mode == Mode.Text) SizesHint(Modifier.padding(horizontal = 4.dp))
             // The toolbar, in every mode: the keyboards and the panels, apart from the keys typed.
             KeyRow {
                 if (open == null) KeyButton("⌄", weight = 0.7f, tone = Tone.Action) { onKey(Key.Collapse) }
@@ -179,7 +182,6 @@ private fun ColumnScope.Letters(onKey: (Key) -> Unit, sizeKey: ((String) -> Unit
     KeyRow { "1234567890".forEach { c -> CharKey(c, write) } }
     // The Sizes on: their keys where the letters are.
     if (sizeKey != null) {
-        SizesHint()
         return SizeKeys(sizeKey, onKey) { content -> KeyRow(content) }
     }
     KeyRow { "qwertyuiop".forEach { c -> LetterKey(c, capitals, write) } }
@@ -423,7 +425,7 @@ private fun SizeKeys(sizeKey: (String) -> Unit, onKey: (Key) -> Unit, row: @Comp
 /** What the Sizes keys are, and the way back, over them: the Sizes key stays lit while they show. */
 @Composable
 fun SizesHint(modifier: Modifier = Modifier) =
-    Text(SIZES_HINT, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, maxLines = 1, modifier = modifier.fillMaxWidth().padding(horizontal = 4.dp))
+    Text(SIZES_HINT, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, maxLines = 1, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = modifier.fillMaxWidth())
 
 private const val SIZES_HINT = "Size keys · tap Sizes again to go back"
 

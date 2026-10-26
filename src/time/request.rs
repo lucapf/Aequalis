@@ -494,9 +494,11 @@ impl<'a> Parser<'a> {
     /// What is wrong with words that are no date: a month name with no such day (`31 Feb 2026`),
     /// else the first word.
     fn not_a_date(&self, words: &[&str]) -> Result<Instant, TimeError> {
+        // The year after a day and a month is the date's (`31 Feb 2026`, not `31 Feb`).
+        let year = |w: &str| (w.len() == 2 || w.len() == 4) && w.bytes().all(|b| b.is_ascii_digit());
         for n in 1..=words.len() {
             let text = words[..n].join(" ");
-            if numeric_from_named(&text).is_some() {
+            if numeric_from_named(&text).is_some() && !words.get(n).is_some_and(|w| year(w)) {
                 return usage(format!("`{text}` is not a date (no such day in that month)"));
             }
         }
@@ -830,7 +832,7 @@ pub(super) fn countries_in(config: &Config, input: &str) -> Option<Result<(Strin
     let mut named: Vec<String> = Vec::new();
     let mut i = 0;
     while let Some((at, n, span, country)) = next_country(config, &words, i) {
-        out.extend(words[i..at].iter().map(|w| w.to_string()));
+        out.extend(words[i..at].iter().map(ToString::to_string));
         i = at;
         if let [one] = country.cities {
             named.push(format!("{} is {one}", country.name));
@@ -865,7 +867,7 @@ pub(super) fn countries_in(config: &Config, input: &str) -> Option<Result<(Strin
         }
         return Some(Err(Ambiguity { text: span, choices, kind: AmbiguityKind::Country, note: String::new() }));
     }
-    out.extend(words[i..].iter().map(|w| w.to_string()));
+    out.extend(words[i..].iter().map(ToString::to_string));
     (!named.is_empty()).then(|| Ok((out.join(" "), named.join(", "))))
 }
 

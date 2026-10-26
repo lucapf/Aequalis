@@ -441,7 +441,7 @@ fn nearest(rows: &[(&'static ClothesRow, f64)], wanted: f64, measure: bool, note
     }
     let i = rows.windows(2).position(|w| w[0].1 < wanted && wanted < w[1].1)?;
     let (lo, hi) = (rows[i].1, rows[i + 1].1);
-    let mid = (lo + hi) / 2.0;
+    let mid = f64::midpoint(lo, hi);
     let between = ((wanted - mid).abs() <= (hi - lo) / 4.0 + 1e-9).then(|| note(lo, hi));
     Some(Hit { rows: at(if wanted < mid { lo } else { hi }), between, beyond: false })
 }
@@ -527,7 +527,7 @@ pub(super) fn answer(tokens: &[Token], items: &[usize], measures: &[usize], pers
         (None, many) if matches!(q.size, Size::Measure(..)) => several(&q, many, None),
         (None, many) => table(&q, many),
     }?;
-    Ok(Answer { from: q.shown.clone(), ..answer })
+    Ok(Answer { from: q.shown, ..answer })
 }
 
 /// The notes every answer from these charts has: `EU sizes as in DE`, the inseam, the brand note.

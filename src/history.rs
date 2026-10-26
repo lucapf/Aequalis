@@ -105,30 +105,53 @@ fn read(text: &str, today: i64) -> Option<Found> {
     Some(Found::Day(time::days_from_civil(c.year, c.month, c.day)))
 }
 
-/// `yesterday`, `today`, `tomorrow`, `3 days ago`, `a week ago`, `2 months ago`, `1 year ago`.
+/// `yesterday`, `today`, `tomorrow`; a count back, `3 days ago`, `3 d ago`, `3dago`, `a week ago`,
+/// or `-3d`: in days (`d`), working days (`wd`, Monday to Friday), weeks (`w`), months (`m`, `mo`),
+/// years (`y`).
 fn relative(text: &str, today: i64) -> Option<i64> {
     let lower = text.to_lowercase();
-    let words: Vec<&str> = lower.split_whitespace().collect();
-    match words.as_slice() {
-        ["yesterday"] => Some(today - 1),
-        ["today"] => Some(today),
-        ["tomorrow"] => Some(today + 1),
-        [n, unit, "ago"] => {
-            let n: i64 = match *n {
-                "a" | "an" | "one" => 1,
-                digits if digits.bytes().all(|b| b.is_ascii_digit()) && digits.len() <= 6 => digits.parse().ok()?,
-                _ => return None,
-            };
-            match unit.strip_suffix('s').unwrap_or(unit) {
-                "day" => Some(today - n),
-                "week" => Some(today - 7 * n),
-                "month" => Some(months_back(today, n)),
-                "year" => Some(months_back(today, 12 * n)),
-                _ => None,
-            }
-        }
+    match lower.as_str() {
+        "yesterday" => return Some(today - 1),
+        "today" => return Some(today),
+        "tomorrow" => return Some(today + 1),
+        _ => {}
+    }
+    // The spaces do not matter: `3 d ago`, `3d ago`, `3 dago` are one.
+    let joined: String = lower.split_whitespace().collect();
+    let count = match joined.strip_prefix('-') {
+        Some(count) => count,
+        None => joined.strip_suffix("ago")?,
+    };
+    let digits = count.bytes().take_while(u8::is_ascii_digit).count();
+    let (n, unit) = match digits {
+        1..=6 => (count[..digits].parse().ok()?, &count[digits..]),
+        0 => (1, ["one", "an", "a"].iter().find_map(|word| count.strip_prefix(word))?),
+        _ => return None,
+    };
+    match unit.strip_suffix('s').unwrap_or(unit) {
+        "d" | "day" => Some(today - n),
+        "wd" | "workday" | "workingday" => Some(working_days_back(today, n)),
+        "w" | "wk" | "week" => Some(today - 7 * n),
+        "m" | "mo" | "month" => Some(months_back(today, n)),
+        "y" | "yr" | "year" => Some(months_back(today, 12 * n)),
         _ => None,
     }
+}
+
+/// `n` working days (Monday to Friday) before the day (days): from a Saturday or a Sunday, one
+/// working day back is the Friday.
+fn working_days_back(day: i64, n: i64) -> i64 {
+    // Past the history either way: a working day is at least a day.
+    let mut left = n.min(DAYS);
+    let mut day = day;
+    while left > 0 {
+        day -= 1;
+        // 1970-01-01 was a Thursday: 0 is Monday.
+        if (day + 3).rem_euclid(7) < 5 {
+            left -= 1;
+        }
+    }
+    day
 }
 
 /// `months` months before the day (days), the day of the month kept as far as the month has it.
@@ -172,7 +195,7 @@ pub fn load(day: i64, now: i64) -> Result<Data, String> {
     let kept = std::fs::read_to_string(&path).ok().and_then(|text| currency::parse(&text));
     let rates = match kept {
         Some(rates) => rates,
-        None => download(day, &path, &shown)?,
+        None => download(day, &path).map_err(|failure| failure.reason(&shown))?,
     };
     let mut data = Data::default();
     for (name, value) in rates {
@@ -181,16 +204,37 @@ pub fn load(day: i64, now: i64) -> Result<Data, String> {
     Ok(data)
 }
 
-fn download(day: i64, path: &std::path::Path, shown: &str) -> Result<Vec<(String, f64)>, String> {
+/// Why a day could not be downloaded.
+enum Failure {
+    /// The `offline` setting.
+    Offline,
+    /// Nothing answered.
+    NoConnection,
+    /// The archive answered without the day (or with a broken file).
+    Lacks,
+}
+
+impl Failure {
+    fn reason(&self, shown: &str) -> String {
+        match self {
+            Failure::Offline => format!("no exchange rates of {shown} on this device, and the offline setting is on"),
+            Failure::NoConnection => format!("no exchange rates of {shown}: they could not be downloaded (no connection)"),
+            Failure::Lacks => format!("no exchange rates of {shown}: the archive has none (it holds the days since it began)"),
+        }
+    }
+}
+
+fn download(day: i64, path: &std::path::Path) -> Result<Vec<(String, f64)>, Failure> {
     if !crate::network::allowed() {
-        return Err(format!("no exchange rates of {shown} on this device, and the offline setting is on"));
+        return Err(Failure::Offline);
     }
     let settings = crate::settings::current();
     let url = format!("{}/{}", settings.get("rates.history_url").trim_end_matches('/'), file_name(day));
-    let body = crate::http::get(&url, SECONDS, true)
-        .ok_or_else(|| format!("no exchange rates of {shown}: they could not be downloaded (the history keeps a day's rates only since the archive began)"))?;
+    let Some(body) = crate::http::get(&url, SECONDS, true) else {
+        return Err(if crate::http::answers(&url, SECONDS) { Failure::Lacks } else { Failure::NoConnection });
+    };
     let text = String::from_utf8_lossy(&body);
-    let rates = currency::parse(&text).ok_or_else(|| format!("no exchange rates of {shown}: the archive has none"))?;
+    let rates = currency::parse(&text).ok_or(Failure::Lacks)?;
     let _ = crate::files::write_atomic(path, text.as_bytes());
     Ok(rates)
 }
@@ -227,7 +271,7 @@ pub fn summary(enabled: bool) -> String {
 
 /// Downloads the days not kept yet, from today back (the archive has the days since it began, and
 /// a day may be missing): a day already kept is skipped, and three days in a row the archive lacks
-/// end it. How many were downloaded; none when the network is off.
+/// end it, as does no connection. How many were downloaded; none when the network is off.
 pub fn sync(today: i64) -> usize {
     let Some(folder) = folder() else { return 0 };
     let (mut got, mut misses) = (0, 0);
@@ -236,12 +280,17 @@ pub fn sync(today: i64) -> usize {
         let path = folder.join(file_name(day));
         if path.exists() {
             misses = 0;
-        } else if download(day, &path, &shown(day)).is_ok() {
-            (got, misses) = (got + 1, 0);
-        } else {
-            misses += 1;
-            if misses >= 3 || !crate::network::allowed() {
-                break;
+            continue;
+        }
+        match download(day, &path) {
+            Ok(_) => (got, misses) = (got + 1, 0),
+            // No day can come.
+            Err(Failure::Offline | Failure::NoConnection) => break,
+            Err(Failure::Lacks) => {
+                misses += 1;
+                if misses >= 3 {
+                    break;
+                }
             }
         }
     }
@@ -293,6 +342,65 @@ mod tests {
         assert_eq!(months_back(date(2026, 1, 15), 2), date(2025, 11, 15));
         assert_eq!(relative("3 fortnights ago", TODAY), None);
         assert_eq!(relative("x days ago", TODAY), None);
+    }
+
+    #[test]
+    fn short_relative_dates() {
+        for text in ["-1d", "- 1 d", "1 d ago", "1d ago", "1 dago", "1dago", "-1day", "1 day ago"] {
+            assert_eq!(relative(text, TODAY), Some(TODAY - 1), "{text}");
+        }
+        assert_eq!(relative("3 d ago", TODAY), Some(TODAY - 3));
+        assert_eq!(relative("3 dago", TODAY), Some(TODAY - 3));
+        assert_eq!(relative("-2w", TODAY), Some(TODAY - 14));
+        for text in ["-3m", "-3mo", "3 m ago", "3mo ago", "3 months ago"] {
+            assert_eq!(relative(text, TODAY), Some(date(2026, 7, 12)), "{text}");
+        }
+        for text in ["-1y", "1 y ago", "1yago", "-1yr"] {
+            assert_eq!(relative(text, TODAY), Some(date(2025, 10, 12)), "{text}");
+        }
+        // A count with neither `-` nor `ago` is no date, nor both, nor an unknown unit.
+        for text in ["1d", "3 m", "-1d ago", "-d", "-1x", "-1234567d", "1 wdd ago"] {
+            assert_eq!(relative(text, TODAY), None, "{text}");
+        }
+    }
+
+    #[test]
+    fn working_days_skip_the_weekend() {
+        // TODAY is a Monday: one working day back is the Friday before.
+        assert_eq!(relative("-1wd", TODAY), Some(date(2026, 10, 9)));
+        assert_eq!(relative("1 wd ago", TODAY), Some(date(2026, 10, 9)));
+        assert_eq!(relative("1wdago", TODAY), Some(date(2026, 10, 9)));
+        assert_eq!(relative("-5wd", TODAY), Some(date(2026, 10, 5)));
+        assert_eq!(relative("-6wd", TODAY), Some(date(2026, 10, 2)));
+        assert_eq!(relative("3 working days ago", TODAY), Some(date(2026, 10, 7)));
+        // From a weekend: Friday, then Thursday.
+        assert_eq!(working_days_back(date(2026, 10, 11), 1), date(2026, 10, 9));
+        assert_eq!(working_days_back(date(2026, 10, 10), 2), date(2026, 10, 8));
+        // Midweek, no weekend crossed.
+        assert_eq!(working_days_back(date(2026, 10, 15), 2), date(2026, 10, 13));
+        // A count far past the history stays past it.
+        assert!(TODAY - working_days_back(TODAY, 999_999) >= DAYS);
+    }
+
+    #[test]
+    fn short_dates_after_a_one_currency_request() {
+        for (input, day) in [
+            ("12 eur -1d", TODAY - 1),
+            ("12 eur -1wd", date(2026, 10, 9)),
+            ("12 eur yesterday", TODAY - 1),
+            ("12 eur 3 d ago", TODAY - 3),
+            ("12 eur 3 dago", TODAY - 3),
+            ("12 eur -2m", date(2026, 8, 12)),
+            ("12 eur -1y", date(2025, 10, 12)),
+            ("12 usd to eur -1wd", date(2026, 10, 9)),
+        ] {
+            let (rest, found) = split_of(input).unwrap().unwrap();
+            assert_eq!(found, Some(day), "{input}");
+            assert!(input.starts_with(&rest), "{input}: {rest}");
+        }
+        // `qw` is no number: no currency request, so no date either.
+        assert!(split_of("qw eur 3 dago").is_none());
+        assert!(matches!(split_of("12 eur -3y"), Some(Err(Error::NoRates(m))) if m.contains("keeps 750 days")));
     }
 
     #[test]

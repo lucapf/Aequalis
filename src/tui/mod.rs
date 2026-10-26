@@ -86,6 +86,8 @@ pub enum Overlay {
     About,
     /// `O`: the settings.
     Settings(settings::View),
+    /// A calendar (`cal`, Enter; `C` in the Date & Time keys), scrolled down by this many lines.
+    Calendar(Box<aequalis::calendar::View>, usize),
 }
 
 impl Overlay {
@@ -791,6 +793,7 @@ impl<'a> App<'a> {
             }
             Some(Overlay::Choice(..)) => self.choice_key(key),
             Some(Overlay::Help(_)) => self.help_key(key),
+            Some(Overlay::Calendar(..)) => self.calendar_key(key),
             None => {
                 if let Some(action) = self.keymap(key) {
                     self.apply(action);
@@ -822,6 +825,47 @@ impl<'a> App<'a> {
             Key::PageDown => *scroll += SCROLL_STEP,
             Key::PageUp => *scroll = scroll.saturating_sub(SCROLL_STEP),
             _ => {}
+        }
+    }
+
+    /// The calendar's keys: ← → the month (the year) before and after; ↑ ↓ and the pages scroll it
+    /// (a year); Esc, Enter or `q` close it.
+    fn calendar_key(&mut self, key: Key) {
+        let Some(Overlay::Calendar(view, scroll)) = &mut self.overlay else { return };
+        let by = match key {
+            Key::Left | Key::Char('h') => -1,
+            Key::Right | Key::Char('l') => 1,
+            _ => 0,
+        };
+        if by != 0 {
+            let request = aequalis::calendar::step(view, by);
+            if let Ok(out) = &*self.evaluated(&request) {
+                if let Some(next) = &out.calendar {
+                    self.overlay = Some(Overlay::Calendar(Box::new(next.clone()), 0));
+                }
+            }
+            return;
+        }
+        match key {
+            Key::Esc | Key::Enter | Key::Char('q' | 'c' | 'C') => self.overlay = None,
+            Key::Down | Key::Char('j') => *scroll += 1,
+            Key::Up | Key::Char('k') => *scroll = scroll.saturating_sub(1),
+            Key::PageDown => *scroll += SCROLL_STEP,
+            Key::PageUp => *scroll = scroll.saturating_sub(SCROLL_STEP),
+            _ => {}
+        }
+    }
+
+    /// The calendar of the request in the line when it is one (`cal march UAE,USA,Italy`), else
+    /// this month's, in its window.
+    pub(super) fn open_calendar(&mut self) {
+        let line = self.line.text();
+        let this_month = (2000, 1);
+        let request = if aequalis::calendar::request(&line, this_month).is_some_and(|r| r.is_ok()) { line.trim().to_string() } else { "cal".to_string() };
+        if let Ok(out) = &*self.evaluated(&request) {
+            if let Some(view) = &out.calendar {
+                self.overlay = Some(Overlay::Calendar(Box::new(view.clone()), 0));
+            }
         }
     }
 
@@ -872,6 +916,8 @@ impl<'a> App<'a> {
                 }
             }
             Key::Tab | Key::BackTab => p.switch_tab(),
+            // Date & Time: the calendar (`C`, no class's letter).
+            Key::Char('c' | 'C') if p.category(self.config).name == aequalis::config::TIME => self.open_calendar(),
             Key::Left | Key::Char('h') => p.step(self.config, Direction::Left),
             Key::Right | Key::Char('l') => p.step(self.config, Direction::Right),
             Key::Up | Key::Char('k') => p.step(self.config, Direction::Up),
@@ -1031,6 +1077,17 @@ impl<'a> App<'a> {
                 self.overlay = Some(Overlay::Choice(a.clone(), 0));
                 return;
             }
+            // A calendar: its window; the history keeps the request and its title.
+            Ok(out) if out.calendar.is_some() => {
+                let view = out.calendar.clone().unwrap_or_default();
+                let title = view.title.clone();
+                self.overlay = Some(Overlay::Calendar(Box::new(view), 0));
+                self.history.push(Entry { input, result: Ok(title), copy: None });
+                self.status = None;
+                self.line.set("");
+                self.scroll = 0;
+                return;
+            }
             Ok(out) => {
                 let status = match (out.warnings.is_empty(), out.notes.is_empty()) {
                     (false, _) => Some((StatusKind::Warning, out.warnings.join(" · "))),
@@ -1075,6 +1132,8 @@ impl<'a> App<'a> {
                     aequalis::time::AmbiguityKind::Date => format!("ambiguous: {} · Enter to choose", patterns.join(" or ")),
                 })
             }
+            // A calendar: what Enter opens.
+            Ok(out) if out.calendar.is_some() => Ok(format!("{} · Enter: the calendar", out.calendar.as_ref().map_or("", |v| v.title.as_str()))),
             // Dates and distances come formatted; other numbers get the device's separators here.
             Ok(out) if out.formatted => Ok(out.stdout.clone()),
             Ok(out) => Ok(self.numbers.apply_to_result(&out.stdout)),

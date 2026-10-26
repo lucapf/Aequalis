@@ -64,11 +64,15 @@ aequalis> 8 l/100km mpg
 
 ### Currencies {.card}
 
-`12 usd euro` by code, name, symbol or country. Rates are synced once a day; add a date for a past day's rates: `100 usd eur 2025-01-30`, `yesterday`, `3 months ago` (750 days back).
+`12 usd euro` by code, name, symbol or country. Rates are synced once a day; add a date for a past day's rates: `100 usd eur 2025-01-30`, `yesterday`, `3 months ago`, `-1wd` (750 days back).
 
 ### Dates and time {.card}
 
 `12 Sept 2026 + 5wd` gives `18/09/2026`. `10:00AM Paris to New York` gives the time over there.
+
+### Calendar {.card}
+
+`cal` shows this month; `cal march UAE,USA,Italy` marks the three countries' public holidays, a colour each. `cal 2027` is the year.
 
 ### Fuel consumption {.card}
 

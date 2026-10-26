@@ -5,7 +5,7 @@
 # (Android Studio: SDK Manager › SDK Tools › NDK) and the Rust targets:
 #   rustup target add x86_64-linux-android aarch64-linux-android armv7-linux-androideabi
 #   scripts/build-android.sh
-# Run it again after changing the Rust code, then Run in Android Studio (the debug build, slow on
+# Run it again after changing the Rust code (the app's version: AEQUALIS_VERSION=1.4.0, below), then Run in Android Studio (the debug build, slow on
 # purpose) or scripts/install-android.sh (the fast build, for using the app).
 #
 # It also ships the online data as valid now, in app/src/main/assets/ (not in git): the exchange
@@ -14,6 +14,15 @@
 # any cities work before its first download. Offline, the ones already there are shipped.
 set -eu
 cd "$(dirname "$0")/.."
+# The version the app shows (About): the release's, as the pipeline writes it into Cargo.toml for
+# its builds only (the repository keeps 0.1.0). With AEQUALIS_VERSION=1.4.0 (the same variable the
+# Gradle build reads for the app's version) it is written for this build and put back after.
+if [ -n "${AEQUALIS_VERSION:-}" ]; then
+    cp Cargo.toml Cargo.toml.keep
+    cp Cargo.lock Cargo.lock.keep
+    trap 'mv Cargo.toml.keep Cargo.toml; mv Cargo.lock.keep Cargo.lock' EXIT
+    sed -i -E "0,/^version = \".*\"/s//version = \"$AEQUALIS_VERSION\"/" Cargo.toml
+fi
 sdk=${ANDROID_HOME:-$HOME/Android/Sdk}
 ndk=${ANDROID_NDK_HOME:-$(ls -d "$sdk"/ndk/* | sort -V | tail -1)}
 bin=$(ls -d "$ndk"/toolchains/llvm/prebuilt/*/bin | head -1)

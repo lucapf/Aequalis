@@ -56,20 +56,29 @@ fn score(q: &str, names: &[&str], words: &[&str]) -> Option<usize> {
     if q.is_empty() {
         return Some(0);
     }
-    // Each text in lower case once, for the four tiers.
-    let names: Vec<String> = names.iter().map(|n| n.to_lowercase()).collect();
-    let words: Vec<String> = words.iter().map(|w| w.to_lowercase()).collect();
-    if names.iter().any(|n| n == q) {
-        Some(0)
-    } else if names.iter().any(|n| n.starts_with(q)) {
-        Some(1)
-    } else if words.iter().any(|t| t.split(|c: char| !c.is_alphanumeric()).any(|w| w.starts_with(q))) {
-        Some(2)
-    } else if names.iter().chain(&words).any(|t| t.contains(q)) {
-        Some(3)
-    } else {
-        None
+    // Each text in lower case once, its best tier kept: the lowest of all of them.
+    let mut best: Option<usize> = None;
+    let mut tier = |t: usize| best = Some(best.map_or(t, |b| b.min(t)));
+    for n in names {
+        let n = n.to_lowercase();
+        if n == q {
+            return Some(0);
+        }
+        if n.starts_with(q) {
+            tier(1);
+        } else if n.contains(q) {
+            tier(3);
+        }
     }
+    for w in words {
+        let w = w.to_lowercase();
+        if w.split(|c: char| !c.is_alphanumeric()).any(|x| x.starts_with(q)) {
+            tier(2);
+        } else if w.contains(q) {
+            tier(3);
+        }
+    }
+    best
 }
 
 /// A match with how well it fits and its place, to sort.

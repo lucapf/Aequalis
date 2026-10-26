@@ -88,7 +88,7 @@ impl City {
         let aliases = Some(found(true)).filter(|f| !f.is_empty()).unwrap_or_else(|| found(false));
         let capital = |a: &&&String| a.chars().next().is_some_and(char::is_uppercase);
         match (aliases.iter().find(capital), aliases.first()) {
-            (Some(a), _) => a.to_string(),
+            (Some(a), _) => (*a).clone(),
             (None, Some(a)) => a
                 .split(' ')
                 .map(|w| {
@@ -134,7 +134,7 @@ impl City {
         let mut c = crate::json::parse(text).ok()?;
         // Its strings taken from the line's document, not copied: an archive has 70,000 lines.
         let s = |c: &mut crate::json::Value, k: &str| c.take(k).into_string().unwrap_or_default();
-        let n = |c: &crate::json::Value, k: &str| c.get(k).and_then(|v| v.number());
+        let n = |c: &crate::json::Value, k: &str| c.get(k).and_then(crate::json::Value::number);
         Some(City {
             id: n(&c, "id")? as u64,
             name: s(&mut c, "name"),
@@ -146,7 +146,7 @@ impl City {
             region: s(&mut c, "region"),
             updated: s(&mut c, "updated"),
             aliases: c.take("aliases").into_strings(),
-            capital: c.get("capital").and_then(|v| v.boolean()).unwrap_or(false),
+            capital: c.get("capital").and_then(crate::json::Value::boolean).unwrap_or(false),
         })
     }
 
@@ -186,7 +186,7 @@ pub struct Meta {
 
 pub fn meta_in(base: &Path) -> Option<Meta> {
     let doc = crate::json::parse(&std::fs::read_to_string(base.join("cities.json")).ok()?).ok()?;
-    let n = |k: &str| doc.get(k).and_then(|v| v.number()).unwrap_or(0.0);
+    let n = |k: &str| doc.get(k).and_then(crate::json::Value::number).unwrap_or(0.0);
     let s = |k: &str| doc.get(k).and_then(|v| v.str()).unwrap_or_default().to_string();
     Some(Meta { version: s("version"), built_at: n("built_at") as i64, count: n("count") as u64, downloaded_at: n("downloaded_at") as i64, dir: s("dir") })
 }
@@ -314,6 +314,7 @@ impl Store {
     }
 
     /// The index lines from `start` on, while `keep` says so (at most `limit`).
+    #[cfg(test)]
     fn scan(&self, start: u64, limit: usize, keep: &dyn Fn(&str) -> bool) -> Vec<(String, u64)> {
         let mut out = Vec::new();
         self.walk(start, |k, offset| {
@@ -351,8 +352,15 @@ impl Store {
         if target.is_empty() {
             return Vec::new();
         }
-        let hits = self.scan(self.lower_bound(&target), 5000, &|k| k == target);
-        let found = self.cities(hits.into_iter().map(|(_, o)| o));
+        let mut hits = Vec::new();
+        self.walk(self.lower_bound(&target), |k, offset| {
+            let more = k == target && hits.len() < 5000;
+            if more {
+                hits.push(offset);
+            }
+            more
+        });
+        let found = self.cities(hits);
         // Each qualifier: the city's region, its country, or a name of its country (`USA`).
         found
             .into_iter()
@@ -389,17 +397,23 @@ impl Store {
             return Vec::new();
         }
         // Each city once (its name and its aliases are lines of their own), noting those with a name
-        // that is exactly `prefix`.
+        // that is exactly `prefix`; the index lines read through, none kept.
         let (mut offsets, mut exact) = (Vec::new(), std::collections::HashSet::new());
         let mut seen = std::collections::HashSet::new();
-        for (k, offset) in self.scan(self.lower_bound(&target), 2000, &|k| k.starts_with(target.as_str())) {
+        let mut read = 0;
+        self.walk(self.lower_bound(&target), |k, offset| {
+            if !k.starts_with(target.as_str()) || read == 2000 {
+                return false;
+            }
+            read += 1;
             if seen.insert(offset) {
                 offsets.push(offset);
             }
             if k == target {
                 exact.insert(offset);
             }
-        }
+            true
+        });
         let mut found: Vec<(u64, String, Brief)> = offsets
             .into_iter()
             .filter_map(|o| {
@@ -408,12 +422,11 @@ impl Store {
                 Some((o, line, brief))
             })
             .collect();
-        // The most populous first (as `cities`), then by rank: the sort is stable.
-        found.sort_by(|a, b| b.2.population.cmp(&a.2.population).then(a.2.name.cmp(&b.2.name)));
+        // By rank, then the most populous first (as `cities`): one sort on the whole key.
         found.sort_by_cached_key(|(o, _, b)| {
             let named_so = tz::key(&b.name).starts_with(&target) || exact.contains(o);
             let (not_capital, tier) = rank_key(&b.name, &b.country_code, b.capital, &target, local);
-            (!named_so, not_capital, tier)
+            (!named_so, not_capital, tier, std::cmp::Reverse(b.population), b.name.clone())
         });
         found.into_iter().take(limit).filter_map(|(_, line, _)| City::from_line(&line)).collect()
     }
@@ -520,8 +533,8 @@ fn convert_in_runs(json: &Path, dir: &Path, run: usize) -> Result<(u64, i64), St
             // The header: `{"format": 1, …, "count": N, "cities": [`.
             let head = format!("{}\"x\": 0}}", head);
             if let Ok(doc) = crate::json::parse(&head) {
-                built_at = doc.get("built_at").and_then(|v| v.number()).unwrap_or(0.0) as i64;
-                expected = doc.get("count").and_then(|v| v.number()).map(|n| n as u64);
+                built_at = doc.get("built_at").and_then(crate::json::Value::number).unwrap_or(0.0) as i64;
+                expected = doc.get("count").and_then(crate::json::Value::number).map(|n| n as u64);
             }
             continue;
         }

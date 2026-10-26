@@ -121,18 +121,8 @@ impl Mock {
         }
     }
 
-    pub fn with_system(mut self, system: System) -> Mock {
-        self.system = system;
-        self
-    }
-
     pub fn with_format(mut self, decimal: &str, thousands: &str) -> Mock {
         self.format = format(decimal, thousands);
-        self
-    }
-
-    pub fn with_order(mut self, order: Order) -> Mock {
-        self.order = order;
         self
     }
 

@@ -1,0 +1,61 @@
+# The public holidays of every country python-holidays knows (scripts/build-holidays.py), last
+# year to next year, with their names in the countries' languages: holidays.json, the asset of the
+# release `holidays`, replaced every day (the library's estimates of lunar holidays change, and
+# the years move on with the new year). The app checks it once a day with its sync. That release is
+# data, not an app version: it is never marked latest, and nothing is pushed, so no app release
+# starts.
+name: Holidays
+
+on:
+  schedule:
+    - cron: "40 1 * * *"
+  workflow_dispatch:
+  # The first merge publishes it.
+  push:
+    branches: [master]
+    paths:
+      - scripts/build-holidays.py
+      - .github/workflows/holidays.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: holidays
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet --upgrade holidays
+          .venv/bin/python scripts/build-holidays.py dist
+      - name: Check
+        run: |
+          python3 - <<'EOF'
+          import datetime, json
+          d = json.load(open("dist/holidays.json", encoding="utf-8"))
+          year = datetime.date.today().year
+          assert d["format"] == 1 and d["years"] == [year - 1, year, year + 1], d["years"]
+          c = d["countries"]
+          assert len(c) > 150, len(c)
+          for code in ["IT", "US", "GB", "AE", "SA", "CN", "JP", "RU", "NG", "BR"]:
+              v = c[code]
+              assert v["days"] and all(len(n) == len(v["days"]) for n in v["names"].values()), code
+              assert v["default"] in v["names"], code
+          assert f"{year}-12-25" in c["IT"]["days"], "Christmas"
+          print(len(c), "countries")
+          EOF
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view holidays --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create holidays --repo "$GITHUB_REPOSITORY" --latest=false --title "Public holidays" \
+              --notes "Public holidays for Aequalis's calendar (cal march UAE,USA,Italy), from python-holidays (https://github.com/vacanza/holidays). Written daily by .github/workflows/holidays.yml; Aequalis downloads holidays.json."
+          fi
+          gh release upload holidays dist/holidays.json --repo "$GITHUB_REPOSITORY" --clobber

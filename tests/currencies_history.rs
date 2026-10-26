@@ -126,6 +126,47 @@ fn relative_dates() {
 }
 
 #[test]
+fn short_relative_dates_in_days_working_days_months_and_years() {
+    // 12 Oct 2026 is a Monday: a working day back, and three days back, is Friday 9 Oct.
+    let dir = config(
+        "short",
+        &[
+            ("currencies-261011.json", day_file(TODAY - 1, 0.8, 150.0)),
+            ("currencies-261009.json", day_file(TODAY - 3, 0.5, 150.0)),
+            ("currencies-260812.json", day_file(20_677, 0.25, 150.0)),
+            ("currencies-251012.json", day_file(20_373, 0.2, 150.0)),
+        ],
+    );
+    // One currency converts to the local one: dollars here, so that euros have somewhere to go.
+    let text = r#"{"offline":true,"currency.local":"USD","rates.refresh":"manual","cities.refresh":"manual"}"#;
+    std::fs::write(dir.join("aequalis/settings.json"), text).unwrap();
+    for (request, answer) in [
+        ("12 eur -1d", "15.00 USD"),
+        ("12 eur yesterday", "15.00 USD"),
+        ("12 eur 1 d ago", "15.00 USD"),
+        ("12 eur -1wd", "24.00 USD"),
+        ("12 eur 1 wd ago", "24.00 USD"),
+        ("12 eur 3 d ago", "24.00 USD"),
+        ("12 eur 3 dago", "24.00 USD"),
+        ("12 eur 3dago", "24.00 USD"),
+        ("12 eur -3d", "24.00 USD"),
+        ("12 eur -2m", "48.00 USD"),
+        ("12 eur 2 mo ago", "48.00 USD"),
+        ("12 eur -1y", "60.00 USD"),
+        ("12 eur 1 y ago", "60.00 USD"),
+        ("12 usd eur -1wd", "6.00 EUR"),
+    ] {
+        assert_eq!(ok(&dir, request), answer, "{request}");
+    }
+    // Two working days back is Thursday: no file kept, and offline.
+    assert!(fails(&dir, "12 eur -2wd").1.contains("no exchange rates of 08 Oct 26 on this device"));
+    // A count back past the history.
+    assert!(fails(&dir, "12 eur -3y").1.contains("keeps 750 days"));
+    // `qw` is no number, dated or not.
+    assert!(fails(&dir, "qw eur 3 dago").1.contains("`qw` is not a valid number"));
+}
+
+#[test]
 fn no_date_is_the_latest_rates_and_never_asked() {
     let dir = config("latest", &files());
     settings(&dir, true, None);
@@ -233,10 +274,22 @@ fn a_day_the_archive_lacks_or_a_broken_file_is_an_error() {
     settings(&dir, false, Some(&from));
     let (code, message) = fails(&dir, "100 usd to eur 2025-01-30");
     assert_eq!(code, 1);
-    assert!(message.contains("no exchange rates of 30 Jan 25: they could not be downloaded"), "{message}");
+    assert!(message.contains("no exchange rates of 30 Jan 25: the archive has none (it holds the days since it began)"), "{message}");
     let (_, message) = fails(&dir, "100 usd to eur 2025-01-31");
     assert!(message.contains("no exchange rates of 31 Jan 25: the archive has none"), "{message}");
     assert!(!dir.join("aequalis/rates/currencies-250131.json").exists(), "a broken file is not kept");
+}
+
+#[test]
+fn no_connection_is_said_so_not_blamed_on_the_archive() {
+    // An archive nothing answers at (the port of the tests' proxy).
+    let dir = config("unreachable", &[]);
+    let text = r#"{"offline":false,"rates.refresh":"manual","cities.refresh":"manual","rates.history_url":"http://127.0.0.1:9/rates"}"#;
+    std::fs::write(dir.join("aequalis/settings.json"), text).unwrap();
+    let (code, message) = fails(&dir, "100 usd to eur 2025-01-30");
+    assert_eq!(code, 1);
+    assert!(message.contains("no exchange rates of 30 Jan 25: they could not be downloaded (no connection)"), "{message}");
+    assert!(!message.contains("archive"), "{message}");
 }
 
 #[test]

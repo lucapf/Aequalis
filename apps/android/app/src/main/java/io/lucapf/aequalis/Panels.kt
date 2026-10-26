@@ -16,6 +16,7 @@ import androidx.compose.material3.VerticalDivider
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -36,6 +37,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -100,6 +102,8 @@ fun PanelView(
     select: (Panel) -> Unit = {},
     // A key of the Sizes (`shoes`, `eu`): the core writes it, `shoes` brought along when missing.
     sizeKey: (String) -> Unit = write,
+    // Date & Time's Calendar button.
+    calendar: () -> Unit = {},
 ) {
     // The second level (a class, a section), when one is open, and in the Trivia a third, a value's
     // details: the back gesture goes up one level.
@@ -148,7 +152,7 @@ fun PanelView(
             // Another class or section: its own values, no detail of the previous one.
             val open = { name: String -> opened = name; detail = null }
             when (panel) {
-                Panel.Measures -> MeasuresPanel(opened, open, write, wide, unitClass, sizeKey)
+                Panel.Measures -> MeasuresPanel(opened, open, write, wide, unitClass, sizeKey, calendar)
                 Panel.Currencies -> CurrenciesPanel(write, wide)
                 Panel.Sizes -> SizesPanel(sizeKey)
                 Panel.Trivia -> TriviaPanel(opened, detail, open, show = { detail = it }, write, openLink, wide)
@@ -189,7 +193,7 @@ private val DetailWidth = 360.dp
  *  the classes on the left, the units of the one chosen beside them. With a unit in the request
  *  (`10 cm `), its class (`unitClass`, the core's) opened at once: the target is of the same kind. */
 @Composable
-private fun MeasuresPanel(opened: String?, open: (String) -> Unit, write: (String) -> Unit, wide: Boolean, unitClass: String?, sizeKey: (String) -> Unit) {
+private fun MeasuresPanel(opened: String?, open: (String) -> Unit, write: (String) -> Unit, wide: Boolean, unitClass: String?, sizeKey: (String) -> Unit, calendar: () -> Unit) {
     val measures = loaded { Core.measures() } ?: return
     LaunchedEffect(measures) { if (opened == null) unitClass?.let(open) }
     val measure = measures.firstOrNull { it.name == opened }
@@ -204,11 +208,11 @@ private fun MeasuresPanel(opened: String?, open: (String) -> Unit, write: (Strin
         wide -> Row(Modifier.fillMaxSize()) {
             classes(Modifier.width(ListWidth).fillMaxHeight())
             VerticalDivider()
-            if (opened == SIZES) SizesPanel(sizeKey) else measure?.let { MeasureUnits(it, write, columns = GridCells.Adaptive(96.dp)) }
+            if (opened == SIZES) SizesPanel(sizeKey) else measure?.let { MeasureUnits(it, write, columns = GridCells.Adaptive(96.dp), calendar) }
         }
         opened == SIZES -> SizesPanel(sizeKey)
         measure == null -> classes(Modifier)
-        else -> MeasureUnits(measure, write, columns = GridCells.Fixed(3))
+        else -> MeasureUnits(measure, write, columns = GridCells.Fixed(3), calendar)
     }
 }
 
@@ -229,6 +233,9 @@ fun SizesStrip(sizeKey: (String) -> Unit) {
         items(sizes.letters) { (name, letter) -> AssistChip(onClick = { sizeKey(letter) }, label = { Text(name) }) }
     }
 }
+
+/** The Date & Time class's name, in the Measures: its units have the Calendar button. */
+private const val DATE_TIME = "Date & Time"
 
 /** The Sizes class's name, in the Measures. */
 private const val SIZES = "Sizes"
@@ -256,9 +263,10 @@ private fun groupSample(name: String) = when (name) {
     else -> "men, women, kids: 42 eu men shoes us"
 }
 
-/** A class's units, as buttons that write them, on a tab per system. */
+/** A class's units, as buttons that write them, on a tab per system; Date & Time's with the
+ *  Calendar button above them. */
 @Composable
-private fun MeasureUnits(measure: Measure, write: (String) -> Unit, columns: GridCells) {
+private fun MeasureUnits(measure: Measure, write: (String) -> Unit, columns: GridCells, calendar: () -> Unit) {
     // A system tab, when the class has units on both (Date & Time has durations only).
     val tabs = listOf("metric" to measure.systems[0], "imperial" to measure.systems[1])
         .filter { (system, _) -> measure.units.any { it.system == system } }
@@ -267,6 +275,13 @@ private fun MeasureUnits(measure: Measure, write: (String) -> Unit, columns: Gri
         if (tabs.size > 1) {
             Row(Modifier.padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 tabs.forEach { (system, title) -> FilterChip(selected = tab == system, onClick = { tab = system }, label = { Text(title) }) }
+            }
+        }
+        if (measure.name == DATE_TIME) {
+            FilledTonalButton(onClick = calendar, modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+                Icon(CalendarIcon, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Calendar")
             }
         }
         // A unit of both systems (`b`, `B`) on each tab.

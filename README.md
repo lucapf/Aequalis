@@ -72,7 +72,7 @@ Currencies by code, name, symbol or country, in any case: `12 usd euro`, `12 USA
 currency, to your local one. Shared names (`dollar`) and misspellings are
 asked about. Rates from [ExchangeRate-API](https://www.exchangerate-api.com), synced once a day
 in the background. A date at the end gives a past day's rates (saved daily, up
-to 750 days back, from when the history began): `100 usd eur 2025-01-30`, `100 usd eur yesterday`, `100 usd eur 3 months ago`.
+to 750 days back, from when the history began): `100 usd eur 2025-01-30`, `100 usd eur yesterday`, `100 usd eur 3 months ago`, `12 eur -1wd` (a working day back).
 The `rates.history` setting (on by default) turns the history off and shows how many days are held.
 
 | You type | Aequalis answers |
@@ -92,6 +92,19 @@ Calendar-aware date math, working days (`wd`) and dates written in many forms.
 | `12 Sept 2026 + 5wd` | `18/09/2026 DD/MM/YYYY` (5 working days later) |
 | `2026/10/05 + 5wd` | `2026/10/12 YYYY/MM/DD` |
 | `12/04/2026 unix` | asks: April 12 or December 4? |
+
+### Calendar
+
+`cal` shows this month, with ISO week numbers and today marked; `cal march 2027`, `cal 2027` (the
+year), and the public holidays of up to 5 countries, a colour each: `cal march UAE,USA,Italy`. The
+holidays (every country's, last year to next year, from python-holidays) come with the sync and work
+offline; the `holidays` setting turns them off.
+
+| You type | Aequalis answers |
+|---|---|
+| `cal` | this month, the week from the region's first day |
+| `cal december UAE,USA,Italy` | December, each country's holidays in its colour, listed under it |
+| `cal 2027 de fr` | 2027, three months a row, Germany's and France's holidays marked |
 
 ### Time zones
 

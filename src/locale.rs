@@ -41,6 +41,39 @@ pub fn set_device_system(system: System) {
     let _ = DEVICE_SYSTEM.set(system);
 }
 
+static DEVICE_LANGUAGE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// The device's language as the app embedding aequalis knows it (`it`); set once, before use.
+pub fn set_device_language(language: &str) {
+    let _ = DEVICE_LANGUAGE.set(language.to_ascii_lowercase());
+}
+
+/// The device's language, its first part (`it` for `it_IT.UTF-8`): the app's, else the locale's
+/// (`LC_ALL`, `LC_MESSAGES`, `LANG`); `None` for `C`, `POSIX` or nothing.
+pub fn device_language() -> Option<String> {
+    if let Some(language) = DEVICE_LANGUAGE.get() {
+        return Some(language.clone());
+    }
+    let var = |name| std::env::var(name).ok().filter(|v| !v.is_empty());
+    var("LC_ALL").or_else(|| var("LC_MESSAGES")).or_else(|| var("LANG")).and_then(|l| language_of(&l))
+}
+
+/// `it_IT.UTF-8` → `it`, `pt-BR` → `pt`; `C`, `POSIX` → none.
+pub fn language_of(locale: &str) -> Option<String> {
+    let name = locale.split(['.', '@']).next()?;
+    let language = name.split(['_', '-']).next()?.to_ascii_lowercase();
+    (language.len() >= 2 && language.bytes().all(|b| b.is_ascii_lowercase()) && language != "posix").then_some(language)
+}
+
+/// The territory of the locale (`IT` for `it_IT.UTF-8`), from `LC_ALL`, `LC_TIME`, `LANG`.
+pub fn territory() -> Option<String> {
+    let var = |name| std::env::var(name).ok().filter(|v| !v.is_empty());
+    let locale = var("LC_ALL").or_else(|| var("LC_TIME")).or_else(|| var("LANG"))?;
+    let name = locale.split(['.', '@']).next()?;
+    let territory = name.split_once(['_', '-'])?.1;
+    (territory.len() == 2).then(|| territory.to_ascii_uppercase())
+}
+
 /// `en_US.UTF-8` → imperial, `it_IT.UTF-8` → metric; `C` / `POSIX` / no territory → unknown.
 pub fn from_locale(locale: &str) -> Option<System> {
     let name = locale.split(['.', '@']).next()?;

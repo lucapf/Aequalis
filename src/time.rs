@@ -666,7 +666,11 @@ mod tests {
         assert_eq!(r("12 Sept 2026, 15:30+02:00").map(|x| x.5), Some("DD/MM/YYYY-24h-tz".into()));
         // Never ambiguous; an impossible day or a month shared by two names is no date.
         assert_eq!(read_date("4 Dec 2026", None, Order::MonthFirst).unwrap().readings.len(), 1);
-        for no in ["31 Feb 2026", "12 jui 2026", "12 Sept", "Sept 2026", "12 Sept 2026 xyz", "12 km 2026", "123 Sep 2026"] {
+        // No year: this year's.
+        let this_year = now().civil().year;
+        assert_eq!(r("12 Sept"), Some((this_year, 9, 12, 0, 0, "DD/MM/YYYY".into())));
+        assert_eq!(r("Sep 12th"), Some((this_year, 9, 12, 0, 0, "MM/DD/YYYY".into())));
+        for no in ["31 Feb 2026", "12 jui 2026", "Sept 2026", "12 Sept 2026 xyz", "12 km 2026", "123 Sep 2026"] {
             assert_eq!(r(no), None, "{no}");
         }
         // An explicit pattern must match the order written.

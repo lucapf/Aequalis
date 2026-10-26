@@ -25,7 +25,9 @@ tui = []
 ffi = []
 
 [profile.release]
-opt-level = "z"
+# `s`, not `z`: the core answers a request about twice as fast (measured: `10 km mi` 84 → 45 µs)
+# for 6% more binary; `z` buys little size for that.
+opt-level = "s"
 lto = true
 codegen-units = 1
 strip = true

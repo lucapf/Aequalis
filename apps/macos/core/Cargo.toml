@@ -18,7 +18,8 @@ crate-type = ["staticlib"]
 aequalis = { path = "../../..", default-features = false, features = ["ffi"] }
 
 [profile.release]
-opt-level = "z"
+# As the root package's: `s` answers requests about twice as fast as `z` for 6% more code.
+opt-level = "s"
 lto = true
 codegen-units = 1
 strip = true

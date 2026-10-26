@@ -38,6 +38,11 @@ enum Style {
     Badge,
     /// A lit key: the one typed last, or the selected unit.
     Lit,
+    /// The calendar's today.
+    Today,
+    /// A holiday in the calendar: its (first) country's colour, underlined when it is several
+    /// countries', inverse when it is today.
+    Holiday { country: u8, several: bool, today: bool },
 }
 
 impl Style {
@@ -53,6 +58,21 @@ impl Style {
             Style::Orange => "\x1b[38;5;208m",
             Style::Badge => "\x1b[1;7m",
             Style::Lit => "\x1b[1;30;43m",
+            Style::Today => "\x1b[7m",
+            Style::Holiday { country, .. } => aequalis::calendar::COLOURS[usize::from(country) % aequalis::calendar::MAX_COUNTRIES],
+        }
+    }
+
+    /// Its codes, into `out`.
+    fn push(self, out: &mut String) {
+        out.push_str(self.code());
+        if let Style::Holiday { several, today, .. } = self {
+            if several {
+                out.push_str("\x1b[4m");
+            }
+            if today {
+                out.push_str("\x1b[7m");
+            }
         }
     }
 }
@@ -183,7 +203,7 @@ impl Canvas {
                 for &(ch, style) in row.iter().filter(|(ch, _)| *ch != WIDE) {
                     if style != current {
                         out.push_str("\x1b[0m");
-                        out.push_str(style.code());
+                        style.push(&mut out);
                         current = style;
                     }
                     out.push(ch);
@@ -654,6 +674,7 @@ fn window(app: &App, canvas: &mut Canvas, rows: usize) -> bool {
         Some(Overlay::Settings(view)) => settings_window(canvas, rows, view),
         Some(Overlay::Help(scroll)) => help(canvas, rows, *scroll),
         Some(Overlay::Choice(a, selected)) => choice(canvas, rows, a, *selected),
+        Some(Overlay::Calendar(view, scroll)) => calendar(canvas, rows, view, *scroll),
         _ => return false,
     }
     true
@@ -1039,11 +1060,10 @@ fn expression(app: &App, canvas: &mut Canvas, top: usize) -> Option<(usize, usiz
 /// one line.
 fn answer_rows(app: &App, room: usize) -> usize {
     let lines = match app.preview() {
-        Some(Ok(text)) => text.lines().count(),
+        Some(Ok(text)) => Some(text.lines().count()).filter(|&n| n > 1).unwrap_or(0),
         Some(Err(text)) => text.lines().count().saturating_sub(1),
         None => 0,
     };
-    let lines = if lines > 1 || matches!(app.preview(), Some(Err(_))) { lines } else { 0 };
     lines.min(ANSWER_ROWS).min(room.saturating_sub(6))
 }
 
@@ -1114,6 +1134,7 @@ fn status(app: &App, canvas: &mut Canvas, row: usize) {
         Some(Overlay::Trivia(v)) if v.popup.is_some() => (" TRIVIA ", &[("↑↓", "scroll"), ("Enter", "write the value"), ("<Esc>", "back")]),
         Some(Overlay::Trivia(_)) => (" TRIVIA ", &[("Tab ←→", "section"), ("↑↓ j k", "entry"), ("Enter", "details"), ("<Esc>", "back")]),
         Some(Overlay::About) => (" ABOUT ", &[("<Esc>", "close")]),
+        Some(Overlay::Calendar(..)) => (" CALENDAR ", &[("←→", "month"), ("↑↓", "scroll"), ("<Esc>", "close")]),
         Some(Overlay::Help(_)) => (" HELP ", &[("↑↓", "scroll"), ("<Esc>", "close")]),
         Some(Overlay::Settings(v)) if v.edit.is_some() => (" SETTINGS ", &[("type", "value"), ("Enter", "save"), ("<Esc>", "cancel")]),
         Some(Overlay::Settings(v)) if v.list.is_some() => (" SETTINGS ", &[("type", "filter"), ("↑↓", "choose"), ("Enter", "save"), ("<Esc>", "cancel")]),
@@ -1186,12 +1207,23 @@ fn unit_keys(app: &App, p: &Picker, canvas: &mut Canvas, area: Area) {
     let category = p.category(app.config);
     canvas.boxed(area.top, area.left, area.height, area.width, &format!("{} units", p.title(app.config)));
     panel_tabs(canvas, area, p.tabs(app.config));
+    // Date & Time: the calendar, on the right of the tabs.
+    if category.name == aequalis::config::TIME {
+        let right = area.left + area.width - 2;
+        let from = right.saturating_sub(CALENDAR_BUTTON.chars().count());
+        let end = canvas.put_within(area.top + 1, from, right, CALENDAR_BUTTON, Style::Plain);
+        canvas.put_within(area.top + 1, from + 2, right, "C", Style::Yellow);
+        canvas.hit(area.top + 1, from, end - from, Target::Act(Action::Calendar));
+    }
     // Time's second tab is the table of date formats.
     match (category.name == aequalis::config::TIME).then(format_rows) {
         Some(table) if p.shows_formats(app.config) => format_table(p, canvas, area, &table),
         _ => unit_buttons(app, p, canvas, area),
     }
 }
+
+/// The Date & Time keys' button that opens the calendar (`C`).
+const CALENDAR_BUTTON: &str = "[ C Calendar ]";
 
 /// A panel's tabs on its second row (the one shown lit; a click shows it), and a rule under them.
 fn panel_tabs<'a>(canvas: &mut Canvas, area: Area, tabs: impl IntoIterator<Item = (&'a str, bool)>) {
@@ -1337,7 +1369,7 @@ fn trivia(app: &App, v: &super::trivia::View, canvas: &mut Canvas, area: Area) {
 /// data: synced when, from where; or its estimate).
 fn trivia_live(app: &App, e: &aequalis::trivia::Entry, now: i64) -> (Option<aequalis::online::Stored>, String) {
     let synced = app.online.get(&e.name);
-    let origin = aequalis::trivia::value(app.config, e, synced, now).map(|(_, o)| o).unwrap_or(aequalis::trivia::Origin::Fixed);
+    let origin = aequalis::trivia::value(app.config, e, synced, now).map_or(aequalis::trivia::Origin::Fixed, |(_, o)| o);
     (synced, aequalis::trivia::origin_text(e, origin).unwrap_or_default())
 }
 
@@ -1866,7 +1898,7 @@ fn about(canvas: &mut Canvas, rows: usize) {
     let mut lines: Vec<(String, Style)> = aequalis::about::ART.lines().map(|l| (l.to_string(), Style::Plain)).collect();
     let logo_rows = lines.len();
     lines.push((String::new(), Style::Plain));
-    lines.push((title.clone(), Style::Bold));
+    lines.push((title, Style::Bold));
     lines.push((aequalis::about::DESCRIPTOR.to_string(), Style::Plain));
     lines.push((String::new(), Style::Plain));
     let width = lines.iter().map(|(l, _)| l.chars().count()).chain(facts.iter().map(|(l, v)| l.chars().count() + v.chars().count() + 2)).max().unwrap_or(0) + 4;
@@ -1892,6 +1924,96 @@ fn about(canvas: &mut Canvas, rows: usize) {
     }
 }
 
+/// A calendar's window: the month, or the year as many months a row as fit (three at most), today
+/// lit, each country's holidays in its colour (several countries': underlined), the weekend dim;
+/// under it, the countries and, for a month, its holidays. Scrolled down by `scroll` lines.
+fn calendar(canvas: &mut Canvas, rows: usize, view: &aequalis::calendar::View, scroll: usize) {
+    use aequalis::calendar::{Look, WIDTH, WEEKDAYS};
+    type Line = Vec<(String, Style)>;
+    let month = |m: &aequalis::calendar::Month| -> Vec<Line> {
+        let mut lines: Vec<Line> = vec![vec![(format!("{:^WIDTH$}", m.title), Style::Bold)]];
+        lines.push(vec![(format!("Wk {}", view.columns.iter().map(|&c| format!("{} ", WEEKDAYS[c as usize - 1])).collect::<String>()), Style::Dim)]);
+        for w in &m.weeks {
+            let mut line: Line = vec![(format!("{:>2} ", w.number), Style::Dim)];
+            for (k, &d) in w.days.iter().enumerate() {
+                if d == 0 {
+                    line.push(("   ".into(), Style::Plain));
+                    continue;
+                }
+                let (look, today) = view.look(w.first + k as i64, k);
+                let style = match look {
+                    Look::Holiday { country, several } => Style::Holiday { country: country as u8, several, today },
+                    _ if today => Style::Today,
+                    Look::Weekend => Style::Dim,
+                    _ => Style::Plain,
+                };
+                line.push((format!("{d:>2}"), style));
+                line.push((" ".into(), Style::Plain));
+            }
+            lines.push(line);
+        }
+        lines
+    };
+    let per_row = if view.year { (canvas.cols.saturating_sub(8) / (WIDTH + 2)).clamp(1, 3) } else { 1 };
+    let mut lines: Vec<Line> = Vec::new();
+    for (r, group) in view.months.chunks(per_row).enumerate() {
+        if r > 0 {
+            lines.push(Vec::new());
+        }
+        let blocks: Vec<Vec<Line>> = group.iter().map(month).collect();
+        for i in 0..blocks.iter().map(Vec::len).max().unwrap_or(0) {
+            let mut line: Line = Vec::new();
+            for (b, block) in blocks.iter().enumerate() {
+                if b > 0 {
+                    line.push(("  ".into(), Style::Plain));
+                }
+                let part = block.get(i).cloned().unwrap_or_default();
+                let used: usize = part.iter().map(|(t, _)| t.chars().count()).sum();
+                line.extend(part);
+                line.push((" ".repeat(WIDTH.saturating_sub(used)), Style::Plain));
+            }
+            lines.push(line);
+        }
+    }
+    if !view.countries.is_empty() {
+        lines.push(Vec::new());
+        let mut legend: Line = Vec::new();
+        for (i, (code, name)) in view.countries.iter().enumerate() {
+            if i > 0 {
+                legend.push(("   ".into(), Style::Plain));
+            }
+            legend.push(("■".into(), Style::Holiday { country: i as u8, several: false, today: false }));
+            legend.push((format!(" {name} ({code})"), Style::Plain));
+        }
+        lines.push(legend);
+        if !view.year {
+            let list = aequalis::calendar::listed(view);
+            let width = list.iter().map(|(days, ..)| days.chars().count()).max().unwrap_or(0);
+            for (days, country, name, length) in list {
+                let colour = Style::Holiday { country: country as u8, several: false, today: false };
+                let long = if length > 1 { format!(" ({length} days)") } else { String::new() };
+                lines.push(vec![
+                    (format!("{days:>width$}  "), Style::Plain),
+                    (view.countries[country].0.clone(), colour),
+                    (format!("  {name}{long}"), Style::Plain),
+                ]);
+            }
+        }
+    }
+    let width = lines.iter().map(|l| l.iter().map(|(t, _)| t.chars().count()).sum::<usize>()).max().unwrap_or(0) + 4;
+    let (top, left, width, height) = centred(canvas, rows, width, lines.len() + 2, &view.title);
+    modal_hits(canvas, rows, (top, left, width, height));
+    let right = left + width - 2;
+    let visible = height.saturating_sub(2);
+    let scroll = scroll.min(lines.len().saturating_sub(visible));
+    for (i, line) in lines.iter().skip(scroll).take(visible).enumerate() {
+        let mut col = left + 2;
+        for (text, style) in line {
+            col = canvas.put_within(top + 1 + i, col, right, text, *style);
+        }
+    }
+}
+
 /// Section headings have an empty description.
 const HELP: &[(&str, &str)] = &[
     ("The request", ""),
@@ -1907,6 +2029,8 @@ const HELP: &[(&str, &str)] = &[
     ("  PgUp/PgDn", "scroll the history"),
     ("  exit + Enter", "quit (quit + Enter works too)"),
     ("  about + Enter", "about: version, memory, last online sync"),
+    ("  cal + Enter", "the calendar: cal march 2027, cal 2027 de fr"),
+    ("", "(C in the Date & Time keys)"),
     ("Windows (the toolbar; Alt letters where F-keys are taken)", ""),
     ("  F2  Alt-M", "Measures: the unit classes, then their units"),
     ("  F3  Alt-C", "Currencies: search by code, name or country"),
@@ -2000,7 +2124,7 @@ mod tests {
         let mut chars = s.chars();
         while let Some(c) = chars.next() {
             if c == '\x1b' {
-                chars.by_ref().find(|c| c.is_ascii_alphabetic());
+                chars.by_ref().find(char::is_ascii_alphabetic);
             } else {
                 out.push(c);
             }
@@ -2036,6 +2160,8 @@ mod tests {
                         "Right" => Key::Right,
                         "Left" => Key::Left,
                         "S-Tab" => Key::BackTab,
+                        "PgDn" => Key::PageDown,
+                        "PgUp" => Key::PageUp,
                         n if n.starts_with('F') => Key::F(n[1..].parse().unwrap()),
                         n if n.starts_with("A-") => Key::Alt(n.chars().nth(2).unwrap()),
                         n if n.starts_with("C-") => Key::Ctrl(n.chars().nth(2).unwrap()),
@@ -2631,15 +2757,54 @@ mod tests {
     #[test]
     fn settings_value_list_under_its_row() {
         // Enter on the local currency: its list under the row, `auto` first; typing filters it.
-        let (lines, cursor) = screen("<F10><Down><Down>\n", 24, 100);
+        let (lines, cursor) = screen("<F10><Down><Down><Down>\n", 24, 100);
         let text = lines.join("\n");
         assert!(text.contains("│ auto") && text.contains("│ USD  US dollar") && cursor.is_none(), "{text}");
-        let text = screen("<F10><Down><Down>\ndir", 24, 100).0.join("\n");
+        let text = screen("<F10><Down><Down><Down>\ndir", 24, 100).0.join("\n");
         assert!(text.contains("│ dir▏") && text.contains("AED  UAE dirham") && !text.contains("USD  US dollar"), "{text}");
-        assert!(screen("<F10><Down><Down>\nzzz", 24, 100).0.join("\n").contains("no match"));
+        assert!(screen("<F10><Down><Down><Down>\nzzz", 24, 100).0.join("\n").contains("no match"));
         // A choice's list: its values, `auto` as it stands on this device.
-        let text = screen("<F10><Down><Down><Down>\n", 24, 100).0.join("\n");
+        let text = screen("<F10><Down><Down><Down><Down>\n", 24, 100).0.join("\n");
         assert!(text.contains("│ auto (") && text.contains("│ km ") && text.contains("│ mi "), "{text}");
+    }
+
+    #[test]
+    fn a_calendar_window() {
+        let (lines, _) = screen("cal march 2027\n", 30, 100);
+        let text = lines.join("\n");
+        assert!(text.contains(" March 2027 ") && text.contains("Wk ") && text.contains(" CALENDAR "), "{text}");
+        assert!(lines.iter().any(|l| l.contains("29 30 31")), "{text}");
+        // Esc closes it; the history keeps the request and its title.
+        let text = screen("cal march 2027\n<Esc>", 30, 100).0.join("\n");
+        assert!(!text.contains(" CALENDAR ") && text.contains("cal march 2027") && text.contains("= March 2027"), "{text}");
+        // Typed: what Enter opens.
+        assert!(screen("cal march 2027", 30, 100).0.join("\n").contains("= March 2027 · Enter: the calendar"));
+        // A year: three months a row on a wide screen, and scrolled on a short one.
+        let (lines, _) = screen("cal 2027\n", 50, 100);
+        assert!(lines.iter().any(|l| l.contains("January 2027") && l.contains("February 2027") && l.contains("March 2027")), "{}", lines.join("\n"));
+        let short = screen("cal 2027\n", 20, 100).0.join("\n");
+        let scrolled = screen("cal 2027\n<PgDn><PgDn><PgDn>", 20, 100).0.join("\n");
+        assert!(short.contains("January 2027") && !scrolled.contains("January 2027") && scrolled.contains("December 2027"), "{scrolled}");
+        // ← →: the month before and after.
+        let text = screen("cal march 2027\n<Right>", 30, 100).0.join("\n");
+        assert!(text.contains(" April 2027 ") && !text.contains(" March 2027 "), "{text}");
+        let text = screen("cal march 2027\n<Left><Left>", 30, 100).0.join("\n");
+        assert!(text.contains(" January 2027 "), "{text}");
+        let text = screen("cal 2027\n<Right>", 50, 100).0.join("\n");
+        assert!(text.contains("January 2028"), "a year: the next year: {text}");
+        // A wrong word: said under the request, as any error.
+        assert!(screen("cal blorp ", 30, 100).0.join("\n").contains("`blorp` is not a month, a year or a country"));
+    }
+
+    #[test]
+    fn the_date_and_time_keys_open_the_calendar() {
+        let text = screen("<F2>t", 30, 100).0.join("\n");
+        assert!(text.contains("[ C Calendar ]"), "{text}");
+        let text = screen("<F2>tC", 30, 100).0.join("\n");
+        assert!(text.contains(" CALENDAR ") && text.contains("Wk "), "{text}");
+        // Another class has no such button.
+        let text = screen("<F2>L", 30, 100).0.join("\n");
+        assert!(!text.contains("Calendar"), "{text}");
     }
 
     #[test]

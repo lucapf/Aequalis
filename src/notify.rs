@@ -33,7 +33,7 @@ pub fn load() -> State {
 pub fn load_from(path: &std::path::Path) -> State {
     let Ok(text) = std::fs::read_to_string(path) else { return State::default() };
     let Ok(doc) = crate::json::parse(&text) else { return State::default() };
-    let n = |k: &str| doc.get(k).and_then(|v| v.number()).unwrap_or(0.0) as i64;
+    let n = |k: &str| doc.get(k).and_then(crate::json::Value::number).unwrap_or(0.0) as i64;
     let s = |k: &str| doc.get(k).and_then(|v| v.str()).unwrap_or_default().to_string();
     State { cities_checked_at: n("cities_checked_at"), cities_available: s("cities_available"), cities_notified: s("cities_notified"), shown_at: n("shown_at") }
 }

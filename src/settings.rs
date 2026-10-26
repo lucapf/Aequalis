@@ -50,6 +50,8 @@ pub fn auto_value(key: &str) -> Option<&'static str> {
     match key {
         "currency.local" => crate::currency::local_from(None, crate::time::device_zone()).ok().flatten().map(|l| l.code),
         "distance.unit" => Some(DistanceUnit::Auto.unit()),
+        "holidays.countries" => crate::time::device_zone().and_then(crate::time::tz::zone_country).map(|c| c.code),
+        "calendar.week_start" => Some(crate::calendar::device_week_start().name()),
         _ => None,
     }
 }
@@ -80,6 +82,8 @@ pub enum Kind {
     Url,
     /// Names with their hits (`USD:3,EUR:1`; empty: the defaults), kept by the interactive mode.
     Favourites,
+    /// Up to `calendar::MAX_COUNTRIES` countries (`IT,AE`), or `auto`.
+    Countries,
 }
 
 /// A setting: its key, default, kind, and what it does.
@@ -94,7 +98,7 @@ pub struct Key {
 }
 
 /// Settings that earlier versions had; a file that still holds them loads all the same.
-const RETIRED: &[&str] = &["tui.base_currency"];
+const RETIRED: &[&str] = &["tui.base_currency", "android.nightly_sync"];
 
 const REFRESH: &[&str] = &["silent", "notify", "manual"];
 
@@ -120,11 +124,11 @@ pub const KEYS: &[Key] = &[
     Key { key: "rates.refresh", advanced: true, default: "silent", kind: Kind::Choice(REFRESH), about: "the exchange rates: silent, notify or manual" },
     Key { key: "rates.interval", advanced: true, default: "24h", kind: Kind::Duration, about: "how old the exchange rates may be" },
     Key {
-        key: "android.nightly_sync",
+        key: "night.sync",
         advanced: false,
         default: "true",
         kind: Kind::Bool,
-        about: "Android only: download the online data at night, on Wi-Fi, when the battery is not low (days missed are added by the next one)",
+        about: "Android only: download the online data at night, on Wi-Fi, battery not low (days missed are added by the next one)",
     },
     Key {
         key: "rates.history",
@@ -139,6 +143,36 @@ pub const KEYS: &[Key] = &[
         default: crate::history::URL,
         kind: Kind::Url,
         about: "where the exchange rates of past days are downloaded from (a mirror, a file://)",
+    },
+    Key {
+        key: "holidays",
+        advanced: false,
+        default: "true",
+        kind: Kind::Bool,
+        about: "public holidays in the calendar (`cal march UAE,USA,Italy`): downloaded with the sync, checked once a day",
+    },
+    Key {
+        key: "holidays.countries",
+        advanced: true,
+        default: "auto",
+        kind: Kind::Countries,
+        about: "whose holidays `cal` shows when the request names none: up to 5, such as IT,AE (auto: the time zone's country)",
+    },
+    Key { key: "holidays.refresh", advanced: true, default: "silent", kind: Kind::Choice(REFRESH), about: "the public holidays: silent, notify or manual" },
+    Key { key: "holidays.interval", advanced: true, default: "24h", kind: Kind::Duration, about: "how often the public holidays are checked" },
+    Key {
+        key: "holidays.url",
+        advanced: true,
+        default: crate::holidays::URL,
+        kind: Kind::Url,
+        about: "where the public holidays are downloaded from (a mirror, a file://)",
+    },
+    Key {
+        key: "calendar.week_start",
+        advanced: true,
+        default: "auto",
+        kind: Kind::Choice(&["auto", "monday", "sunday", "saturday"]),
+        about: "the calendar's first day of the week (auto: the device's region)",
     },
     Key {
         key: "live.refresh",
@@ -197,10 +231,14 @@ pub const KEYS: &[Key] = &[
     },
 ];
 
+/// The settings only the Android app has.
+const ANDROID_ONLY: &[&str] = &["night.sync"];
+
 impl Key {
-    /// Whether the setting means something on this device: the `android.` ones only on Android.
+    /// Whether the setting means something on this device: the Android-only ones (`ANDROID_ONLY`)
+    /// only on Android.
     pub fn here(&self) -> bool {
-        !self.key.starts_with("android.") || cfg!(target_os = "android")
+        !ANDROID_ONLY.contains(&self.key) || cfg!(target_os = "android")
     }
 }
 
@@ -247,6 +285,10 @@ impl Settings {
         self.get("cities.enabled") == "true"
     }
 
+    pub fn holidays_enabled(&self) -> bool {
+        self.get("holidays") == "true"
+    }
+
     /// The refresh policy of a group: `cities`, `rates`, `live`.
     pub fn refresh(&self, group: &str) -> Refresh {
         match self.get(&format!("{group}.refresh")) {
@@ -259,7 +301,7 @@ impl Settings {
     /// The interval of a group, in seconds.
     pub fn interval(&self, group: &str) -> i64 {
         let key = format!("{group}.interval");
-        duration(self.get(&key)).unwrap_or_else(|| duration(spec(&key).map(|s| s.default).unwrap_or("24h")).unwrap_or(86_400))
+        duration(self.get(&key)).unwrap_or_else(|| duration(spec(&key).map_or("24h", |s| s.default)).unwrap_or(86_400))
     }
 
     /// The local currency's code, when set (not `auto`).
@@ -392,6 +434,16 @@ pub fn check(spec: &Key, value: &str) -> Result<String, String> {
             false => wrong("an address, such as https://… or file://…"),
         },
         Kind::Favourites => crate::favourites::Favourites::check(v).map_err(|e| format!("`{}`: {e}", spec.key)),
+        Kind::Countries => {
+            if v.eq_ignore_ascii_case("auto") {
+                return Ok("auto".into());
+            }
+            match crate::calendar::countries_of(v) {
+                Ok(codes) if !codes.is_empty() => Ok(codes.join(",")),
+                Ok(_) => wrong("auto or countries, such as IT,AE"),
+                Err(e) => Err(format!("`{}`: {e}", spec.key)),
+            }
+        }
         Kind::Format => match v.is_empty() {
             true => wrong("a date pattern, such as DD MMM YY"),
             false => Ok(v.to_string()),
@@ -515,7 +567,7 @@ pub fn json_where(settings: &Settings, keep: impl Fn(&Key) -> bool) -> String {
                 .str("value", settings.get(k.key))
                 .str("default", k.default)
                 .str("kind", kind)
-                .strs("options", &options.iter().map(|o| o.to_string()).collect::<Vec<_>>())
+                .strs("options", &options.iter().map(ToString::to_string).collect::<Vec<_>>())
                 .str("about", k.about)
                 .num("advanced", k.advanced);
             let item = match auto_value(k.key) {
@@ -545,7 +597,11 @@ pub fn json_where(settings: &Settings, keep: impl Fn(&Key) -> bool) -> String {
 /// What a setting holds now, for people, where that is more than its value: the days of past
 /// rates kept.
 pub fn detail(key: &str, settings: &Settings) -> Option<String> {
-    (key == "rates.history").then(|| crate::history::summary(settings.history_enabled()))
+    match key {
+        "rates.history" => Some(crate::history::summary(settings.history_enabled())),
+        "holidays" => Some(crate::holidays::summary(settings.holidays_enabled())),
+        _ => None,
+    }
 }
 
 /// `aequalis --settings`: every setting, its value, and what it does.
@@ -577,9 +633,9 @@ mod tests {
     }
 
     #[test]
-    fn six_basic_settings_the_rest_advanced() {
+    fn seven_basic_settings_the_rest_advanced() {
         let basic: Vec<&str> = KEYS.iter().filter(|k| !k.advanced).map(|k| k.key).collect();
-        assert_eq!(basic, ["offline", "android.nightly_sync", "rates.history", "currency.local", "distance.unit", "precision"]);
+        assert_eq!(basic, ["offline", "night.sync", "rates.history", "holidays", "currency.local", "distance.unit", "precision"]);
     }
 
     #[test]
@@ -610,6 +666,8 @@ mod tests {
         assert_eq!(load_from(&file).unwrap(), Settings::default());
         // A file written by an earlier version still holds the retired key.
         assert_eq!(Settings::from_json(r#"{"tui.base_currency": "EUR", "precision": 2}"#).unwrap().precision(), 2);
+        // The Android setting's first name (a phone that saved it before the rename still loads).
+        assert_eq!(Settings::from_json(r#"{"android.nightly_sync": false, "precision": 3}"#).unwrap().precision(), 3);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

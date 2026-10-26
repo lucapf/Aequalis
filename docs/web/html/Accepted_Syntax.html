@@ -95,6 +95,7 @@ Adding <code>+3d</code>  (<code>2026/12/04 +3d</code>) Aequalis 'understands' yo
 <tr><td><code>10:00AM paris to new york</code>, <code>10:00AM PARIS TO NEW YORK</code>, <code>10am Paris -&gt; New York</code></td><td><code>time in New York when in Paris is 10:00AM</code></td></tr>
 <tr><td><code>12 Sept 2026 + 5wd</code>, <code>12 SEPT 2026 + 5WD</code></td><td><code>18/09/2026 DD/MM/YYYY</code></td></tr>
 <tr><td><code>12 Sept 2026 10:00 PM + 5wd</code></td><td><code>18/09/2026 10:00:00 PM DD/MM/YYYY-12h</code></td></tr>
+<tr><td><code>26 oct + 3wd</code>, <code>Oct 26th + 3wd</code></td><td><code>29/10/2026 DD/MM/YYYY</code>, <code>10/29/2026 MM/DD/YYYY</code> (no year: this year's)</td></tr>
 <tr><td><code>now unix</code>, <code>NOW UNIX</code></td><td>the current Unix time</td></tr>
 <tr><td><code>12/04/2026 unix</code></td><td>ambiguous: one button per reading (DD/MM/YYYY, MM/DD/YYYY)</td></tr>
 <tr><td><code>100F C</code>, <code>100 f c</code>, <code>100 °F °C</code></td><td><code>37.7778 C</code> (temperature)</td></tr>
@@ -135,7 +136,9 @@ The amounts below change with the rates.</p>
 <h3 id="rates-of-a-past-day">Rates of a past day</h3>
 <p>A date at the end of the request (or at its start) gives the rates of that day, up to 750 days
 back: <code>100 usd eur 2025-01-30</code>, <code>100 usd to eur on 30 Jan 2025</code>, <code>100 usd eur yesterday</code>,
-<code>100 usd eur 3 months ago</code>. Without a date it is always the latest rates, and nothing is asked.
+<code>100 usd eur 3 months ago</code>, or short: <code>12 eur -1d</code>, <code>12 eur 3 d ago</code> (<code>3d ago</code>, <code>3 dago</code>). The
+units are <code>d</code> days, <code>wd</code> working days (Monday to Friday), <code>w</code> weeks, <code>m</code> or <code>mo</code> months, <code>y</code>
+years. Without a date it is always the latest rates, and nothing is asked.
 Rates of past days are ExchangeRate-API's, the same as the latest ones, saved once a day. The
 history starts the day it was set up and grows from then on (there are no rates of earlier days),
 and the note says which day they are of. A day is downloaded the first time it is asked for and
@@ -148,6 +151,9 @@ kept on the device, so it works offline afterwards.</p>
 <tr><td><code>on 2025-01-30 100 usd eur</code></td><td>the same: the date may come first</td></tr>
 <tr><td><code>100 usd eur yesterday</code></td><td>the rates of the day before</td></tr>
 <tr><td><code>100 usd eur 3 months ago</code>, <code>a week ago</code>, <code>2 days ago</code>, <code>1 year ago</code></td><td>the rates of that day</td></tr>
+<tr><td><code>12 eur -1d</code>, <code>12 eur 1 d ago</code>, <code>12 eur 1dago</code></td><td>yesterday's rates, <code>12 eur</code> in the local currency</td></tr>
+<tr><td><code>12 eur -1wd</code>, <code>12 eur 1 wd ago</code></td><td>the last working day's: on a Monday, Friday's</td></tr>
+<tr><td><code>12 eur -2m</code>, <code>12 eur 2 mo ago</code>, <code>12 eur -1y</code></td><td>two months, a year back</td></tr>
 <tr><td><code>100 usd eur today</code>, <code>100 usd eur</code></td><td>the latest rates</td></tr>
 <tr><td><code>100 usd eur 03/04/25</code></td><td>asks: 4 March or 3 April 2025 (a written month, <code>3 Apr 2025</code>, is not asked)</td></tr>
 <tr><td><code>100 usd eur 2025-01-30</code>, before the history began</td><td>error: no rates of that day</td></tr>
@@ -161,6 +167,44 @@ downloads the days not held yet, up to 750; off, nothing is downloaded and a dat
 the history is off (the days already held stay). Offline (the <code>offline</code> setting), only the days
 already held are available. The files come from <code>rates.history_url</code>, a setting for mirrors.</p>
 </section>
+</section>
+<section class="level2">
+<h2 id="calendar">Calendar</h2>
+<p><code>cal</code> (or <code>calendar</code>) shows this month: its weeks with their ISO numbers, today marked, the weekend
+dimmed. A month's name first needs no <code>cal</code>: <code>oct egypt</code>, <code>march 2027</code> (a date stays a date:
+<code>jan 30 2025</code>). After it, a month, a year, and up to 5 countries whose public holidays it marks, each in its
+colour, separated by commas or spaces (names, codes or the usual short names: <code>UAE</code>, <code>USA</code>, <code>UK</code>).
+With no country named, the holidays of <code>holidays.countries</code> (the time zone's country by default).
+A month has its holidays listed under it, in the device's language when the archive has it (else
+in English), a holiday of several days once with its days together (<code>2-3 Dec  AE  National Day (2
+days)</code>); a year marks them only. The week starts as the device's region does (Monday in Italy,
+Sunday in the US, Saturday in the UAE), or as <code>calendar.week_start</code> says.</p>
+<div class="tw"><table>
+<thead><tr><th>Type</th><th>Result</th></tr></thead>
+<tbody>
+<tr><td><code>cal</code>, <code>calendar</code></td><td>this month</td></tr>
+<tr><td><code>cal march</code>, <code>cal mar</code>, <code>cal marzo</code>, <code>march</code></td><td>March this year</td></tr>
+<tr><td><code>oct egypt</code>, <code>dec 2027 italy usa</code></td><td>as with <code>cal</code> before them</td></tr>
+<tr><td><code>cal march 2027</code>, <code>cal 2027-03</code>, <code>cal 3/2027</code></td><td>March 2027</td></tr>
+<tr><td><code>oct 2026</code>, <code>oct 26</code>, <code>OCT26</code>, <code>oct2026</code>, <code>0ct 26</code></td><td>October 2026: the year in two digits or four, apart or against the month; a zero for the O is read as the O</td></tr>
+<tr><td><code>cal next month</code>, <code>cal last month</code></td><td>the month after, the month before</td></tr>
+<tr><td><code>cal 2027</code>, <code>cal next year</code></td><td>the year, three months a row</td></tr>
+<tr><td><code>cal march UAE,USA,Italy</code>, <code>cal march uae usa italy</code></td><td>March with the holidays of the three, a colour each (a day of several countries: underlined)</td></tr>
+<tr><td><code>cal 2027 de fr</code></td><td>2027 with Germany's and France's holidays</td></tr>
+<tr><td><code>cal blorp</code></td><td>error: not a month, a year or a country</td></tr>
+<tr><td><code>cal it fr de es pt nl</code></td><td>error: at most 5 countries</td></tr>
+</tbody></table></div>
+<p>In the interactive mode Enter opens the calendar in a window (← → the month or year before and
+after, ↑↓ scroll a year; Esc closes it), and
+<code>C</code> in the Date &amp; Time keys opens this month's; on Android it takes the result's place (a swipe left or right: the month or year after or before;
+a tap on a holiday shows each country's holiday and how many days it lasts; touching it folds the
+keyboard away), and the Date &amp; Time panel has a Calendar button. At a terminal the command line colours today and the holidays.</p>
+<p>The holidays are every country's national public holidays of last year, this year and next year,
+from <a href="https://github.com/vacanza/holidays">python-holidays</a> (Islamic and other lunar holidays are its
+estimates, and say so). They are downloaded with the sync and checked once a day
+(<code>holidays.refresh</code>, <code>holidays.interval</code>), and work offline from then on; before the first sync
+there are none. The <code>holidays</code> setting (on by default) turns them off; <code>holidays.url</code> is for
+mirrors.</p>
 </section>
 <section class="level2">
 <h2 id="distances">Distances</h2>
@@ -193,6 +237,7 @@ is a unit, a currency or a date keyword keeps that meaning (<code>Bar</code> is 
 <aside class="toc"><b>On this page</b>
 <a href="#currencies">Currencies</a>
 <a class="l3" href="#rates-of-a-past-day">Rates of a past day</a>
+<a href="#calendar">Calendar</a>
 <a href="#distances">Distances</a>
 </aside>
 </div></main>

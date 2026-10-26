@@ -23,17 +23,50 @@ class Shown(val text: String, private val toShown: IntArray, private val toText:
     fun offset(shown: Int): Int = toText[shown.coerceIn(0, toText.size - 1)]
 }
 
-/** What is not a number to group: a date (`2026-12-04`, `12/04/2026`, `12.04.2026`) or a time (`10:00`). */
+/** What is not a number to group: a date (`2026-12-04`, `25-10-2025`, `12/04/2026`, `12.04.2026`) or a
+ *  time (`10:00`). */
 private val NOT_NUMBERS = listOf(
     Regex("""\d{4}-\d{1,2}-\d{1,2}"""),
+    Regex("""\d{1,2}-\d{1,2}-\d{1,4}"""),
     Regex("""\d{1,4}/\d{1,2}/\d{1,4}"""),
     Regex("""\d{1,4}\.\d{1,2}\.\d{1,4}"""),
     Regex("""\d+(?::\d+)+"""),
 )
 
+/** A year after a month's name, a day between or not: `Jan 2025`, `30 Jan 2025`, `Jan 30, 2025`,
+ *  `30/Jan/2025`. The name is the first group, the year the second. */
+private val AFTER_A_MONTH = Regex("""(\p{L}{3,})\.?[\s/-]+(?:\d{1,2}(?:st|nd|rd|th)?,?[\s/-]+)?(\d{4})(?!\d)""")
+
+/** Month names as the core reads them (src/time/written.rs `MONTH_NAMES`), lowercase without accents;
+ *  a word of 3 letters or more that begins one is a month (`Sep`, `janv`, `giu`). */
+private val MONTHS = listOf(
+    "january", "enero", "janvier", "gennaio", "januar", "janner", "janeiro",
+    "february", "febrero", "fevrier", "febbraio", "februar", "feber", "fevereiro",
+    "march", "marzo", "mars", "marz", "marco", "mrz",
+    "april", "abril", "avril", "aprile",
+    "may", "mayo", "mai", "maggio", "maio",
+    "june", "junio", "juin", "giugno", "juni", "junho",
+    "july", "julio", "juillet", "luglio", "juli", "julho",
+    "august", "agosto", "aout",
+    "september", "septiembre", "setiembre", "septembre", "settembre", "setembro",
+    "october", "octubre", "octobre", "ottobre", "oktober", "outubro",
+    "november", "noviembre", "novembre", "novembro",
+    "december", "diciembre", "decembre", "dicembre", "dezember", "dezembro",
+)
+
+private fun isMonth(word: String): Boolean {
+    val folded = java.text.Normalizer.normalize(word.lowercase(), java.text.Normalizer.Form.NFD).filter { it in 'a'..'z' }
+    return folded.length >= 3 && MONTHS.any { it.startsWith(folded) }
+}
+
 fun showNumbers(text: String, decimal: String = NumberSeparators.decimal, thousands: String = NumberSeparators.thousands): Shown {
     val kept = BooleanArray(text.length)
     NOT_NUMBERS.forEach { re -> re.findAll(text).forEach { m -> for (i in m.range) kept[i] = true } }
+    // A year is no number to group either.
+    AFTER_A_MONTH.findAll(text).forEach { m ->
+        val year = m.groups[2]!!.range
+        if (isMonth(m.groupValues[1])) for (i in year) kept[i] = true
+    }
     val out = StringBuilder()
     // `boundary[p]`: the length shown for the first `p` characters of the request.
     val boundary = IntArray(text.length + 1)
