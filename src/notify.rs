@@ -20,6 +20,8 @@ pub struct State {
     pub cities_notified: String,
     /// When the command line last printed the notices.
     pub shown_at: i64,
+    /// When the public holidays' last download failed (0: it did not); retried an hour after.
+    pub holidays_failed_at: i64,
 }
 
 pub fn path() -> Option<PathBuf> {
@@ -35,7 +37,13 @@ pub fn load_from(path: &std::path::Path) -> State {
     let Ok(doc) = crate::json::parse(&text) else { return State::default() };
     let n = |k: &str| doc.get(k).and_then(crate::json::Value::number).unwrap_or(0.0) as i64;
     let s = |k: &str| doc.get(k).and_then(|v| v.str()).unwrap_or_default().to_string();
-    State { cities_checked_at: n("cities_checked_at"), cities_available: s("cities_available"), cities_notified: s("cities_notified"), shown_at: n("shown_at") }
+    State {
+        cities_checked_at: n("cities_checked_at"),
+        cities_available: s("cities_available"),
+        cities_notified: s("cities_notified"),
+        shown_at: n("shown_at"),
+        holidays_failed_at: n("holidays_failed_at"),
+    }
 }
 
 pub fn save(state: &State) {
@@ -50,6 +58,7 @@ pub fn save_to(path: &std::path::Path, state: &State) {
         .str("cities_available", &state.cities_available)
         .str("cities_notified", &state.cities_notified)
         .num("shown_at", state.shown_at)
+        .num("holidays_failed_at", state.holidays_failed_at)
         .finish();
     let _ = crate::files::write_atomic(path, format!("{text}\n").as_bytes());
 }
@@ -120,7 +129,7 @@ mod tests {
     fn the_state_is_kept() {
         let path = std::env::temp_dir().join(format!("aequalis-notify-{}", std::process::id())).join("state.json");
         assert_eq!(load_from(&path), State::default(), "none yet");
-        let state = State { cities_checked_at: 5, cities_available: "2 bbb".into(), cities_notified: "1 \"aaa\"".into(), shown_at: 7 };
+        let state = State { cities_checked_at: 5, cities_available: "2 bbb".into(), cities_notified: "1 \"aaa\"".into(), shown_at: 7, holidays_failed_at: 9 };
         save_to(&path, &state);
         assert_eq!(load_from(&path), state);
         let _ = std::fs::remove_dir_all(path.parent().unwrap());

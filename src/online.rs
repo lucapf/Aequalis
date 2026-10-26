@@ -28,6 +28,9 @@ pub const BATCH: usize = 10;
 pub const BATCH_SECONDS: u64 = 20;
 /// A lock older than this is from a sync that died: taken over.
 const STALE_LOCK: i64 = 15 * 60;
+/// Real seconds between two background syncs started by runs of aequalis: the time a sync has to
+/// take its lock, while the runs around it start none.
+const SPAWN_GAP: u64 = 60;
 
 /// A value and when it was synced (Unix seconds).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -178,12 +181,20 @@ pub fn stale(group: Group, settings: &crate::settings::Settings, now: i64) -> bo
     match group {
         Group::Live => expired(&load(), now, interval),
         Group::Rates => expired(&crate::currency::load(), now, interval),
-        Group::Holidays => crate::holidays::downloaded_at().is_none_or(|at| now - at >= interval),
+        Group::Holidays => holidays_stale(crate::holidays::downloaded_at(), crate::notify::load().holidays_failed_at, now, interval),
         Group::Cities => {
             let checked = crate::cities::meta().map_or(0, |m| m.downloaded_at).max(crate::notify::load().cities_checked_at);
             now - checked >= interval
         }
     }
+}
+
+/// Whether the public holidays are out of date: never downloaded, or `interval` ago; but after a
+/// failed download (`failed`, 0: none), not before `RETRY_AFTER` (or the interval) has passed, else
+/// every run of aequalis would start a sync for them.
+fn holidays_stale(downloaded: Option<i64>, failed: i64, now: i64, interval: i64) -> bool {
+    let waiting = failed > 0 && now - failed < RETRY_AFTER.min(interval);
+    !waiting && downloaded.is_none_or(|at| now - at >= interval)
 }
 
 /// The groups a background sync has work for: out of date under `silent`; the city archive's
@@ -208,12 +219,15 @@ fn due_when(settings: &crate::settings::Settings, stale: &dyn Fn(Group) -> bool)
 }
 
 /// Starts `aequalis --sync --auto` in the background when a group has work (and the network may be
-/// used, and no sync is running). Returns the process, for a long-running caller to reap.
+/// used, and no sync is running). One per user, however many runs ask at once (`spawn_gate`).
+/// Returns the process, for a long-running caller to reap.
 pub fn ensure_fresh() -> Option<std::process::Child> {
     let settings = crate::settings::current();
     if settings.offline() || lock_held() || due(&settings, crate::time::unix_now()).is_empty() {
         return None;
     }
+    // Held until the sync has started.
+    let _gate = spawn_gate(&crate::files::dir()?.join("online.spawn"), std::time::SystemTime::now())?;
     #[cfg(windows)]
     use crate::windows::CommandExt;
     #[cfg(unix)]
@@ -231,6 +245,29 @@ pub fn ensure_fresh() -> Option<std::process::Child> {
         .process_group(0)
         .spawn()
         .ok()
+}
+
+/// The right to start a background sync, `now`: the file `path` locked (the system's lock, let go
+/// when the process ends, even killed), holding when the last one was started (Unix seconds). `None`
+/// while another run holds it, or a sync was started less than `SPAWN_GAP` ago (it has not taken
+/// its own lock yet); else the time is written and the file stays locked until dropped. Runs that
+/// ask at once start one sync between them, and a sync that keeps failing at most one a minute.
+fn spawn_gate(path: &Path, now: std::time::SystemTime) -> Option<std::fs::File> {
+    use std::io::{Read, Seek, Write};
+    std::fs::create_dir_all(path.parent()?).ok()?;
+    let mut file = std::fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).open(path).ok()?;
+    file.try_lock().ok()?;
+    let now = now.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs();
+    let mut text = String::new();
+    let _ = file.read_to_string(&mut text);
+    // A time ahead of now (the clock put back): not trusted.
+    if text.trim().parse::<u64>().is_ok_and(|last| last <= now && now - last < SPAWN_GAP) {
+        return None;
+    }
+    file.set_len(0).ok()?;
+    file.rewind().ok()?;
+    file.write_all(now.to_string().as_bytes()).ok()?;
+    Some(file)
 }
 
 fn lock_path() -> Option<PathBuf> {
@@ -329,7 +366,13 @@ pub fn sync(auto: bool) -> Result<Report, String> {
                 let days = if past > 0 { format!(", {past} past day{}", if past == 1 { "" } else { "s" }) } else { String::new() };
                 format!("{n} exchange rate{}{days}", if n == 1 { "" } else { "s" })
             }),
-            Group::Holidays => crate::holidays::sync(&settings),
+            Group::Holidays => {
+                let result = crate::holidays::sync(&settings);
+                let mut state = crate::notify::load();
+                state.holidays_failed_at = if result.is_err() { now } else { 0 };
+                crate::notify::save(&state);
+                result
+            }
             Group::Cities => crate::files::dir()
                 .ok_or_else(no_home)
                 .and_then(|base| sync_cities(&base, &settings, auto, now, &|text| crate::notify::desktop("Aequalis", text))),
@@ -650,6 +693,35 @@ pub fn sync_into(path: &Path, sources: Vec<Source>, interval: i64, clock: &dyn F
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn one_background_sync_started_at_a_time() {
+        let dir = std::env::temp_dir().join(format!("aequalis-spawn-{}", std::process::id()));
+        let path = dir.join("online.spawn");
+        let at = |s: u64| std::time::UNIX_EPOCH + std::time::Duration::from_secs(s);
+        let first = spawn_gate(&path, at(1_000)).expect("the first run starts one");
+        assert!(spawn_gate(&path, at(1_100)).is_none(), "another run while it is held: none");
+        drop(first);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "1000");
+        assert!(spawn_gate(&path, at(1_000 + SPAWN_GAP - 1)).is_none(), "one started a moment ago: none");
+        assert!(spawn_gate(&path, at(1_000 + SPAWN_GAP)).is_some(), "a minute on: one more");
+        assert!(spawn_gate(&path, at(500)).is_some(), "the clock put back: the time written is not trusted");
+        std::fs::write(&path, "not a time").unwrap();
+        assert!(spawn_gate(&path, at(2_000)).is_some());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn holidays_that_failed_wait_an_hour() {
+        let day = 86_400;
+        assert!(holidays_stale(None, 0, 10_000, day), "never downloaded");
+        assert!(!holidays_stale(None, 10_000 - 60, 10_000, day), "failed a minute ago: not yet");
+        assert!(holidays_stale(None, 10_000 - RETRY_AFTER, 10_000, day), "an hour later: again");
+        assert!(!holidays_stale(Some(10_000 - 60), 0, 10_000, day), "downloaded a minute ago");
+        assert!(holidays_stale(Some(10_000 - day), 0, 10_000, day), "a day old");
+        // An interval shorter than the hour: retried after the interval.
+        assert!(holidays_stale(None, 10_000 - 600, 10_000, 600));
+    }
 
     #[test]
     fn the_age_starts_again_with_a_partial_sync() {

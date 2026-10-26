@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.5.1
+
+- At most one background download at a time per user, however many `aequalis` commands run at
+  once (scripts, the widget, a terminal): the command that starts it holds a system lock, released
+  even if it is killed, and no other starts one for a minute.
+- The public holidays, when their download fails, are tried again after an hour, as the exchange
+  rates are; every command started a new download before.
+- The tests run offline in CI: none downloads the real online data.
+
 ## 1.5.0
 
 - **Short dates for past rates**: `200 eur yesterday`, `12 eur -1d`, `12 eur 3 d ago` (`3d ago`,

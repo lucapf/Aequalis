@@ -94,6 +94,13 @@ jobs:
         run: |
           sed -i -E "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
           sed -i -E "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" omarchy-widget/manifest.json
+      # A folder of their own for aequalis's files, offline: a test that sets none (it runs in the
+      # runner's home) never starts a background sync of the real online data.
+      - name: Keep the tests offline
+        run: |
+          mkdir -p "$RUNNER_TEMP/aequalis-config/aequalis"
+          echo '{"offline": true}' > "$RUNNER_TEMP/aequalis-config/aequalis/settings.json"
+          echo "XDG_CONFIG_HOME=$RUNNER_TEMP/aequalis-config" >> "$GITHUB_ENV"
       - name: Test
         run: cargo test --release
       - name: Build
@@ -127,6 +134,13 @@ jobs:
         run: rustup toolchain install stable --profile minimal && rustup default stable
       - name: Version
         run: sed -i '' -E "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
+      # A folder of their own for aequalis's files, offline: a test that sets none (it runs in the
+      # runner's home) never starts a background sync of the real online data.
+      - name: Keep the tests offline
+        run: |
+          mkdir -p "$RUNNER_TEMP/aequalis-config/aequalis"
+          echo '{"offline": true}' > "$RUNNER_TEMP/aequalis-config/aequalis/settings.json"
+          echo "XDG_CONFIG_HOME=$RUNNER_TEMP/aequalis-config" >> "$GITHUB_ENV"
       - name: Test
         run: cargo test --release
       - name: Build
