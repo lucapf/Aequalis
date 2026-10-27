@@ -6,6 +6,8 @@
   opens under its bar icon; it replaces the input box in the middle of the screen.
   - The answer as you type, with the other results, the notes, a button for each reading of an
     ambiguous request, a table in a monospaced font; the popover widens (up to 640 points) for it.
+  - The calendar as in the interactive mode: today marked, the weekend dimmed, each country's
+    holidays in its colour (underlined when several countries share the day), the codes too.
   - The words for the one being typed (units, currencies, places), **Tab** takes the first.
   - **Enter** or **Copy** copies the answer and closes it; **Share** sends `10 km mi = 6.2137 mi`
     through the Mac's share menu (Messages, Mail, AirDrop, Notes…).

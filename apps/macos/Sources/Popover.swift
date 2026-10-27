@@ -269,7 +269,11 @@ final class WidgetController: NSViewController, NSTextFieldDelegate {
         answer.font = table ? .monospacedSystemFont(ofSize: 12, weight: .regular) : .systemFont(ofSize: 20, weight: .semibold)
         switch reply.show {
         case "result":
-            answer.stringValue = table ? reply.result : "= " + reply.result
+            if let calendar = reply.calendar, let font = answer.font {
+                answer.attributedStringValue = CalendarText.render(reply.result, calendar, font: font)
+            } else {
+                answer.stringValue = table ? reply.result : "= " + reply.result
+            }
             extras.stringValue = reply.extras.joined(separator: "\n")
             details.stringValue = ([reply.grouping] + reply.details.map { Optional($0) } + [reply.rates]).compactMap { $0 }.joined(separator: "\n")
         case "hint":

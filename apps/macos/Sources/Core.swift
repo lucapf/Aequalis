@@ -13,6 +13,8 @@ struct Reply {
     var grouping: String?
     /// The other results, a line each (`extra`): `shoes: US 8.5 men, US 10 women`.
     var extras: [String] = []
+    /// A calendar's months, today and holidays (`calendar`), to draw them as the TUI does.
+    var calendar: [String: Any]?
     /// Online data to download (a new city archive, out-of-date rates): a Sync button each.
     var notices: [String] = []
     /// Enter's choice of a question.
@@ -35,6 +37,7 @@ struct Reply {
         grouping = string("grouping_shown") ?? string("grouping")
         defaultRequest = string("default")
         notices = json["notices"] as? [String] ?? []
+        calendar = json["calendar"] as? [String: Any]
         for choice in json["choices"] as? [[String: Any]] ?? [] {
             if let label = choice["label"] as? String, let request = choice["request"] as? String {
                 choices.append((label, choice["detail"] as? String ?? "", request))
