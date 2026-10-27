@@ -12,12 +12,21 @@ use std::process::{Command, Output, Stdio};
 const BRAND: &str = "aequalis: note: sizes vary by brand: check the brand's chart";
 
 fn on(machine: &str, request: &str) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_aequalis"))
-        .args(request.split(' ').filter(|w| !w.is_empty()))
-        .env("AEQUALIS_MACHINE", machine)
-        .stdin(Stdio::null())
-        .output()
-        .expect("run aequalis")
+    let mut command = Command::new(env!("CARGO_BIN_EXE_aequalis"));
+    command.args(request.split(' ').filter(|w| !w.is_empty())).env("AEQUALIS_MACHINE", machine).stdin(Stdio::null());
+    run(&mut command)
+}
+
+/// Runs the binary, again after a moment when the system has no process to spare (EAGAIN: the
+/// macOS runner, with the hundreds these tests start in parallel).
+fn run(command: &mut Command) -> Output {
+    for _ in 0..20 {
+        match command.output() {
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => std::thread::sleep(std::time::Duration::from_millis(250)),
+            other => return other.expect("run aequalis"),
+        }
+    }
+    command.output().expect("run aequalis")
 }
 
 fn out(o: &Output) -> String {
@@ -156,15 +165,9 @@ fn config(name: &str) -> PathBuf {
 
 /// The binary with the rates, offline, a few hours after them, in the time zone `zone`.
 fn money(name: &str, zone: &str, request: &str) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_aequalis"))
-        .arg("--now=1791800000")
-        .args(request.split(' '))
-        .env("XDG_CONFIG_HOME", config(name))
-        .env("TZ", zone)
-        .env("LC_ALL", "C")
-        .stdin(Stdio::null())
-        .output()
-        .expect("run aequalis")
+    let mut command = Command::new(env!("CARGO_BIN_EXE_aequalis"));
+    command.arg("--now=1791800000").args(request.split(' ')).env("XDG_CONFIG_HOME", config(name)).env("TZ", zone).env("LC_ALL", "C").stdin(Stdio::null());
+    run(&mut command)
 }
 
 #[test]

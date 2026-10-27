@@ -97,7 +97,7 @@ final class WidgetController: NSViewController, NSTextFieldDelegate {
     private var reply = Reply()
     /// The request the reply answers.
     private var request = ""
-    private var offered: (start: Int, items: [(write: String, label: String)]) = (0, [])
+    private var offered: (start: Int, items: [(write: String, label: String)]) = (start: 0, items: [])
     private var recents: [(request: String, result: String)] = []
     private var syncing = false
     /// The last sync's end, shown until the next one.
@@ -204,7 +204,7 @@ final class WidgetController: NSViewController, NSTextFieldDelegate {
         field.stringValue = ""
         request = ""
         reply = Reply()
-        offered = (0, [])
+        offered = (start: 0, items: [])
         section = settings ? .settings : .answer
         if settings { settingsView.reload() }
         refreshStatus()
@@ -395,7 +395,11 @@ final class WidgetController: NSViewController, NSTextFieldDelegate {
     private func answerTyped() {
         request = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         reply = request.isEmpty ? Reply() : Core.view(request, submitted: false)
-        offered = request.isEmpty ? (0, []) : Core.suggest(textBeforeCursor())
+        if request.isEmpty {
+            offered = (start: 0, items: [])
+        } else {
+            offered = Core.suggest(textBeforeCursor())
+        }
         if section != .answer { section = .answer }
         render()
     }
