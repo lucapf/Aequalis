@@ -6,8 +6,10 @@
   opens under its bar icon; it replaces the input box in the middle of the screen.
   - The answer as you type, with the other results, the notes, a button for each reading of an
     ambiguous request, a table in a monospaced font; the popover widens (up to 640 points) for it.
-  - The calendar as in the interactive mode: today marked, the weekend dimmed, each country's
-    holidays in its colour (underlined when several countries share the day), the codes too.
+  - The calendar drawn as on Android: the weekdays on a grey band that goes on down the weekend's
+    columns, today in a circle of the Mac's accent colour, each holiday in its country's colour
+    with a dot a country under it; the year three small months a row. A click on a holiday shows
+    its holidays; ‹ ›, ← → or a swipe on the trackpad go to the month (the year) before or after.
   - The words for the one being typed (units, currencies, places), **Tab** takes the first.
   - **Enter** or **Copy** copies the answer and closes it; **Share** sends `10 km mi = 6.2137 mi`
     through the Mac's share menu (Messages, Mail, AirDrop, Notes…).

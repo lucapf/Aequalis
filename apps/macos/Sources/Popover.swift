@@ -79,6 +79,7 @@ final class WidgetController: NSViewController, NSTextFieldDelegate {
     private let field = NSTextField()
     private let suggestions = NSStackView()
     private let answer = NSTextField(wrappingLabelWithString: "")
+    private let calendarView = CalendarView()
     private let copyButton = NSButton(title: "Copy", target: nil, action: nil)
     private let shareButton = NSButton(title: "Share", target: nil, action: nil)
     private let extras = NSTextField(wrappingLabelWithString: "")
@@ -164,6 +165,8 @@ final class WidgetController: NSViewController, NSTextFieldDelegate {
         aboutIcon.widthAnchor.constraint(equalToConstant: 48).isActive = true
         aboutIcon.heightAnchor.constraint(equalToConstant: 48).isActive = true
         settingsView.onResize = { [weak self] in self?.relayout() }
+        calendarView.onStep = { [weak self] request in self?.setRequest(request) }
+        calendarView.onResize = { [weak self] in self?.relayout() }
         settingsView.onSync = { [weak self] in self?.sync() }
         hint.font = .systemFont(ofSize: 10)
         hint.textColor = .tertiaryLabelColor
@@ -171,7 +174,7 @@ final class WidgetController: NSViewController, NSTextFieldDelegate {
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 8
-        let views: [NSView] = [header, field, suggestions, answer, actions, extras, details, choices, notices,
+        let views: [NSView] = [header, field, suggestions, answer, calendarView, actions, extras, details, choices, notices,
                                progressLine, progress, recentTitle, recent, aboutIcon, about, settingsView, hint]
         views.forEach { stack.addArrangedSubview($0) }
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -269,8 +272,8 @@ final class WidgetController: NSViewController, NSTextFieldDelegate {
         answer.font = table ? .monospacedSystemFont(ofSize: 12, weight: .regular) : .systemFont(ofSize: 20, weight: .semibold)
         switch reply.show {
         case "result":
-            if let calendar = reply.calendar, let font = answer.font {
-                answer.attributedStringValue = CalendarText.render(reply.result, calendar, font: font)
+            if let calendar = reply.calendar {
+                calendarView.show(calendar)
             } else {
                 answer.stringValue = table ? reply.result : "= " + reply.result
             }
@@ -312,6 +315,7 @@ final class WidgetController: NSViewController, NSTextFieldDelegate {
 
         let isResult = reply.show == "result"
         answer.isHidden = !answering || answer.stringValue.isEmpty
+        calendarView.isHidden = !answering || !isResult || reply.calendar == nil
         copyButton.superview?.isHidden = !answering || !isResult
         extras.isHidden = !answering || extras.stringValue.isEmpty
         details.isHidden = !answering || details.stringValue.isEmpty
@@ -373,7 +377,10 @@ final class WidgetController: NSViewController, NSTextFieldDelegate {
     /// points), as tall as its content.
     private func relayout() {
         var wanted = WidgetController.minWidth
-        if section == .answer, reply.show == "result", let font = answer.font {
+        if section == .answer, reply.show == "result", let calendar = reply.calendar {
+            // A year's three small months a row need more room than a month.
+            wanted = calendar["year"] as? Bool == true ? 560 : WidgetController.minWidth
+        } else if section == .answer, reply.show == "result", let font = answer.font {
             let widest = answer.stringValue.split(separator: "\n").map { (String($0) as NSString).size(withAttributes: [.font: font]).width }.max() ?? 0
             wanted = min(WidgetController.maxWidth, max(wanted, ceil(widest) + 2 * WidgetController.margin + 8))
         }
@@ -382,6 +389,7 @@ final class WidgetController: NSViewController, NSTextFieldDelegate {
         stackWidth?.constant = inner
         for label in [answer, extras, details, progressLine, about] { label.preferredMaxLayoutWidth = inner }
         settingsView.width = inner
+        calendarView.width = inner
         view.layoutSubtreeIfNeeded()
         let size = NSSize(width: width, height: stack.fittingSize.height + 2 * WidgetController.margin)
         view.setFrameSize(size)
