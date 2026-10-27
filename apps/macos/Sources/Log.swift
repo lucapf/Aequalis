@@ -1,6 +1,6 @@
 import Foundation
 
-/// `~/Library/Logs/Aequalis.log`: what the app did (hotkey, panel, services, sync), for when it
+/// `~/Library/Logs/Aequalis.log`: what the app did (hotkey, popover, services, sync), for when it
 /// misbehaves on a Mac nobody can debug on. Cut when it passes half a megabyte.
 enum Log {
     static let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/Aequalis.log")

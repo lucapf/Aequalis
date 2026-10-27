@@ -48,6 +48,8 @@ codesign --verify --strict "$app"
 file "$app/Contents/MacOS/Aequalis" "$app/Contents/Resources/aequalis"
 test "$("$app/Contents/Resources/aequalis" --version)" = "aequalis $version"
 test "$("$app/Contents/MacOS/Aequalis" --selftest 10 km mi)" = "6.2137 mi"
+# Every keystroke is a call into the core: each kind of request answered within 5 ms.
+"$app/Contents/MacOS/Aequalis" --selftest-speed
 
 zip=aequalis-$version-macos.zip
 rm -f "dist/$zip" "dist/$zip.sha256"

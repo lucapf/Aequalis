@@ -1,5 +1,5 @@
 /*
- * aequalis's C interface (src/ffi.rs), for apps that embed it: the Android app.
+ * aequalis's C interface (src/ffi.rs), for apps that embed it: the Android and macOS apps.
  *
  * Every string is UTF-8 and NUL-terminated. Every string returned is JSON and must be given
  * back with aequalis_free(). Call aequalis_init() once, first, then aequalis_set_fetcher().
@@ -36,7 +36,7 @@ void aequalis_set_fetcher(aequalis_fetch_fn fetch);
 char *aequalis_eval(const char *request);
 
 /* The reply as a UI shows it: aequalis_eval's, with "show" (result, hint, question, error, none),
-   "message", "value" (what Copy gives), "rates", "details", "choices", "default", "class".
+   "message", "value" (the bare number), "copy" (what Copy gives), "extra", "rates", "details", "choices", "default", "class".
    submitted: Enter was pressed; until then a reply that is no result shows nothing while a word is
    being typed. */
 char *aequalis_view(const char *request, bool submitted);
@@ -47,8 +47,21 @@ char *aequalis_settings(void);
 /* Changes a setting (value NULL: its default): {"ok":true,"key":…,"value":…} or the error. */
 char *aequalis_set(const char *key, const char *value);
 
+/* Every setting back to its default: {"ok":true} or the error. */
+char *aequalis_reset(void);
+
 /* Downloads the online data in this thread: everything, or with `auto` what the settings say. */
 char *aequalis_sync(bool automatic);
+
+/* What a UI says of the sync now: {"state":"idle|running|done|failed","line","label","fraction",
+   "message","online"} ("fraction" left out without a percentage). */
+char *aequalis_sync_status(void);
+
+/* Online or offline and the last sync's age: {"status","line":"online (2h old)","synced"}. */
+char *aequalis_online(void);
+
+/* About: {"name","tagline","descriptor","version","facts":[[label, text]…],"sources":[…]}. */
+char *aequalis_about(void);
 
 /*
  * The data shipped with an app: `rates` (ExchangeRate-API's answer) and the path of the city

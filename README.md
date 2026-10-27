@@ -151,8 +151,9 @@ You can run Aequalis in several ways:
 - **Aequalis widget**: for [Omarchy](https://omarchy.org/). Quick access from the bar when you need it.
 - **Aequalis on Windows**: its icon in the notification area, or **Win+Alt+A**, opens the input box
   ([install](./docs/install_windows.md)).
-- **Aequalis on macOS**: its icon in the menu bar, or **⌥⌘A**, opens the input box; also as a
-  Service on any selected text ([install](./docs/install_mac.md)).
+- **Aequalis on macOS**: its icon in the menu bar, or **⌥⌘A**, opens the widget: the answer as you
+  type, Copy and Share, the TUI, the settings; also as a Service on any selected text
+  ([install](./docs/install_mac.md)).
 - **Aequalis TUI**: for something more complex, when you prefer to be guided through the options. Open it by:
   - typing `aequalis` in your terminal
   - the TUI button in the widget

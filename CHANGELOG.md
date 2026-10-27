@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.6.0
+
+- **macOS: the widget.** The menu bar icon (or ⌥⌘A) opens a popover under it, as the Omarchy widget
+  opens under its bar icon; it replaces the input box in the middle of the screen.
+  - The answer as you type, with the other results, the notes, a button for each reading of an
+    ambiguous request, a table in a monospaced font; the popover widens (up to 640 points) for it.
+  - The words for the one being typed (units, currencies, places), **Tab** takes the first.
+  - **Enter** or **Copy** copies the answer and closes it; **Share** sends `10 km mi = 6.2137 mi`
+    through the Mac's share menu (Messages, Mail, AirDrop, Notes…).
+  - **Recent**: the last 6 requests, a click writes one again.
+  - The title says `online (2h old)`; out-of-date data comes with a Sync button, and a download
+    shows what it is doing and how far.
+  - The terminal button opens the interactive mode (`aequalis`) in Terminal, once at a time.
+  - The gear: the basic settings (a choice or a currency picked from a list, filtered as you type),
+    Default, Reset (clicked twice) and Sync; the rest in the interactive mode. The icon menu's
+    Settings opens it.
+  - A click on Aequalis: its version and the last online sync.
+- The C interface: `aequalis_about`, `aequalis_online`, `aequalis_reset`, and
+  `aequalis_sync_status` in the header.
+- The Mac app's build checks that every kind of request is answered within 5 ms
+  (`Aequalis --selftest-speed`); a branch's build has the Mac app beside the Windows installer.
+
 ## 1.5.1
 
 - At most one background download at a time per user, however many `aequalis` commands run at

@@ -2,9 +2,10 @@ import AppKit
 import Carbon
 import ServiceManagement
 
-/// The menu bar icon and its menu, the global hotkey (⌥⌘A), the panel and the two Services.
+/// The menu bar icon and its menu, the global hotkey (⌥⌘A), the popover under the icon and the
+/// two Services.
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private let panel = Panel()
+    private let popover = Popover()
     private let hotkey = Hotkey()
     private var item: NSStatusItem?
     private let menu = NSMenu()
@@ -14,7 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Log.write("Aequalis \(version) starting, macOS \(ProcessInfo.processInfo.operatingSystemVersionString)")
         Core.start()
 
-        let status = hotkey.register(keyCode: kVK_ANSI_A, modifiers: optionKey | cmdKey) { [weak self] in self?.panel.toggle() }
+        let status = hotkey.register(keyCode: kVK_ANSI_A, modifiers: optionKey | cmdKey) { [weak self] in self?.togglePopover() }
         Log.write(status == noErr ? "hotkey ⌥⌘A registered" : "hotkey ⌥⌘A not registered (status \(status)): another app has it")
 
         buildMenu()
@@ -62,7 +63,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(withTitle: "Quit", action: #selector(quit), keyEquivalent: "q").target = self
     }
 
-    /// A click opens the panel, a right-click (or Control-click) the menu.
+    /// A click opens the popover, a right-click (or Control-click) the menu.
     @objc private func statusClicked() {
         let event = NSApp.currentEvent
         if event?.type == .rightMouseUp || event?.modifierFlags.contains(.control) == true {
@@ -70,11 +71,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             item?.button?.performClick(nil)
             item?.menu = nil
         } else {
-            panel.toggle()
+            togglePopover()
         }
     }
 
-    @objc private func openPanel() { panel.present() }
+    private func togglePopover() {
+        guard let button = item?.button else { return }
+        popover.toggle(under: button)
+    }
+
+    @objc private func openPanel() {
+        guard let button = item?.button, !popover.isShown else { return }
+        popover.show(under: button)
+    }
 
     @objc private func downloadData() {
         DispatchQueue.global(qos: .utility).async {
@@ -85,13 +94,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// The popover's Settings (the basic ones; the rest in the TUI).
     @objc private func openSettings() {
-        guard let path = Core.settingsFile() else { return }
-        if !FileManager.default.fileExists(atPath: path) {
-            try? FileManager.default.createDirectory(atPath: (path as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
-            FileManager.default.createFile(atPath: path, contents: Data("{}\n".utf8))
-        }
-        run("/usr/bin/open", ["-t", path])
+        guard let button = item?.button else { return }
+        popover.show(under: button, settings: true)
     }
 
     @objc private func toggleLogin() {
@@ -169,6 +175,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             error.pointee = found.error as NSString
             return
         }
-        Panel.copy(text)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
 }

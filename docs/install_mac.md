@@ -30,11 +30,16 @@ appears in the menu bar.
 
 ## Use it
 
-- Press **⌥⌘A** anywhere, or **click the icon** in the menu bar. The input box opens; type a request
-  and the answer appears as you type.
-- **Enter** copies the result and closes the box. **Esc**, or a click anywhere else, closes it.
+- Press **⌥⌘A** anywhere, or **click the icon** in the menu bar: the widget opens under the icon, ready
+  to type. The answer appears as you type.
+- **Enter** or **Copy** copies the result and closes it; **Share** sends `request = result`
+  (`10 km mi = 6.2137 mi`). **Esc**, or a click anywhere else, closes it.
+- **Tab** takes the first word offered for the one being typed (`kil` › `km - kilometre`).
 - When a request can be read in more than one way (`12/04/2026 unix`), a button appears for each
   reading; **Enter** takes the first one.
+- **Recent** lists the last requests: a click writes one again.
+- The terminal button opens the interactive mode (`aequalis`) in Terminal; the gear, the basic
+  settings, Reset and Sync; a click on **Aequalis**, its version and the last online sync.
 - **Right-click the icon** for its menu: Download data, Settings, Open at login, About, Log, Quit.
 
 ### Select text anywhere
@@ -55,8 +60,9 @@ $ aequalis
 
 ## Settings and data
 
-In `~/.config/aequalis`, shared by the app and the command line. **Settings** in the icon's menu opens
-the file; `aequalis --settings` lists them all, and `aequalis --set key=value` changes one.
+In `~/.config/aequalis`, shared by the app and the command line. The gear in the widget (or
+**Settings** in the icon's menu) changes the basic ones; all of them are in the interactive mode,
+`aequalis --settings` lists them, and `aequalis --set key=value` changes one.
 
 ## If something doesn't work
 

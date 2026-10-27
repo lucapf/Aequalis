@@ -250,8 +250,6 @@ pub unsafe extern "C" fn aequalis_view(request: *const c_char, submitted: bool) 
     }
 }
 
-/// About, for an app: the version, a tagline and what it does (`descriptor`), and the facts (`[label, text]`: the online data,
-/// the last sync), then the sources of the data with their credits.
 /// The memory the core holds, as its allocator counts it (`alloc::counted`): `{"held":bytes,
 /// "peak":bytes}`, or `{}` where it isn't counted (off Android).
 pub fn memory() -> String {
@@ -261,6 +259,14 @@ pub fn memory() -> String {
     }
 }
 
+/// `about`, for the C interface.
+#[no_mangle]
+pub extern "C" fn aequalis_about() -> *mut c_char {
+    give(about())
+}
+
+/// About, for an app: the version, a tagline and what it does (`descriptor`), and the facts (`[label, text]`: the online data,
+/// the last sync), then the sources of the data with their credits.
 pub fn about() -> String {
     let pair = |(label, text): (&str, String)| format!("[{},{}]", json::string(label), json::string(&text));
     // The process's memory is the app's, not aequalis's; the version is the reply's own: left out.
@@ -378,6 +384,12 @@ pub fn sync_phase() -> String {
     Object::new().str("phase", &crate::online::current_phase()).finish()
 }
 
+/// `online`, for the C interface.
+#[no_mangle]
+pub extern "C" fn aequalis_online() -> *mut c_char {
+    give(online())
+}
+
 /// Online or offline, and how long ago the online data was last synced (`aequalis --online
 /// --json`): `{"status":"online","synced":"2h","line":"online (2h old)"}`, `synced` left out when it
 /// never was.
@@ -404,6 +416,12 @@ pub fn sync_status() -> String {
 }
 
 /// Every setting back to its default (`aequalis --reset-settings`): `{"ok":true}` or the error.
+#[no_mangle]
+pub extern "C" fn aequalis_reset() -> *mut c_char {
+    give(reset())
+}
+
+/// `aequalis_reset`'s reply.
 pub fn reset() -> String {
     match crate::settings::path().ok_or_else(|| "no settings folder".to_string()).and_then(|p| crate::settings::reset_in(&p)) {
         Ok(_) => Object::new().num("ok", true).finish(),
@@ -824,6 +842,13 @@ mod tests {
         assert!(settings.contains(r#""key":"offline""#), "{settings}");
         let bad = CString::new("no.such.key").unwrap();
         assert!(call(|| unsafe { aequalis_set(bad.as_ptr(), std::ptr::null()) }).contains(r#""ok":false"#));
+    }
+
+    #[test]
+    fn about_online_and_sync_status_through_c() {
+        assert!(call(|| aequalis_about()).contains(r#""name":"Aequalis""#));
+        assert!(call(|| aequalis_online()).contains(r#""line":"#));
+        assert!(call(|| aequalis_sync_status()).contains(r#""state":"#));
     }
 
     #[test]
