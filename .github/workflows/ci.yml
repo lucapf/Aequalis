@@ -33,6 +33,8 @@ jobs:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       - name: Toolchain
         run: rustup toolchain install stable --profile minimal && rustup default stable
       # A folder of their own for aequalis's files, offline: a test that sets none (it runs in the
@@ -50,7 +52,15 @@ jobs:
       - name: Build the app
         # Aequalis.app, as the release builds it: the Swift code is compiled and run here, not on a Mac anyone debugs on.
         if: always()
-        run: apps/macos/build.sh "$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+        # The Windows job's version (the next release's, `-dev.` and the run's number): the app's About
+        # and its zip's name say which build it is.
+        run: |
+          last=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -1)
+          base=${last#v}
+          IFS=. read -r major minor patch <<< "${base:-0.1.0}"
+          version="$major.$minor.$((patch + 1))-dev.${{ github.run_number }}"
+          sed -i '' -E "s/^version = \".*\"/version = \"$version\"/" Cargo.toml
+          apps/macos/build.sh "$version"
       - uses: actions/upload-artifact@v4
         if: github.event_name == 'push' && github.ref_name != 'master'
         with:
