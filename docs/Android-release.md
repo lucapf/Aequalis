@@ -33,10 +33,10 @@ All apps › Create app: name, default language, app, free. Then fill in, under 
 
 - **Store listing**: short (80 characters) and full description, icon 512×512, feature graphic
   1024×500, at least 2 phone screenshots.
-- **Privacy policy**: a URL (a page in the GitHub repository is enough). Required: the app has the
+- **Privacy policy**: `https://lucapf.github.io/Aequalis/privacy.html` (docs/web/md/privacy.md). Required: the app has the
   INTERNET permission.
-- **Data safety**: no personal data collected or shared. The app only downloads exchange rates and the
-  city archive.
+- **Data safety**: no personal data collected or shared. The app only downloads public data (exchange
+  rates, the city archive, holidays, the Trivia's live values) and opens Wikipedia pages.
 - **Content rating** questionnaire, **target audience** (not for children), **ads** (none).
 
 ### 4. A personal account made after November 2023

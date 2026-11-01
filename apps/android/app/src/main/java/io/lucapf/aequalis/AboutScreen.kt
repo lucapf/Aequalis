@@ -47,6 +47,9 @@ private val INSTALL = listOf(
     "Source code" to "https://github.com/lucapf/aequalis",
 )
 
+/** The privacy policy (docs/web/md/privacy.md, on the site). */
+private const val PRIVACY = "https://lucapf.github.io/Aequalis/privacy.html"
+
 /** The Play Store's page of the app: null until it is published there. */
 private val PLAY_STORE: String? = null
 
@@ -106,6 +109,8 @@ fun AboutScreen(close: () -> Unit, modifier: Modifier = Modifier) {
             items(a.sources) { (label, text) -> Fact(label, text) }
             // The app's own: its icons (Icons.kt).
             item { Fact("Icons", "Material Icons by Google (https://github.com/google/material-design-icons), Apache License 2.0") }
+            item { HorizontalDivider() }
+            item { Fact("Privacy policy", PRIVACY, onClick = { open(PRIVACY) }) }
         }
     }
 }

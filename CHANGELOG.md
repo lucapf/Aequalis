@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.7.1
+
+- **Privacy policy** for the Android app: on the site (Docs › Privacy,
+  https://lucapf.github.io/Aequalis/privacy.html) and linked from About. Aequalis collects no
+  personal data; the page lists what the app downloads and from where, what stays on the phone,
+  the backup and how to delete it all.
+
 ## 1.7.0
 
 - **Calculations with units and currencies, their dimensions checked.**
