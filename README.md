@@ -65,6 +65,19 @@ economy, energy, power and angles.
 | `30 deg rad` | `0.5236 rad` |
 | `1 ly km` | `9460730472580.8 km` |
 
+### Calculations with units
+
+Values in different units and currencies in one calculation, the dimensions checked: each value is
+converted, and a kind of quantity that does not fit is an error.
+
+| You type | Aequalis answers |
+|---|---|
+| `100 EUR + 2000 AED - 200 USD to USD` | `456.38 USD` (each value converted is noted) |
+| `100 km/h / 20 mi/h` | `3.1069` (no dimension) |
+| `10 km + 5 mi` | `18.0467 km` |
+| `100 EUR / 8 h` | `12.5 EUR/h` |
+| `1.85 EUR/l to USD/gal` | `7.829 USD/gal-us` |
+
 ### Currencies
 
 Currencies by code, name, symbol or country, in any case: `12 usd euro`, `12 USA Europe`,

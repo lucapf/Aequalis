@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.7.0
+
+- **Calculations with units and currencies, their dimensions checked.**
+  - Values in different units or currencies add up: `100 EUR + 2000 AED - 200 USD to USD` is
+    `456.38 USD`, `10 km + 5 mi` is `18.0467 km`, `1 h + 30 min to min` is `90 min`.
+  - They multiply and divide too: `3 m * 2 m` is `6 m^2`, `100 km/h * 2 h` is `200 km`,
+    `100 EUR / 8 h` is `12.5 EUR/h`, `sqrt(16 m2)` is `4 m`.
+  - What cancels out is a plain number, noted `no dimension`: `100 km/h / 20 mi/h` is `3.1069`.
+  - Money is a dimension, so prices per unit convert: `1.85 EUR/l to USD/gal`, `1 kWh * 0.25 EUR/kWh`.
+  - Without a target: money in the local currency, else the first value's unit, else the units
+    written.
+  - Each value converted is noted (`2000 AED = 544.59 USD`). A date at the end gives a past day's
+    rates, as for one currency.
+  - Errors say what does not fit (can't add `kg` to `km`; `sin` takes a plain number).
+    Temperatures (`C`, `F`) and `l/100km` are converted alone.
+  - `10 km mi`, `(10+5) km mi` and `100 + 20 sqft m2` are conversions as before.
+
 ## 1.6.0
 
 - **macOS: the widget.** The menu bar icon (or ⌥⌘A) opens a popover under it, as the Omarchy widget

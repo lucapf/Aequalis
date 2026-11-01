@@ -37,7 +37,9 @@ enum Found {
 /// a currency request, or is one as written. `today` is in days.
 pub fn split(config: &Config, input: &str, today: i64) -> Option<Result<(String, Option<i64>), Error>> {
     let words: Vec<&str> = input.split_whitespace().collect();
-    if words.len() < 3 || currency::is_request(config, input) {
+    // A conversion or a calculation with money (`100 EUR + 20 USD to GBP`), with no date after all.
+    let is_request = |text: &str| currency::is_request(config, text) || crate::quantity::is_money_request(config, text);
+    if words.len() < 3 || is_request(input) {
         return None;
     }
     for n in (1..=MAX_WORDS.min(words.len() - 2)).rev() {
@@ -51,7 +53,7 @@ pub fn split(config: &Config, input: &str, today: i64) -> Option<Result<(String,
                 rest.pop();
             }
             let rest = rest.join(" ");
-            if !currency::is_request(config, &rest) {
+            if !is_request(&rest) {
                 continue;
             }
             return Some(finish(found, &date.join(" "), rest, today));

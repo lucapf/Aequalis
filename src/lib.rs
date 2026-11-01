@@ -32,6 +32,7 @@ pub mod numbers;
 pub mod online;
 pub mod planets;
 pub mod profile;
+pub mod quantity;
 pub mod reply;
 pub mod settings;
 pub mod sizes;
@@ -588,6 +589,13 @@ fn convert_one(config: &Config, opts: &Options, tokens: &[&str]) -> Result<Outpu
             }
         }
     };
+    // A calculation with units or currencies: `100 EUR + 2000 AED to USD`, `100 km/h / 20 mi/h`.
+    // Not a date with durations that reads as one (`2026/12/04 - 12 days + 3h iso-utc`): a date.
+    match quantity::request(config, &input, opts.precision, context) {
+        Some(Err(_)) if matches!(time::request(config, &input, opts.precision, opts.verbose), Some(Ok(_))) => {}
+        Some(result) => return result.map(|a| calculated(opts, a)),
+        None => {}
+    }
     // Beside a currency that could be a size (`42 eu us`), the shoes and the clothes too: a list.
     if let Some(result) = currency::request(config, &input, context) {
         let lines = || sizes::beside(&input);
@@ -733,6 +741,18 @@ fn money(opts: &Options, c: currency::Converted) -> Output {
         extra: Vec::new(),
         copy: None,
         calendar: None,
+    }
+}
+
+/// A calculation with units: each value as converted noted (the breakdown), as a currency's check.
+fn calculated(opts: &Options, a: quantity::Answer) -> Output {
+    Output {
+        stdout: a.result,
+        warnings: if opts.silent { Vec::new() } else { a.warnings },
+        notes: if opts.silent { Vec::new() } else { a.notes },
+        rates_age: a.age,
+        from: Some(a.from),
+        ..Output::default()
     }
 }
 

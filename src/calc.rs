@@ -86,11 +86,11 @@ impl Func {
         Self::NAMES.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).map(|(_, f)| *f)
     }
 
-    fn name(self) -> &'static str {
+    pub(crate) fn name(self) -> &'static str {
         Self::NAMES.iter().find(|(_, f)| *f == self).map(|(n, _)| *n).expect("every function has a name")
     }
 
-    fn apply(self, x: f64) -> Result<f64, CalcError> {
+    pub(crate) fn apply(self, x: f64) -> Result<f64, CalcError> {
         let domain = |what: &str| Err(CalcError::Domain(format!("`{}` of {what} ({x})", self.name())));
         Ok(match self {
             Func::Sqrt if x < 0.0 => return domain("a negative number"),
@@ -116,7 +116,11 @@ fn bin(op: Op, l: f64, r: &Expr) -> Result<f64, CalcError> {
         let change = l * r.eval()?;
         return Ok(if op == Op::Add { snap(l + change, l.abs()) } else { snap(l - change, l.abs()) });
     }
-    let r = r.eval()?;
+    apply(op, l, r.eval()?)
+}
+
+/// `l op r`, both sides evaluated.
+pub(crate) fn apply(op: Op, l: f64, r: f64) -> Result<f64, CalcError> {
     Ok(match op {
         Op::Add => snap(l + r, l.abs().max(r.abs())),
         Op::Sub => snap(l - r, l.abs().max(r.abs())),
@@ -140,7 +144,7 @@ fn bin(op: Op, l: f64, r: &Expr) -> Result<f64, CalcError> {
 }
 
 /// `x!`: a whole number from 0 to 170 (171! no longer fits in an f64).
-fn factorial(x: f64) -> Result<f64, CalcError> {
+pub(crate) fn factorial(x: f64) -> Result<f64, CalcError> {
     if x.fract() != 0.0 || !(0.0..=170.0).contains(&x) {
         return Err(CalcError::Domain(format!("`!` of {x}: a whole number from 0 to 170 is needed")));
     }
@@ -149,7 +153,7 @@ fn factorial(x: f64) -> Result<f64, CalcError> {
 
 /// `root(x, n)`: the `n`th root. A negative `x` has a real root for an odd whole `n` only; the
 /// root of a perfect power is exact (`root(27, 3)` = 3, not 3.0000000000000004).
-fn root(x: f64, n: f64) -> Result<f64, CalcError> {
+pub(crate) fn root(x: f64, n: f64) -> Result<f64, CalcError> {
     let domain = |what: &str| Err(CalcError::Domain(format!("`root` of {x} with index {n}: {what}")));
     let whole = n.fract() == 0.0 && n.abs() <= f64::from(i32::MAX);
     let odd = whole && n % 2.0 != 0.0;
@@ -169,7 +173,7 @@ fn root(x: f64, n: f64) -> Result<f64, CalcError> {
 /// Floating-point noise to 0: a result that is a rounding error next to `scale` (`sin(pi)`,
 /// `0.1 + 0.2 - 0.3`), so it prints as 0 and not in scientific notation. Small real values (`1e-19`
 /// on its own) are kept.
-fn snap(result: f64, scale: f64) -> f64 {
+pub(crate) fn snap(result: f64, scale: f64) -> f64 {
     if result.abs() < scale * 1e-14 {
         0.0
     } else {
@@ -196,6 +200,9 @@ pub enum Expr {
     Degrees(Box<Expr>),
     /// A percentage (`20%`): a hundredth, or a share of the left side of `+` / `-`.
     Percent(Box<Expr>),
+    /// A value with its unit, in a calculation of quantities (`parse_quantities`, `quantity.rs`):
+    /// `100 EUR`, `20 mi/h`. `eval` refuses it: only `quantity::eval` knows units.
+    Quantity(Box<Expr>, String),
 }
 
 #[derive(Debug, PartialEq)]
@@ -234,6 +241,7 @@ impl Expr {
             Expr::Root(x, n) => root(x.eval()?, n.eval()?)?,
             Expr::Degrees(e) => e.eval()?.to_radians(),
             Expr::Percent(e) => e.eval()? / 100.0,
+            Expr::Quantity(_, unit) => return Err(CalcError::Syntax(format!("`{unit}` in a calculation without units"))),
             Expr::Bin(..) => unreachable!("`eval` folds the operations of two sides"),
         })
     }
@@ -245,7 +253,7 @@ impl Expr {
             Expr::Neg(e) if matches!(**e, Expr::Num(_)) => 0,
             Expr::Neg(e) | Expr::Call(_, e) | Expr::Factorial(e) => 1 + e.operations(),
             Expr::Root(x, n) => 1 + x.operations() + n.operations(),
-            Expr::Degrees(e) | Expr::Percent(e) => e.operations(),
+            Expr::Degrees(e) | Expr::Percent(e) | Expr::Quantity(e, _) => e.operations(),
             Expr::Bin(_, l, r) => 1 + l.operations() + r.operations(),
         }
     }
@@ -270,6 +278,7 @@ impl Expr {
             Expr::Root(x, n) => format!("root({}, {})", x.group(true), n.group(true)),
             Expr::Degrees(e) => format!("{}°", e.group(false)),
             Expr::Percent(e) => format!("{}%", e.group(false)),
+            Expr::Quantity(e, unit) => format!("{} {unit}", e.group(false)),
             Expr::Bin(op, l, r) if top => format!("{} {op} {}", l.group(false), r.group(false)),
             Expr::Bin(..) => format!("({})", self.group(true)),
         }
@@ -317,7 +326,19 @@ pub const MAX_OPERATIONS: usize = 1_000;
 /// Parses the longest expression at the start of `input` and returns it with the rest of the
 /// input (the units), trimmed.
 pub fn parse_prefix(input: &str) -> Result<(Expr, &str), CalcError> {
-    let mut p = Parser { s: input, pos: 0, calls: 0, nesting: 0, operations: 0 };
+    parse(Parser { s: input, pos: 0, calls: 0, nesting: 0, operations: 0, units: None })
+}
+
+/// `parse_prefix` with a unit after any value that has one (`Expr::Quantity`): `100 EUR + 2000 AED`,
+/// `100 km/h / 20 mi/h`. A unit is written without spaces and ends at a space, a bracket, `+` or
+/// `-` (but `s^-1`); `is_unit` says which words are units. Where a unit is written against a
+/// division (`km/h/2`), the longest part that is one is the unit.
+pub fn parse_quantities<'a>(input: &'a str, is_unit: &dyn Fn(&str) -> bool) -> Result<(Expr, &'a str), CalcError> {
+    parse(Parser { s: input, pos: 0, calls: 0, nesting: 0, operations: 0, units: Some(is_unit) })
+}
+
+fn parse<'a>(mut p: Parser<'a, '_>) -> Result<(Expr, &'a str), CalcError> {
+    let input = p.s;
     let expr = p.sum()?;
     p.skip_ws();
     let rest = &input[p.pos..];
@@ -328,7 +349,7 @@ pub fn parse_prefix(input: &str) -> Result<(Expr, &str), CalcError> {
     Ok((expr, rest))
 }
 
-struct Parser<'a> {
+struct Parser<'a, 'u> {
     s: &'a str,
     pos: usize,
     /// Inside a function's argument: `°` / `deg` there are degrees (`sin(30°)`); elsewhere they
@@ -337,9 +358,11 @@ struct Parser<'a> {
     /// How deep the parse is now (`MAX_NESTING`), and the operations so far (`MAX_OPERATIONS`).
     nesting: usize,
     operations: usize,
+    /// For `parse_quantities`: which words are units.
+    units: Option<&'u dyn Fn(&str) -> bool>,
 }
 
-impl Parser<'_> {
+impl Parser<'_, '_> {
     fn rest(&self) -> &str {
         &self.s[self.pos..]
     }
@@ -481,6 +504,12 @@ impl Parser<'_> {
 
     fn power(&mut self) -> Result<Expr, CalcError> {
         let mut base = self.atom()?;
+        // Degrees in a function's argument (`sin(30°)`) before the angle unit.
+        if self.calls == 0 || self.degrees_len().is_none() {
+            if let Some(unit) = self.unit() {
+                base = Expr::Quantity(Box::new(base), unit);
+            }
+        }
         while self.eat("!") {
             self.operation()?;
             base = Expr::Factorial(Box::new(base));
@@ -506,17 +535,54 @@ impl Parser<'_> {
         if self.calls == 0 {
             return false;
         }
+        match self.degrees_len() {
+            Some(len) => {
+                self.pos += len;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// The length of `°` or `deg` next, with the spaces before it.
+    fn degrees_len(&self) -> Option<usize> {
         let rest = self.rest().trim_start();
         let skipped = self.rest().len() - rest.len();
-        for sign in ["°", "deg"] {
-            if let Some(after) = rest.strip_prefix(sign) {
-                if !after.starts_with(|c: char| c.is_alphanumeric()) {
-                    self.pos += skipped + sign.len();
-                    return true;
-                }
+        ["°", "deg"]
+            .into_iter()
+            .find(|sign| rest.strip_prefix(sign).is_some_and(|after| !after.starts_with(|c: char| c.is_alphanumeric())))
+            .map(|sign| skipped + sign.len())
+    }
+
+    /// For `parse_quantities`: the unit after a value, consumed. Not `x` with an operand after it
+    /// (`2 m x 3 m`), nor a connector with the target, one word, after it (`3 in in cm`: the inch,
+    /// then the connector).
+    fn unit(&mut self) -> Option<String> {
+        let is_unit = self.units?;
+        let all = &self.s[self.pos..];
+        let rest = all.trim_start();
+        let skipped = all.len() - rest.len();
+        let mut end = 0;
+        let mut previous = None;
+        for (i, c) in rest.char_indices() {
+            if c.is_whitespace() || ")]},+".contains(c) || (c == '-' && previous != Some('^')) {
+                break;
             }
+            end = i + c.len_utf8();
+            previous = Some(c);
         }
-        false
+        let mut word = &rest[..end];
+        loop {
+            let after = rest[word.len()..].trim_start();
+            let operand = |a: &str| starts_expression(a.strip_prefix(['-', '+']).map_or(a, str::trim_start));
+            let times = word == "x" && operand(after);
+            let connector = matches!(word, "to" | "in" | "->") && after.split_whitespace().count() == 1 && !after.starts_with(|c: char| "+-*/^)]}".contains(c));
+            if !word.is_empty() && !times && !connector && is_unit(word) {
+                self.pos += skipped + word.len();
+                return Some(word.to_string());
+            }
+            word = &word[..word.rfind(['/', '*'])?];
+        }
     }
 
     /// Consumes the word `root` if a bracket follows it: `root(27, 3)`.

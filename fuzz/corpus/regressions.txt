@@ -18,3 +18,5 @@
 {"input": "1 us d", "bug": "017"}
 {"input": "86400000000000 us d", "bug": "017"}
 {"input": "€6388e-6 unix", "bug": "021"}
+{"input": "5bar/1e386pascal"}
+{"input": "1mrad x1e308g"}

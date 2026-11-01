@@ -24,6 +24,20 @@ pub enum ConvertError {
     DivisionByZero,
     /// A function outside its domain: `sqrt(-1)`.
     Domain(String),
+    /// Quantities of different dimensions added or subtracted (`10 km + 5 kg`), or a unit and a
+    /// plain number (`10 km + 5`): their units, or `a number`.
+    Dimensions {
+        add: bool,
+        left: String,
+        right: String,
+    },
+    /// What takes a plain number only (`sin`, a power's exponent) given a unit.
+    NeedsNumber {
+        what: String,
+        unit: String,
+    },
+    /// A unit no calculation can use: `C` and `F` (an offset scale), `l/100km` (a reciprocal one).
+    NotInCalculation(String),
 }
 
 impl fmt::Display for ConvertError {
@@ -40,6 +54,10 @@ impl fmt::Display for ConvertError {
             ConvertError::NotFinite => write!(f, "result is out of range"),
             ConvertError::DivisionByZero => f.write_str("undefined"),
             ConvertError::Domain(msg) => f.write_str(msg),
+            ConvertError::Dimensions { add: true, left, right } => write!(f, "can't add {right} to {left}: different kinds of quantity"),
+            ConvertError::Dimensions { add: false, left, right } => write!(f, "can't subtract {right} from {left}: different kinds of quantity"),
+            ConvertError::NeedsNumber { what, unit } => write!(f, "{what} takes a plain number, not `{unit}`"),
+            ConvertError::NotInCalculation(u) => write!(f, "`{u}` can't be part of a calculation: convert it alone (`20 {u} …`)"),
         }
     }
 }
@@ -72,12 +90,12 @@ pub struct Resolved<'a> {
     pub unit: Option<&'a Unit>,
     /// The named unit's category: two named units of different categories never convert
     /// directly, even with the same dimensions (`ha` and `l/100km`, an area).
-    category: Option<&'static str>,
+    pub(crate) category: Option<&'static str>,
     /// From a category that converts to and from the reciprocal quantity.
     reciprocal: bool,
-    dims: Dims,
-    factor: f64,
-    offset: f64,
+    pub(crate) dims: Dims,
+    pub(crate) factor: f64,
+    pub(crate) offset: f64,
 }
 
 fn named<'a>(category: &'a Category, unit: &'a Unit) -> Resolved<'a> {
@@ -101,17 +119,27 @@ fn named<'a>(category: &'a Category, unit: &'a Unit) -> Resolved<'a> {
 /// a unit with an optional number before it (`100km`) and a power after it (`s^2`, `s2`, `s²`):
 /// `km/h`, `m/s^2`, `l/100km`, `kg*m/s2`, `1/min`.
 pub fn resolve<'a>(config: &'a Config, text: &str) -> Result<Resolved<'a>, ConvertError> {
+    resolve_in(config, text, None)
+}
+
+/// How a currency code is read in an expression's unit (`EUR`, `EUR/l`): `None` when `text` is no
+/// currency; else its value in US dollars, or why there is none (no rates).
+pub type Money<'m> = &'m dyn Fn(&str) -> Option<Result<f64, String>>;
+
+/// `resolve`, with currency codes as terms too when `money` reads them (`EUR/l`, `USD/kWh`): of the
+/// money dimension, in US dollars. A unit wins over a currency of the same name (`cup`).
+pub fn resolve_in<'a>(config: &'a Config, text: &str, money: Option<Money>) -> Result<Resolved<'a>, ConvertError> {
     if let Some((category, unit)) = find_unit(config, text) {
         return Ok(named(category, unit));
     }
-    let mut out = Resolved { symbol: String::new(), unit: None, category: None, reciprocal: false, dims: [0; 5], factor: 1.0, offset: 0.0 };
+    let mut out = Resolved { symbol: String::new(), unit: None, category: None, reciprocal: false, dims: [0; 6], factor: 1.0, offset: 0.0 };
     let mut has_unit = false;
     let mut divide = false;
     let mut rest = text;
     loop {
         let end = rest.find(['/', '*', '·']).unwrap_or(rest.len());
-        let (factor, dims, symbol) = term(config, &rest[..end]).ok_or_else(|| ConvertError::UnknownUnit(rest[..end].to_string()))??;
-        has_unit |= dims != [0; 5];
+        let (factor, dims, symbol) = term(config, &rest[..end], money).ok_or_else(|| ConvertError::UnknownUnit(rest[..end].to_string()))??;
+        has_unit |= dims != [0; 6];
         match divide {
             true => out.factor /= factor,
             false => out.factor *= factor,
@@ -139,7 +167,7 @@ pub fn resolve<'a>(config: &'a Config, text: &str) -> Result<Resolved<'a>, Conve
 
 /// One term of a compound unit: its SI factor, dimensions and symbol. `None`: not a term at all
 /// (the whole text is then an unknown unit).
-fn term(config: &Config, text: &str) -> Option<Result<(f64, Dims, String), ConvertError>> {
+fn term(config: &Config, text: &str, money: Option<Money>) -> Option<Result<(f64, Dims, String), ConvertError>> {
     // The number before the unit: `100` in `l/100km`, `1` in `1/min`.
     let digits = text.find(|c: char| !c.is_ascii_digit() && c != '.').unwrap_or(text.len());
     let (number, name) = text.split_at(digits);
@@ -148,7 +176,13 @@ fn term(config: &Config, text: &str) -> Option<Result<(f64, Dims, String), Conve
         n => n.parse::<f64>().ok().filter(|v| *v != 0.0)?,
     };
     if name.is_empty() {
-        return (!number.is_empty()).then(|| Ok((coefficient, [0; 5], number.to_string())));
+        return (!number.is_empty()).then(|| Ok((coefficient, [0; 6], number.to_string())));
+    }
+    // A currency (`EUR` in `EUR/l`), when no unit has its name.
+    if let Some(found) = money.filter(|_| find_unit(config, name).is_none()).and_then(|m| m(name)) {
+        let mut dims = [0; 6];
+        dims[crate::config::MONEY] = 1;
+        return Some(found.map(|dollars| (coefficient * dollars, dims, format!("{number}{}", name.to_ascii_uppercase()))).map_err(ConvertError::Domain));
     }
     // The unit, whole (`m2` is a unit of area) or with a power after it.
     let (category, unit, power, power_text) = match find_unit(config, name) {
@@ -169,7 +203,7 @@ fn term(config: &Config, text: &str) -> Option<Result<(f64, Dims, String), Conve
     }
     let r = named(category, unit);
     let factor = coefficient * r.factor.powi(power.into());
-    let mut dims = [0; 5];
+    let mut dims = [0; 6];
     for (out, d) in dims.iter_mut().zip(r.dims) {
         let Some(p) = d.checked_mul(power) else { return Some(Err(too_large(text))) };
         *out = p;
@@ -182,7 +216,7 @@ fn too_large(unit: &str) -> ConvertError {
 }
 
 /// `s^2` → (`s`, `^2`), `s2` → (`s`, `2`), `m³` → (`m`, `³`), `s^-1` → (`s`, `^-1`).
-fn split_power(name: &str) -> Option<(&str, &str)> {
+pub(crate) fn split_power(name: &str) -> Option<(&str, &str)> {
     if let Some(i) = name.find('^') {
         return Some((&name[..i], &name[i..]));
     }

@@ -548,40 +548,61 @@ fn convert(amount: &str, money: &[Piece], ctx: &Context) -> Result<Converted, Er
         }
     };
     let value: f64 = amount.parse().ok().or_else(|| crate::calc::parse_prefix(amount).ok().and_then(|(e, _)| e.eval().ok())).unwrap_or(0.0);
-    if let Some(problem) = ctx.dated.as_ref().and_then(|d| d.problem.as_ref()) {
-        return Err(Error::NoRates(problem.clone()));
-    }
-    let Some(day) = ctx.rates.get(RATES_DATE) else {
-        return Err(Error::NoRates(match crate::network::allowed() {
-            true => "no exchange rates yet: they are being downloaded in the background, try again in a minute".to_string(),
-            false => "no exchange rates: they were never downloaded, and the offline setting is on".to_string(),
-        }));
-    };
+    let day = rates_day(ctx).map_err(Error::NoRates)?;
     let (a, b) = match (per_dollar(&ctx.rates, from), per_dollar(&ctx.rates, to)) {
         (Some(a), Some(b)) => (a, b),
         (None, _) => return Err(Error::NoRates(missing(from, ctx))),
         (_, None) => return Err(Error::NoRates(missing(to, ctx))),
     };
     let result = value / a * b;
-    let day = day.value as i64;
     let shown = crate::time::human_day(day);
     notes.push(format!("1 {from} = {} {to}, rates of {shown} from {PROVIDER}", crate::convert::format_value(b / a, 6)));
-    let mut warnings = Vec::new();
-    // A past day's rates are old on purpose, and have no age to show.
-    if ctx.dated.is_none() && ctx.now - day >= STALE_DAYS * 86_400 {
-        warnings.push(format!("exchange rates of {shown}: not updated since"));
-    }
+    let warnings = stale(ctx, day).into_iter().collect();
     // Countries written for currencies: which ones were used, to check.
     let check = sides(money, Some(to));
     let result = format!("{} {to}", crate::convert::fixed(result, 2));
-    Ok(Converted {
-        result,
-        from: format!("{amount} {from}"),
-        age: if ctx.dated.is_some() { String::new() } else { age(ctx.now - day) },
-        check,
-        notes,
-        warnings,
-    })
+    Ok(Converted { result, from: format!("{amount} {from}"), age: rates_age(ctx, day), check, notes, warnings })
+}
+
+/// The day of the rates (Unix seconds), or why there are none: a past day's not there, none
+/// downloaded yet.
+pub(crate) fn rates_day(ctx: &Context) -> Result<i64, String> {
+    if let Some(problem) = ctx.dated.as_ref().and_then(|d| d.problem.as_ref()) {
+        return Err(problem.clone());
+    }
+    match ctx.rates.get(RATES_DATE) {
+        Some(day) => Ok(day.value as i64),
+        None => Err(match crate::network::allowed() {
+            true => "no exchange rates yet: they are being downloaded in the background, try again in a minute".to_string(),
+            false => "no exchange rates: they were never downloaded, and the offline setting is on".to_string(),
+        }),
+    }
+}
+
+/// The warning for rates of `day` not updated for `STALE_DAYS`; a past day's rates are old on purpose.
+pub(crate) fn stale(ctx: &Context, day: i64) -> Option<String> {
+    (ctx.dated.is_none() && ctx.now - day >= STALE_DAYS * 86_400).then(|| format!("exchange rates of {}: not updated since", crate::time::human_day(day)))
+}
+
+/// How old the rates of `day` are, for people (`2d`); empty for a past day's.
+pub(crate) fn rates_age(ctx: &Context, day: i64) -> String {
+    if ctx.dated.is_some() {
+        String::new()
+    } else {
+        age(ctx.now - day)
+    }
+}
+
+/// What one of currency `code` is worth in US dollars, for a calculation (`quantity.rs`): `None`
+/// when `code` is no ISO code, an error when it has no rate.
+pub(crate) fn dollars(ctx: &Context, code: &str) -> Option<Result<f64, String>> {
+    let currency = code_of(code)?;
+    Some(per_dollar(&ctx.rates, currency.code).map(|n| 1.0 / n).ok_or_else(|| missing(currency.code, ctx)))
+}
+
+/// The currency whose ISO code `word` is, in any case (`eur`, `AED`).
+pub(crate) fn code_of(word: &str) -> Option<&'static Currency> {
+    (word.len() == 3 && word.chars().all(|c| c.is_ascii_alphabetic())).then(|| get(word)).flatten()
 }
 
 /// Why `code` has no rate.

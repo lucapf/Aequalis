@@ -70,6 +70,31 @@ Some examples of accepted syntax (each row: the same request written in other wa
 | `8 bit B`                     | `1 B`, noting that bits and bytes are mixed |
 | `1 mb kb`                     | asks: megabyte or megabit? (`mb`, `kib`, `gb` fit both) |
 
+## Calculations with units
+
+Values in different units or currencies in one calculation: each is converted, and the dimensions
+are checked (`+` and `-` need the same kind of quantity). A unit is written without spaces in it
+(`km/h`, `EUR/l`, `m/s^2`); an operator between two values stands with spaces around it
+(`100 km/h / 20 mi/h`). `to`, `in` or `->` and the unit of the result may follow. Without one, the
+result is in the local currency (money), in the first value's unit, or in the units written.
+Each value converted is noted. Temperatures (`C`, `F`) and `l/100km` can't be part of one.
+
+| Type                        | Result                |
+|-----------------------------|-----------------------|
+| `100 EUR + 2000 AED - 200 USD to USD` | `456.38 USD`, noting `100 EUR = 111.79 USD`, `2000 AED = 544.59 USD` |
+| `100 EUR + 2000 AED - 200 USD` | in the local currency: `408.23 EUR` |
+| `100 km/h / 20 mi/h`, `100km/h / 20mi/h` | `3.1069`, noting `no dimension` |
+| `10 km + 5 mi`, `10 km + 5 mi to m` | `18.0467 km`, `18046.72 m` |
+| `1 h + 30 min to min`       | `90 min`              |
+| `3 m * 2 m`, `2 m x 3 m`    | `6 m^2`               |
+| `100 km/h * 2 h`            | `200 km`              |
+| `100 EUR / 8 h`             | `12.5 EUR/h`          |
+| `1.85 EUR/l to USD/gal`     | `7.829 USD/gal-us`    |
+| `sqrt(16 m2)`, `(2 m)^2`    | `4 m`, `4 m^2`        |
+| `100 EUR + 10%`             | `110.00 EUR`          |
+| `10 km + 5 kg`              | error: can't add `kg` to `km`: different kinds of quantity |
+| `10 km mi`, `100 + 20 sqft m2` | conversions of the whole value, as above |
+
 ## Currencies
 
 One amount and one or two currencies. A currency can be written as its code (`usd`), its name in

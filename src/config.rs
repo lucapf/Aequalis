@@ -64,9 +64,12 @@ pub struct DataKind {
     pub prefix: Prefix,
 }
 
-/// The exponents of the base dimensions, whose SI units are `m kg s K b` (data: the bit):
-/// `km/h` is m¹·s⁻¹.
-pub type Dims = [i8; 5];
+/// The exponents of the base dimensions, whose SI units are `m kg s K b` (data: the bit), and
+/// money (the US dollar: `EUR/l` in expressions, `quantity.rs`): `km/h` is m¹·s⁻¹.
+pub type Dims = [i8; 6];
+
+/// Where money is in `Dims`.
+pub const MONEY: usize = 5;
 
 pub struct Category {
     pub name: &'static str,
@@ -181,7 +184,7 @@ const CATEGORIES: &[Category] = &[
     Category {
         name: TIME,
         base: "s",
-        dims: [0, 0, 1, 0, 0],
+        dims: [0, 0, 1, 0, 0, 0],
         si: 1.0,
         reciprocal: false,
         case_sensitive: false,
@@ -202,7 +205,7 @@ const CATEGORIES: &[Category] = &[
     Category {
         name: BITS,
         base: "b",
-        dims: [0, 0, 0, 0, 1],
+        dims: [0, 0, 0, 0, 1, 0],
         si: 1.0,
         reciprocal: false,
         case_sensitive: true,
@@ -231,7 +234,7 @@ const CATEGORIES: &[Category] = &[
     Category {
         name: "Length",
         base: "m",
-        dims: [1, 0, 0, 0, 0],
+        dims: [1, 0, 0, 0, 0, 0],
         si: 1.0,
         reciprocal: false,
         case_sensitive: false,
@@ -253,7 +256,7 @@ const CATEGORIES: &[Category] = &[
     Category {
         name: "Area",
         base: "m2",
-        dims: [2, 0, 0, 0, 0],
+        dims: [2, 0, 0, 0, 0, 0],
         si: 1.0,
         reciprocal: false,
         case_sensitive: false,
@@ -289,7 +292,7 @@ const CATEGORIES: &[Category] = &[
     Category {
         name: "Volume",
         base: "l",
-        dims: [3, 0, 0, 0, 0],
+        dims: [3, 0, 0, 0, 0, 0],
         si: 0.001,
         reciprocal: false,
         case_sensitive: false,
@@ -314,7 +317,7 @@ const CATEGORIES: &[Category] = &[
         name: "Angle",
         base: "rad",
         // Dimensionless: a ratio of lengths.
-        dims: [0, 0, 0, 0, 0],
+        dims: [0, 0, 0, 0, 0, 0],
         si: 1.0,
         reciprocal: false,
         case_sensitive: false,
@@ -332,7 +335,7 @@ const CATEGORIES: &[Category] = &[
     Category {
         name: "Mass",
         base: "kg",
-        dims: [0, 1, 0, 0, 0],
+        dims: [0, 1, 0, 0, 0, 0],
         si: 1.0,
         reciprocal: false,
         case_sensitive: false,
@@ -350,7 +353,7 @@ const CATEGORIES: &[Category] = &[
     Category {
         name: "Temperature",
         base: "K",
-        dims: [0, 0, 0, 1, 0],
+        dims: [0, 0, 0, 1, 0, 0],
         si: 1.0,
         reciprocal: false,
         case_sensitive: false,
@@ -382,7 +385,7 @@ const CATEGORIES: &[Category] = &[
     Category {
         name: "Speed",
         base: "m/s",
-        dims: [1, 0, -1, 0, 0],
+        dims: [1, 0, -1, 0, 0, 0],
         si: 1.0,
         reciprocal: false,
         case_sensitive: false,
@@ -398,7 +401,7 @@ const CATEGORIES: &[Category] = &[
     Category {
         name: "Pressure",
         base: "Pa",
-        dims: [-1, 1, -2, 0, 0],
+        dims: [-1, 1, -2, 0, 0, 0],
         si: 1.0,
         reciprocal: false,
         case_sensitive: false,
@@ -421,7 +424,7 @@ const CATEGORIES: &[Category] = &[
         name: "Fuel economy",
         base: "km/l",
         // Length per volume: 1 km/l = 1000 m / 0.001 m³.
-        dims: [-2, 0, 0, 0, 0],
+        dims: [-2, 0, 0, 0, 0, 0],
         si: 1e6,
         reciprocal: true,
         case_sensitive: false,
@@ -436,7 +439,7 @@ const CATEGORIES: &[Category] = &[
     Category {
         name: "Energy",
         base: "J",
-        dims: [2, 1, -2, 0, 0],
+        dims: [2, 1, -2, 0, 0, 0],
         si: 1.0,
         reciprocal: false,
         case_sensitive: false,
@@ -460,7 +463,7 @@ const CATEGORIES: &[Category] = &[
     Category {
         name: "Power",
         base: "W",
-        dims: [2, 1, -3, 0, 0],
+        dims: [2, 1, -3, 0, 0, 0],
         si: 1.0,
         reciprocal: false,
         case_sensitive: false,

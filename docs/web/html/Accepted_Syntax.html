@@ -108,6 +108,32 @@ Adding <code>+3d</code>  (<code>2026/12/04 +3d</code>) Aequalis 'understands' yo
 <tr><td><code>1 mb kb</code></td><td>asks: megabyte or megabit? (<code>mb</code>, <code>kib</code>, <code>gb</code> fit both)</td></tr>
 </tbody></table></div>
 <section class="level2">
+<h2 id="calculations-with-units">Calculations with units</h2>
+<p>Values in different units or currencies in one calculation: each is converted, and the dimensions
+are checked (<code>+</code> and <code>-</code> need the same kind of quantity). A unit is written without spaces in it
+(<code>km/h</code>, <code>EUR/l</code>, <code>m/s^2</code>); an operator between two values stands with spaces around it
+(<code>100 km/h / 20 mi/h</code>). <code>to</code>, <code>in</code> or <code>-&gt;</code> and the unit of the result may follow. Without one, the
+result is in the local currency (money), in the first value's unit, or in the units written.
+Each value converted is noted. Temperatures (<code>C</code>, <code>F</code>) and <code>l/100km</code> can't be part of one.</p>
+<div class="tw"><table>
+<thead><tr><th>Type</th><th>Result</th></tr></thead>
+<tbody>
+<tr><td><code>100 EUR + 2000 AED - 200 USD to USD</code></td><td><code>456.38 USD</code>, noting <code>100 EUR = 111.79 USD</code>, <code>2000 AED = 544.59 USD</code></td></tr>
+<tr><td><code>100 EUR + 2000 AED - 200 USD</code></td><td>in the local currency: <code>408.23 EUR</code></td></tr>
+<tr><td><code>100 km/h / 20 mi/h</code>, <code>100km/h / 20mi/h</code></td><td><code>3.1069</code>, noting <code>no dimension</code></td></tr>
+<tr><td><code>10 km + 5 mi</code>, <code>10 km + 5 mi to m</code></td><td><code>18.0467 km</code>, <code>18046.72 m</code></td></tr>
+<tr><td><code>1 h + 30 min to min</code></td><td><code>90 min</code></td></tr>
+<tr><td><code>3 m * 2 m</code>, <code>2 m x 3 m</code></td><td><code>6 m^2</code></td></tr>
+<tr><td><code>100 km/h * 2 h</code></td><td><code>200 km</code></td></tr>
+<tr><td><code>100 EUR / 8 h</code></td><td><code>12.5 EUR/h</code></td></tr>
+<tr><td><code>1.85 EUR/l to USD/gal</code></td><td><code>7.829 USD/gal-us</code></td></tr>
+<tr><td><code>sqrt(16 m2)</code>, <code>(2 m)^2</code></td><td><code>4 m</code>, <code>4 m^2</code></td></tr>
+<tr><td><code>100 EUR + 10%</code></td><td><code>110.00 EUR</code></td></tr>
+<tr><td><code>10 km + 5 kg</code></td><td>error: can't add <code>kg</code> to <code>km</code>: different kinds of quantity</td></tr>
+<tr><td><code>10 km mi</code>, <code>100 + 20 sqft m2</code></td><td>conversions of the whole value, as above</td></tr>
+</tbody></table></div>
+</section>
+<section class="level2">
 <h2 id="currencies">Currencies</h2>
 <p>One amount and one or two currencies. A currency can be written as its code (<code>usd</code>), its name in
 the singular or plural (<code>euro</code>, <code>US dollars</code>, <code>yen</code>), a symbol (<code>€</code>, <code>£</code>, <code>¥</code>), a common
@@ -235,6 +261,7 @@ is a unit, a currency or a date keyword keeps that meaning (<code>Bar</code> is 
 </section>
 </article>
 <aside class="toc"><b>On this page</b>
+<a href="#calculations-with-units">Calculations with units</a>
 <a href="#currencies">Currencies</a>
 <a class="l3" href="#rates-of-a-past-day">Rates of a past day</a>
 <a href="#calendar">Calendar</a>

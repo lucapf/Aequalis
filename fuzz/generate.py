@@ -143,6 +143,20 @@ class Generator:
         return self.pick([f"{a} {self.currency()} {self.currency()}", f"{a}{self.currency()} {self.currency()}", f"{self.currency()}{a} to {self.currency()}",
                           f"{a} {self.country()} {self.country()}", f"{a} {self.currency()}", f"{self.currency()} {a} in {self.currency()}"])
 
+    def quantities(self):
+        """Calculations with units and currencies (`10 km + 5 mi to m`, `100 EUR / 8 h`): the same
+        kind of unit mostly, so most add up; any operator, a target or none."""
+        cat = self.category()
+
+        def value():
+            r = self.r.random()
+            if r < 0.15:
+                return f"{self.number()} {self.pick([c['code'] for c in self.v['currencies']])}"
+            return f"{self.number()}{self.sp()}{self.unit(cat if r < 0.8 else None)}"
+
+        text = value() + "".join(f" {self.pick(['+', '-', '*', '/', 'x', '^'])} {value()}" for _ in range(self.r.randint(1, 3)))
+        return text + self.pick(["", f" to {self.unit(cat)}", f" in {self.unit()}", f" {self.unit(cat)}", " + 10%", " km/h"])
+
     def dates(self):
         d = self.date()
         math_ = "".join(f" {self.pick(['+', '-'])}{self.sp()}{self.number()}{self.sp()}{self.pick(DURATIONS)}" for _ in range(self.r.randint(0, 3)))
@@ -310,7 +324,7 @@ class Generator:
 
     def request(self, simple=False):
         """A request and the name of the strategy that made it."""
-        features = [self.conversion, self.compound, self.money, self.dates, self.times, self.distance, self.percent, self.sizes, self.clothes]
+        features = [self.conversion, self.compound, self.money, self.quantities, self.dates, self.times, self.distance, self.percent, self.sizes, self.clothes]
         r = self.r.random()
         if simple or r < 0.45:
             text = self.pick(features)()
